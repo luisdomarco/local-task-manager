@@ -29,6 +29,21 @@ def drain(q, until, timeout=5):
     return got
 
 
+def drain_to_end(q, timeout=5):
+    """Every chunk left in the queue, up to the end-of-stream None; fails if the end does not come within `timeout`.
+
+    Output the process printed before it ended can still be queued ahead of the None, so never expect None next."""
+    got, deadline = b'', time.time() + timeout
+    while True:
+        try:
+            chunk = q.get(timeout=max(0.0, deadline - time.time()))
+        except queue.Empty:
+            raise AssertionError(f'no end of stream within {timeout}s (read {got!r})') from None
+        if chunk is None:
+            return got
+        got += chunk
+
+
 @unittest.skipIf(sys.platform == 'win32' or not shutil.which('sh'), 'needs a pty and sh')
 class TermTest(unittest.TestCase):
     def setUp(self):
@@ -53,14 +68,14 @@ class TermTest(unittest.TestCase):
         self.assertIn(b'hi xterm-256color', snapshot)
         self.assertIn(b'40 120', snapshot)
         term.write(b'exit 3\n')
-        drain(q2, b'\x00never', timeout=5)  # reads through to the sentinel
+        drain_to_end(q2)
         for _ in range(100):
             if not term.alive:
                 break
             time.sleep(0.05)
         self.assertFalse(term.alive)
         self.assertEqual(term.exit_code, 3)
-        self.assertIn(b'exit 3', drain(q, b'\x00never', timeout=3))  # the first subscriber got the rest, then its sentinel
+        self.assertIn(b'exit 3', drain_to_end(q, timeout=3))  # the first subscriber got the rest, then its sentinel
         self.assertTrue(q.empty())
         with self.assertRaises(StoreError) as cm:
             term.write(b'x')
@@ -91,7 +106,7 @@ class TermTest(unittest.TestCase):
         drain(q, b'24 80')
         term.kill()
         self.assertFalse(term.alive)
-        self.assertIsNone(q.get(timeout=2))
+        drain_to_end(q)  # the subscriber is told it ended (after whatever was still in flight)
         again = self.terms.open('t3', SHELL, self.work, 80, 24, ENV)  # an ended one is replaced
         self.assertIsNot(again, term)
         self.assertTrue(again.alive)
