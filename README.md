@@ -376,7 +376,7 @@ tm/attachments.py       files attached to an item (Attachments/)
 tm/people.py            who an attendee or a sender is
 tm/launch.py            the command lines and scripts that start Claude; tm/pty.py the embedded terminal
 tm/launchd.py           the socket launchd hands the installed app; tm/export.py the zips of Settings → Export
-static/index.html       the page; static/css/app.css; static/vendor/ (marked, DOMPurify, xterm.js, Inter — no CDN)
+static/index.html       the page; static/css/app.css; static/vendor/ (marked, DOMPurify, highlight.js, xterm.js, Inter — no CDN)
 static/js/              ES modules, no build step: main.js (routing, keys), state.js (state and every mutation),
                         api.js, structure.js (the default structure as the server describes it), rules.js, views/*.js (one per view),
                         sidebar.js · explorer.js · treepane.js · filetree.js (the sidebar's modes, the file trees),
@@ -392,7 +392,7 @@ sample-vault-ticketing/ the bundled Ticketing example: two projects and every ty
 ```
 
 No dependencies besides Python 3.9+ and a browser. `marked`, `DOMPurify` (SHA-384 checked against the values in
-`index.html`), xterm.js (MIT) and Inter (SIL OFL, see `static/vendor/fonts/OFL.txt`) live in `static/vendor/`, so the
+`index.html`), highlight.js (BSD-3), xterm.js (MIT) and Inter (SIL OFL, see `static/vendor/fonts/OFL.txt`) live in `static/vendor/`, so the
 app works offline and sends nothing to a third party (the one exception you opt into: dictation in Chrome, whose
 speech recognition is Google's).
 
@@ -616,7 +616,7 @@ sorted, are remembered in this browser (`localStorage`, `tm.ui.*` — `static/js
   moves it; a double click or `0` fits it again; − · % · + · Fit sit in its bar.
 - **PDF**: shown in the browser's viewer.
 
-**Edit** opens the description editor, with the text coloured as you type, and saves as you type
+**Edit** opens the description editor, with the text coloured as you type (a fenced block in the language it names), and saves as you type
 (`POST /api/files/save`). ⌘↵, Done or Esc save what is pending and go back to reading. If the file changed on disk
 meanwhile (Obsidian, a sync), the editor asks: *Reload (drop mine)* or *Keep mine*. An item's file can be edited too.
 A save that would leave the vault out of its structure (an id or a type changed in its frontmatter) is undone and
@@ -774,6 +774,11 @@ Markdown, kept byte for byte: the toolbar (heading, bold, italic, strike, lists,
 only wraps or prefixes the selection. `⌘B` `⌘I` `⌘K` `⌘⇧C`, Enter continues a list or checklist, Tab / Shift+Tab
 indents, `⌘↵` saves, Esc leaves the editor. Three modes: **Markdown** (the default), **Both** (a live preview beside
 the text) and **View**.
+
+While you type, the Markdown is coloured as in Cursor or Obsidian's source view: headings, bold and italic, links,
+quotes and `code`, and a fenced block that names its language (```` ```python ````, ```` ```js ````, ```` ```sh ````…) in
+that language's colours. The marks stay visible and the font keeps one width, so the caret always sits on its letter;
+**View** shows it rendered.
 
 **Dictation:** the mic in the toolbar types what you say at the cursor (the browser's speech recognition; Esc stops).
 Chrome sends the audio to Google to transcribe it; Safari needs Siri or Dictation on (System Settings → Keyboard);

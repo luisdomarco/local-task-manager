@@ -500,6 +500,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .hljs-comment, .hljs-quote { font-style: italic; }
 .hljs-built_in, .hljs-type, .hljs-params, .hljs-variable.language_, .hljs-title.class_.inherited__ { color: var(--hl-type); }
 .hljs-name, .hljs-tag, .hljs-selector-pseudo { color: var(--hl-tag); }
+.hljs-code { color: var(--hl-tag); } /* Markdown's `code` and the lines of a fenced block */
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 650; }
 .hljs-addition { background: var(--hl-add); }
@@ -1044,11 +1045,12 @@ table.grid.fixed { table-layout: fixed; }
 /* Coloured as typed (mdeditor.js `highlight`): the text drawn again behind a transparent textarea, in the same font,
    padding and wrapping. The textarea grows with its text (no scrollbar of its own), so both wrap at one width. */
 .mde-code { position: relative; min-width: 0; }
-.mde-code .mde-hl { position: absolute; inset: 0; margin: 0; padding: 12px 14px; overflow: hidden; pointer-events: none;
+.mde-code .mde-hl { position: absolute; inset: 0 0 auto; margin: 0; padding: 12px 14px; overflow: hidden; pointer-events: none;
   font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
 .mde-code .mde-hl code { font: inherit; background: none; padding: 0; color: var(--foreground); }
 .mde-code .mde-hl .hljs-section, .mde-code .mde-hl .hljs-strong { font-weight: inherit; } /* bold would move the caret off its letter */
 .mde-code .mde-hl .hljs-emphasis, .mde-code .mde-hl .hljs-comment, .mde-code .mde-hl .hljs-quote { font-style: normal; }
+.mde-code .mde-hl .hljs-strong { color: var(--hl-type); } .mde-code .mde-hl .hljs-emphasis { color: var(--hl-keyword); } /* told apart by colour instead */
 .mde-code .mde-text { position: relative; display: block; color: transparent; caret-color: var(--foreground); resize: none;
   overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
 .mde-code .mde-text::placeholder { color: var(--muted-foreground); }
@@ -1163,6 +1165,10 @@ table.grid.fixed { table-layout: fixed; }
 .body-wrap.full .mde { display: flex; flex-direction: column; }
 .body-wrap.full .mde-panes { flex: 1; min-height: 0; }
 .body-wrap.full .mde-text { height: 100%; min-height: 0 !important; resize: none; }
+/* Coloured, the textarea grows with its text (mdeditor.js grow): the two layers scroll together, and the textarea
+   fills at least the screen so a click below the text still lands in it. */
+.body-wrap.full .mde-code { overflow-y: auto; }
+.body-wrap.full .mde-code .mde-text { min-height: 100% !important; }
 .body-wrap.full .mde-preview { max-height: none; }
 .body-wrap.full > .body-actions { margin-top: 0; }
 .md > :first-child { margin-top: 0; }

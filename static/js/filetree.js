@@ -114,6 +114,17 @@ export function codeLanguage(path) {
   return undefined;
 }
 
+// Info strings a fenced block uses that are neither a language's name nor a file extension.
+const FENCE = { shell: 'bash', console: 'bash', golang: 'go' };
+
+/** The highlight.js language of a fenced block's info string (```py, ```python, ```sh…), or null when it names none. */
+export function fenceLanguage(tag) {
+  const t = String(tag || '').toLowerCase();
+  if (!t) return null;
+  if (codeLanguages().includes(t)) return t;
+  return FENCE[t] || CODE[t] || null; // '' (```text) is plain: null too
+}
+
 /** How a file is shown, by its name: 'markdown', 'image', 'pdf', 'text' (code too) or 'other'. */
 export function fileKind(path) {
   const ext = (String(path).match(/\.([^./]+)$/) || [])[1]?.toLowerCase() || '';

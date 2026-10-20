@@ -937,7 +937,7 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
       let content;
       if (editing) {
         const mde = mdEditor({
-          value: text, minHeight, label: cfg.label, fk,
+          value: text, minHeight, label: cfg.label, fk, highlight: 'markdown',
           placeholder: cfg.placeholder,
           // Esc is Done: back to the text as it reads once all is saved, waiting for a save still on its way.
           onEscape: () => done(),

@@ -145,7 +145,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated, fixedTy
     };
     const session = h('label', { class: 'field' }, h('span', {}, 'Session'), input('session_name', { type: 'text', placeholder: 'Claude session handling this' }));
     const body = mdEditor({
-      value: form.body, minHeight: '220px', fk: 'cf-body', label: bodyLabel, placeholder: BODY_PLACEHOLDER[form.type] || 'Markdown — "- [ ] step" for a checklist',
+      value: form.body, minHeight: '220px', fk: 'cf-body', label: bodyLabel, highlight: 'markdown', placeholder: BODY_PLACEHOLDER[form.type] || 'Markdown — "- [ ] step" for a checklist',
       onInput: (v) => { form.body = v; },
     }).el;
     // Where it lands: the vault's folder for the type, or (Ticketing) its folder inside the chosen project.

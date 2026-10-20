@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, codeLanguage, codeLanguages, compareEntries, fileKind, filesHref, filterTree, findNode, linkWikilinks, pathOfParam, splitFrontmatter,
+  ancestorPaths, buildTree, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, linkWikilinks, pathOfParam, splitFrontmatter,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -82,6 +82,12 @@ describe('filetree', () => {
     };
     for (const [path, lang] of Object.entries(cases)) assert.equal(codeLanguage(path), lang, path);
     assert.equal(codeLanguage('x.zip'), undefined);
+  });
+
+  it('names the language of a fenced block by its info string: a name, an extension or a common alias', () => {
+    const cases = { python: 'python', py: 'python', JS: 'javascript', ts: 'typescript', sh: 'bash', shell: 'bash', yml: 'yaml', html: 'xml', golang: 'go' };
+    for (const [tag, lang] of Object.entries(cases)) assert.equal(fenceLanguage(tag), lang, tag);
+    for (const none of ['', 'text', 'mermaid', undefined]) assert.equal(fenceLanguage(none), null, String(none));
   });
 
   it('has every language it names vendored, and each one loads', async () => {

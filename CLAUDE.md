@@ -18,7 +18,7 @@ Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and 
 ## Invariants
 
 - **Python stdlib only, no build.** No `pip install`, no npm dependency, no bundler: `static/js/` is plain ES modules
-  served as they are. Third-party code is vendored in `static/vendor/` (marked, DOMPurify, xterm.js, Inter).
+  served as they are. Third-party code is vendored in `static/vendor/` (marked, DOMPurify, highlight.js, xterm.js, Inter).
 - **Python 3.9 is the floor** (the stock macOS `/usr/bin/python3`): no `match`, no 3.10+ stdlib calls, no 3.11+ APIs
   such as `unittest`'s `enterContext`. Run the Python suite with `/usr/bin/python3` too before calling it green.
 - **Never touch a real vault.** `vault/`, `vault-*/`, `tickets-vault/` and any folder in the user's `config.json` are
