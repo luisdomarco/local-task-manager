@@ -2,6 +2,14 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [1.1.0] — 2026-10-20
+
+- The description editor and the create form colour Markdown as you type, as Docs already did: headings, bold and
+  italic, links, quotes and `code`. The marks stay visible; **View** shows it rendered.
+- A fenced block that names its language (```` ```python ````, ```` ```js ````, ```` ```sh ````…) is coloured in that
+  language, in the editor and in Docs.
+- Full screen scrolls the coloured editor as a whole, the colours following below the fold.
+
 ## [1.0.0] — 2026-10-20
 
 The first public release.
