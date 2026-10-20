@@ -1,8 +1,8 @@
 // The filters shared by Board and All items: one set of controls, one rule for what matches.
 // Each view keeps its own filter state (what you narrow down on the Board does not leak into All items).
-import { PARENT_TYPES, PLANNABLE, PLAN_FILTERS, planFilter, statusPasses } from './rules.js';
+import { PARENT_TYPES, PLANNABLE, PLAN_FILTERS, labelsPass, planFilter, statusPasses } from './rules.js';
 import { state } from './state.js';
-import { dropdown, h, hasLabel, labelSelect, openStatuses, parentOptions, planSelect, select, selectButton, statusTreeSelect, typeIcon } from './ui.js';
+import { dropdown, h, labelFilter, openStatuses, parentOptions, planSelect, select, selectButton, statusTreeSelect, typeIcon } from './ui.js';
 
 /** Sentinel of the relation filter: items that can be related to something but are not. */
 export const NOT_RELATED = '__none__';
@@ -22,12 +22,12 @@ const cap = (t) => t[0].toUpperCase() + t.slice(1);
 export function createFilters({ types, selected = types, showDone = false }) {
   // `status`: the statuses ticked in the Group → Status filter (none: any); null until touched, which is every status on
   // the Board and the open groups' (Not started + In progress) in All items — read from the vault's structure when used.
-  const f = { types: new Set(selected), text: '', parent: null, plan: 'any', label: null, status: null, showArchived: false };
+  const f = { types: new Set(selected), text: '', parent: null, plan: 'any', labels: [], labelMode: 'or', status: null, showArchived: false };
   const ticked = () => new Set(f.status ?? (showDone ? [] : openStatuses(types)));
 
   const matches = (i) => f.types.has(i.type)
     && (f.plan === 'any' || (PLANNABLE.has(i.type) && planFilter(f.plan)(i)))
-    && hasLabel(i, f.label)
+    && labelsPass(i, f.labels, f.labelMode)
     && statusPasses(i, ticked())
     && (!f.parent || (f.parent === NOT_RELATED ? canBeRelated(i) && !i.fields.related_to
       : i.fields.related_to === f.parent || i.id === f.parent))
@@ -80,7 +80,7 @@ export function createFilters({ types, selected = types, showDone = false }) {
       parentSel.replaceChildren(select([anyRelation, [NOT_RELATED, 'Not related'], ...parents], f.parent,
         (v) => { f.parent = v; onChange(); }, { 'aria-label': 'Related to' }));
       planSel.replaceChildren(planSelect(f.plan, (v) => { f.plan = v; onChange(); }, PLAN_FILTERS));
-      labelSel.replaceChildren(labelSelect(f.label, (v) => { f.label = v; onChange(); }));
+      labelSel.replaceChildren(labelFilter(f.labels, f.labelMode, (v) => { f.labels = v.labels; f.labelMode = v.mode; onChange(); }));
     };
     return el;
   }

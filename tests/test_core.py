@@ -1144,3 +1144,28 @@ class StoreTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PlanOrderTest(unittest.TestCase):
+    """TSK-053: a card's place on Today and Week, `plan_order`, on what can be planned."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.s = Store(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_number_is_kept_and_anything_else_refused(self):
+        for t in ('initiative', 'story', 'task'):
+            self.assertIn('plan_order', self.s.structure.allowed_fields(t), t)
+        task = self.s.create('task', 'T', {'plan_day': '2026-10-20', 'plan_week': '2026-W43'})
+        self.s.update(task['key'], {'plan_order': 15})
+        self.assertEqual(self.s.read(task['key'])['fields']['plan_order'], 15)
+        self.s.update(task['key'], {'plan_order': 7.5})
+        self.assertEqual(self.s.read(task['key'])['fields']['plan_order'], 7.5)
+        for bad in ('first', True, [1]):
+            with self.assertRaises(StoreError):
+                self.s.update(task['key'], {'plan_order': bad})
+        self.s.update(task['key'], {'plan_order': None})
+        self.assertIsNone(self.s.read(task['key'])['fields'].get('plan_order'))

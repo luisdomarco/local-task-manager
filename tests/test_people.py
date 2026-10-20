@@ -47,7 +47,8 @@ class PeopleStoreTest(unittest.TestCase):
             fields, _ = fm.split(f.read())
         parsed = fm.parse(fields)
         self.assertEqual(parsed['names'], ['Ana', 'Pablo'])  # still there, for an older copy of the app
-        self.assertEqual(parsed['people'][0], {'name': 'Ana', 'calendar_name': '', 'emails': ['ana@x.com'], 'redmine': '', 'slack': ''})
+        self.assertEqual(parsed['people'][0], {'name': 'Ana', 'calendar_name': '', 'emails': ['ana@x.com'], 'redmine': '', 'slack': '',
+                                             'notes': '', 'when_to_use': ''})
 
     def test_renaming_the_public_name_reaches_the_items_and_keeps_the_rest(self):
         self.s.create('meeting', 'M', {'attendees': ['Ana García']})
@@ -87,7 +88,7 @@ class PeopleStoreTest(unittest.TestCase):
         self.s.add_person('Ana', {'emails': 'ana@x.com', 'slack': 'U1'})
         self.s.create('note', 'N', {}, body='Send it to @[Ana].')
         prompt = self.s.claude_prompt('NOTE-0001', 'and copy @[Nobody]')
-        self.assertIn('## People mentioned\n\n- Ana: email ana@x.com · Slack U1\n- Nobody: not in People', prompt)
+        self.assertIn('## People mentioned\n\n- Ana: email ana@x.com · Slack U1\n- Nobody: not in Contacts', prompt)
         self.assertEqual(self.s.mentions_note('no mentions'), '')
 
     def test_renaming_onto_someone_merges_their_emails(self):
@@ -120,3 +121,112 @@ class PeopleStoreTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ContactsTest(unittest.TestCase):
+    """TSK-050: People and Groups, each with notes and when to use them."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.s = Store(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def group(self, name):
+        return next((g for g in self.s.groups()['groups'] if g['name'] == name), None)
+
+    def test_a_person_keeps_notes_and_when_to_use_on_several_lines(self):
+        self.s.add_person('Ana', {'notes': 'Product lead.\n  ', 'when_to_use': 'Pricing questions.\nNever on Fridays.'})
+        ana = next(p for p in self.s.people()['people'] if p['name'] == 'Ana')
+        self.assertEqual((ana['notes'], ana['when_to_use']), ('Product lead.', 'Pricing questions.\nNever on Fridays.'))
+        self.s.update_person('Ana', {'notes': ''})
+        self.assertEqual(next(p for p in self.s.people()['people'] if p['name'] == 'Ana')['notes'], '')
+
+    def test_groups_are_added_edited_and_deleted(self):
+        self.s.add_person('Ana')
+        self.s.add_group('Dev team', {'channel': 'Slack', 'address': '#dev', 'members': ['Ana', 'ana', 'Jan'],
+                                      'when_to_use': 'Deploys and outages.'})
+        self.assertEqual(self.group('Dev team'), {'name': 'Dev team', 'channel': 'slack', 'address': '#dev', 'members': ['Ana', 'Jan'],
+                                                  'notes': '', 'when_to_use': 'Deploys and outages.', 'count': 0})
+        self.s.update_group('Dev team', {'name': 'Developers', 'channel': 'email', 'address': 'dev@x.com'})
+        self.assertIsNone(self.group('Dev team'))
+        self.assertEqual((self.group('Developers')['channel'], self.group('Developers')['members']), ('email', ['Ana', 'Jan']))
+        self.s.delete_group('Developers')
+        self.assertEqual(self.s.groups()['groups'], [])
+        with self.assertRaises(StoreError) as e:
+            self.s.delete_group('Developers')
+        self.assertEqual(e.exception.status, 404)
+
+    def test_a_name_is_a_person_or_a_group_never_both(self):
+        self.s.add_person('Ana')
+        self.s.add_group('Ops')
+        for call in (lambda: self.s.add_group('ana'), lambda: self.s.add_group('OPS'), lambda: self.s.add_person('Ops'),
+                     lambda: self.s.update_person('Ana', {'name': 'Ops'}), lambda: self.s.add_group('')):
+            with self.assertRaises(StoreError):
+                call()
+
+    def test_a_person_renamed_or_deleted_follows_into_their_groups(self):
+        self.s.add_person('Ana')
+        self.s.add_person('Jan')
+        self.s.add_group('Ops', {'members': ['Ana', 'Jan']})
+        self.s.update_person('Ana', {'name': 'Ana García'})
+        self.assertEqual(self.group('Ops')['members'], ['Ana García', 'Jan'])
+        self.s.delete_person('Jan')
+        self.assertEqual(self.group('Ops')['members'], ['Ana García'])
+
+    def test_a_prompt_names_a_mentioned_group_and_when_to_use_a_contact(self):
+        self.s.add_person('Ana', {'emails': 'ana@x.com', 'when_to_use': 'Pricing.'})
+        self.s.add_group('Ops', {'channel': 'slack', 'address': '#ops', 'members': ['Ana'], 'notes': 'On call: rotates weekly.'})
+        note = self.s.mentions_note('Tell @[Ana] and @[Ops] about it')
+        self.assertIn('- Ana: email ana@x.com\n  When to use: Pricing.', note)
+        self.assertIn('- Ops (group): Slack channel #ops · members Ana\n  Notes: On call: rotates weekly.', note)
+
+
+class WatchersTest(unittest.TestCase):
+    """TSK-051: an initiative, a story or a task names the people and groups to tell when its status changes."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.s = Store(self.tmp.name)
+        self.s.add_person('Ana', {'emails': 'ana@x.com'})
+        self.s.add_group('Ops', {'channel': 'slack', 'address': '#ops', 'when_to_use': 'When it is done.'})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def watchers(self, key):
+        return self.s.read(key)['fields'].get('watchers')
+
+    def test_initiatives_stories_and_tasks_have_watchers_and_the_rest_not(self):
+        for t in ('initiative', 'story', 'task'):
+            self.assertIn('watchers', self.s.structure.allowed_fields(t), t)
+        for t in ('note', 'meeting', 'activity'):
+            self.assertNotIn('watchers', self.s.structure.allowed_fields(t), t)
+
+    def test_watchers_are_a_clean_list_and_a_new_name_becomes_a_person(self):
+        task = self.s.create('task', 'T', {'watchers': ['Ana', ' ana ', 'Ops', 'Jan  Peeters']})
+        self.assertEqual(self.watchers(task['key']), ['Ana', 'Ops', 'Jan Peeters'])
+        names = [p['name'] for p in self.s.people()['people']]
+        self.assertIn('Jan Peeters', names)
+        self.assertNotIn('Ops', names)  # a group stays a group
+        self.s.update(task['key'], {'watchers': []})
+        self.assertEqual(self.watchers(task['key']), [])
+
+    def test_renaming_or_deleting_a_contact_reaches_what_it_watches(self):
+        task = self.s.create('task', 'T', {'watchers': ['Ana', 'Ops']})
+        self.assertEqual(self.s.groups()['groups'][0]['count'], 1)
+        self.assertEqual(next(p for p in self.s.people()['people'] if p['name'] == 'Ana')['watcher'], 1)
+        self.s.update_person('Ana', {'name': 'Ana García'})
+        self.s.update_group('Ops', {'name': 'Operations'})
+        self.assertEqual(self.watchers(task['key']), ['Ana García', 'Operations'])
+        self.s.delete_group('Operations')
+        self.s.delete_person('Ana García')
+        self.assertEqual(self.watchers(task['key']), [])
+
+    def test_the_claude_prompt_lists_the_watchers_and_how_to_reach_them(self):
+        task = self.s.create('task', 'T', {'watchers': ['Ana', 'Ops']})
+        prompt = self.s.claude_prompt(task['key'])
+        self.assertIn('- Watchers: Ana, Ops', prompt)
+        self.assertIn('## Watchers\n\nTell them when its status changes, as each one says:\n\n- Ana: email ana@x.com\n'
+                      '- Ops (group): Slack channel #ops\n  When to use: When it is done.', prompt)

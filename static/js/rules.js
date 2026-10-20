@@ -179,3 +179,47 @@ export const PLAN_FILTERS = {
   unplanned: { label: 'Unplanned', test: (it) => !it.fields.plan_day && !it.fields.plan_week },
 };
 export const planFilter = (key) => (PLAN_FILTERS[key] || PLAN_FILTERS.any).test;
+
+/**
+ * Cards in a column you order by hand (TSK-053): those placed (a number in `key`) first, in that order, then the rest as
+ * `fallback` sorts them. The Board orders by `order` (within its list); Today and Week by `plan_order` (within the day,
+ * or the week when no day), so moving a card on one never reorders the other.
+ */
+export const byManualOrder = (fallback = () => 0, key = 'plan_order') => (a, b) => {
+  const x = typeof a.fields[key] === 'number' ? a.fields[key] : Infinity;
+  const y = typeof b.fields[key] === 'number' ? b.fields[key] : Infinity;
+  return (x === y ? 0 : x - y) || fallback(a, b);
+};
+
+/**
+ * Where `item` lands when dropped at `index` among `cards` (the column as shown, the dragged card left out): the values
+ * of `key` to write, [[card, value]]. Between two placed cards it takes the middle, so only it is written; when a
+ * neighbour has no place yet (or there is no room left between them) the whole column is numbered in steps of 10, as shown.
+ */
+export function placement(item, cards, index, key = 'order') {
+  const orders = cards.map((c) => c.fields[key]);
+  const prev = index > 0 ? orders[index - 1] : null;
+  const next = index < cards.length ? orders[index] : null;
+  const gapless = (index > 0 && typeof prev !== 'number') || (index < cards.length && typeof next !== 'number')
+    || (typeof prev === 'number' && typeof next === 'number' && next - prev < 1e-6);
+  if (gapless) {
+    const seq = [...cards.slice(0, index), item, ...cards.slice(index)];
+    return seq.map((c, i) => [c, i * 10]);
+  }
+  const order = prev === null && next === null ? 0 : prev === null ? next - 10 : next === null ? prev + 10 : (prev + next) / 2;
+  return [[item, order]];
+}
+
+/**
+ * The label filter of every list that shows labels (TSK-052): `labels` picked, and how several combine — 'or' (any of
+ * them, the default) or 'and' (all of them). None picked lets every item through.
+ */
+export const LABEL_MODES = { or: 'Any (OR)', and: 'All (AND)' };
+export function labelsPass(item, labels, mode = 'or') {
+  if (!labels?.length) return true;
+  const have = new Set(item.fields.labels || []);
+  return mode === 'and' ? labels.every((l) => have.has(l)) : labels.some((l) => have.has(l));
+}
+
+/** A saved filter from before TSK-052 held one label (`label`): it becomes a list of one. */
+export const labelsOf = (saved) => (Array.isArray(saved?.labels) ? saved.labels : saved?.label ? [saved.label] : []);

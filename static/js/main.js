@@ -25,7 +25,8 @@ import { pageView } from './views/detail.js';
 import * as inbox from './views/inbox.js';
 import { listView } from './views/list.js';
 import * as log from './views/log.js';
-import { labels, people } from './views/tags.js';
+import { contacts, labels } from './views/tags.js';
+import { setPageTitle } from './tabtitle.js';
 import * as trash from './views/trash.js';
 import * as settings from './views/settings.js';
 import * as table from './views/table.js';
@@ -36,7 +37,13 @@ import * as docs from './views/docs.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, tomorrow, week, board, table, log, labels, people, trash, settings, files, find, docs };
+const FIXED_VIEWS = { inbox, today, tomorrow, week, board, table, log, labels, contacts, trash, settings, files, find, docs };
+// What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
+const FIXED_TITLES = {
+  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', board: 'Board', table: 'All items', log: 'Work log',
+  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs',
+};
+let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
 // The list an item's address (#/item/ID) opens over: its type's.
 let LIST_OF = {};
@@ -56,6 +63,11 @@ onStructure((s) => {
     ...Object.fromEntries(s.types.filter((t) => t.page).map((t) => [t.name, pageView(t.name)])),
   };
   LIST_OF = Object.fromEntries(s.types.map((t) => [t.name, t.route]));
+  VIEW_TITLES = {
+    ...FIXED_TITLES,
+    ...Object.fromEntries(s.types.filter((t) => t.list).map((t) => [t.route, t.plural])),
+    ...Object.fromEntries(s.types.filter((t) => t.page).map((t) => [t.name, t.label])), // until the item has loaded
+  };
   FIRST_LIST = s.types[0]?.route || 'today';
   NAV_OF = Object.fromEntries(s.types.filter((t) => t.page).map((t) => [t.name, t.route]));
   COUNTED = s.types.filter((t) => t.nav && t.counted).map((t) => [t.route, t.name, t.counted]);
@@ -148,6 +160,7 @@ async function route() {
   // A type turned off has no list or page view at all.
   const planning = STRUCTURE.types.some((t) => t.plannable);
   const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week'].includes(name) && !planning);
+  if (name === 'people') { location.replace('#/contacts'); return; } // People is Contacts' first tab (TSK-050)
   if (!VIEWS[name] || off) { location.hash = planning ? '#/today' : '#/table'; return; }
   const key = `${name}/${param || ''}`;
   if (key === currentRoute) return;
@@ -156,6 +169,7 @@ async function route() {
   const root = document.getElementById('view');
   root.className = `view-${name}`;
   document.getElementById('main').scrollTop = 0;
+  setPageTitle(VIEW_TITLES[name] || '');
   current = VIEWS[name].mount(root, param);
   const nav = NAV_OF[name] || name;
   document.querySelectorAll('[data-view]').forEach((a) => {

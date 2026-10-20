@@ -1,8 +1,8 @@
 ---
 type: people
 names: ["Ana", "Pablo", "Marta"]
-people: [{"name": "Ana", "calendar_name": "Ana García", "emails": ["ana@example.com"], "redmine": "", "slack": "@ana"}, {"name": "Pablo", "calendar_name": "", "emails": ["pablo@example.com"], "redmine": "", "slack": "@pablo"}, {"name": "Marta", "calendar_name": "Marta López", "emails": ["marta@example.com"], "redmine": "", "slack": ""}]
-updated_at: 2026-10-20T09:54
+people: [{"name": "Ana", "calendar_name": "Ana García", "emails": ["ana@example.com"], "redmine": "", "slack": "@ana", "notes": "Leads the pricing team.", "when_to_use": "Product and pricing questions; by Slack."}, {"name": "Pablo", "calendar_name": "", "emails": ["pablo@example.com"], "redmine": "", "slack": "@pablo", "notes": "", "when_to_use": ""}, {"name": "Marta", "calendar_name": "Marta López", "emails": ["marta@example.com"], "redmine": "", "slack": "", "notes": "", "when_to_use": "Anything that needs a budget or a yes from leadership; by email."}]
+updated_at: 2026-10-20T22:57
 ---
 
 # People

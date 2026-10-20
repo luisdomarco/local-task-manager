@@ -5,7 +5,7 @@ name: "one-page-checkout"
 project: "[[00 Acme Web]]"
 status_ticket: "1. Backlog"            # 1. Backlog = draft · 5. Review = being read · 6. Done = approved and in force · 7. Discarded = superseded
 status_log: []
-umbrella: "[[ACME-INI-001 Checkout redesign]]" # "[[KEY-INI-NNN …]]" created when approved
+initiative: "[[ACME-INI-001 Checkout redesign]]" # "[[KEY-INI-NNN …]]" created when approved
 supersedes: ""                         # "[[KEY-PRD-NNN …]]"
 superseded_by: ""
 url: ""
@@ -57,11 +57,11 @@ partial data) and what the user sees first. Link mockups or a `ux` analysis.
 
 What this PRD deliberately does not cover.
 
-## Slicing
+## Stories
 
-How it becomes initiatives: one umbrella and its slices, in order, each shippable on its own.
+How it becomes work: one initiative and its stories, in order, each shippable on its own.
 
-| Slice | Covers | Depends on |
+| Story | Covers | Depends on |
 | --- | --- | --- |
 | 1 | FR-1, FR-2 | — |
 

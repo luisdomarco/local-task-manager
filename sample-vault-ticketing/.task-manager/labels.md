@@ -1,7 +1,7 @@
 ---
 type: labels
 names: ["checkout", "billing", "infra"]
-updated_at: 2026-10-20T09:54
+updated_at: 2026-10-20T22:58
 ---
 
 # Labels

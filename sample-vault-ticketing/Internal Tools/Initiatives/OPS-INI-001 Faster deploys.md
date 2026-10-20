@@ -9,26 +9,20 @@ status_log: []                         # [{date, from, to, by}] — written by t
 priority: P2                           # P0 · P1 · P2 · P3
 size: M                                # S · M · L
 regime: standard                       # standard (reviewer) · critical (judge with sealed oracle); goes up, never down
-kind: normal                           # normal · umbrella · slice
-parent: ""                             # umbrella this slice belongs to
 area: ""                               # one of the project's `areas`
 objective: ""                          # the observable end state that allows this initiative to close
 premise: unverified                    # unverified · verified · reframed · refuted
 premise_verified: ""                   # "<date> @ <sha>; what was measured"
-spec_impact: []                        # living specs touched: ["openspec/specs/weekly-report"] · ["none"]
 prd: ""                                # "[[KEY-PRD-NNN …]]" (product, optional)
-plan: ""                               # "[[OPS-INI-001 Plan]]" — required to reach 2. ToDo
-origin: ""                             # "[[KEY-SUP-NNN …]]" if promoted, or the parent initiative
+plan: ""                               # "[[OPS-INI-001 Plan]]" — the approach, when it needs one; each story may have its own
+origin: ""                             # "[[KEY-SUP-NNN …]]" if promoted
 depends_on: []
 related_analyses: []
 related_errors: []
 related_learnings: []
 on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
-executor: ""                           # claude · codex · owner — chosen at approval
-branch: ""
-changelog_ref: ""                      # set at 6. Done
-url: ""                                # PR or closing commit
+url: ""
 tags: ["infra"]
 creation_date: 2026-10-20
 updated_date: 2026-10-20
@@ -64,29 +58,6 @@ refuted during diagnosis, stop: the initiative is reframed or discarded.
 
 What looks related and is not touched here, and where it is recorded instead.
 
-## Spec delta
-
-What changes in the living specs. Product: requirements in OpenSpec form, grouped by spec. System: which
-decisions are born or superseded and which contracts change. Or exactly one line:
-`No behavior change: <why>`.
-
-### `openspec/specs/<capability>`
-
-#### ADDED Requirements
-
-##### Requirement: <name>
-The system SHALL …
-
-###### Scenario: <name>
-- **WHEN** …
-- **THEN** …
-
-#### MODIFIED Requirements
-
-#### REMOVED Requirements
-
-(Reason and migration for each.)
-
 ---
 
 > [!agent] Agent-owned
@@ -107,39 +78,10 @@ Every claim (from the request or from prior context) is a hypothesis to challeng
 
 Legend: ✅ confirmed · 🟡 partial · 🔴 refuted · ⚪ unverifiable (say why).
 
-## Plan
+## Stories
 
-One paragraph: the approach and why this is the layer of the cause. The full brief is in `plan:`.
-
-## Tasks
-
-- [ ] 1.1 …
-
-## Execution
-
-Dated log from the first commit: what each commit did (sha), every departure from the tasks and why.
-
-- 2026-10-20 — 
-
-## Verification
-
-Reviewer or judge verdict. Product checklist:
-
-- [ ] Every scenario in the spec delta has a test that exercises it (verification-gap lens)
-- [ ] The edge-case matrix of the plan §4 is covered (edge-case lens)
-- [ ] Tried to break it on purpose; what was tried (adversarial lens)
-- [ ] `openspec validate --specs --strict` → rc 0
-- [ ] The living spec in the branch matches the frozen spec delta
-
-**Verdict:** PASS · CONCERNS · FAIL — by … on … @ `sha`
-
-## Result
-
-The verified final state, with sha and the command output that proves it.
-
-### Integration
-
-Source branch, target branch, merge sha, release (`changelog_ref`).
+What gets delivered, one story each, in order (`KEY-STY-NNN`, linked by their `initiative:`). The initiative
+starts with the first story and closes with the last.
 
 ## Workflow follow-up
 

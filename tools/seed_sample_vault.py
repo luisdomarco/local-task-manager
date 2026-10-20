@@ -6,7 +6,7 @@
 sample-vault/            the folder-per-type structure: every type it has (prompts and transcriptions too)
 sample-vault-ticketing/  the Ticketing structure: two projects and every type, from support to learnings
 
-Both carry people with their details, labels, docs, work-log days and a favourite, so every screen has something to
+Both carry people and groups (Contacts) with their details, labels, docs, work-log days and a favourite, so every screen has something to
 show. tests/test_samples.py checks that each matches its structure and has an item of every type.
 """
 import os
@@ -23,9 +23,17 @@ FOLDERS_VAULT = os.path.join(APP_DIR, 'sample-vault')
 TICKETING_VAULT = os.path.join(APP_DIR, 'sample-vault-ticketing')
 
 PEOPLE = {
-    'Ana': {'emails': ['ana@example.com'], 'calendar_name': 'Ana García', 'slack': '@ana'},
+    'Ana': {'emails': ['ana@example.com'], 'calendar_name': 'Ana García', 'slack': '@ana',
+            'when_to_use': 'Product and pricing questions; by Slack.', 'notes': 'Leads the pricing team.'},
     'Pablo': {'emails': ['pablo@example.com'], 'slack': '@pablo'},
-    'Marta': {'emails': ['marta@example.com'], 'calendar_name': 'Marta López'},
+    'Marta': {'emails': ['marta@example.com'], 'calendar_name': 'Marta López',
+              'when_to_use': 'Anything that needs a budget or a yes from leadership; by email.'},
+}
+GROUPS = {
+    'Product team': {'channel': 'slack', 'address': '#product', 'members': ['Ana', 'Pablo'],
+                     'when_to_use': 'When an item is ready for review or done: post its id and what changed.'},
+    'Leadership': {'channel': 'email', 'address': 'leadership@example.com', 'members': ['Marta'],
+                   'when_to_use': 'When an initiative is done or slips past its due date: a short email with the outcome.'},
 }
 
 
@@ -42,6 +50,8 @@ def fresh(path):
 def people_and_labels(s, labels):
     for name, values in PEOPLE.items():
         s.add_person(name, values)
+    for name, values in GROUPS.items():
+        s.add_group(name, values)
     for label in labels:
         s.add_label(label)
 
@@ -121,7 +131,19 @@ def seed_ticketing(path=TICKETING_VAULT):
     sup = s.create('support', 'Invoice email arrives empty', {'project': 'ACME', 'level': 'C2', 'origin': 'customer', 'labels': ['billing']},
                    'Two customers report an empty invoice email since the last release.\n')['id']
     s.create('support', 'Nightly backup took 3 hours', {'project': 'OPS', 'level': 'C1', 'labels': ['infra']})
-    s.create('initiative', 'Faster deploys', {'project': 'OPS', 'labels': ['infra'], 'sidebar': False})
+    ops = s.create('initiative', 'Faster deploys', {'project': 'OPS', 'labels': ['infra'], 'sidebar': False})['id']
+    s.create('story', 'Address, shipping and payment on one page', {'project': 'ACME', 'related_to': ini, 'size': 'M', 'labels': ['checkout']},
+             '## Story\n\nAs a shopper, I want to pay on one page, so that I do not give up halfway.\n\n'
+             '## Acceptance criteria\n\n#### Scenario: Paying in one go\n- **WHEN** the cart goes to checkout\n'
+             '- **THEN** address, shipping and payment are on the same page\n')
+    s.create('story', 'Keep the cart when the payment fails', {'project': 'ACME', 'related_to': ini, 'size': 'S', 'labels': ['checkout']})
+    spec = s.create('spec', 'Checkout', {'project': 'ACME', 'capability': 'checkout', 'labels': ['checkout']},
+                    '## Purpose\n\nTake a cart to a paid order.\n\n## Requirements\n\n'
+                    '### Requirement: Cart is kept\nThe system SHALL keep the cart until the order is paid.\n\n'
+                    '#### Scenario: Leaving checkout\n- **WHEN** the shopper leaves checkout before paying\n'
+                    '- **THEN** the cart is there when they come back\n')['id']
+    s.update(spec, {'status': 'active'})
+    s.create('story', 'Cache the test dependencies', {'project': 'OPS', 'related_to': ops, 'size': 'S', 'labels': ['infra']})
     s.create('task', 'Map the current checkout steps', {'project': 'ACME', 'related_to': ini, 'labels': ['checkout'],
                                                         'plan_day': t.isoformat(), 'plan_week': week(t)})
     s.create('task', 'Draft the empty-invoice reply', {'project': 'ACME', 'related_to': sup, 'plan_week': week(t)})

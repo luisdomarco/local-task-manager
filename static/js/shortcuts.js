@@ -3,7 +3,7 @@ import { onStructure } from './rules.js';
 
 // The views every vault has. A type's view is there when the vault's structure has the type (its `go_key`).
 const FIXED = [['t', 'today', 'Today'], ['r', 'tomorrow', 'Tomorrow'], ['w', 'week', 'Week'],
-  ['b', 'board', 'Board'], ['a', 'table', 'All items'], ['l', 'log', 'Work log'], ['h', 'labels', 'Labels'], ['e', 'people', 'People'],
+  ['b', 'board', 'Board'], ['a', 'table', 'All items'], ['l', 'log', 'Work log'], ['h', 'labels', 'Labels'], ['e', 'contacts', 'Contacts'],
   ['d', 'trash', 'Trash']];
 // The order Settings lists them in; a key not here (another structure's type) goes at the end.
 const ORDER = 'itrwnskoxmcbalhepd';

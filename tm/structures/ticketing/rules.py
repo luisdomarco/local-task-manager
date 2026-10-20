@@ -5,25 +5,32 @@ disk directly.
 Kept: a support ticket's level (up, never down without a new reason; at most one above where it was born) and its
 due date; a duplicate support ticket (same signature, open) adds an occurrence instead of a new ticket; the
 allowed status transitions per type and their gates (discard_reason, on_hold, a hotfix's rollback plan and
-post-mortem, an initiative's readiness, a serial project); promote (SUP → INI) and escalate (SUP → HFX); the
-support ticket that closes when what it became closes, and the umbrella that closes with its last slice.
+post-mortem, an initiative's and a story's readiness, a spec's valid text, a serial project); promote (SUP → INI) and escalate (SUP → HFX);
+the support ticket that closes when what it became closes; the initiative that starts with its first story and closes
+with the last.
 Left to the agents and git: commits, branches, shas in production, openspec, frozen owner sections.
 """
 
+import re
 from datetime import date, timedelta
 
 from ...frontmatter import split as fm_split
+from . import specs
 from .definition import CLOSED, CORE_PROJECT_TYPES, EXECUTION_MODES, LEVELS, PROJECT_TYPES
 
 DEFAULT_DUE_DAYS = {'C1': 0, 'C2': 7, 'C3': 30}
 LEVEL_PRIORITY = {'C1': 'P0', 'C2': 'P1', 'C3': 'P2'}  # a promoted support ticket's initiative
 OPEN = ('Backlog', 'ToDo', 'OnHold', 'InProgress', 'Review')
+WHEN_RE = re.compile(r'^\s*[-*]\s*\*\*WHEN\*\*\s*(.*)$')  # a scenario's "- **WHEN** …" line
 # Allowed moves (09-ciclo-de-vida). OnHold is allowed from any open status (with why), and back to where work
 # can resume; Done → InProgress and Discarded → Backlog reopen.
 TRANSITIONS = {
     'initiative': {'Backlog': {'ToDo', 'Discarded'}, 'ToDo': {'InProgress', 'Backlog', 'Discarded'},
                    'InProgress': {'Review', 'ToDo'}, 'Review': {'Done', 'InProgress'},
                    'OnHold': {'Backlog', 'ToDo', 'InProgress', 'Review', 'Discarded'}, 'Done': {'InProgress'}, 'Discarded': {'Backlog'}},
+    'story': {'Backlog': {'ToDo', 'Discarded'}, 'ToDo': {'InProgress', 'Backlog', 'Discarded'},
+              'InProgress': {'Review', 'ToDo'}, 'Review': {'Done', 'InProgress'},
+              'OnHold': {'Backlog', 'ToDo', 'InProgress', 'Review', 'Discarded'}, 'Done': {'InProgress'}, 'Discarded': {'Backlog'}},
     'support': {'Backlog': {'ToDo', 'InProgress', 'Discarded'}, 'ToDo': {'InProgress', 'Backlog', 'Discarded'},
                 'InProgress': {'Review', 'Discarded'}, 'Review': {'Done', 'InProgress'},
                 'OnHold': {'InProgress', 'Done', 'Discarded'}, 'Done': {'InProgress'}, 'Discarded': {'Backlog'}},
@@ -32,7 +39,9 @@ TRANSITIONS = {
     'prd': {'Backlog': {'Review', 'Discarded'}, 'Review': {'Done', 'Backlog', 'Discarded'}, 'ToDo': {'Review', 'Discarded'},
             'InProgress': {'Review'}, 'OnHold': {'Backlog', 'Review'}, 'Done': {'Discarded', 'Review'}, 'Discarded': {'Backlog'}},
 }
-HOLDABLE = {'initiative', 'support', 'hotfix', 'prd'}
+HOLDABLE = {'initiative', 'story', 'support', 'hotfix', 'prd'}
+# What a serial project runs one at a time: the work itself, never the initiative that groups it.
+SERIAL = ('story', 'support', 'hotfix', 'prd')
 
 
 def _today(stamp):
@@ -136,6 +145,10 @@ def on_update(store, it, values, r, stamp):
             raise _err(f"a support ticket rises at most one level above where it was born ({f.get('level_base')})")
         values['due'] = due_for(r, f.get('project'), values['level'], f.get('due_from') or _today(stamp))
     new_status = values.get('status')
+    if t == 'spec' and new_status == 'active' and f.get('status') != 'active':
+        wrong = specs.problems(store.read(it['key'])['body'])
+        if wrong:
+            raise _err(f"a spec is active only with valid requirements: {'; '.join(wrong[:3])}")
     if new_status and new_status != f.get('status') and t in TRANSITIONS:
         _check_transition(store, it, new_status, {**f, **values}, r)
         if t == 'support' and new_status == 'Discarded':
@@ -192,17 +205,59 @@ def _check_transition(store, it, new, f, r):
     if t == 'hotfix' and new == 'Done' and not f.get('postmortem'):
         raise _err('a hotfix closes with its post-mortem: link the error record (Post-mortem)')
     if t == 'initiative' and old == 'Backlog' and new == 'ToDo':
-        missing = [label for key, label in (('size', 'size'), ('regime', 'regime'), ('plan', 'a linked plan')) if not f.get(key)]
+        missing = [label for key, label in (('size', 'size'), ('regime', 'regime')) if not f.get(key)]
+        if not stories_of(store, it['key']):
+            missing.append('at least one story')
         if missing:
             raise _err(f"an initiative is ready (ToDo) only with {', '.join(missing)}")
         _check_premise(f, r)
-    if new == 'InProgress':
+    if t == 'initiative' and new in ('Review', 'Done'):
+        open_ = [s['key'] for s in stories_of(store, it['key']) if s['fields'].get('status') not in CLOSED]
+        if open_:
+            raise _err(f"an initiative closes with its stories: {', '.join(open_)} still open")
+    if t == 'story' and old == 'Backlog' and new == 'ToDo':
+        ini = next((i for i in store.items() if i['key'] == f.get('related_to') and i['type'] == 'initiative'), None)
+        _check_story_ready(f, ini, store.read(it['key'])['body'])  # the body as saved: a status changes on its own
+    if new == 'InProgress' and t in SERIAL:
         p = _project(r, f.get('project'))
         if p.get('execution_mode') == 'serial':
             busy = [i for i in store.items() if i['key'] != it['key'] and i['fields'].get('project') == f.get('project')
-                    and i['type'] in TRANSITIONS and i['fields'].get('status') == 'InProgress']
+                    and i['type'] in SERIAL and i['fields'].get('status') == 'InProgress']
             if busy:
                 raise _err(f"project {f.get('project')} runs one thing at a time: {busy[0]['key']} is in progress")
+
+
+def stories_of(store, ini_key, items=None):
+    """The stories of an initiative (its `initiative:` link), closed ones too."""
+    return [i for i in (items if items is not None else store.items()) if i['type'] == 'story' and i['fields'].get('related_to') == ini_key]
+
+
+def _check_story_ready(f, ini, body):
+    """Backlog → ToDo of a story: is it ready to be built? `f` is the story's fields as they will be (its own and the
+    change), `ini` its initiative (an item, or None when it hangs from nothing), `body` the story's Markdown text.
+    Ready: its initiative approved (ToDo or later), at least one acceptance scenario written, its spec impact declared."""
+    missing = []
+    if not ini:
+        missing.append('its initiative')
+    elif ini['fields'].get('status') in ('Backlog', 'Discarded'):
+        missing.append(f"its initiative approved ({ini['key']} is in {ini['fields'].get('status')})")
+    if not _written_scenarios(body):
+        missing.append('a written acceptance scenario (- **WHEN** …)')
+    if not str(f.get('spec_impact') or '').strip():
+        missing.append('its spec impact (the specs it changes, or "none: <why>")')
+    if missing:
+        raise _err(f"a story is ready (ToDo) only with {', '.join(missing)}")
+
+
+def _written_scenarios(body):
+    """The WHEN lines under `## Acceptance criteria` that say something (the template's `- **WHEN** …` does not)."""
+    lines = (body or '').split('\n')
+    at = next((i for i, l in enumerate(lines) if l.strip().lower() == '## acceptance criteria'), None)
+    if at is None:
+        return []
+    end = next((j for j in range(at + 1, len(lines)) if lines[j].startswith('## ')), len(lines))
+    whens = [WHEN_RE.match(l) for l in lines[at + 1:end]]
+    return [m.group(1) for m in whens if m and m.group(1).strip(' .…<>')]
 
 
 def _check_premise(f, r):
@@ -219,24 +274,42 @@ def _check_premise(f, r):
 
 
 def after_update(store, before, values, stamp):
-    """What closes on its own: a support ticket waiting on what it became, an umbrella whose last slice closed."""
+    """What moves on its own: an initiative starts with its first story and closes with the last (when at least one
+    was done); a support ticket waiting on what it became closes with it."""
     t, f = before['type'], before['fields']
     new_status = values.get('status')
-    if not new_status or new_status == f.get('status') or new_status != 'Done':
+    if not new_status or new_status == f.get('status'):
         return
+    if t == 'story' and f.get('related_to'):
+        _follow_stories(store, f['related_to'], before['key'], new_status, stamp)
+    if new_status == 'Done' and t in ('initiative', 'hotfix'):
+        _close_waiting(store, t, before['key'], stamp)
+
+
+def _close_waiting(store, t, key, stamp):
+    """The support tickets on hold until this initiative or hotfix was done (promoted or escalated to it) close with it."""
+    field = 'promoted_to' if t == 'initiative' else 'escalated_to'
+    for sup in store.items():
+        if sup['type'] == 'support' and sup['fields'].get(field) == key and sup['fields'].get('status') == 'OnHold':
+            store.close_by_rule(sup, 'Done', stamp)
+
+
+def _follow_stories(store, ini_key, story_key, new_status, stamp):
+    """Its initiative follows a story: ToDo → InProgress when one starts; Done when the last one closes and one of
+    them was done (all discarded: the initiative stays, for the owner to discard or replan)."""
     items = store.items()
-    if t in ('initiative', 'hotfix'):
-        field = 'promoted_to' if t == 'initiative' else 'escalated_to'
-        for sup in items:
-            if sup['type'] == 'support' and sup['fields'].get(field) == before['key'] and sup['fields'].get('status') == 'OnHold':
-                store.close_by_rule(sup, 'Done', stamp)
-    if t == 'initiative' and f.get('kind') == 'slice' and f.get('related_to'):
-        umbrella = next((i for i in items if i['key'] == f['related_to']), None)
-        slices = [i for i in items if i['type'] == 'initiative' and i['fields'].get('related_to') == f.get('related_to')
-                  and i['fields'].get('kind') == 'slice']
-        if umbrella and umbrella['fields'].get('status') not in CLOSED and all(
-                (i['fields'].get('status') in CLOSED) or i['key'] == before['key'] for i in slices):
-            store.close_by_rule(umbrella, 'Done', stamp)
+    ini = next((i for i in items if i['key'] == ini_key and i['type'] == 'initiative'), None)
+    if not ini or ini['fields'].get('status') in CLOSED:
+        return
+    if new_status == 'InProgress' and ini['fields'].get('status') == 'ToDo':
+        store.close_by_rule(ini, 'InProgress', stamp)
+        return
+    if new_status not in CLOSED:
+        return
+    now = {s['key']: (new_status if s['key'] == story_key else s['fields'].get('status')) for s in stories_of(store, ini_key, items)}
+    if all(st in CLOSED for st in now.values()) and 'Done' in now.values():
+        store.close_by_rule(ini, 'Done', stamp)
+        _close_waiting(store, 'initiative', ini_key, stamp)  # a rule's close runs no hooks: what waited on it, here
 
 
 # ── promote / escalate ───────────────────────────────────────────────────────

@@ -70,8 +70,8 @@ Every day of the week with what is planned for it, plus what can happen any day.
 
 ### Organise by project, like a ticket system
 
-A Ticketing vault keeps each project in its own folder: initiatives, support tickets, hotfixes, PRDs, plans,
-analyses, errors and learnings, each with its own fields and rules.
+A Ticketing vault keeps each project in its own folder: initiatives and their stories, the specs of what the system
+does today, support tickets, hotfixes, PRDs, plans, analyses, errors and learnings, each with its own fields and rules.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/dark/ticketing.png">
@@ -251,7 +251,7 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
 One line per area; each links to its reference section.
 
 - **Views** — Inbox, Today (a board of your own columns), Tomorrow, Week, one list per type, an initiative's (or
-  Ticketing project's) page, Board, All items, Work log, Labels, People, Trash, Settings. → [Views](#views)
+  Ticketing project's) page, Board, All items, Work log, Labels, Contacts, Trash, Settings. → [Views](#views)
 - **Items and their cards** — the card, relations (parent, children, related), pins, minimized cards, comments, Undo.
   → [Views](#views), [Data model](#data-model)
 - **Search and keyboard** — ⌘K searches items (grouped by type), views and files, and runs commands; `g` + a key
@@ -303,7 +303,7 @@ my-vault/
 ├── agents/          AGT-0001-….md   optional: made with the first agent
 ├── worklog/2026/    2026-10-19.md   the work log, one file per day
 ├── docs/                            documents, never items (the Docs view)
-└── .task-manager/                   the app's own: board, pins, labels, people, statuses, trash…
+└── .task-manager/                   the app's own: board, pins, labels, people, groups, statuses, trash…
 ```
 
 The default structure, and the one `sample-vault/` has. An item is any `.md` with `type: <type>` in its frontmatter; its id is `PREFIX-NNNN`. Folder names can be moved per
@@ -319,6 +319,8 @@ my-tickets/
 ├── Demo Product/                    a project: key DP, kind product
 │   ├── 00 Demo Product.md           the project note: fileClass Ticket Project, project_key, enabled_types…
 │   ├── Initiatives/  DP-INI-001 <Title>.md
+│   ├── Stories/      DP-STY-001 <Title>.md  an initiative's deliveries (made with the first story)
+│   ├── Specs/        DP-SPEC-001 <Capability>.md  what the system does today (made with the first spec)
 │   ├── Support/      DP-SUP-001 <Title>.md
 │   ├── Hotfixes/     DP-HFX-001 …       (when the project enables hotfix: product projects)
 │   ├── PRDs/         DP-PRD-001 …       (when it enables prd)
@@ -336,8 +338,25 @@ my-tickets/
 A ticket's file is named `<ID> <Title>.md`; its project is its folder and the key of its id, so it is chosen on
 creation and never changes. Statuses are written `status_ticket: "5. Review"` and their names and order are fixed
 (only colours and the Not started / In progress split can change); priorities P0–P3; the format's rules (support
-levels and due dates, Promote, Escalate, the ToDo gate, discard reasons, hotfix rollback and post-mortem) are enforced
-in `tm/structures/ticketing/rules.py`. Writing a file changes only the keys the app changed (`codec.py`): key order,
+levels and due dates, Promote, Escalate, the ToDo gates, discard reasons, hotfix rollback and post-mortem) are enforced
+in `tm/structures/ticketing/rules.py`.
+
+An initiative is the objective; what gets delivered are its **stories** (`DP-STY-001`, one branch and one pull request
+each, linked to it by `initiative:`). An initiative is ready (ToDo) with its size, regime, a verified premise and at
+least one story; a story is ready with its initiative approved (ToDo or later), at least one acceptance scenario
+written under `## Acceptance criteria` (a `- **WHEN** …` line that says something) and its spec impact declared
+(the specs it changes, or `none: <why>`). The initiative follows its stories: it goes In progress
+when the first one starts, and Done when the last one closes with at least one done; it cannot be put in Review or
+Done by hand while a story is open. In a serial project, *one at a time* counts stories, support tickets, hotfixes and
+PRDs, never the initiative that groups them. Stories replace the initiative's old `kind: umbrella / slice`; a PRD
+names the initiative it became in `initiative:` (an older `umbrella:` is still read).
+
+A **spec** (`DP-SPEC-001`, its own section in the sidebar) says what one capability of the project's system does today,
+as it is in production: `## Requirements`, each `### Requirement:` with SHALL or MUST and at least one
+`#### Scenario:` with a written **WHEN** and **THEN** (the format of OpenSpec, kept in the vault). Its statuses are its
+own — draft · active · retired — and it is active only when that text is valid (`ticketing/specs.py` says what is
+wrong). A story's *Spec delta* is what will change; when the story ships it is merged into the spec, which records the
+commit (`synced_sha`, `synced_date`) and the stories that changed it (`stories`). Writing a file changes only the keys the app changed (`codec.py`): key order,
 comments, unknown keys and the body stay as they were.
 
 ### What the check blocks and what it only warns about
@@ -373,7 +392,7 @@ tm/structures/          what a vault looks like: __init__.py (Structure, TypeDef
 tm/structures/ticketing/  definition.py (types, folders, fields), check.py, codec.py (files ↔ items), rules.py,
                         wikilinks.py, templates/ (a new file of each fileClass)
 tm/attachments.py       files attached to an item (Attachments/)
-tm/people.py            who an attendee or a sender is
+tm/people.py            contacts: who an attendee or a sender is, and groups
 tm/launch.py            the command lines and scripts that start Claude; tm/pty.py the embedded terminal
 tm/launchd.py           the socket launchd hands the installed app; tm/export.py the zips of Settings → Export
 static/index.html       the page; static/css/app.css; static/vendor/ (marked, DOMPurify, highlight.js, xterm.js, Inter — no CDN)
@@ -509,19 +528,19 @@ Errors, Learnings) and its own folders (see [5](#5-vault-structures)).
 | View | What it shows |
 |---|---|
 | **Inbox** | Captured items (`type: inbox`), newest first, each with *Convert to* any type an inbox item can become, and a *Related to…* picker. Unrelated tasks, notes, meetings and activities are found in **All items** with the *Not related* filter. |
-| **Today** | Only what is planned for today or *carried over* from a past day (red marker, `→ Today` on the card) — on a **board whose columns are yours**: *Uncategorized* by default, add *Morning* / *Waiting*…, drag cards between them, drag a header to reorder. Columns organise the day and never change a status. The board opens with a fixed **Meetings** column — the meetings dated today, with their time — that cannot be renamed, moved or deleted, and whose cards do not drag. **List** mode shows the same as two groups (carried over · today). |
+| **Today** | Only what is planned for today or *carried over* from a past day (red marker, `→ Today` on the card) — on a **board whose columns are yours**: *Uncategorized* by default, add *Morning* / *Waiting*…, drag cards between them and **up or down to order them by hand** (cards never placed follow, carried over first, then by priority), drag a header to reorder. Columns organise the day and never change a status. The board opens with a fixed **Meetings** column — the meetings dated today, with their time — that cannot be renamed, moved or deleted, and whose cards do not drag. **List** mode shows the same as two groups (carried over · today). |
 | **Tomorrow** | Planned for tomorrow · due tomorrow · pick from tomorrow's week, each with "→ Tomorrow". |
-| **Week** | An agenda: *Anytime this week* then one section per day, Mon–Sun, with full-width cards and a quick add per day. Drag a card onto a day to plan it. Previous/next week. Carried over from past weeks on top. **Board** mode shows the same as columns side by side (Carried over · Anytime · Mon–Sun); its **days** filter (several at once, *All days* when none is ticked) keeps the board to the weekdays you pick — Carried over and Anytime always show. The layout and the days are remembered in this browser. |
-| **Initiatives · User stories · Tasks · Notes · Transcriptions · Meetings · Activity** | One sortable table per type with **Add ‹type›** top right, which opens a form. On top, always visible: **Open / Closed / All** — **Today / Tomorrow / Week / All** for meetings, by their date — and the search. The **filter** icon on the right opens a side panel (closed on every visit; a badge on the icon counts the filters on) with the rest: **Group by** (initiative, status, priority, planned — what applies to the type), **status** and **priority** (several at once), relation (an initiative takes in everything under it, the tasks of its stories too), **plan** (today, tomorrow, this week, next week, overdue, unplanned), **label**, and for meetings a **from – to** date (the same day in both is that day). Each list remembers its scope, filters, grouping and sort between visits. Status and priority are edited in the row; a click elsewhere opens the item. |
+| **Week** | An agenda: *Anytime this week* then one section per day, Mon–Sun, with full-width cards and a quick add per day. Drag a card onto a day to plan it, at the place you drop it: cards keep the order you give them, in both modes and on Today (the same `plan_order` for a day); those never placed follow, by priority. Previous/next week. Carried over from past weeks on top. **Board** mode shows the same as columns side by side (Carried over · Anytime · Mon–Sun); its **days** filter (several at once, *All days* when none is ticked) keeps the board to the weekdays you pick — Carried over and Anytime always show. The layout and the days are remembered in this browser. |
+| **Initiatives · User stories · Tasks · Notes · Transcriptions · Meetings · Activity** | One sortable table per type with **Add ‹type›** top right, which opens a form. On top, always visible: **Open / Closed / All** — **Today / Tomorrow / Week / All** for meetings, by their date — and the search. The **filter** icon on the right opens a side panel (closed on every visit; a badge on the icon counts the filters on) with the rest: **Group by** (initiative, status, priority, planned — what applies to the type), **status** and **priority** (several at once), relation (an initiative takes in everything under it, the tasks of its stories too), **plan** (today, tomorrow, this week, next week, overdue, unplanned), **labels** (several at once, matching any of them — OR — or all of them — AND), and for meetings a **from – to** date (the same day in both is that day). Each list remembers its scope, filters, grouping and sort between visits. Status and priority are edited in the row; a click elsewhere opens the item. |
 | **User stories** | Every user story is a real item (`US-0001`, folder `stories/`), listed in a table filtered by initiative, status, plan and label. It belongs to an initiative or to none; tasks, notes and meetings can hang from it. A row opens its card, which has the same blocks as a task's plus the external ticket and local path. |
-| **Initiative page** | `#/initiative/INI-0001`, two panels. Left: stats · properties · description · attachments, then what hangs from it as **tabs**, each with its count: **User stories**, **Tasks**, **Notes**, **Meetings** (in each, its quick add with Open / Closed / All beside it, then its table; the tab shown is remembered per item type) · **Sub-initiatives** (every sub-initiative as a collapsible node with its own stories and sub-initiatives, so the whole tree is visible). Sub-initiatives are listed in the Relations tab, under Children. Right, foldable, with tabs: **Details** (external ticket & local · session · links · log work), **Relations**, **Activity** (comments) and **AI**. With folders per type only initiatives have a page; in Ticketing, projects (`#/project/<KEY>`), initiatives and PRDs do, and tickets have a **Delivery** tab too (regime, executor, branch…). |
-| **Card** | Every item without a page opens as a Trello-style modal, a little clear of the window's edges: status, title, plan, properties, description, attachments, then what hangs from it as tabs with their counts (a task's Notes and Meetings…, as on a page), links; on the side, **what it hangs from** (the parent and on up to its initiative, each a link, above the links), work log, related items and **Activity** — what happened to the item plus your comments, oldest first, with the composer at the bottom (Enter adds; `@` mentions a person). Files dropped on a card or page are attached to the item (kept in the vault's `Attachments/`). **📌 Pin** (left of ⋯) fixes the item to the top bar; **▁ Minimize**, right of it, sets the card aside on the top bar. |
+| **Initiative page** | `#/initiative/INI-0001`, two panels. Left: stats · properties · description · attachments, then what hangs from it as **tabs**, each with its count: **User stories**, **Tasks**, **Notes**, **Meetings** (in each, its quick add with Open / Closed / All beside it, then its table; the tab shown is remembered per item type) · **Sub-initiatives** (every sub-initiative as a collapsible node with its own stories and sub-initiatives, so the whole tree is visible). Sub-initiatives are listed in the Relations tab, under Children. Right, foldable, with tabs: **Details** (external ticket & local · session · links · log work), **Relations**, **Activity** (comments) and **AI**. With folders per type only initiatives have a page; in Ticketing, projects (`#/project/<KEY>`), initiatives and PRDs do (an initiative's first tab is its **Stories**), and tickets have a **Delivery** tab too, one field per row in titled groups — Readiness, Execution, Spec and release, Triage, Paused or discarded — with only the ones the type has (`DELIVERY_GROUPS` in `ticketing/definition.py`). |
+| **Card** | Every item without a page opens as a Trello-style modal, a little clear of the window's edges: status, title, plan, properties, description, attachments, then what hangs from it as tabs with their counts (a task's Notes and Meetings…, as on a page), links; on the side, **what it hangs from** (the parent and on up to its initiative, each a link, above the links), **Watchers** (initiatives, user stories and tasks: the people and groups of Contacts to tell when its status changes — a prompt for Claude lists them with how to reach each and when to use them), work log, related items and **Activity** — what happened to the item plus your comments, oldest first, with the composer at the bottom (Enter adds; `@` mentions a person). Files dropped on a card or page are attached to the item (kept in the vault's `Attachments/`). **📌 Pin** (left of ⋯) fixes the item to the top bar; **▁ Minimize**, right of it, sets the card aside on the top bar. |
 | **Top bar** | Always across the top of every view. Left, the button that shows a hidden sidebar (always there on a phone), then the **pinned items** (`<root>/.task-manager/pins.md`): a chip opens its item; drag chips to reorder them; drop any card (Week, Board, Inbox…) on the bar to pin it; × or the pin icon in the item unpins. Keyboard: Shift+←/→ moves a focused chip, Delete unpins it. Right, **🔍 Search** (the same as ⌘K, see *Search and keyboard*) and the **Claude terminal** icon: a prompt with no item behind it, with a *History* tab of the terminals opened from there (see *Work with Claude*). |
-| **Board** | Tasks as cards in lists, Trello-style, with the same filter bar as All items (type, relation, plan, label, text, show closed, show archived); it starts with tasks only, and initiatives or stories can be ticked in to sit in the list of their status. Drag a list by its header to reorder it; **⋯** sets the status it maps to, a WIP limit, rename, delete. **Each list maps to a status.** |
-| **All items** | Everything, sortable by any column; filters by type (a multi-select), relation (initiative, story, task, or *Not related*), plan, label, text, closed and archived — the same bar as the Board (`filterbar.js`), four to a row on a desktop, two on a tablet and one on a phone; each view keeps its own state. |
+| **Board** | Tasks as cards in lists, Trello-style, with the same filter bar as All items (type, relation, plan, labels, text, show closed, show archived); it starts with tasks only, and initiatives or stories can be ticked in to sit in the list of their status. Drag a task up or down to order it by hand (its `order`, within its list: Today and Week keep their own); drag a list by its header to reorder it; **⋯** sets the status it maps to, a WIP limit, rename, delete. **Each list maps to a status.** |
+| **All items** | Everything, sortable by any column; filters by type (a multi-select), relation (initiative, story, task, or *Not related*), plan, labels (any or all of those ticked), text, closed and archived — the same bar as the Board (`filterbar.js`), four to a row on a desktop, two on a tablet and one on a phone; each view keeps its own state. |
 | **Work log** | A table grouped by day with the time of each day totalled, filtered by a from–to date range. Click a row to edit or delete it. Dashed rows are *suggestions*: work you probably did but did not log (see Work log below). |
 | **Labels** | Every label as a table: add one, rename it, delete it. A rename or delete reaches every item that carries it. |
-| **People** | Everyone named as the sender of an activity or an attendee of a meeting. Each person has a **public name** (what the items store and the app shows), the **name their calendar** gives them and their **emails** (one person, several addresses; an address belongs to one person). A click edits the three. A new public name reaches every activity and meeting that names them; renaming onto someone else merges the two, emails included. A person's chip shows their Calendar name and emails on hover. |
+| **Contacts** | Two tabs, **People** (`#/contacts`; `#/people` still leads there) and **Groups** (`#/contacts/groups`). **People**: everyone named as the sender of an activity or an attendee of a meeting. Each person has a **public name** (what the items store and the app shows), the **name their calendar** gives them, their **emails** (one person, several addresses; an address belongs to one person), their ticket-system and Slack users, **When to use** (when and how to reach them: instructions an agent follows) and **Notes**, the last two on several lines. A click edits them. A new public name reaches every activity and meeting that names them, and the groups they are in; renaming onto someone else merges the two, emails included. A person's chip shows their Calendar name and emails on hover. **Groups**: people reached as one — an **email list**, a **Slack channel** or other — with its address, its **members**, **When to use** and **Notes**. A group's name is never a person's. People and groups can be @mentioned; a prompt for Claude lists each one mentioned with how to reach them, when to use them and their notes. |
 | **Transcriptions** | The text of a meeting (`TRN-0001`, folder `transcriptions/`): the body is the transcript, and each one hangs from a **meeting** (*Meeting* field). Create one from its own section, from **+ Add item**, or from the meeting's card, where a **Transcriptions** table with a quick add sits under the description (as Notes do on a task). Like a note it has links, work log and comments, and no status. Quick add: `/transcription` or `/trn`. |
 | **Agents** | A backlog of AI agents (`AGT-0001` with folders per type, folder `agents/`; `AGT-001` in Ticketing, folder `Agents/`). An agent moves through its own statuses — **Idea → Design → Build → Test → Live → Retired** (Retired closes it) — and is not planned: no Today, Week or Board. It has a priority and its reason, **Platform** (Claude Code subagent · Agent SDK · Managed Agent · n8n · Other), **Model**, **Trigger** (manual · scheduled · event) and **Tools & MCP**, and may hang from an initiative. Created with an empty description, its body starts from the sections Purpose · Inputs · Outputs · Tools · Prompt · Evaluation · Runbook. **Its folder is optional**: a vault without it still matches its structure, and the folder is made with the first agent. Quick add: `/agent` or `/agt`. |
 | **Prompts** | Reusable prompts as a table (`PRM-0001`, folder `prompts/`): subject, state, labels, created and updated, with filters (Active / Archived / All, label, text) and **Add prompt**. The body of the file is the prompt itself. Like a note it has no status: it is **active** until you archive it (⋯ → Archive). It relates to nothing, has no side panel (no links, work log or comments) and does not appear in All items, the Board or the Work log suggestions. |
@@ -553,7 +572,7 @@ Arrow keys move, Enter runs, Esc closes (`palette.js`; what matches and in what 
 
 Keys: `q` capture · `/` focus the filter · `Esc` close the top layer · `⌘\` hide or show the sidebar · `⌘⇧E`
 Explorer · `⌘⇧D` Docs · `g` then a key to go to a view. The `g` keys are the app's (`t` Today, `r` Tomorrow, `w` Week,
-`b` Board, `a` All items, `l` Work log, `h` Labels, `e` People, `d` Trash) plus each type's — folder per type: `i` Inbox,
+`b` Board, `a` All items, `l` Work log, `h` Labels, `e` Contacts, `d` Trash) plus each type's — folder per type: `i` Inbox,
 `n` Initiatives, `s` User stories, `k` Tasks, `o` Notes, `x` Transcriptions, `m` Meetings, `c` Activity, `p` Prompts;
 Ticketing: `i` Inbox, `j` Projects, `n` Initiatives, `k` Tasks, `u` Support, `f` Hotfixes, `v` PRDs, `y` Plans,
 `s` Analyses, `m` Meetings, `o` Notes, `x` Errors, `z` Learnings, `c` Activity. Settings → Keyboard lists the set of
@@ -592,7 +611,7 @@ The sidebar shows the vault in one of **two modes**, the two buttons at its top 
   one link per item type the structure has and the vault has on, without a count (Inbox, Activity and the days keep
   theirs; `static/js/main.js` builds them
   from `GET /api/structure`: a type's `nav`, `route` and `counted`), then **Docs** (under Notes), Work log, Labels,
-  People and Trash. Turning a type off in Settings → Vaults takes its link away.
+  Contacts and Trash. Turning a type off in Settings → Vaults takes its link away.
 - **Explorer** — the vault's folders and files as a tree: open, **Edit**, create, rename, move, upload and duplicate
   files, filter by name or **search in files** (see [The Explorer](#the-explorer)). It shows the files even of a
   vault that does not match its structure.
@@ -789,8 +808,9 @@ Firefox has no recognition, so no mic. macOS Dictation (Fn / 🌐) works in any 
 Labels are chips with a stable colour per name; the label field suggests labels already in use as you type
 (Enter or `,` adds, Backspace removes the last). A label or people field (Labels, Attendees, From, a file's Tags)
 keeps to **one line**: the chips that do not fit wait behind a **+N** chip; a click on it or on the field, or Tab into
-it, opens the whole list over the field to add and remove, and clicking away or Esc folds it back. Every list and the
-board can filter by one label. Statuses and
+it, opens the whole list over the field to add and remove, and clicking away or Esc folds it back. Every list, the Board
+and All items filter by labels: tick one or several, and pick **Any (OR)** or **All (AND)** at the top of the menu
+(OR unless you change it). Statuses and
 priorities are coloured pills (the same colours in every view); each type has its own colour on its icon and on
 the card's left edge.
 
@@ -925,12 +945,21 @@ Review → Testing, otherwise Analysis) and the reasons as the note. It is a heu
 edit, so older days show less. Accept one as it is, adjust it first, or dismiss it (dismissals live in this browser's
 local storage). Nothing is saved until you accept.
 
-#### Labels and People
+#### Labels and Contacts
 
-Both live on items (`labels`, an activity's `from`, a meeting's `attendees`) and in a history file of their own,
-`<root>/.task-manager/labels.md` and `people.md`, so a name can exist before any item uses it and outlive the items that
-had it. The Labels and People screens rename or delete a name on every item that carries it without touching
-their `updated_at` (`/api/labels`, `/api/people`, each with `/rename` and `/delete`).
+Labels and people live on items (`labels`, an activity's `from`, a meeting's `attendees`) and in a history file of their
+own, `<root>/.task-manager/labels.md` and `people.md`, so a name can exist before any item uses it and outlive the items
+that had it. The Labels and Contacts screens rename or delete a name on every item that carries it without touching
+their `updated_at` (`/api/labels`, `/api/people`, each with `/rename` and `/delete`). Groups are records in
+`<root>/.task-manager/groups.md` (`/api/groups`, with `/update` and `/delete`): `{name, channel, address, members, notes,
+when_to_use}`, `channel` one of email · slack · other; the same in both structures. An initiative, a user story or a task names
+its **watchers** (TSK-051) in `watchers`, a list of names of people or groups; renaming or deleting a contact reaches it.
+
+#### The browser tab's title
+
+The tab says where you are: the screen's name (*Tasks*, *Board*, *Contacts*…) or, on an item's page, the item's title. A
+card open over it names its item instead, and closing it brings back the screen's name; a screen with no name leaves
+*Task Manager*. Renaming the item renames the tab (`static/js/tabtitle.js`).
 
 #### Pinned items
 

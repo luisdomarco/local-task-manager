@@ -8,7 +8,7 @@ from datetime import date
 
 from tm import frontmatter as fm
 from tm.store import Store, StoreError
-from tm.structures.ticketing import wikilinks
+from tm.structures.ticketing import specs, wikilinks
 
 ROOT_FOLDERS = ('Tasks', 'Notes', 'Meetings', 'Inbox', 'Activities', 'Work log')
 
@@ -23,6 +23,11 @@ def write(root, rel, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         f.write(text)
+
+
+# A story its gate lets into ToDo: a scenario written and its spec impact declared.
+READY_BODY = '## Acceptance criteria\n\n#### Scenario: Pay\n- **WHEN** the cart goes to checkout\n- **THEN** it is one page\n'
+READY = {'spec_impact': 'none: a test'}
 
 
 class TicketingBase(unittest.TestCase):
@@ -240,7 +245,7 @@ class RulesTest(TicketingBase):
         ini = self.s.create('initiative', 'Algo', {'project': 'HB'})
         with self.assertRaises(StoreError) as cm:
             self.s.update(ini['id'], {'status': 'ToDo'})
-        self.assertIn('plan', str(cm.exception))  # the template gives it a size and a regime; a plan it must be given
+        self.assertIn('at least one story', str(cm.exception))  # the template gives it a size and a regime; a story it must be given
 
     def test_promote_and_close_with_what_it_became(self):
         sup = self.s.create('support', 'Algo serio', {'project': 'ECD', 'level': 'C1'})
@@ -250,12 +255,12 @@ class RulesTest(TicketingBase):
         self.assertEqual((sup['fields']['status'], sup['fields']['promoted_to'], sup['fields']['resolution']), ('OnHold', ini['id'], 'promoted'))
         with self.assertRaises(StoreError):
             self.s.item_action('escalate', sup['id'])  # already promoted
-        for status in ('ToDo', 'InProgress', 'Review', 'Done'):
-            if status == 'ToDo':  # the readiness gate, met
-                self.s.update(ini['id'], {'size': 'S', 'regime': 'standard', 'premise': 'verified',
-                                          'premise_verified': f'{date.today().isoformat()} @ abc123',
-                                          'plan': self.s.create('plan', 'Plan', {'related_to': ini['id']})['key']})
-            self.s.update(ini['id'], {'status': status})
+        story = self.s.create('story', 'Arreglarlo', {'project': 'ECD', 'related_to': ini['id'], **READY}, READY_BODY)
+        self.s.update(ini['id'], {'size': 'S', 'regime': 'standard', 'premise': 'verified',  # the readiness gate, met
+                                  'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
+        for status in ('ToDo', 'InProgress', 'Review', 'Done'):  # the initiative follows its only story
+            self.s.update(story['id'], {'status': status})
+        self.assertEqual(self.s.read(ini['id'])['fields']['status'], 'Done')
         self.assertEqual(self.s.read(sup['id'])['fields']['status'], 'Done')
         log = fm.parse(fm.split(read(self.root, self.s.read(sup['id'])['path']))[0])['status_log']
         self.assertEqual(log[-1]['by'], 'rule')
@@ -315,13 +320,163 @@ class RulesTest(TicketingBase):
         hotfixes = os.path.join(self.root, 'Internal Tools', 'Hotfixes')
         self.assertFalse(os.path.exists(hotfixes))  # a system project starts without them
         f = self.s.update(self.hb['key'], {'enabled_types': ['hotfix']})['fields']
-        self.assertEqual(f['enabled_types'], ['initiative', 'support', 'hotfix'])  # the core ones stay, in order
+        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec', 'hotfix'])  # the core ones stay, in order
         self.assertTrue(os.path.isdir(hotfixes))
         self.assertTrue(self.s.check()['ok'], self.s.check())
         self.s.create('hotfix', 'Caída', {'project': 'HB'})  # its tickets can be made now
         f = self.s.update(self.hb['key'], {'enabled_types': []})['fields']  # turned off: the folder and its tickets stay
-        self.assertEqual(f['enabled_types'], ['initiative', 'support'])
+        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec'])
         self.assertTrue(os.path.isdir(hotfixes))
+
+
+class StoryTest(TicketingBase):
+    """Stories deliver an initiative: it starts with the first, closes with the last, and a serial project counts them."""
+
+    def ready_initiative(self, project='ECD', stories=1):
+        ini = self.s.create('initiative', 'Checkout', {'project': project})
+        made = [self.s.create('story', f'Story {n}', {'project': project, 'related_to': ini['id'], **READY}, READY_BODY)
+                for n in range(stories)]
+        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
+        return ini, made
+
+    def status(self, key):
+        return self.s.read(key)['fields']['status']
+
+    def test_a_story_is_a_file_of_its_project_linked_to_its_initiative(self):
+        ini, (story,) = self.ready_initiative()
+        self.assertEqual((story['id'], story['fields']['related_to']), ('ECD-STY-001', ini['id']))
+        text = read(self.root, story['path'])
+        self.assertTrue(story['path'].startswith('Acme Web/Stories/ECD-STY-001 '), story['path'])
+        self.assertIn('initiative: "[[ECD-INI-001 Checkout]]"', text)
+        self.assertIn('## Acceptance criteria', text)
+        self.assertNotIn('kind:', read(self.root, ini['path']))  # no more umbrella / slice
+
+    def test_a_story_is_ready_with_its_initiative_approved_a_scenario_and_its_spec_impact(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        story = self.s.create('story', 'Pay', {'project': 'ECD', 'related_to': ini['id']})  # the template, untouched
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(story['id'], {'status': 'ToDo'})
+        for missing in ('initiative approved (ECD-INI-001 is in Backlog)', 'a written acceptance scenario', 'its spec impact'):
+            self.assertIn(missing, str(cm.exception))
+        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
+        self.s.update(story['id'], {'spec_impact': 'none: a test'}, body=READY_BODY.replace('the cart goes to checkout', '…'))
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(story['id'], {'status': 'ToDo'})
+        self.assertIn('a written acceptance scenario', str(cm.exception))  # "- **WHEN** …" is the template's, not one written
+        self.s.update(story['id'], {}, body=READY_BODY)
+        self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
+        loose = self.s.create('story', 'Loose', {'project': 'ECD', **READY}, READY_BODY)
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(loose['id'], {'status': 'ToDo'})
+        self.assertIn('only with its initiative', str(cm.exception))
+
+    def test_the_initiative_follows_its_stories(self):
+        ini, (a, b) = self.ready_initiative(stories=2)
+        self.s.update(a['id'], {'status': 'ToDo'})
+        self.s.update(a['id'], {'status': 'InProgress'})
+        self.assertEqual(self.status(ini['id']), 'InProgress')  # the first story started it
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(ini['id'], {'status': 'Review'})
+        self.assertIn(a['id'], str(cm.exception))  # not by hand while a story is open
+        for st in ('Review', 'Done'):
+            self.s.update(a['id'], {'status': st})
+        self.assertEqual(self.status(ini['id']), 'InProgress')  # b is still open
+        self.s.update(b['id'], {'status': 'Discarded', 'discard_reason': 'not needed after a'})
+        self.assertEqual(self.status(ini['id']), 'Done')  # the last one closed, and one was done
+        log = fm.parse(fm.split(read(self.root, self.s.read(ini['id'])['path']))[0])['status_log']
+        self.assertEqual([(e['to'], e['by']) for e in log[-2:]], [('4. InProgress', 'rule'), ('6. Done', 'rule')])
+
+    def test_every_story_discarded_leaves_the_initiative_to_its_owner(self):
+        ini, (a,) = self.ready_initiative()
+        self.s.update(a['id'], {'status': 'Discarded', 'discard_reason': 'wrong idea'})
+        self.assertEqual(self.status(ini['id']), 'ToDo')
+
+    def test_a_serial_project_counts_stories_not_the_initiative(self):
+        note = os.path.join(self.root, self.ecd['path'])
+        with open(note, encoding='utf-8') as f:
+            text = f.read()
+        with open(note, 'w', encoding='utf-8') as f:
+            f.write(fm.patch(text, {'execution_mode': 'serial'}))
+        ini, (a, b) = self.ready_initiative(stories=2)
+        for story in (a, b):
+            self.s.update(story['id'], {'status': 'ToDo'})
+        self.s.update(a['id'], {'status': 'InProgress'})  # its initiative goes InProgress too, and is not "busy"
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(b['id'], {'status': 'InProgress'})
+        self.assertIn(a['id'], str(cm.exception))
+        self.s.update(a['id'], {'status': 'Review'})
+        self.s.update(b['id'], {'status': 'InProgress'})
+
+    def test_a_project_without_a_stories_folder_still_checks(self):
+        stories = os.path.join(self.root, 'Acme Web', 'Stories')
+        self.assertTrue(os.path.isdir(stories))  # a new project has it
+        os.rmdir(stories)  # one from before stories does not
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+        self.ready_initiative()  # its first story makes it
+        self.assertTrue(os.path.isdir(stories))
+
+    def test_a_prd_s_old_umbrella_is_still_read_and_cleared_when_relinked(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        write(self.root, 'Acme Web/PRDs/ECD-PRD-001 Old.md',
+              '---\nfileClass: Ticket PRD\nid: "ECD-PRD-001"\nproject: "[[00 Acme Web]]"\nstatus_ticket: "1. Backlog"\n'
+              'umbrella: "[[ECD-INI-001 Checkout]]"\n---\n\n# Old\n')
+        self.assertEqual(self.s.read('ECD-PRD-001')['fields']['related_to'], ini['id'])
+        self.s.update('ECD-PRD-001', {'related_to': None})
+        raw = fm.parse(fm.split(read(self.root, 'Acme Web/PRDs/ECD-PRD-001 Old.md'))[0])
+        self.assertEqual((raw['initiative'], raw['umbrella']), ('', ''))
+        self.assertIsNone(self.s.read('ECD-PRD-001')['fields']['related_to'])
+
+
+VALID_SPEC = ('## Purpose\n\nPay.\n\n## Requirements\n\n### Requirement: Cart is kept\nThe system SHALL keep the cart.\n\n'
+              '#### Scenario: Leaving\n- **WHEN** the shopper leaves before paying\n- **THEN** the cart is there on return\n')
+
+
+class SpecTest(TicketingBase):
+    """A spec is a ticket of its project with statuses of its own, active only with valid requirements."""
+
+    def test_a_spec_is_a_file_of_its_project_with_its_own_statuses(self):
+        spec = self.s.create('spec', 'Checkout', {'project': 'ECD', 'capability': 'checkout'})
+        self.assertEqual((spec['id'], spec['fields']['status']), ('ECD-SPEC-001', 'draft'))
+        self.assertTrue(spec['path'].startswith('Acme Web/Specs/ECD-SPEC-001 '), spec['path'])
+        raw = fm.parse(fm.split(read(self.root, spec['path']))[0])
+        self.assertEqual((raw['status_spec'], raw['capability']), ('draft', 'checkout'))  # not "1. Backlog"
+
+    def test_it_is_active_only_with_valid_requirements(self):
+        spec = self.s.create('spec', 'Checkout', {'project': 'ECD'})  # the template's placeholders
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(spec['id'], {'status': 'active'})
+        self.assertIn('valid requirements', str(cm.exception))
+        self.s.update(spec['id'], {}, body=VALID_SPEC)
+        self.assertEqual(self.s.update(spec['id'], {'status': 'active'})['fields']['status'], 'active')
+        self.assertEqual(self.s.update(spec['id'], {'status': 'retired'})['fields']['completed_at'] is not None, True)
+
+    def test_a_story_s_ship_writes_its_sync_and_its_stories(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        story = self.s.create('story', 'Pay', {'project': 'ECD', 'related_to': ini['id']})
+        spec = self.s.create('spec', 'Checkout', {'project': 'ECD'}, VALID_SPEC)
+        out = self.s.update(spec['id'], {'stories': [story['id']], 'synced_sha': 'abc1234', 'synced_date': '2026-10-20'})['fields']
+        self.assertEqual((out['stories'], out['synced_sha']), ([story['id']], 'abc1234'))
+        self.assertIn('stories: ["[[ECD-STY-001 Pay]]"]', read(self.root, spec['path']))
+
+    def test_a_project_without_a_specs_folder_still_checks(self):
+        os.rmdir(os.path.join(self.root, 'Acme Web', 'Specs'))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+
+class SpecTextTest(unittest.TestCase):
+    """specs.problems: what keeps a spec's text from being valid."""
+
+    def test_a_valid_spec_has_no_problems(self):
+        self.assertEqual(specs.problems(VALID_SPEC), [])
+
+    def test_what_is_missing_is_named(self):
+        self.assertEqual(specs.problems('## Purpose\n'), ['no "## Requirements" section'])
+        self.assertEqual(specs.problems('## Requirements\n\nNothing yet.\n'), ['no requirement under "## Requirements"'])
+        wrong = specs.problems('## Requirements\n### Requirement: Kept\nThe cart is kept.\n'
+                               '#### Scenario: Leaving\n- **WHEN** …\n- **THEN** it is there\n'
+                               '### Requirement: Paid\nThe system MUST charge once.\n## Notes\n#### Scenario: not here\n')
+        self.assertEqual(wrong, ['scenario "Leaving" of "Kept" has no written WHEN', 'requirement "Kept" says no SHALL or MUST',
+                                 'requirement "Paid" has no scenario'])  # the scenario under ## Notes is not the spec's
 
 
 class StructureTest(unittest.TestCase):
@@ -407,3 +562,35 @@ class FavouritesTest(TicketingBase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WatchersTicketingTest(TicketingBase):
+    """TSK-051 in Ticketing: an initiative's and a task's `watchers`, written as a list of names, the rest of the file kept."""
+
+    def test_watchers_round_trip_and_touch_only_their_key(self):
+        for t in ('initiative', 'story', 'task'):
+            self.assertIn('watchers', self.s.structure.allowed_fields(t), t)
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        path = os.path.join(self.root, task['path'])
+        with open(path, encoding='utf-8') as f:
+            before = f.read()
+        self.s.update(task['key'], {'watchers': ['Ana', 'Ops']})
+        with open(path, encoding='utf-8') as f:
+            after = f.read()
+        self.assertEqual(self.s.read(task['key'])['fields']['watchers'], ['Ana', 'Ops'])
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'watchers'})
+
+
+class PlanOrderTicketingTest(TicketingBase):
+    """TSK-053 in Ticketing: `plan_order` is written as a number and touches only its key."""
+
+    def test_plan_order_round_trips_and_touches_only_its_key(self):
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        path = os.path.join(self.root, task['path'])
+        with open(path, encoding='utf-8') as f:
+            before = f.read()
+        self.s.update(task['key'], {'plan_order': 20})
+        with open(path, encoding='utf-8') as f:
+            after = f.read()
+        self.assertEqual(self.s.read(task['key'])['fields']['plan_order'], 20)
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'plan_order'})

@@ -4,7 +4,7 @@ project_key: "{{key}}"                 # 2-4 capital letters, unique in the vaul
 project_kind: product                  # system | product   (see 08-tipos-de-proyecto)
 repo: "~/github/…"                     # where the code lives
 managed_by: "~/github/…/.claude"       # the system whose agents execute this project's tickets
-living_specs: "openspec/specs"         # product: openspec/specs · system: "contracts + docs/decisions-in-force"
+living_specs: "Specs/"                 # the project's specs in the vault (Ticket Spec); a system may add "contracts + docs/decisions-in-force"
 enabled_types:                         # system projects usually drop hotfix and prd
   - initiative
   - support
@@ -38,10 +38,11 @@ The order in which approved work runs. Human decision, not computed.
 
 ## Living specs
 
-Where the current truth lives in the repo and how to validate it:
+What the system does today: one spec per capability in this project's `Specs/` folder, each active only with valid
+requirements (`### Requirement:` with SHALL / MUST, a `#### Scenario:` with WHEN and THEN). A story's Spec delta is
+merged into them when it ships.
 
-- Path: `{{living_specs}}`
-- Validate: `openspec validate --specs --strict` *(product)* · the gate *(system)*
+- Path: `Specs/` (`living_specs`)
 
 ## Rules for agents working on this project
 

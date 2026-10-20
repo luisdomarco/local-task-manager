@@ -5,7 +5,8 @@ Blocking: a root type folder missing (Tasks, Notes, Meetings, Inbox, Activities,
 neither one of those nor a project (a folder with exactly one `00 <Folder>.md` of fileClass Ticket Project and a
 valid, unique project_key); a type folder a project needs missing, or one it does not know; a ticket in the
 folder of another type; an id that is missing, malformed, of another project or type, or used twice; a ticket
-file not named `<ID> <Title>.md`; an iCloud placeholder. Only missing folders can be created by the app.
+file not named `<ID> <Title>.md`; an iCloud placeholder. Only missing folders can be created by the app. A
+project's Stories/ and Specs/ may be missing: each is made with the project's first story or spec.
 
 `Docs/` — at the top and inside a project — holds documents, never items (TSK-039): it is never missing, never
 unexpected, and nothing in it is checked, except a ticket put there by hand, which is a warning (the app does not see it).
@@ -22,10 +23,14 @@ SKIP_DIRS = {'node_modules', '__pycache__', ATTACHMENTS_DIR}  # Attachments/: fi
 
 
 def _project_folders(enabled):
-    """The type folders a project has: the fixed ones, and Hotfixes / PRDs when it enables them."""
+    """The type folders a project must have: the fixed ones, and Hotfixes / PRDs when it enables them."""
     types = ['initiative', 'support', 'plan', 'analysis', 'error', 'learning']
     types += [t for t in ('hotfix', 'prd') if t in enabled]
     return [SPEC[t]['folder'] for t in types]
+
+
+# Folders a project may lack: made with its first item (a project from before stories and specs has neither).
+MAY_LACK = (SPEC['story']['folder'], SPEC['spec']['folder'])
 
 
 def _check_docs(dirpath, rel_dir, filenames, load, warnings):
@@ -100,7 +105,7 @@ def check(root, load=None):
                 rel = f'{name}/{folder}'
                 missing.append(rel)
                 blocking.append(_finding('missing_folder', rel, f'Missing the "{folder}" folder of project {key}.'))
-        known_top = {f.split('/')[0] for f in _project_folders(['hotfix', 'prd'])} | {DOCS_FOLDER}
+        known_top = {f.split('/')[0] for f in (*_project_folders(['hotfix', 'prd']), *MAY_LACK)} | {DOCS_FOLDER}
         for sub in sorted(os.listdir(full)):
             if sub.startswith('.') or not os.path.isdir(os.path.join(full, sub)):
                 continue

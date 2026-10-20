@@ -9,11 +9,11 @@ import { openItem } from '../panel.js';
 import { GROUPS, NONE, ancestorsOf, planLabel, projectOf } from '../grouping.js';
 import { pref, saveSort, savedSort, setPref } from '../prefs.js';
 import {
-  ACTIVITY_SOURCES, PLANNABLE, PLAN_FILTERS, PRIORITIES, TYPE_DEFS, hasField, inProject, isDone, planFilter,
+  ACTIVITY_SOURCES, PLANNABLE, PLAN_FILTERS, PRIORITIES, TYPE_DEFS, hasField, inProject, isDone, labelsOf, labelsPass, planFilter,
 } from '../rules.js';
 import { byType, state } from '../state.js';
 import {
-  checkSelect, h, hasLabel, statusTreeSelect, icon, labelSelect, parentOptions, planSelect, priorityChip, select, statusChip, typeIcon,
+  checkSelect, h, statusTreeSelect, icon, labelFilter, parentOptions, planSelect, priorityChip, select, statusChip, typeIcon,
 } from '../ui.js';
 
 const SCOPES = { open: 'Open', closed: 'Closed', all: 'All' };
@@ -47,12 +47,15 @@ export function listConfig(type) {
 
 // A list's scope, grouping and filters are remembered per type (prefs.js); the search text is not.
 const DEFAULT_VIEW = {
-  scope: 'open', groupBy: null, status: [], priority: [], related: null, project: null, initiative: null, plan: 'any', label: null, from: null, to: null,
+  scope: 'open', groupBy: null, status: [], priority: [], related: null, project: null, initiative: null, plan: 'any', labels: [], labelMode: 'or', from: null, to: null,
   source: null, // an activity's source (Email, Slack…): its own select beside the scope
 };
 function loadView(type) {
   const saved = pref(`list.${type}`, null);
-  if (saved) return { ...DEFAULT_VIEW, ...saved };
+  if (saved) {
+    const { label, ...rest } = saved; // one label before TSK-052: a list of one now
+    return { ...DEFAULT_VIEW, ...rest, labels: labelsOf(saved) };
+  }
   // Before prefs.js: "Group by initiative" was an on/off switch of its own.
   let legacy = false;
   const cfg = listConfig(type);
@@ -62,10 +65,10 @@ function loadView(type) {
 
 /** How many filters narrow the list (the badge on the filter button); the scope and the search are on show. */
 const activeFilters = (v) => (v.status.length ? 1 : 0) + (v.priority.length ? 1 : 0) + (v.related ? 1 : 0)
-  + (v.project ? 1 : 0) + (v.initiative ? 1 : 0) + (v.plan !== 'any' ? 1 : 0) + (v.label ? 1 : 0) + (v.from || v.to ? 1 : 0)
+  + (v.project ? 1 : 0) + (v.initiative ? 1 : 0) + (v.plan !== 'any' ? 1 : 0) + (v.labels.length ? 1 : 0) + (v.from || v.to ? 1 : 0)
   + (v.source ? 1 : 0);
 const CLEARED = {
-  status: [], priority: [], related: null, project: null, initiative: null, plan: 'any', label: null, from: null, to: null, source: null,
+  status: [], priority: [], related: null, project: null, initiative: null, plan: 'any', labels: [], labelMode: 'or', from: null, to: null, source: null,
 };
 
 /** The list view of a type (main.js mounts one per type of the vault's structure, at #/<its route>). */
@@ -155,7 +158,7 @@ export function listView(type) {
         const initiatives = byInitiative ? select(
           parentOptions(['initiative'], 'Any initiative', { current: view.initiative, where: inProject(view.project) }),
           view.initiative, (v) => change({ initiative: v }), { 'aria-label': 'Initiative' }) : null;
-        const labels = labelSelect(view.label, (v) => change({ label: v }));
+        const labels = labelFilter(view.labels, view.labelMode, (v) => change({ labels: v.labels, labelMode: v.mode }));
         // From – to on the meeting's date; the same day in both is that day.
         const day = (key, label) => {
           const input = h('input', { type: 'date', value: view[key] || '', 'aria-label': label });
@@ -239,7 +242,7 @@ export function listView(type) {
           const priority = new Set(view.priority);
           const rows = all
             .filter((i) => !plannable || planFilter(view.plan)(i))
-            .filter((i) => hasLabel(i, view.label))
+            .filter((i) => labelsPass(i, view.labels, view.labelMode))
             .filter((i) => !closable || view.scope === 'all' || (view.scope === 'open') !== isClosed(i))
             .filter((i) => !view.source || i.fields.source === view.source)
             .filter((i) => !dated || inDateScope(view.scope, i.fields.date))

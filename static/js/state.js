@@ -2,7 +2,7 @@
 // listeners, so views stay dumb: they read `state` and call these functions.
 import { api } from './api.js';
 import { today, thisWeek, isoWeek } from './dates.js';
-import { isArchived, isDone, setStructure, statusFor } from './rules.js';
+import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
 import { pickVault } from './vault.js';
 
 export const state = {
@@ -18,7 +18,8 @@ export const state = {
   trash: [], // [{ trashed, id, type, title, original_path, deleted_at, unlinked }], most recently deleted first
   trashFiles: 0, // files taken off an item, waiting in trash/attachments/ for the trash to be emptied
   trashedFiles: [], // [{ trashed, path, kind, deleted_at }]: files and folders the Explorer deleted (trash/files/)
-  people: [], // [{ name, count, sender, attendee, calendar_name, emails, redmine, slack }], most used first: the history behind the person suggestions
+  people: [], // [{ name, count, sender, attendee, calendar_name, emails, redmine, slack, notes, when_to_use }], most used first: the history behind the person suggestions
+  groups: [], // [{ name, channel, address, members, notes, when_to_use }], by name (Contacts → Groups, TSK-050)
   labels: [], // [{ name, count, types }], most used first
   vault: null,      // { id, name, structure, path, root }: the vault this page shows (vault.js)
   vaultCheck: null, // whether its folder matches its structure (tm/structures/check.py); when not, nothing else is loaded
@@ -45,6 +46,7 @@ function forgetVaultData() {
   state.sidebar = [];
   state.worklog = [];
   state.people = [];
+  state.groups = [];
   state.labels = [];
   state.trash = [];
   state.trashFiles = 0;
@@ -77,8 +79,8 @@ export async function reload() {
       loadedOnce(); // its files still show (the Explorer), and what waits for the first load must not wait forever
       return;
     }
-    const [items, board, log, pins, sidebar, todayLists, people, labels, trash] = await Promise.all([
-      api.items(), api.board(), api.worklog(), api.pins(), api.sidebar(), api.today(), api.people(), api.labels(), api.trash(),
+    const [items, board, log, pins, sidebar, todayLists, people, groups, labels, trash] = await Promise.all([
+      api.items(), api.board(), api.worklog(), api.pins(), api.sidebar(), api.today(), api.people(), api.groups(), api.labels(), api.trash(),
     ]);
     state.all = items.items;
     state.items = state.all.filter((i) => !isArchived(i));
@@ -89,6 +91,7 @@ export async function reload() {
     state.today = todayLists;
     state.worklog = log.entries;
     state.people = people.people;
+    state.groups = groups.groups;
     state.labels = labels.labels;
     state.trash = trash.entries;
     state.trashFiles = trash.attachments || 0;
@@ -119,6 +122,8 @@ async function mutate(fn) {
 export const allLabels = () => state.labels.map((l) => l.name);
 /** Every person ever named on an item, most used first — the suggestions for person inputs. */
 export const allPeople = () => state.people.map((p) => p.name);
+/** People and groups (Contacts), for a field that takes either: an item's watchers (TSK-051). */
+export const allContacts = () => [...allPeople(), ...state.groups.map((g) => g.name)];
 export const byType = (type) => state.items.filter((i) => i.type === type);
 export const childrenOf = (id) => state.items.filter((i) => i.fields.related_to === id);
 
@@ -230,6 +235,18 @@ export const planDay = (item, day) =>
 export const planWeek = (item, week = thisWeek()) => updateItem(item.key, { plan_week: week, plan_day: null });
 export const unplan = (item) => updateItem(item.key, { plan_week: null, plan_day: null });
 
+/**
+ * A card dropped on a column of Today or Week (TSK-053): `values` move it there (its day, its week, its Today column…; {}
+ * when it stays), and it takes the place it was dropped at, `index` among `cards` (the column as shown, without it) — its
+ * `plan_order`, and the column's when it has to be numbered (rules.js placement). One reload for all of it.
+ */
+export function placeInPlan(item, values, cards, index) {
+  const patches = placement(item, cards.filter((c) => c.key !== item.key), index, 'plan_order');
+  const others = patches.filter(([c, o]) => c.key !== item.key && c.fields.plan_order !== o).map(([c, o]) => [c.key, { plan_order: o }]);
+  const mine = { ...values, plan_order: patches.find(([c]) => c.key === item.key)[1] };
+  return updateMany([...others, [item.key, mine]]).catch(() => {});
+}
+
 /** A list id from its name, unique among `taken`: "In review" → "in-review", "in-review-2"… */
 export function slugId(name, taken) {
   const base = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -277,6 +294,9 @@ export const addPerson = (name, values) => mutate(() => api.addPerson(name, valu
 export const renamePerson = (old, name) => mutate(() => api.renamePerson(old, name));
 export const deletePerson = (name) => mutate(() => api.deletePerson(name));
 export const updatePerson = (name, values) => mutate(() => api.updatePerson(name, values));
+export const addGroup = (name, values) => mutate(() => api.addGroup(name, values));
+export const updateGroup = (name, values) => mutate(() => api.updateGroup(name, values));
+export const deleteGroup = (name) => mutate(() => api.deleteGroup(name));
 export const unlogWork = (date, index) => mutate(() => api.unlogWork(date, index));
 // The trash: what was deleted, kept in <root>/.task-manager/trash until it is restored or emptied.
 export const restoreFromTrash = (trashed) => mutate(() => api.restoreTrashed(trashed));

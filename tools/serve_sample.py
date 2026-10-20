@@ -22,9 +22,9 @@ import server  # noqa: E402  (reads the real config.json once, on import: only r
 SAMPLE_VAULT = os.path.join(APP_DIR, 'sample-vault')
 SAMPLE_TICKETING = os.path.join(APP_DIR, 'sample-vault-ticketing')
 DEFAULT_PORT = 3101
-# What a sample keeps in .task-manager/ (its people, labels and used ids): the rest is what the app writes while
+# What a sample keeps in .task-manager/ (its people, groups, labels and used ids): the rest is what the app writes while
 # you use a vault, and the copy starts without it.
-KEPT = {'people.md', 'labels.md', 'ids.json'}
+KEPT = {'people.md', 'groups.md', 'labels.md', 'ids.json'}
 
 
 def copy_sample(src, dst):

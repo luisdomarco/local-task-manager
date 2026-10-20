@@ -373,6 +373,9 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .side-collapsed .person-edit { max-width: calc(100vw - 110px); }
 .person-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
 .person-fields .tag-rename { width: 100%; }
+.person-fields .field.wide { grid-column: 1 / -1; } /* notes, when to use, a group's members (TSK-050) */
+.person-fields textarea { width: 100%; resize: vertical; min-height: 64px; font: inherit; }
+.contacts-tabs { padding: 0; margin-bottom: 12px; }
 @media (max-width: 760px) { .person-fields { grid-template-columns: 1fr; } }
 .tag-edit-row .tag-rename { width: 240px; height: var(--control-h); font-size: var(--fs-sm); }
 .tag-edit-row .spacer { flex: 1; }
@@ -674,7 +677,7 @@ button.chip { cursor: pointer; font-family: inherit; min-height: 26px; }
 .chip.source { background: transparent; border-color: var(--border); }
 .chip.person { background: var(--muted); border-color: transparent; color: var(--foreground); font-weight: 500; }
 .chip.person .icon { color: var(--muted-foreground); }
-/* @[Name] in a rendered description: the person's chip, inline with the text; dashed for a name not in People */
+/* @[Name] in a rendered description: the person's (or group's) chip, inline with the text; dashed for a name not in Contacts */
 .chip.mention { display: inline-flex; vertical-align: baseline; padding: 0 6px; font-size: .95em; }
 .chip.mention.unknown { background: none; border: 1px dashed var(--border); color: var(--muted-foreground); }
 .mention-menu { min-width: 220px; max-width: 320px; }
@@ -1383,6 +1386,9 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .prop-map-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .prop-map-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .prop-map-key { font-size: var(--fs-2xs); color: var(--muted-foreground); }
+/* Delivery: one field per row, a map's keys one under another */
+.delivery-group .fields, .delivery-group .prop-map-row { grid-template-columns: minmax(0, 1fr); }
+.delivery-group .prop-map-row { gap: 8px; }
 .fields textarea { width: 100%; resize: vertical; min-height: 56px; }
 .chip.project-chip { font-family: var(--mono); font-size: var(--fs-2xs); }
 .prop-cell { font-size: var(--fs-sm); }
@@ -1547,3 +1553,4 @@ body.term-open.term-collapsed #view { padding-bottom: 60px; }
 .status-row.removed .status-name { text-decoration: line-through; opacity: .7; }
 .status-settings .warn { color: var(--st-blocked-fg); }
 .menu-item.status-leaf { padding-left: 28px; }
+.inline-icon { display: inline-flex; align-items: center; gap: 6px; }

@@ -7,6 +7,8 @@
     └── <Project>/
         ├── 00 <Project>.md            ← fileClass: Ticket Project (project_key, enabled_types, support_due_days…)
         ├── Initiatives/ Support/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
+        ├── Stories/                   ← an initiative's deliveries (made with the first story)
+        ├── Specs/                     ← what the project's system does today (made with the first spec)
         ├── Hotfixes/ PRDs/            ← when the project enables them (product projects)
         └── Docs/                      ← the project's documents (optional)
 
@@ -24,11 +26,12 @@ from .. import Structure, TypeDef, agents
 STATUSES = ('Backlog', 'ToDo', 'OnHold', 'InProgress', 'Review', 'Done', 'Discarded')
 CLOSED = frozenset({'Done', 'Discarded'})
 ERROR_STATUSES = ('open', 'mitigated', 'resolved')
+SPEC_STATUSES = ('draft', 'active', 'retired')  # a spec is active once its text is valid (specs.py)
 PRIORITIES = ('P0', 'P1', 'P2', 'P3')
 LEVELS = ('C1', 'C2', 'C3')
 EXECUTION_MODES = ('parallel', 'serial')  # serial: one InProgress at a time in the project, all types
 # The types a project's enabled_types names: the core ones every project has, then those it may leave out.
-CORE_PROJECT_TYPES = ('initiative', 'support')
+CORE_PROJECT_TYPES = ('initiative', 'story', 'support', 'spec')
 PROJECT_TYPES = (*CORE_PROJECT_TYPES, 'hotfix', 'prd')
 # KEY-TYPE-NNN (a project's ticket) or TYPE-NNN (a root type): group 1 is the prefix, group 2 the number.
 ID_RE = re.compile(r'^((?:[A-Z]{2,4}-)?[A-Z]{3,4})-(\d{3,})$')
@@ -49,14 +52,22 @@ INDEX_NOTE = '00 Index Tickets.md'
 SPEC = {
     'project': dict(file_class='Ticket Project', scope='note', folder='', code='', title='note'),
     'initiative': dict(file_class='Ticket Initiative', scope='project', folder='Initiatives', code='INI', title='id',
-                       status_key='status_ticket', parent='parent',
+                       status_key='status_ticket',
                        links=('prd', 'plan', 'origin'), multi_links=('depends_on', 'related_analyses', 'related_errors', 'related_learnings')),
+    # A story is what gets delivered: one branch, one PR, under its initiative. It replaced the initiative's
+    # `kind: umbrella / slice` (an initiative now groups stories and closes with the last of them).
+    'story': dict(file_class='Ticket Story', scope='project', folder='Stories', code='STY', title='id', status_key='status_ticket',
+                  parent='initiative', links=('plan', 'origin'), multi_links=('depends_on',)),
+    # A spec: one capability's requirements, as they are in production. A story's Spec delta is merged into it when
+    # the story ships; it never has a status of the tickets' kind.
+    'spec': dict(file_class='Ticket Spec', scope='project', folder='Specs', code='SPEC', title='id', status_key='status_spec',
+                 multi_links=('stories',)),
     'support': dict(file_class='Ticket Support', scope='project', folder='Support', code='SUP', title='id', status_key='status_ticket',
                     links=('promoted_to', 'escalated_to'), multi_links=('caused_by', 'caused_by_candidates', 'depends_on')),
     'hotfix': dict(file_class='Ticket Hotfix', scope='project', folder='Hotfixes', code='HFX', title='id', status_key='status_ticket',
                    parent='origin', links=('postmortem',), optional=True),
     'prd': dict(file_class='Ticket PRD', scope='project', folder='PRDs', code='PRD', title='id', status_key='status_ticket',
-                parent='umbrella', links=('supersedes', 'superseded_by'), optional=True),
+                parent='initiative', links=('supersedes', 'superseded_by'), optional=True),
     'plan': dict(file_class='Ticket Plan', scope='project', folder='Plans', code='', title='plan', parent='item'),
     'analysis': dict(file_class='Ticket Analysis', scope='project', folder='Analyses', code='', title='date', parent='item',
                      links=('supersedes',)),
@@ -77,6 +88,8 @@ for _spec in SPEC.values():
     _spec.setdefault('multi_links', ())
     _spec.setdefault('optional', False)
 BY_FILE_CLASS = {s['file_class']: t for t, s in SPEC.items()}
+# A parent written under its old name, still read (never written): a PRD's `umbrella:`, from before stories.
+LEGACY_PARENT = {'prd': 'umbrella'}
 
 
 def _opts(*values):
@@ -96,20 +109,30 @@ PROPS = {
                 P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude')),
     'initiative': (P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
                    P(key='regime', label='Regime', kind='select', options=_opts('standard', 'critical')),
-                   P(key='kind', label='Kind', kind='select', options=_opts('normal', 'umbrella', 'slice')),
                    P(key='area', label='Area', kind='text'),
                    P(key='objective', label='Objective', kind='textarea'),
                    P(key='premise', label='Premise', kind='select', options=_opts('unverified', 'verified', 'reframed', 'refuted')),
                    P(key='premise_verified', label='Premise verified', kind='text', placeholder='<date> @ <sha>; …'),
-                   P(key='spec_impact', label='Spec impact', kind='text'),
                    P(key='origin', label='Origin', kind='link', types=['support']),
                    P(key='prd', label='PRD', kind='link', types=['prd']),
                    P(key='plan', label='Plan', kind='link', types=['plan']),
                    P(key='depends_on', label='Depends on', kind='links', types=['initiative', 'support', 'hotfix']),
                    P(key='on_hold', label='On hold', kind='map', keys=['by', 'why', 'resume_when']),
-                   P(key='discard_reason', label='Discard reason', kind='text'),
-                   P(key='executor', label='Executor', kind='select', options=_opts('', 'claude', 'codex', 'owner')),
-                   P(key='branch', label='Branch', kind='text'), P(key='changelog_ref', label='Changelog', kind='text')),
+                   P(key='discard_reason', label='Discard reason', kind='text')),
+    'story': (P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
+              P(key='spec_impact', label='Spec impact', kind='text', placeholder='the specs it changes, or "none: <why>"'),
+              P(key='origin', label='Origin', kind='link', types=['support', 'task']),
+              P(key='plan', label='Plan', kind='link', types=['plan']),
+              P(key='depends_on', label='Depends on', kind='links', types=['story', 'support', 'hotfix']),
+              P(key='on_hold', label='On hold', kind='map', keys=['by', 'why', 'resume_when']),
+              P(key='discard_reason', label='Discard reason', kind='text'),
+              P(key='executor', label='Executor', kind='select', options=_opts('', 'claude', 'codex', 'owner')),
+              P(key='branch', label='Branch', kind='text'), P(key='baseline', label='Baseline', kind='text', placeholder='<sha> it started from'),
+              P(key='changelog_ref', label='Changelog', kind='text')),
+    'spec': (P(key='capability', label='Capability', kind='text', placeholder='checkout · weekly report · …'),
+             P(key='stories', label='Stories', kind='links', types=['story']),
+             P(key='synced_sha', label='Synced at sha', kind='text', placeholder='the commit in production it describes'),
+             P(key='synced_date', label='Synced on', kind='date')),
     'support': (P(key='level', label='Level', kind='select', options=_opts(*LEVELS), default='C2'),
                 P(key='level_base', label='Level at birth', kind='readonly'),
                 P(key='level_reason', label='Level reason', kind='text'),
@@ -159,33 +182,55 @@ PROPS = {
 TABS = {
     'project': {'details': ('execution_mode', 'enabled_types', 'support_due_days', 'repo', 'managed_by'),
                 'hidden': ('project_key', 'project_kind')},  # its key and kind head its page
-    'initiative': {'delivery': ('regime', 'premise', 'premise_verified', 'spec_impact', 'executor', 'branch', 'changelog_ref',
-                                'on_hold', 'discard_reason')},
+    'initiative': {'delivery': ('regime', 'premise', 'premise_verified', 'on_hold', 'discard_reason')},
+    'spec': {'delivery': ('synced_sha', 'synced_date')},
+    'story': {'delivery': ('spec_impact', 'executor', 'branch', 'baseline', 'changelog_ref', 'on_hold', 'discard_reason')},
     'support': {'delivery': ('executor', 'branch', 'subject_sha', 'signature', 'should_have_caught', 'on_hold', 'discard_reason')},
     'hotfix': {'delivery': ('base_branch', 'branch', 'observation_window', 'owner_review', 'changelog_ref')},
     'plan': {'delivery': ('base', 'branch', 'worktree', 'executor', 'verifier')},
     'analysis': {'delivery': ('base',)},
 }
+# The Delivery tab in groups, each under its title and in this order, one field per row (a key is in one group
+# whatever its type).
+DELIVERY_GROUPS = (
+    ('Readiness', 'check', ('regime', 'premise', 'premise_verified')),
+    ('Execution', 'terminal', ('executor', 'base', 'base_branch', 'branch', 'baseline', 'worktree', 'verifier', 'subject_sha')),
+    ('Spec and release', 'tag', ('spec_impact', 'synced_sha', 'synced_date', 'observation_window', 'owner_review', 'changelog_ref')),
+    ('Triage', 'search', ('signature', 'should_have_caught')),
+    ('Paused or discarded', 'ban', ('on_hold', 'discard_reason')),
+)
+_GROUP = {key: (n, title, ico, keys.index(key)) for n, (title, ico, keys) in enumerate(DELIVERY_GROUPS) for key in keys}
 for _name, _tabs in TABS.items():
     _where = {key: tab for tab, keys in _tabs.items() for key in keys}
-    PROPS[_name] = tuple({**p, 'tab': _where[p['key']]} if p['key'] in _where else p for p in PROPS[_name])
+    _props = [{**p, 'tab': _where[p['key']]} if p['key'] in _where else p for p in PROPS[_name]]
+    _props = [{**p, 'group': _GROUP[p['key']][1], 'group_icon': _GROUP[p['key']][2]} if p.get('tab') == 'delivery' else p
+              for p in _props]
+    # Delivery's fields in their groups' order; every other tab keeps the order they are declared in.
+    _rank = {id(p): (_GROUP[p['key']][0], _GROUP[p['key']][3]) for p in _props if p.get('tab') == 'delivery'}
+    _slots = [i for i, p in enumerate(_props) if p.get('tab') == 'delivery']
+    for _i, _p in zip(_slots, sorted((_props[i] for i in _slots), key=lambda p: _rank[id(p)])):
+        _props[_i] = _p
+    PROPS[_name] = tuple(_props)
 
 # The types that open as a page of their own, and the tables of what hangs from each there, in order.
 PAGES = {
-    'project': ('initiative', 'support', 'hotfix', 'prd', 'plan', 'analysis', 'error', 'learning'),
-    'initiative': ('prd', 'plan', 'task', 'analysis', 'error', 'learning', 'note', 'meeting'),
+    'project': ('initiative', 'story', 'spec', 'support', 'hotfix', 'prd', 'plan', 'analysis', 'error', 'learning'),
+    'initiative': ('story', 'prd', 'plan', 'task', 'analysis', 'error', 'learning', 'note', 'meeting'),
     'prd': ('task', 'analysis', 'note', 'meeting'),
 }
 # What an item's parent is to it, as its Relations tab titles it (the parent field's name in the file).
-PARENT_LABEL = {'initiative': 'Umbrella', 'prd': 'Umbrella', 'hotfix': 'Origin', 'plan': 'Item', 'analysis': 'Item',
+PARENT_LABEL = {'story': 'Initiative', 'prd': 'Initiative', 'hotfix': 'Origin', 'plan': 'Item', 'analysis': 'Item',
                 'error': 'Found in', 'learning': 'From', 'activity': 'About', 'agent': 'Agent of'}
 
 # The app's own fields every ticket may carry (planning, comments, Claude sessions…), besides its own.
 APP_FIELDS = ('related_to', 'relations', 'project', 'url', 'url_label', 'links', 'archived', 'session_name', 'local_path',
-              'ticket_id', 'ticket_url', 'plan_week', 'plan_day', 'today_list', 'completed_at', 'labels', 'comments', 'claude_sessions')
+              'ticket_id', 'ticket_url', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'comments', 'claude_sessions')
 OWN_FIELDS = {
     'project': (),
-    'initiative': ('status', 'priority', 'priority_reason', 'due', 'sidebar', 'docs'),  # docs: TSK-039 (store.clean_docs)
+    # docs: TSK-039 (store.clean_docs); watchers: the people and groups of Contacts to tell when it changes status (TSK-051)
+    'initiative': ('status', 'priority', 'priority_reason', 'due', 'sidebar', 'docs', 'watchers'),
+    'story': ('status', 'priority', 'priority_reason', 'due', 'docs', 'watchers'),
+    'spec': ('status',),
     'support': ('status', 'due'),
     'hotfix': ('status', 'due'),
     'prd': ('status', 'due'),
@@ -193,7 +238,7 @@ OWN_FIELDS = {
     'analysis': (),
     'error': ('status',),
     'learning': (),
-    'task': ('status', 'priority', 'priority_reason', 'due', 'list', 'order', 'docs'),
+    'task': ('status', 'priority', 'priority_reason', 'due', 'list', 'order', 'docs', 'watchers'),
     'note': (),
     'meeting': ('date', 'time', 'duration', 'attendees', 'event_id'),
     'inbox': (),
@@ -202,13 +247,13 @@ OWN_FIELDS = {
 }
 PARENTS = {
     'project': (), 'support': (), 'inbox': (),
-    'initiative': ('initiative',), 'hotfix': ('support',), 'prd': ('initiative',),
-    'plan': ('initiative', 'support'), 'analysis': ('initiative', 'support', 'hotfix', 'prd'),
-    'error': ('initiative', 'support', 'hotfix'), 'learning': ('initiative', 'support', 'hotfix'),
-    'task': ('initiative', 'support', 'hotfix', 'prd'),
-    'note': ('initiative', 'support', 'hotfix', 'prd', 'task'),
-    'meeting': ('initiative', 'support', 'hotfix', 'prd', 'task'),
-    'activity': ('initiative', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'),
+    'initiative': (), 'story': ('initiative',), 'spec': (), 'hotfix': ('support',), 'prd': ('initiative',),
+    'plan': ('initiative', 'story', 'support'), 'analysis': ('initiative', 'story', 'support', 'hotfix', 'prd'),
+    'error': ('initiative', 'story', 'support', 'hotfix'), 'learning': ('initiative', 'story', 'support', 'hotfix'),
+    'task': ('initiative', 'story', 'support', 'hotfix', 'prd'),
+    'note': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task'),
+    'meeting': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task'),
+    'activity': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'),
     'agent': ('initiative',),
 }
 
@@ -222,32 +267,38 @@ LISTS = {
     'project': {'sort': {'col': 'subject', 'dir': 1}, 'relation': None, 'scopes': None,
                 'columns': ['subjectPlain', 'prop:project_key:Key', 'prop:project_kind:Kind', 'prop:execution_mode:Execution', 'updated']},
     'initiative': {'sort': {'col': 'priority', 'dir': 1}, 'relation': None, 'scopes': 'status',
-                   'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'extref', 'labels', 'progress', 'project', 'parent:Umbrella', 'updated'],
+                   'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'extref', 'labels', 'progress', 'project', 'updated'],
                    'group_by': ['project', 'status', 'priority', 'plan']},
+    'story': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
+              'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'labels', 'progress', 'project', 'parent:Initiative', 'updated'],
+              'group_by': ['initiative', 'project', 'status', 'priority', 'plan']},
+    'spec': {'sort': {'col': 'subject', 'dir': 1}, 'relation': None, 'scopes': 'status',
+             'columns': [*LIST_COLS, 'prop:capability:Capability', 'prop:synced_date:Synced', 'labels', 'project', 'updated'],
+             'group_by': ['project', 'status']},
     'support': {'sort': {'col': 'due', 'dir': 1}, 'relation': None, 'scopes': 'status',
                 'columns': [*LIST_COLS, 'prop:level:Level', 'plan', 'due', 'prop:origin:Origin', 'prop:occurrences:×', 'prop:disposition:Disposition', 'labels', 'project', 'updated'],
                 'group_by': ['project', 'status', 'plan']},
     'hotfix': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['support'], 'scopes': 'status',
                'columns': [*LIST_COLS, 'prop:severity:Severity', 'plan', 'due', 'labels', 'project', 'parent:Origin', 'updated'], 'group_by': ['project', 'status']},
     'prd': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
-            'columns': [*LIST_COLS, 'labels', 'project', 'parent:Umbrella', 'updated'], 'group_by': ['initiative', 'project', 'status']},
-    'plan': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'support'], 'scopes': None,
+            'columns': [*LIST_COLS, 'labels', 'project', 'parent:Initiative', 'updated'], 'group_by': ['initiative', 'project', 'status']},
+    'plan': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support'], 'scopes': None,
              'columns': ['subjectPlain', 'prop:lane:Lane', 'prop:executor:Executor', 'project', 'initiative', 'related:Item', 'updated'], 'group_by': ['initiative', 'project']},
-    'analysis': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix', 'prd'], 'scopes': None,
+    'analysis': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd'], 'scopes': None,
                  'columns': ['subjectPlain', 'prop:kind:Kind', 'project', 'initiative', 'related:Item', 'created', 'updated'], 'group_by': ['initiative', 'project']},
-    'error': {'sort': {'col': 'status', 'dir': 1}, 'relation': ['initiative', 'support', 'hotfix'], 'scopes': 'status',
+    'error': {'sort': {'col': 'status', 'dir': 1}, 'relation': ['initiative', 'story', 'support', 'hotfix'], 'scopes': 'status',
               'columns': [*LIST_COLS, 'prop:severity:Severity', 'prop:impact:Impact', 'project', 'initiative', 'related:Found in', 'updated'], 'group_by': ['initiative', 'project']},
-    'learning': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix'], 'scopes': None,
+    'learning': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix'], 'scopes': None,
                  'columns': ['id', 'subject', 'prop:impact:Impact', 'prop:applies_to:Applies to', 'project', 'initiative', 'related:From', 'created'], 'group_by': ['initiative', 'project']},
-    'task': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix', 'prd'], 'scopes': 'status',
+    'task': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd'], 'scopes': 'status',
              'relation_label': 'Ticket', 'relation_any': 'Any ticket',
              'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'labels', 'project', 'initiative', 'related:Related to', 'updated'],
              'group_by': ['initiative', 'project', 'status', 'priority', 'plan']},
-    'note': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix', 'prd', 'task'], 'scopes': None,
+    'note': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task'], 'scopes': None,
              'columns': ['id', 'subject', 'labels', 'project', 'initiative', 'related:Related to', 'created', 'updated'], 'group_by': ['initiative', 'project']},
-    'meeting': {'sort': {'col': 'date', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix', 'prd', 'task'], 'scopes': 'date',
+    'meeting': {'sort': {'col': 'date', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task'], 'scopes': 'date',
                 'columns': ['id', 'subject', 'labels', 'date', 'time', 'duration', 'attendees', 'project', 'initiative', 'related:Related to', 'updated'], 'group_by': ['initiative', 'project']},
-    'activity': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'],
+    'activity': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'],
                  'scopes': 'resolution', 'columns': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'related:About', 'project', 'initiative', 'resolved', 'updated', 'created'], 'group_by': ['initiative', 'project']},
     'agent': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
               'columns': [*LIST_COLS, 'priority', 'prop:platform:Platform', 'prop:trigger:Trigger', 'labels', 'project', 'initiative', 'updated'],
@@ -255,29 +306,31 @@ LISTS = {
 }
 # [label, plural, icon, route, nav, counted, go key, quick-add tokens], in the order the create form offers them. The type
 # lists carry no count in the sidebar; only the capture links (Inbox, Activity) do.
-# The sidebar: the work (projects, initiatives, tasks) | support and hotfixes | PRDs, plans, analyses | meetings and
-# notes | errors and learnings | agents, each `section` split from the next by a line.
+# The sidebar: the work (projects, initiatives, stories, tasks) | support and hotfixes | specs | PRDs, plans, analyses |
+# meetings and notes | errors and learnings | agents, each `section` split from the next by a line.
 SHOWN = {
-    'support': ['Support', 'Support', 'lifebuoy', 'support', {'group': 'types', 'order': 4, 'section': 2}, '', 'u', ['/sup', '/support']],
+    'support': ['Support', 'Support', 'lifebuoy', 'support', {'group': 'types', 'order': 5, 'section': 2}, '', 'u', ['/sup', '/support']],
     'initiative': ['Initiative', 'Initiatives', 'target', 'initiatives', {'group': 'types', 'order': 2, 'section': 1}, '', 'n', ['/ini', '/initiative']],
-    'task': ['Task', 'Tasks', 'task', 'tasks', {'group': 'types', 'order': 3, 'section': 1}, '', 'k', ['/task']],
-    'hotfix': ['Hotfix', 'Hotfixes', 'flame', 'hotfixes', {'group': 'types', 'order': 5, 'section': 2}, '', 'f', ['/hfx', '/hotfix']],
-    'prd': ['PRD', 'PRDs', 'book', 'prds', {'group': 'types', 'order': 6, 'section': 3}, '', 'v', ['/prd']],
-    'plan': ['Plan', 'Plans', 'list', 'plans', {'group': 'types', 'order': 7, 'section': 3}, '', 'y', ['/plan']],
-    'analysis': ['Analysis', 'Analyses', 'search', 'analyses', {'group': 'types', 'order': 8, 'section': 3}, '', 's', ['/analysis']],
-    'error': ['Error', 'Errors', 'alert', 'errors', {'group': 'types', 'order': 11, 'section': 5}, '', 'x', ['/err', '/error']],
-    'learning': ['Learning', 'Learnings', 'lightbulb', 'learnings', {'group': 'types', 'order': 12, 'section': 5}, '', 'z', ['/lrn', '/learning']],
-    'meeting': ['Meeting', 'Meetings', 'users', 'meetings', {'group': 'types', 'order': 9, 'section': 4}, '', 'm', ['/meeting', '/mtg']],
-    'note': ['Note', 'Notes', 'note', 'notes', {'group': 'types', 'order': 10, 'section': 4}, '', 'o', ['/note']],
-    'agent': [agents.LABEL, agents.PLURAL, agents.ICON, agents.ROUTE, {'group': 'types', 'order': 13, 'section': 6}, '', '', list(agents.TOKENS)],
+    'story': ['Story', 'Stories', 'flag', 'stories', {'group': 'types', 'order': 3, 'section': 1}, '', 'p', ['/sty', '/story']],
+    'task': ['Task', 'Tasks', 'task', 'tasks', {'group': 'types', 'order': 4, 'section': 1}, '', 'k', ['/task']],
+    'spec': ['Spec', 'Specs', 'checklist', 'specs', {'group': 'types', 'order': 7, 'section': 3}, '', '', ['/spec']],
+    'hotfix': ['Hotfix', 'Hotfixes', 'flame', 'hotfixes', {'group': 'types', 'order': 6, 'section': 2}, '', 'f', ['/hfx', '/hotfix']],
+    'prd': ['PRD', 'PRDs', 'book', 'prds', {'group': 'types', 'order': 8, 'section': 4}, '', 'v', ['/prd']],
+    'plan': ['Plan', 'Plans', 'list', 'plans', {'group': 'types', 'order': 9, 'section': 4}, '', 'y', ['/plan']],
+    'analysis': ['Analysis', 'Analyses', 'search', 'analyses', {'group': 'types', 'order': 10, 'section': 4}, '', 's', ['/analysis']],
+    'error': ['Error', 'Errors', 'alert', 'errors', {'group': 'types', 'order': 13, 'section': 6}, '', 'x', ['/err', '/error']],
+    'learning': ['Learning', 'Learnings', 'lightbulb', 'learnings', {'group': 'types', 'order': 14, 'section': 6}, '', 'z', ['/lrn', '/learning']],
+    'meeting': ['Meeting', 'Meetings', 'users', 'meetings', {'group': 'types', 'order': 11, 'section': 5}, '', 'm', ['/meeting', '/mtg']],
+    'note': ['Note', 'Notes', 'note', 'notes', {'group': 'types', 'order': 12, 'section': 5}, '', 'o', ['/note']],
+    'agent': [agents.LABEL, agents.PLURAL, agents.ICON, agents.ROUTE, {'group': 'types', 'order': 15, 'section': 7}, '', '', list(agents.TOKENS)],
     'activity': ['Activity', 'Activity', 'mail', 'activity', {'group': 'capture', 'order': 2, 'always': True}, 'open', 'c', ['/activity', '/act']],
     'inbox': ['Inbox', 'Inbox', 'inbox', 'inbox', {'group': 'capture', 'order': 1, 'always': True}, 'all', 'i', ['/inbox']],
     'project': ['Project', 'Projects', 'folder', 'projects', {'group': 'types', 'order': 1, 'section': 1}, '', 'j', []],
 }
-PLANNABLE = {'initiative', 'support', 'hotfix', 'prd', 'task'}
+PLANNABLE = {'initiative', 'story', 'support', 'hotfix', 'prd', 'task'}
 # The types with statuses of their own, not the tickets' "1. Backlog" … "7. Discarded": written to disk as they are.
-OWN_STATUSES = {'error': ERROR_STATUSES, 'agent': agents.STATUSES}
-OWN_CLOSED = {'error': frozenset({'resolved'}), 'agent': agents.CLOSED}
+OWN_STATUSES = {'error': ERROR_STATUSES, 'agent': agents.STATUSES, 'spec': SPEC_STATUSES}
+OWN_CLOSED = {'error': frozenset({'resolved'}), 'agent': agents.CLOSED, 'spec': frozenset({'retired'})}
 
 
 def _type(name):

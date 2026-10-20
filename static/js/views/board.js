@@ -5,7 +5,7 @@
 import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
 import { createFilters } from '../filterbar.js';
-import { STATUSES, anyStatusRank, isClosedStatus, isDone } from '../rules.js';
+import { STATUSES, anyStatusRank, byManualOrder, isClosedStatus, isDone, placement } from '../rules.js';
 
 // The board's lists pick from every status of the vault, by group then order (Settings → Item type status).
 const boardStatuses = () => [...STATUSES].sort((a, b) => anyStatusRank(a) - anyStatusRank(b));
@@ -18,26 +18,10 @@ import { cssKey, dropZone, dropdown, h, icon, itemCard, select } from '../ui.js'
 // Tasks start ticked; initiatives and stories can be ticked too and sit in the list of their status.
 const flt = createFilters({ types: ['task', 'initiative', 'story'], selected: ['task'], showDone: true });
 
-const byOrder = (a, b) => (a.fields.order ?? Infinity) - (b.fields.order ?? Infinity)
-  || String(a.fields.created_at || '').localeCompare(String(b.fields.created_at || ''));
+const byOrder = byManualOrder((a, b) => String(a.fields.created_at || '').localeCompare(String(b.fields.created_at || '')), 'order');
 
 /** The tasks the board shows: filtered, in card order. */
 const boardTasks = () => flt.source().filter(flt.matches).sort(byOrder);
-
-/** Orders for dropping `item` at `index` among `cards` (dragged item excluded). */
-function placement(item, cards, index) {
-  const orders = cards.map((c) => c.fields.order);
-  const prev = index > 0 ? orders[index - 1] : null;
-  const next = index < cards.length ? orders[index] : null;
-  const gapless = (index > 0 && typeof prev !== 'number') || (index < cards.length && typeof next !== 'number')
-    || (typeof prev === 'number' && typeof next === 'number' && next - prev < 1e-6);
-  if (gapless) { // renumber the whole column in steps of 10
-    const seq = [...cards.slice(0, index), item, ...cards.slice(index)];
-    return seq.map((c, i) => [c, i * 10]);
-  }
-  const order = prev === null && next === null ? 0 : prev === null ? next - 10 : next === null ? prev + 10 : (prev + next) / 2;
-  return [[item, order]];
-}
 
 async function drop(key, list, index) {
   const item = state.items.find((i) => i.key === key);

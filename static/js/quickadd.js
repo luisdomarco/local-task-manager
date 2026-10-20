@@ -8,7 +8,7 @@
 //   +label                       label
 //   session:name                 session_name (the Claude session handling it)
 import { addDays, isoWeek, nextDow, relDay, shiftWeek, thisWeek, today } from './dates.js';
-import { PARENT_TYPES, PLANNABLE, PRIORITIES, onStructure } from './rules.js';
+import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './rules.js';
 import { createItem, state, toast } from './state.js';
 import { h, icon, labelChip, priorityChip } from './ui.js';
 import { withMic } from './dictation.js';
@@ -62,7 +62,7 @@ export function parseQuick(text, defaults = {}) {
 
 function preview(p) {
   const v = p.values;
-  const parts = [h('span', { class: `chip t-${p.type}` }, p.type)];
+  const parts = [h('span', { class: `chip t-${p.type}` }, TYPE_DEFS[p.type]?.label || p.type)];
   if (v.related_to) parts.push(h('span', { class: 'chip parent' }, state.byId.get(v.related_to)?.title || v.related_to));
   if (v.priority) parts.push(priorityChip(v.priority));
   if (v.url) parts.push(h('span', { class: 'chip link' }, icon('link', 12), v.url));

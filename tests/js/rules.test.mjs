@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, planFilter,
+  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, placement, planFilter,
 } from '../../static/js/rules.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -17,6 +17,49 @@ describe('rules', () => {
     assert.equal(isDone(task({ status: 'InProgress' })), false);
     assert.equal(isDone({ type: 'activity', fields: { resolved_at: '2026-10-14T10:00' } }), true);
     assert.equal(isDone({ type: 'activity', fields: { status: 'Done' } }), false); // an activity has no status
+  });
+
+  it('orders by hand where cards were placed, the rest after them as the fallback sorts (TSK-053)', () => {
+    const c = (id, fields) => ({ id, type: 'task', fields });
+    const cards = [c('low', { priority: 'Low' }), c('b', { plan_order: 20 }), c('urgent', { priority: 'Urgent' }), c('a', { plan_order: 10 })];
+    const byPrio = (x, y) => ({ Urgent: 1, Low: 4 }[x.fields.priority] || 3) - ({ Urgent: 1, Low: 4 }[y.fields.priority] || 3);
+    assert.deepEqual([...cards].sort(byManualOrder(byPrio)).map((x) => x.id), ['a', 'b', 'urgent', 'low']);
+    assert.deepEqual([...cards].sort(byManualOrder(byPrio, 'order')).map((x) => x.id), ['urgent', 'b', 'a', 'low']); // no `order`: all by priority
+  });
+
+  it('places a dropped card between two placed ones, or numbers the column when it must (TSK-053)', () => {
+    const c = (id, n) => ({ id, fields: n === undefined ? {} : { plan_order: n } });
+    const moved = c('x');
+    const placed = [c('a', 0), c('b', 10), c('c', 20)];
+    assert.deepEqual(placement(moved, placed, 1, 'plan_order').map(([k, n]) => [k.id, n]), [['x', 5]]);
+    assert.deepEqual(placement(moved, placed, 0, 'plan_order').map(([k, n]) => [k.id, n]), [['x', -10]]);
+    assert.deepEqual(placement(moved, placed, 3, 'plan_order').map(([k, n]) => [k.id, n]), [['x', 30]]);
+    assert.deepEqual(placement(moved, [], 0, 'plan_order').map(([k, n]) => [k.id, n]), [['x', 0]]);
+    // a column never ordered by hand: numbered as it is shown, the card where it was dropped
+    const fresh = [c('a'), c('b'), c('c')];
+    assert.deepEqual(placement(moved, fresh, 2, 'plan_order').map(([k, n]) => [k.id, n]), [['a', 0], ['b', 10], ['x', 20], ['c', 30]]);
+    assert.deepEqual(placement(moved, [c('a', 0)], 1).map(([k, n]) => [k.id, n]), [['a', 0], ['x', 10]]); // `order` by default: none there
+  });
+
+  it('filters by labels: any of them (OR) or all of them (AND); none picked lets everything through', () => {
+    const both = task({ labels: ['web', 'urgent'] });
+    const web = task({ labels: ['web'] });
+    const bare = task({});
+    assert.equal(labelsPass(bare, []), true);
+    assert.equal(labelsPass(bare, null), true);
+    assert.equal(labelsPass(web, ['web']), true);
+    assert.equal(labelsPass(bare, ['web']), false);
+    assert.deepEqual([both, web, bare].map((i) => labelsPass(i, ['web', 'urgent'], 'or')), [true, true, false]);
+    assert.deepEqual([both, web, bare].map((i) => labelsPass(i, ['web', 'urgent'], 'and')), [true, false, false]);
+    assert.equal(labelsPass(web, ['web', 'urgent']), true); // OR unless told otherwise
+    assert.equal(labelsPass(task({ labels: ['Web'] }), ['web']), false); // labels are case-sensitive, as the server keeps them
+  });
+
+  it('reads a filter saved before TSK-052 (one label) as a list of one', () => {
+    assert.deepEqual(labelsOf({ label: 'web' }), ['web']);
+    assert.deepEqual(labelsOf({ label: null }), []);
+    assert.deepEqual(labelsOf({ labels: ['a', 'b'], label: 'old' }), ['a', 'b']);
+    assert.deepEqual(labelsOf(null), []);
   });
 
   it('archives only on an explicit true', () => {

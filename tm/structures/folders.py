@@ -25,14 +25,17 @@ ID_PAD = 4
 COMMON_TAIL = ['related_to', 'relations', 'url', 'url_label', 'links', 'archived', 'session_name']
 TYPE_FIELDS = {
     'initiative': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'sidebar', 'redmine_id', 'redmine_url', 'local_path',
-                   'due', 'plan_week', 'plan_day', 'today_list', 'completed_at', 'labels', 'docs', 'comments', 'claude_sessions'],
+                   'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     # A user story: what an initiative is made of and tasks hang from. It stands on its own too
     # (no initiative needed). Its own fields beyond these are still to be defined.
     'story': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'redmine_id', 'redmine_url', 'local_path',
-              'due', 'plan_week', 'plan_day', 'today_list', 'completed_at', 'labels', 'docs', 'comments', 'claude_sessions'],
+              'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     'task': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'list', 'order', 'due', 'plan_week',
-             'plan_day', 'today_list', 'completed_at', 'labels', 'docs', 'comments', 'claude_sessions'],
+             'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
+    # `plan_order` (initiative, story, task): its place among the cards of its day, or of its week when no day, on Today
+    # and Week, where you order them by hand (TSK-053); the Board has its own, `order`, within its list.
     # `docs` (initiative, story, task): what it links in the vault's Docs (TSK-039), [[a doc]] or a folder/ (store.clean_docs)
+    # `watchers` (initiative, story, task): the people and groups of Contacts to tell when it changes status (TSK-051)
     'note': [*COMMON_TAIL, 'labels', 'comments', 'claude_sessions'],
     # The text of a meeting (a recording turned into text): the body is the transcript, `related_to` is the meeting.
     'transcription': [*COMMON_TAIL, 'labels', 'comments', 'claude_sessions'],

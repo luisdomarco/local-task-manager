@@ -32,7 +32,7 @@ class SidebarTest(unittest.TestCase):
                                            '|', 'Agents'])
 
     def test_ticketing_in_sections(self):
-        self.assertEqual(sidebar(get('ticketing')), ['Projects', 'Initiatives', 'Tasks', '|', 'Support', 'Hotfixes', '|',
+        self.assertEqual(sidebar(get('ticketing')), ['Projects', 'Initiatives', 'Stories', 'Tasks', '|', 'Support', 'Hotfixes', '|', 'Specs', '|',
                                                      'PRDs', 'Plans', 'Analyses', '|', 'Meetings', 'Notes', '|',
                                                      'Errors', 'Learnings', '|', 'Agents'])
 

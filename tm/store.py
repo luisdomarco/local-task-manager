@@ -146,17 +146,22 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'priority must be one of {priorities}')
     if values.get('source') and values['source'] not in ACTIVITY_SOURCES:
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
+    if 'plan_order' in values:  # a card's place on Today and Week (TSK-053): a number, or none
+        v = values['plan_order']
+        if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
+            raise StoreError(400, 'plan_order must be a number')
+        values['plan_order'] = v if v not in (None, '') else None
     if 'sidebar' in values:  # whether an initiative is listed in the sidebar
         values['sidebar'] = bool(values['sidebar'])
     if 'resolved' in values:  # an action, never stored: see Store.update
         values['resolved'] = bool(values['resolved'])
-    for key in ('from', 'attendees'):  # people: always a list; an activity's sender may be empty, attendees default to []
+    for key in ('from', 'attendees', 'watchers'):  # people: always a list; an activity's sender may be empty, the rest default to []
         if key in values:
             raw = values[key]
-            if key == 'attendees' and isinstance(raw, str):
+            if key in ('attendees', 'watchers') and isinstance(raw, str):
                 raw = raw.split(',')
             names = clean_people(raw)
-            values[key] = names if names or key == 'attendees' else None
+            values[key] = names if names or key != 'from' else None
     if 'time' in values:  # when a meeting starts or an activity came, HH:MM on a 24 h clock; blank means "not known"
         raw = str(values['time'] if values['time'] is not None else '').strip()
         m = TIME_RE.match(raw)
@@ -710,7 +715,7 @@ class Store:
                 fields['resolved_at'] = stamp
             fields['created_at'] = stamp
             fields['updated_at'] = stamp
-            self._remember_people(clean_people(fields.get('from')) + clean_people(fields.get('attendees')))
+            self._remember_people(clean_people(fields.get('from')) + clean_people(fields.get('attendees')) + self._watching_people(fields))
             self._remember_labels(fields.get('labels'))
             folder = self.abs(self.folders[item_type])
             os.makedirs(folder, exist_ok=True)
@@ -763,7 +768,7 @@ class Store:
             if os.path.exists(path):
                 raise StoreError(409, f'already exists: {rel}')
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            self._remember_people(clean_people(vals.get('from')) + clean_people(vals.get('attendees')))
+            self._remember_people(clean_people(vals.get('from')) + clean_people(vals.get('attendees')) + self._watching_people(vals))
             self._remember_labels(vals.get('labels'))
             atomic_write(path, text, exclusive=True)
         return self.read(item_id or rel)
@@ -979,7 +984,7 @@ class Store:
             if 'plan_day' in values and values['plan_day'] != it['fields'].get('plan_day') and 'today_list' not in values:
                 values['today_list'] = None
             values['updated_at'] = stamp
-            self._remember_people(clean_people(values.get('from')) + clean_people(values.get('attendees')))
+            self._remember_people(clean_people(values.get('from')) + clean_people(values.get('attendees')) + self._watching_people(values))
             self._remember_labels(values.get('labels'))
             if self.structure.codec:
                 return self.read(self._write_coded(it, values, body, text, path, stamp))
@@ -1028,7 +1033,7 @@ class Store:
             if fields.get('resolution'):
                 fields['resolved_at'] = stamp
             fields['converted_from'] = it['id']
-            self._remember_people(clean_people(fields.get('from')) + clean_people(fields.get('attendees')))
+            self._remember_people(clean_people(fields.get('from')) + clean_people(fields.get('attendees')) + self._watching_people(fields))
             self._remember_labels(fields.get('labels'))
             fields['created_at'] = old.get('created_at') or stamp
             fields['updated_at'] = stamp
@@ -1185,6 +1190,7 @@ class Store:
         add('Related to', f"{parent['id']} · {parent['title']}" if parent else f.get('related_to'))
         add('Related', ', '.join(f"{r['id']} · {r['title']}" for r in self.related_of(it)) if it['id'] else None)
         add('Labels', ', '.join(f.get('labels') or []))
+        add('Watchers', ', '.join(f.get('watchers') or []))
         ext = self.structure.external_ref  # the outside tracker: Redmine in the folder-per-type structure
         add(ext['label'], ' '.join(x for x in (f.get(ext['id_key']) and f"#{f[ext['id_key']]}", f.get(ext['url_key'])) if x))
         add('Local path', f.get('local_path'))
@@ -1195,7 +1201,7 @@ class Store:
             facts += [f"  - {l.get('label') or 'Link'}: {l.get('url')}" for l in links]
         body = (it.get('body') or '').strip()
         comments = [c.get('text') for c in f.get('comments') or [] if isinstance(c, dict)]
-        tail_people = self.mentions_note(body, *comments, instruction)
+        tail_people = self.watchers_note(f.get('watchers')) + self.mentions_note(body, *comments, instruction)
         head = f"I want to work on this item from my task manager.\n\n# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
         tail = f"{tail_people}\n\n## What I want\n\n{(instruction or '').strip() or CLAUDE_DEFAULT_INSTRUCTION}\n"
         room = CLAUDE_MAX_PROMPT - len((head + tail).encode('utf-8')) - 200
@@ -1206,15 +1212,26 @@ class Store:
             head += f'\n\n## Description\n\n{body}'
         return head + tail
 
+    def _contact_lines(self, names):
+        known = {r['name'].lower(): r for r in self._people_records()}
+        groups = {g['name'].lower(): g for g in self._group_records()}
+        return '\n'.join(people.contact_line(n, known.get(n.lower()), groups.get(n.lower())) for n in names)
+
+    def watchers_note(self, names):
+        """For a prompt: the item's watchers (TSK-051) and how to reach each, to tell them when its status changes.
+        '' when it has none."""
+        names = clean_people(names)
+        if not names:
+            return ''
+        return '\n\n## Watchers\n\nTell them when its status changes, as each one says:\n\n' + self._contact_lines(names)
+
     def mentions_note(self, *texts):
         """For a prompt: the people the texts mention (@[Name]) and how to reach them, so that "send this to
         @[Ana]" carries Ana's email, Slack and Redmine user. '' when nobody is mentioned."""
         names = people.mentions(*texts)
         if not names:
             return ''
-        known = {r['name'].lower(): r for r in self._people_records()}
-        lines = [people.contact_line(n, known.get(n.lower())) for n in names]
-        return '\n\n## People mentioned\n\n' + '\n'.join(lines)
+        return '\n\n## People mentioned\n\n' + self._contact_lines(names)
 
     def claude_cwd(self, key, fallback=''):
         """Where Claude should start: the item's Local path, else its parent's (up to five levels), else its
@@ -2463,6 +2480,7 @@ class Store:
     REGISTRIES = {
         'labels': ('# Labels', 'Every label created or used, for suggestions and for the Labels screen.'),
         'people': ('# People', 'Every person named as the sender of an activity or an attendee of a meeting, for suggestions.'),
+        'groups': ('# Groups', 'Groups of people reached as one: an email list, a Slack channel… (Contacts → Groups).'),
     }
 
     def _registry_path(self, kind):
@@ -2531,6 +2549,11 @@ class Store:
     def _remember_people(self, names):
         self._remember('people', names)
 
+    def _watching_people(self, fields):
+        """The watchers (TSK-051) of `fields` that are people: a name that is not a group is remembered as a person."""
+        groups = {g['name'].lower() for g in self._group_records()}
+        return [n for n in clean_people(fields.get('watchers')) if n.lower() not in groups]
+
     def _remember_labels(self, names):
         self._remember('labels', names)
 
@@ -2562,6 +2585,35 @@ class Store:
                     out = fm.patch(out, {'comments': moved}, None)
             if out != text:
                 atomic_write(path, out)
+
+    def _retarget_name(self, it, field, key, new):
+        """`field` of item `it` (a list of names) with the name `key` (lower case) made `new`, or dropped (None)."""
+        have = clean_people(it['fields'].get(field))
+        if not any(n.lower() == key for n in have):
+            return
+        out = []
+        for n in have:
+            if n.lower() == key:
+                if new is None:
+                    continue
+                n = new
+            if n.lower() not in {o.lower() for o in out}:
+                out.append(n)
+        self._patch_fields(it, {field: out if out or field != 'from' else None})
+
+    def _retarget_watcher(self, key, new):
+        """A person or a group renamed (new) or removed (None): every item that watches them follows (TSK-051)."""
+        for it in self.items():
+            if it['fields'].get('watchers'):
+                self._retarget_name(it, 'watchers', key, new)
+
+    def _watched(self):
+        """How many items each name (lower case) watches."""
+        counts = {}
+        for it in self.items():
+            for n in clean_people(it['fields'].get('watchers')):
+                counts[n.lower()] = counts.get(n.lower(), 0) + 1
+        return counts
 
     @staticmethod
     def _people_field(it):
@@ -2636,18 +2688,20 @@ class Store:
                 display.setdefault(k, n)
                 bucket = sender if field == 'from' else attendee
                 bucket[k] = bucket.get(k, 0) + 1
+        watcher = self._watched()
         records = {r['name'].lower(): r for r in self._people_records()}
-        out = [{'name': display[k], 'count': sender.get(k, 0) + attendee.get(k, 0),
-                'sender': sender.get(k, 0), 'attendee': attendee.get(k, 0),
+        out = [{'name': display[k], 'count': sender.get(k, 0) + attendee.get(k, 0) + watcher.get(k, 0),
+                'sender': sender.get(k, 0), 'attendee': attendee.get(k, 0), 'watcher': watcher.get(k, 0),
                 'calendar_name': records.get(k, {}).get('calendar_name', ''), 'emails': records.get(k, {}).get('emails', []),
-                'redmine': records.get(k, {}).get('redmine', ''), 'slack': records.get(k, {}).get('slack', '')}
+                'redmine': records.get(k, {}).get('redmine', ''), 'slack': records.get(k, {}).get('slack', ''),
+                'notes': records.get(k, {}).get('notes', ''), 'when_to_use': records.get(k, {}).get('when_to_use', '')}
                for k in display]
         out.sort(key=lambda p: (-p['count'], p['name'].lower()))
         return {'people': out}
 
     @writes
     def add_person(self, name, values=None):
-        """Add a person by name; with `values` (calendar_name, emails, redmine, slack: as update_person takes them)
+        """Add a person by name; with `values` (calendar_name, emails, redmine, slack, notes, when_to_use: as update_person takes them)
         the new person's record is filled in too, and a name someone already has is refused."""
         names = clean_people(name)
         if not names:
@@ -2656,6 +2710,8 @@ class Store:
         with self._lock:
             if values and names[0].lower() in [p['name'].lower() for p in self.people()['people']]:
                 raise StoreError(409, f'{names[0]} is already in People')
+            if names[0].lower() in [g['name'].lower() for g in self._group_records()]:
+                raise StoreError(409, f'{names[0]} is already a group in Contacts')
             for e in people.clean_emails(values.get('emails')):  # checked before adding: a refused address adds nobody
                 owner = next((r for r in self._people_records() if e in r['emails']), None)
                 if owner:
@@ -2670,22 +2726,13 @@ class Store:
         key = ' '.join(str(old or '').split()).lower()
         if key not in [p['name'].lower() for p in self.people()['people']]:
             raise StoreError(404, f'person not found: {old}')
+        if new and new.lower() in [g['name'].lower() for g in self._group_records()]:
+            raise StoreError(409, f'{new} is already a group in Contacts')
         for it in self.items():
             field = self._people_field(it)
-            if not field:
-                continue
-            have = clean_people(it['fields'].get(field))
-            if not any(n.lower() == key for n in have):
-                continue
-            out = []
-            for n in have:
-                if n.lower() == key:
-                    if new is None:
-                        continue
-                    n = new
-                if n.lower() not in {o.lower() for o in out}:
-                    out.append(n)
-            self._patch_fields(it, {field: out if out or field == 'attendees' else None})
+            if field:
+                self._retarget_name(it, field, key, new)
+        self._retarget_watcher(key, new)
         if new:
             self._rename_mentions(key, new)
         # The record goes with the name: renamed, merged into the person who already has the new name
@@ -2696,12 +2743,13 @@ class Store:
         if new:
             target = next((r for r in records if r['name'].lower() == new.lower()), None)
             if target:
-                for k in ('calendar_name', 'redmine', 'slack'):
+                for k in ('calendar_name', 'redmine', 'slack', 'notes', 'when_to_use'):
                     target[k] = target[k] or mine[k]
                 target['emails'] = list(dict.fromkeys([*target['emails'], *mine['emails']]))
             else:
                 records.append({**mine, 'name': new})
         self._save_people(records)
+        self._retarget_member(key, new)
 
     @writes
     def rename_person(self, old, new):
@@ -2721,8 +2769,8 @@ class Store:
     @writes
     def update_person(self, name, values):
         """Edit a person: `name` (the public one: renamed on every item, merged if someone has it already),
-        `calendar_name`, `emails` (a list or text; each address belongs to one person only), and their `redmine`
-        and `slack` users (either may be empty)."""
+        `calendar_name`, `emails` (a list or text; each address belongs to one person only), their `redmine`
+        and `slack` users (either may be empty), and `notes` and `when_to_use` (free text: what an agent reads)."""
         values = dict(values or {})
         with self._lock:
             key = ' '.join(str(name or '').split()).lower()
@@ -2744,6 +2792,9 @@ class Store:
             for k in ('calendar_name', 'redmine', 'slack'):
                 if k in values:
                     rec[k] = people.clean_name(values[k])
+            for k in ('notes', 'when_to_use'):
+                if k in values:
+                    rec[k] = people.clean_text(values[k])
             if 'emails' in values:
                 emails = people.clean_emails(values['emails'])
                 for r in records:
@@ -2753,6 +2804,103 @@ class Store:
                 rec['emails'] = emails
             self._save_people(records)
         return self.people()
+
+    # ── groups (TSK-050): people reached as one, an email list or a Slack channel; Contacts → Groups ──────────
+    def _group_records(self):
+        path = self._registry_path('groups')
+        if not os.path.exists(path):
+            return []
+        fields, _ = self._read(path)
+        out, seen = [], set()
+        for g in map(people.clean_group, fields.get('groups') if isinstance(fields.get('groups'), list) else []):
+            if g and g['name'].lower() not in seen:
+                seen.add(g['name'].lower())
+                out.append(g)
+        return out
+
+    @writes
+    def _save_groups(self, records):
+        title, blurb = self.REGISTRIES['groups']
+        path = self._registry_path('groups')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        line = lambda g: ' · '.join([g['name'], g['channel'], *([g['address']] if g['address'] else []),  # noqa: E731
+                                     *([f"members: {', '.join(g['members'])}"] if g['members'] else [])])
+        body = f'{title}\n\n{blurb}\n\n' + ''.join(f'- {line(g)}\n' for g in records)
+        atomic_write(path, fm.build({'type': 'groups', 'groups': records, 'updated_at': now_stamp()}, body))
+
+    def groups(self):
+        """Every group, by name, with how many items it watches (`count`)."""
+        watched = self._watched()
+        return {'groups': [{**g, 'count': watched.get(g['name'].lower(), 0)}
+                           for g in sorted(self._group_records(), key=lambda g: g['name'].lower())]}
+
+    def _check_group_name(self, name, records, own=None):
+        """A group's name must be free: no other group, and no person, goes by it (items name either by the name alone)."""
+        key = name.lower()
+        if any(g['name'].lower() == key and g is not own for g in records):
+            raise StoreError(409, f'{name} is already a group')
+        if key in [p['name'].lower() for p in self.people()['people']]:
+            raise StoreError(409, f'{name} is already a person in Contacts')
+
+    @writes
+    def add_group(self, name, values=None):
+        """Add a group: its `name`, and any of `channel` (email · slack · other), `address`, `members`, `notes`, `when_to_use`."""
+        g = people.clean_group({**dict(values or {}), 'name': name})
+        if not g:
+            raise StoreError(400, 'a group needs a name')
+        with self._lock:
+            records = self._group_records()
+            self._check_group_name(g['name'], records)
+            self._save_groups([*records, g])
+        return self.groups()
+
+    @writes
+    def update_group(self, name, values):
+        """Edit a group: any of `name` (a new one, free as add_group wants it), `channel`, `address`, `members`, `notes`,
+        `when_to_use`; what is left out stays."""
+        values = dict(values or {})
+        with self._lock:
+            records = self._group_records()
+            key = people.clean_name(name).lower()
+            g = next((r for r in records if r['name'].lower() == key), None)
+            if g is None:
+                raise StoreError(404, f'group not found: {name}')
+            new = people.clean_group({**g, **{k: v for k, v in values.items() if k in g}})
+            if not new:
+                raise StoreError(400, 'a group needs a name')
+            if new['name'].lower() != key:
+                self._check_group_name(new['name'], records, own=g)
+            self._save_groups([new if r is g else r for r in records])
+            if new['name'] != g['name']:
+                self._retarget_watcher(key, new['name'])
+        return self.groups()
+
+    @writes
+    def delete_group(self, name):
+        with self._lock:
+            records = self._group_records()
+            key = people.clean_name(name).lower()
+            if not any(r['name'].lower() == key for r in records):
+                raise StoreError(404, f'group not found: {name}')
+            self._save_groups([r for r in records if r['name'].lower() != key])
+            self._retarget_watcher(key, None)
+        return self.groups()
+
+    def _retarget_member(self, key, new):
+        """A person renamed (new) or removed (None): the groups they are a member of follow (callers hold the lock)."""
+        records = self._group_records()
+        changed = False
+        for g in records:
+            if any(m.lower() == key for m in g['members']):
+                out = []
+                for m in g['members']:
+                    m = (new if m.lower() == key else m)
+                    if m and m.lower() not in {o.lower() for o in out}:
+                        out.append(m)
+                g['members'] = out
+                changed = True
+        if changed:
+            self._save_groups(records)
 
     @writes
     def learn_people(self, new=(), learned=()):

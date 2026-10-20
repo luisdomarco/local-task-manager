@@ -18,7 +18,8 @@ import unicodedata
 
 from ... import frontmatter as fm
 from . import rules, wikilinks
-from .definition import (CLOSED, INDEX_NOTE, OWN_CLOSED, OWN_STATUSES, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, STATUSES, BY_FILE_CLASS, PROPS)
+from .definition import (CLOSED, INDEX_NOTE, LEGACY_PARENT, OWN_CLOSED, OWN_STATUSES, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, STATUSES, BY_FILE_CLASS,
+                         PROPS)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, 'templates')
@@ -27,7 +28,7 @@ DATE_PREFIX_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (.+)$')
 # What a file name cannot hold (on macOS, in Obsidian's links, or anywhere): replaced by a space.
 UNSAFE_RE = re.compile(r'[\\/:*?"<>|#^\[\]]+')
 # Keys whose meaning the app gives under another name; never passed through as they are.
-DISK_KEYS = {'fileClass', 'status_ticket', 'status_error', 'status_agent', 'creation_date', 'updated_date', 'tags'}
+DISK_KEYS = {'fileClass', 'status_ticket', 'status_error', 'status_agent', 'status_spec', 'creation_date', 'updated_date', 'tags'}
 LINK_PROPS = {t: {p['key'] for p in props if p['kind'] == 'link'} for t, props in PROPS.items()}
 MULTI_PROPS = {t: {p['key'] for p in props if p['kind'] == 'links'} for t, props in PROPS.items()}
 
@@ -54,7 +55,7 @@ def slugify(text):
 
 
 def disk_status(t, status):
-    if t in OWN_STATUSES:  # an error's or an agent's own statuses: as they are, not numbered
+    if t in OWN_STATUSES:  # an error's, an agent's or a spec's own statuses: as they are, not numbered
         return status
     return f'{STATUSES.index(status) + 1}. {status}' if status in STATUSES else status
 
@@ -110,7 +111,10 @@ class TicketingCodec:
         spec = SPEC[t]
         stem = _stem(rel)
         parent = spec['parent']
-        f = {k: v for k, v in raw.items() if k not in DISK_KEYS and k != parent and k != 'project'}
+        legacy = LEGACY_PARENT.get(t)
+        if legacy and raw.get(parent) in (None, '') and raw.get(legacy) not in (None, ''):
+            raw = {**raw, parent: raw[legacy]}
+        f = {k: v for k, v in raw.items() if k not in DISK_KEYS and k not in (parent, legacy, 'project')}
         f['type'] = t
         item_id = str(raw.get('id') or '').strip() if spec['code'] else ''
         if item_id:
@@ -241,6 +245,8 @@ class TicketingCodec:
             elif k == 'related_to':
                 if spec['parent']:
                     out[spec['parent']] = r.link(v) if v else ''
+                    if LEGACY_PARENT.get(t) in raw:  # the old name emptied, or clearing the link would bring it back
+                        out[LEGACY_PARENT[t]] = ''
             elif k == 'project':
                 p = r.projects.get(v) if v else None
                 out['project'] = wikilinks.link(p['stem']) if p else ''
@@ -320,7 +326,7 @@ class TicketingCodec:
     def project_folders(kind, enabled=None):
         """The type folders a project has: the fixed ones, and Hotfixes / PRDs for a product — or, given its
         enabled_types, for the ones it names."""
-        types = ['initiative', 'support', 'plan', 'analysis', 'error', 'learning']
+        types = ['initiative', 'story', 'spec', 'support', 'plan', 'analysis', 'error', 'learning']
         if enabled is None:
             types += ['hotfix', 'prd'] if kind == 'product' else []
         else:
@@ -329,7 +335,8 @@ class TicketingCodec:
 
     @staticmethod
     def enabled_types(kind):
-        return ['initiative', 'support', 'hotfix', 'prd'] if kind == 'product' else ['initiative', 'support']
+        core = ['initiative', 'story', 'support', 'spec']
+        return [*core, 'hotfix', 'prd'] if kind == 'product' else core
 
     @staticmethod
     def is_root_file(name):

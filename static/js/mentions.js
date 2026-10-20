@@ -1,9 +1,9 @@
-// Mentions: @ in any textarea (a description, a comment, a prompt) offers the people in People; picking one
+// Mentions: @ in any textarea (a description, a comment, a prompt) offers the people and groups in Contacts; picking one
 // writes @[Public name] — plain text that reads well in any editor and that a rename rewrites (tm/people.py).
 // Nobody is notified: a mention is for you, and for Claude, whose prompt lists who is mentioned and how to reach them.
 // One listener for the whole document, so every textarea has it, including those made later.
 import { state } from './state.js';
-import { h, icon } from './ui.js';
+import { GROUP_ICON, h, icon } from './ui.js';
 
 const MAX = 8;
 const norm = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -12,8 +12,9 @@ const QUERY_RE = /(?:^|[\s([{>])@([^\s@[\]()]{0,30}(?: [^\s@[\]()]{0,30}){0,3})$
 
 let menu = null; // { el, ta, start, matches, active }
 
-/** People whose public or calendar name has a word starting with the query (all of them, most used first, for none). */
-export function matchPeople(query, people = state.people) {
+/** People (and groups) whose public or calendar name has a word starting with the query (all of them, people most used
+ *  first and then the groups, for none). */
+export function matchPeople(query, people = [...state.people, ...(state.groups || [])]) {
   const q = norm(query).trim();
   const starts = (name) => norm(name).split(/[\s.\-_]+/).some((w, i, ws) => ws.slice(i).join(' ').startsWith(q));
   return people.filter((p) => !q || starts(p.name) || starts(p.calendar_name)).slice(0, MAX);
@@ -63,7 +64,7 @@ function open(ta, start, matches) {
     matches.map((p, i) => h('button', {
       type: 'button', class: 'menu-item', role: 'option', tabindex: '-1',
       onmousedown: (e) => { e.preventDefault(); menu.active = i; pick(i); }, // mousedown: the textarea keeps the focus
-    }, icon('users', 14), h('span', {}, p.name), p.calendar_name && p.calendar_name !== p.name ? h('span', { class: 'muted small' }, p.calendar_name) : null)));
+    }, icon(p.channel ? GROUP_ICON[p.channel] || 'users' : 'users', 14), h('span', {}, p.name), p.calendar_name && p.calendar_name !== p.name ? h('span', { class: 'muted small' }, p.calendar_name) : null)));
   document.body.append(el);
   menu = { el, ta, start, matches, active: 0 };
   paint();

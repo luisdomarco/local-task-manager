@@ -110,8 +110,13 @@ export const api = {
   addPerson: (name, values) => post('/api/people', { name, values }), // values: as updatePerson takes them, for a new person
   renamePerson: (old, name) => post('/api/people/rename', { old, new: name }),
   deletePerson: (name) => post('/api/people/delete', { name }),
-  // { name (the public one), calendar_name, emails, redmine, slack }: any of them
+  // { name (the public one), calendar_name, emails, redmine, slack, notes, when_to_use }: any of them
   updatePerson: (name, values) => post('/api/people/update', { name, values }),
+  // Groups (Contacts → Groups, TSK-050): { name, channel, address, members, notes, when_to_use }
+  groups: () => get('/api/groups'),
+  addGroup: (name, values) => post('/api/groups', { name, values }),
+  updateGroup: (name, values) => post('/api/groups/update', { name, values }),
+  deleteGroup: (name) => post('/api/groups/delete', { name }),
   labels: () => get('/api/labels'),
   addLabel: (name) => post('/api/labels', { name }),
   renameLabel: (old, name) => post('/api/labels/rename', { old, new: name }),

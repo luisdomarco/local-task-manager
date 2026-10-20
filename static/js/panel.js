@@ -25,13 +25,14 @@ import {
 } from './rules.js';
 import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
+import { itemName, setCardTitle, setPageTitle } from './tabtitle.js';
 import { sumTime } from './worktime.js';
 import {
-  addComment, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planWeek, progress, setStatus, updateLog,
+  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planWeek, progress, setStatus, updateLog,
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { openClaudeDialog, sessionList } from './claude.js';
-import { closeMenu, dropdown, h, icon, select, statusChip as statusPill, tabPanels, typeIcon, renderMarkdown, withMentions } from './ui.js';
+import { closeMenu, dropdown, h, icon, select, statusChip as statusPill, tabPanels, tagInput, typeIcon, renderMarkdown, withMentions } from './ui.js';
 
 const modal = () => document.getElementById('item-modal');
 const backdrop = () => document.getElementById('item-backdrop');
@@ -497,6 +498,20 @@ function externalRef(item, ext) {
       session));
 }
 
+/**
+ * Watchers (TSK-051): the people and groups of Contacts to tell when the item changes status — by email, Slack…, as
+ * each one's "When to use" says. Only the types that have the field (initiatives, user stories, tasks); a prompt for
+ * Claude lists them with how to reach each.
+ */
+function watchers(item) {
+  if (!item.id || !hasField(item.type, 'watchers')) return null;
+  const names = item.fields.watchers || [];
+  return h('section', { class: 'panel-section watchers' },
+    h('h4', { title: 'People and groups to tell when its status changes' }, icon('eye', 14), 'Watchers',
+      names.length ? h('span', { class: 'muted' }, ` · ${names.length}`) : null),
+    tagInput(names, (list) => save(item, { watchers: list }), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: 'watchers' }));
+}
+
 // Unsent "Log work" forms, per item: a re-render (a comment, a status change) must not wipe what was typed.
 const logDrafts = new Map();
 let editingLog = null; // which entry is open for editing: `${item id}|${date}#${index}`
@@ -694,11 +709,24 @@ function pageTables(item, rerender) {
 
 /**
  * The side panel, the same on an item's card and on its page:
- *   Details · the tracker and local folder (or the session), its links, its work log, and its settings (a project's)
+ *   Details · the tracker and local folder (or the session), its links, its watchers, its work log, and its settings (a project's)
  *   Delivery · how it is carried out (a Ticketing ticket's executor, branch…): only for a type with such fields
  *   Relations · its project, parent, link fields, children and related
  *   Activity · comments · AI · its Claude conversations
  */
+/** The Delivery tab: its fields in the groups the structure gives them (`group`, in order), each under its title, one
+ *  field per row. Fields with no group (another structure's) make one section without a title. */
+function deliveryGroups(props, b) {
+  const groups = [];
+  for (const p of props) {
+    if (groups.at(-1)?.title !== (p.group || '')) groups.push({ title: p.group || '', icon: p.group_icon, props: [] });
+    groups.at(-1).props.push(p);
+  }
+  return groups.map((g) => h('section', { class: 'panel-section delivery-group' },
+    g.title ? h('h4', {}, g.icon ? icon(g.icon, 14) : null, g.title) : null,
+    h('div', { class: 'fields' }, g.props.map((p) => propField(b, p)))));
+}
+
 function sideTabs(item, rerender, current, onPick) {
   const f = item.fields;
   const b = editBinding(item);
@@ -708,9 +736,8 @@ function sideTabs(item, rerender, current, onPick) {
     { key: 'details', label: 'Details', content: [
       settings.length ? h('section', { class: 'panel-section' }, h('h4', {}, icon('folder', 14), 'Settings'),
         h('div', { class: 'fields' }, settings.map((p) => propField(b, p)))) : null,
-      externalRef(item, EXTERNAL_REF), links(item), workLog(item, rerender)] },
-    delivery.length ? { key: 'delivery', label: 'Delivery', content: [
-      h('section', { class: 'panel-section' }, h('div', { class: 'fields' }, delivery.map((p) => propField(b, p))))] } : null,
+      externalRef(item, EXTERNAL_REF), links(item), watchers(item), workLog(item, rerender)] },
+    delivery.length ? { key: 'delivery', label: 'Delivery', content: deliveryGroups(delivery, b) } : null,
     relationsTab(item, rerender),
     docsTab(item, rerender),
     { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false }) },
@@ -1016,7 +1043,8 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
  * One editor instance. `host()` is the element it renders into, `layout` arranges
  * the shared sections, `onGone` runs when the item is deleted or disappears.
  */
-function createEditor({ host, layout, onGone, editorMinHeight = '320px' }) {
+// `onTitle(name)`: what the item shown is called, on every render, and '' once it is gone (the browser tab's title).
+function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle = () => {} }) {
   let current = null;   // key of the open item
   let bodyRev = null;   // version of the description this editor started from (item.body_rev); a save sends it back
   let listRev = null;   // the version the last list reload reported; an outside edit is a change in THIS, not a gap between the two
@@ -1081,7 +1109,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px' }) {
       for (const b of blocks) ok = (await b.flush()) && ok;
       return ok;
     },
-    reset() { current = null; blocks.forEach((b) => b.clearDraft()); },
+    reset() { current = null; blocks.forEach((b) => b.clearDraft()); onTitle(''); },
     currentKey: () => current,
     render() { if (current) keepFocus(host(), doRender); },
   };
@@ -1089,8 +1117,9 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px' }) {
 
   function doRender() {
     const item = state.all.find((i) => i.key === current) || state.byId.get(current);
-    if (!item) { current = null; onGone(); return; }
+    if (!item) { current = null; onTitle(''); onGone(); return; }
     current = item.key;
+    onTitle(itemName(item));
     const f = item.fields;
     body.configure(item.type === 'activity'
       ? { label: 'Message', emptyText: 'Paste the message…', placeholder: 'Paste the email / Slack message / comment here' }
@@ -1217,7 +1246,7 @@ function modalLayout(item, c) {
     head: [
       back ? h('button', { class: 'btn small ghost im-back', title: 'Back', onclick: goBack },
         icon('left', 14), `${back.id || ''} ${back.title}`.trim()) : null,
-      h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), item.type),
+      h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), TYPE_DEFS[item.type]?.label || item.type),
       h('span', { class: 'mono' }, item.id || pageRef(item) || 'no id'),
       parent ? h('span', { class: 'muted small im-in' }, 'in ',
         h('button', { class: 'link', ...opener(parent, openFromItem) }, parent.title)) : null,
@@ -1298,6 +1327,7 @@ const modalEd = createEditor({
   host: modal,
   layout: modalLayout,
   onGone: modalGone,
+  onTitle: setCardTitle,
 });
 
 /** Shows an item in the modal; a type with a page (rules.js hasPage) opens it instead. `parent` is the snapshot to go back to, `restore` one to come back to. */
@@ -1475,7 +1505,7 @@ export function createPageEditor(container, { onGone }) {
   const ed = createEditor({
     host: () => container,
     layout: (item, c) => { container.classList.add('two-panel'); return pageLayout(item, c, () => ed.render()); },
-    onGone, editorMinHeight: '420px',
+    onGone, editorMinHeight: '420px', onTitle: (name) => { if (name) setPageTitle(name); },
   });
   return ed;
 }

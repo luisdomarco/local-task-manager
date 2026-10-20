@@ -2,7 +2,7 @@
 // titles come from files on disk, so nothing user-provided goes through innerHTML
 // except rendered markdown, which is sanitized with DOMPurify.
 import { relDay } from './dates.js';
-import { PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, statusTree } from './rules.js';
+import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, statusTree } from './rules.js';
 import { fitChips } from './chipfit.js';
 import { opener } from './links.js';
 import { allLabels, state, setCompleted } from './state.js';
@@ -148,9 +148,18 @@ export function labelHue(name) {
 }
 export const labelChip = (name, extra = null) =>
   h('span', { class: 'chip label', style: `--h:${labelHue(name)}` }, `#${name}`, extra);
-/** A person: a neutral chip with the people icon. */
-/** A person by their public name; on hover, the name Calendar gives them and their emails. */
+/** A group of Contacts (TSK-050) by its name, or undefined. */
+export const groupNamed = (name) => (state.groups || []).find((g) => g.name.toLowerCase() === String(name).toLowerCase());
+/** Its icon: how the group is reached. */
+export const GROUP_ICON = { email: 'mail', slack: 'message', other: 'users' };
+/** A contact by name: a person (the people icon; on hover, the name Calendar gives them and their emails), or a group
+ *  (its channel's icon; on hover, its address and members). */
 export const personChip = (name, extra = null) => {
+  const g = groupNamed(name);
+  if (g) {
+    const about = [`${name} (group)`, g.address, g.members.length ? `Members: ${g.members.join(', ')}` : null].filter(Boolean);
+    return h('span', { class: 'chip person group', title: about.join('\n') }, icon(GROUP_ICON[g.channel] || 'users', 12), name, extra);
+  }
   const p = state.people.find((x) => x.name.toLowerCase() === String(name).toLowerCase());
   const about = [name, p?.calendar_name && p.calendar_name !== name ? `Calendar: ${p.calendar_name}` : null, ...(p?.emails || []),
     p?.redmine ? `Redmine: ${p.redmine}` : null, p?.slack ? `Slack: ${p.slack}` : null].filter(Boolean);
@@ -270,13 +279,46 @@ export function tagInput(values, onChange, { suggest = () => [], id = null, plac
 /** The label version of tagInput (kept for its callers). */
 export const labelInput = (values, onChange, opts = {}) => tagInput(values, onChange, { ...opts, kind: 'label' });
 
-/** Select for filtering by one label (every label in use); null = any. */
-export function labelSelect(value, onChange) {
-  const labels = allLabels();
-  if (!labels.length && !value) return h('span');
-  return select([[null, 'Any label'], ...labels.map((l) => [l, `#${l}`])], value, onChange, { 'aria-label': 'Label' });
+/**
+ * The label filter (TSK-052): a button that opens every label as a tick, and above them how several combine — any of
+ * them (OR) or all of them (AND); it stays open while you tick. `labels` the picked ones (none = any label), `mode`
+ * 'or' | 'and'; onChange({ labels, mode }). With no label in the vault and none picked, an empty span (callers leave it out).
+ */
+export function labelFilter(labels, mode, onChange) {
+  const names = [...new Set([...allLabels(), ...labels])];
+  if (!names.length) return h('span');
+  const ticked = new Set(labels);
+  let how = mode === 'and' ? 'and' : 'or';
+  const picked = () => names.filter((l) => ticked.has(l));
+  const label = () => {
+    const p = picked();
+    if (!p.length) return 'Any label';
+    if (p.length === 1) return `#${p[0]}`;
+    return p.length === 2 ? `#${p[0]} ${how} #${p[1]}` : `${p.length} labels · ${how === 'and' ? 'all' : 'any'}`;
+  };
+  const face = h('span', { class: 'select-label' }, label());
+  const btn = selectButton(face, { 'aria-label': 'Label', title: 'Filter by labels' });
+  const changed = () => { face.textContent = label(); onChange({ labels: picked(), mode: how }); };
+  btn.addEventListener('click', () => {
+    const modes = h('div', { class: 'seg label-mode', role: 'radiogroup', 'aria-label': 'When several labels are ticked' });
+    const paintModes = () => modes.replaceChildren(...Object.entries(LABEL_MODES).map(([m, text]) => h('button', {
+      class: `btn small ${how === m ? 'active' : ''}`, role: 'radio', 'aria-checked': String(how === m),
+      title: m === 'and' ? 'Items that carry every ticked label' : 'Items that carry at least one ticked label',
+      onclick: (e) => { e.stopPropagation(); if (how === m) return; how = m; paintModes(); if (ticked.size > 1) changed(); else face.textContent = label(); },
+    }, text)));
+    paintModes();
+    const row = (l) => {
+      const box = h('input', { type: 'checkbox', checked: ticked.has(l), onchange: () => {
+        if (box.checked) ticked.add(l); else ticked.delete(l);
+        changed();
+      } });
+      return h('label', { class: 'menu-item menu-check' }, box, labelChip(l));
+    };
+    dropdown(btn, [h('div', { class: 'menu-field' }, h('span', {}, 'Match'), modes), '-', ...names.map(row)],
+      { width: Math.max(btn.offsetWidth, 240) });
+  });
+  return btn;
 }
-export const hasLabel = (item, label) => !label || (item.fields.labels || []).includes(label);
 
 /**
  * A multiple choice filter: a button that opens a list of ticks and stays open while you tick.
@@ -362,7 +404,7 @@ const MENTION_RE = /@\[([^[\]\n]{1,80})\]/g;
 const NO_CHIPS = 'code, pre, a, textarea, title, style, script, noscript, xmp, iframe, noembed, noframes, plaintext';
 
 /**
- * @[Name] in rendered Markdown → the person's chip (dashed when nobody in People has that name); never inside code,
+ * @[Name] in rendered Markdown → the person's chip (dashed when nobody in Contacts has that name); never inside code,
  * a link or an element whose text is not markup. Runs on the HTML before it is sanitized: a <template> is inert.
  */
 function mentionChips(html) {
@@ -385,10 +427,10 @@ export function withMentions(text) {
   for (const m of String(text || '').matchAll(MENTION_RE)) {
     const name = m[1].replace(/\s+/g, ' ').trim();
     parts.push(text.slice(last, m.index));
-    const known = state.people.some((p) => p.name.toLowerCase() === name.toLowerCase());
+    const known = state.people.some((p) => p.name.toLowerCase() === name.toLowerCase()) || !!groupNamed(name);
     const chip = personChip(name);
     chip.classList.add('mention');
-    if (!known) { chip.classList.add('unknown'); chip.title = `${name} — not in People`; }
+    if (!known) { chip.classList.add('unknown'); chip.title = `${name} — not in Contacts`; }
     parts.push(chip);
     last = m.index + m[0].length;
   }

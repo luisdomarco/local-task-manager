@@ -3,13 +3,14 @@
 // week but not a day, and, on this week, what was carried over from earlier weeks. Drag a card onto a day to plan it
 // there (onto Anytime to keep the week and clear the day); each day has its own quick add. What goes where is
 // rules.js weekBuckets, the same for both. The board can be kept to some weekdays (remembered too; Carried over and
-// Anytime always show).
+// Anytime always show). Cards keep the order you drop them in, in both (TSK-053: `plan_order`); those never placed follow,
+// by priority.
 import { openCreateModal } from '../create.js';
-import { dayLabel, shiftWeek, thisWeek, today, weekLabel } from '../dates.js';
+import { dayLabel, isoWeek, shiftWeek, thisWeek, today, weekLabel } from '../dates.js';
 import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
-import { isDone, pickDays, weekBuckets } from '../rules.js';
-import { planDay, planWeek, state } from '../state.js';
+import { byManualOrder, isDone, pickDays, weekBuckets } from '../rules.js';
+import { placeInPlan, planWeek, state } from '../state.js';
 import { byPriority, checkSelect, dropZone, h, icon, itemCard } from '../ui.js';
 
 const MODE_KEY = 'tm-week-mode';
@@ -35,7 +36,7 @@ function section(title, items, onDrop, { cls = '', meta = null, qaValues, qaPlac
   const zone = h('div', { class: 'cards agenda-cards' },
     items.length ? items.map((i) => itemCard(i, { onOpen: openItem, draggable: true }))
       : h('div', { class: 'agenda-empty' }, 'Nothing here — drop a card or add one below'));
-  dropZone(zone, (key) => { const it = find(key); if (it) onDrop(it); });
+  dropZone(zone, (key, index) => { const it = find(key); if (it) onDrop(it, index); });
   const open = items.filter((i) => !isDone(i)).length;
   return h('section', { class: `agenda-day ${cls}` },
     h('header', { class: 'agenda-head' },
@@ -48,7 +49,7 @@ function section(title, items, onDrop, { cls = '', meta = null, qaValues, qaPlac
 /** One board column: its name, its open count, its cards (a drop target unless `onDrop` is null), and a quick add. */
 function column(title, items, onDrop, { cls = '', meta = null, qaValues = null, extraFor = null } = {}) {
   const zone = h('div', { class: 'col-cards' }, items.map((i) => itemCard(i, { onOpen: openItem, draggable: true, extra: extraFor?.(i) })));
-  if (onDrop) dropZone(zone, (key) => { const it = find(key); if (it) onDrop(it); });
+  if (onDrop) dropZone(zone, (key, index) => { const it = find(key); if (it) onDrop(it, index); });
   const open = items.filter((i) => !isDone(i)).length;
   return h('section', { class: `board-col week-col ${cls}`, 'aria-label': `${title} column` },
     h('header', { class: 'list-head week-col-head' }, h('h3', { class: 'list-name' }, title), meta, h('span', { class: 'count' }, open || '')),
@@ -92,7 +93,11 @@ export function mount(root) {
       agenda.hidden = mode !== 'list';
       board.hidden = mode !== 'board';
       dayFilter.hidden = mode !== 'board';
-      const b = weekBuckets(state.items, week, { hideDone, sort: byPriority });
+      const b = weekBuckets(state.items, week, { hideDone, sort: byManualOrder(byPriority) });
+      // A card dropped on a day (or on Anytime) is planned there, at the place it was dropped.
+      const toDay = (d) => (it, index) => placeInPlan(it, it.fields.plan_day === d ? {} : { plan_day: d, plan_week: isoWeek(d) }, b.byDay[d], index);
+      const toAnytime = (it, index) => placeInPlan(it, !it.fields.plan_day && it.fields.plan_week === week ? {} : { plan_week: week, plan_day: null },
+        b.anytime, index);
       const logged = (d) => state.worklog.filter((e) => e.date === d).length;
       const dayMeta = (d) => [
         d === today() ? h('span', { class: 'chip plan today' }, 'Today') : null,
@@ -103,8 +108,8 @@ export function mount(root) {
       if (mode === 'board') {
         board.replaceChildren(...[
           b.carried.length ? column('Carried over', b.carried, null, { cls: 'warn', extraFor: toThisWeekIcon }) : null,
-          column('Anytime', b.anytime, (it) => planWeek(it, week), { cls: 'anytime', qaValues: { plan_week: week } }),
-          ...pickDays(b.days, boardDays).map((d) => column(dayLabel(d), b.byDay[d], (it) => planDay(it, d),
+          column('Anytime', b.anytime, toAnytime, { cls: 'anytime', qaValues: { plan_week: week } }),
+          ...pickDays(b.days, boardDays).map((d) => column(dayLabel(d), b.byDay[d], toDay(d),
             { cls: dayCls(d), meta: dayMeta(d), qaValues: { plan_day: d, plan_week: week } })),
         ].filter(Boolean));
         const todayCol = seekToday && board.querySelector('.week-col.today');
@@ -117,10 +122,10 @@ export function mount(root) {
         b.carried.length ? h('section', { class: 'agenda-day warn' },
           h('header', { class: 'agenda-head' }, h('h3', {}, 'Carried over from previous weeks'), h('span', { class: 'count' }, b.carried.length)),
           h('div', { class: 'cards agenda-cards' }, b.carried.map((i) => itemCard(i, { onOpen: openItem, draggable: true, extra: toThisWeek(i) })))) : null,
-        section('Anytime this week', b.anytime, (it) => planWeek(it, week), {
+        section('Anytime this week', b.anytime, toAnytime, {
           cls: 'anytime', qaValues: { plan_week: week }, qaPlaceholder: 'Add to this week, any day…',
         }),
-        ...b.days.map((d) => section(dayLabel(d), b.byDay[d], (it) => planDay(it, d), {
+        ...b.days.map((d) => section(dayLabel(d), b.byDay[d], toDay(d), {
           cls: dayCls(d), meta: dayMeta(d), qaValues: { plan_day: d, plan_week: week }, qaPlaceholder: `Add a task for ${dayLabel(d)}…`,
         })),
       ].filter(Boolean));

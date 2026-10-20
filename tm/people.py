@@ -1,11 +1,17 @@
-"""People: who a meeting's attendee or an activity's sender is.
+"""Contacts: people (who a meeting's attendee or an activity's sender is) and groups (an email list, a Slack channel…).
 
-A person is a record {name, calendar_name, emails, redmine, slack}:
+A person is a record {name, calendar_name, emails, redmine, slack, notes, when_to_use}:
   name           the public name: what the items store and the app shows (you edit it)
   calendar_name  how Google Calendar names them (displayName), as it came
   emails         the addresses Calendar used for them, lower case
   redmine        their Redmine user (login or id), when they have one; '' when not
   slack          their Slack user (handle or member id), when they have one; '' when not
+  notes          anything worth keeping about them (free text, several lines)
+  when_to_use    when to reach them, and how: instructions an agent reads in a prompt (free text)
+
+A group is a record {name, channel, address, members, notes, when_to_use} (TSK-050): `channel` is how it is reached
+(CHANNELS), `address` the list's email or the Slack channel, `members` the names of people in it. A group's name is
+never a person's: items name either by the name alone.
 
 Items keep the public name, never an id, so a meeting reads well in any editor; renaming a person
 rewrites the items (Store.update_person). The calendar sync finds the person behind an attendee with
@@ -29,6 +35,12 @@ def norm(name):
     """A name as compared: no accents, no case, single spaces (Ana  GARCÍA → ana garcia)."""
     text = unicodedata.normalize('NFKD', clean_name(name))
     return ''.join(c for c in text if not unicodedata.combining(c)).casefold()
+
+
+def clean_text(value, limit=4000):
+    """Free text as stored (notes, when to use it): its lines kept, trailing spaces and blank edges dropped."""
+    lines = [l.rstrip() for l in str(value if value is not None else '').replace('\r\n', '\n').split('\n')]
+    return '\n'.join(lines).strip()[:limit]
 
 
 def clean_email(value):
@@ -59,7 +71,32 @@ def clean_record(value):
     if not name:
         return None
     return {'name': name, 'calendar_name': clean_name(value.get('calendar_name')), 'emails': clean_emails(value.get('emails')),
-            'redmine': clean_name(value.get('redmine')), 'slack': clean_name(value.get('slack'))}
+            'redmine': clean_name(value.get('redmine')), 'slack': clean_name(value.get('slack')),
+            'notes': clean_text(value.get('notes')), 'when_to_use': clean_text(value.get('when_to_use'))}
+
+
+CHANNELS = ('email', 'slack', 'other')
+
+
+def clean_group(value):
+    """A group record as stored, or None when it has no name. A bare string is a name."""
+    if isinstance(value, str):
+        value = {'name': value}
+    if not isinstance(value, dict):
+        return None
+    name = clean_name(value.get('name'))
+    if not name:
+        return None
+    channel = str(value.get('channel') or '').strip().lower()
+    members, seen = [], set()
+    raw = value.get('members')
+    for m in (raw.split(',') if isinstance(raw, str) else raw if isinstance(raw, list) else []):
+        n = clean_name(m)
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            members.append(n)
+    return {'name': name, 'channel': channel if channel in CHANNELS else 'other', 'address': clean_name(value.get('address')),
+            'members': members, 'notes': clean_text(value.get('notes')), 'when_to_use': clean_text(value.get('when_to_use'))}
 
 
 def mentions(*texts):
@@ -79,14 +116,26 @@ def rename_mentions(text, old, new):
     return MENTION_RE.sub(lambda m: f'@[{new}]' if clean_name(m.group(1)).lower() == key else m.group(0), str(text or ''))
 
 
-def contact_line(name, record):
-    """One line for a prompt: who a mention is and how to reach them."""
+def _indented(label, text):
+    """A free-text field under a contact's line in a prompt: its lines indented, '' when empty."""
+    return f"\n  {label}: " + '\n    '.join(text.split('\n')) if text else ''
+
+
+def contact_line(name, record, group=None):
+    """For a prompt: who a mention is and how to reach them — a person's `record`, or a `group`'s — with when to use
+    them and the notes kept, each on lines of its own."""
+    if group:
+        how = {'email': 'email list', 'slack': 'Slack channel'}.get(group['channel'], 'group')
+        parts = [f"{how} {group['address']}" if group['address'] else how,
+                 *([f"members {', '.join(group['members'])}"] if group['members'] else [])]
+        return f"- {group['name']} (group): {' · '.join(parts)}" + _indented('When to use', group['when_to_use']) + _indented('Notes', group['notes'])
     if not record:
-        return f'- {name}: not in People (no contact details)'
+        return f'- {name}: not in Contacts (no contact details)'
     parts = [*([f"email {', '.join(record['emails'])}"] if record.get('emails') else []),
              *([f"Slack {record['slack']}"] if record.get('slack') else []),
              *([f"Redmine {record['redmine']}"] if record.get('redmine') else [])]
-    return f"- {record['name']}: {' · '.join(parts) if parts else 'no contact details yet'}"
+    return (f"- {record['name']}: {' · '.join(parts) if parts else 'no contact details yet'}"
+            + _indented('When to use', record.get('when_to_use') or '') + _indented('Notes', record.get('notes') or ''))
 
 
 def name_from_email(email):

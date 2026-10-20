@@ -122,7 +122,9 @@ class LayoutTest(unittest.TestCase):
         for name, t in types.items():
             for child in t.get('children', []):
                 self.assertIn(child, types, f'{name} lists a table of {child}, which is not a type')
-        self.assertEqual(types['initiative']['parent_label'], 'Umbrella')
+        self.assertNotIn('parent_label', types['initiative'])  # an initiative hangs from nothing: its stories hang from it
+        self.assertEqual(types['initiative']['children'][0], 'story')
+        self.assertEqual((types['story']['parent_label'], types['prd']['parent_label']), ('Initiative', 'Initiative'))
         self.assertEqual(types['hotfix']['parent_label'], 'Origin')
 
     def test_every_link_is_in_relations_and_the_execution_fields_in_delivery(self):
@@ -133,8 +135,16 @@ class LayoutTest(unittest.TestCase):
                 if p['kind'] in ('link', 'links'):
                     self.assertEqual(p['tab'], 'relations', f'{name}.{p["key"]}')
         tab = {p['key']: p['tab'] for p in types['initiative']['props']}
-        self.assertEqual([k for k, v in tab.items() if v == 'main'], ['size', 'kind', 'area', 'objective'])
-        self.assertEqual(tab['branch'], 'delivery')
+        self.assertEqual([k for k, v in tab.items() if v == 'main'], ['size', 'area', 'objective'])
+        self.assertNotIn('branch', tab)  # delivered by its stories
+        story = [(p['group'], p['key']) for p in types['story']['props'] if p['tab'] == 'delivery']
+        self.assertEqual(story, [('Execution', 'executor'), ('Execution', 'branch'), ('Execution', 'baseline'),
+                                 ('Spec and release', 'spec_impact'), ('Spec and release', 'changelog_ref'),
+                                 ('Paused or discarded', 'on_hold'), ('Paused or discarded', 'discard_reason')])
+        for name, t in types.items():  # every Delivery field has its group, and a group's fields sit together
+            groups = [p.get('group') for p in t.get('props', []) if p['tab'] == 'delivery']
+            self.assertNotIn(None, groups, name)
+            self.assertEqual(groups, sorted(groups, key=groups.index), name)
         self.assertEqual({p['tab'] for p in types['project']['props']}, {'details', 'hidden'})
 
     def test_a_type_turned_off_leaves_the_pages_tables_and_the_optional_types(self):

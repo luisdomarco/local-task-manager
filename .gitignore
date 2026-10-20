@@ -9,15 +9,17 @@ config.json.bak-*
 __pycache__/
 *.pyc
 .DS_Store
-# The sample vaults are versioned with their people, labels and ids (tools/seed_sample_vault.py), but not what the
+# The sample vaults are versioned with their people, groups, labels and ids (tools/seed_sample_vault.py), but not what the
 # app writes into them while you try it
 sample-vault/.task-manager/*
 !sample-vault/.task-manager/people.md
 !sample-vault/.task-manager/labels.md
+!sample-vault/.task-manager/groups.md
 !sample-vault/.task-manager/ids.json
 sample-vault-ticketing/.task-manager/*
 !sample-vault-ticketing/.task-manager/people.md
 !sample-vault-ticketing/.task-manager/labels.md
+!sample-vault-ticketing/.task-manager/groups.md
 !sample-vault-ticketing/.task-manager/ids.json
 # Your real tasks when config.json points here — personal data, never versioned
 vault/

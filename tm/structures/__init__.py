@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 GROUPS = ('not_started', 'in_progress', 'closed')
 GROUP_LABELS = {'not_started': 'Not started', 'in_progress': 'In progress', 'closed': 'Closed'}
 # Where a status goes when no vault said: its type's closed ones are closed, these have not started, the rest are under way.
-NOT_STARTED = frozenset({'Backlog', 'ToDo', 'Idea', 'open'})
+NOT_STARTED = frozenset({'Backlog', 'ToDo', 'Idea', 'open', 'draft'})  # draft: a spec's
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 # A status name: what the frontmatter says, so one line, and short enough for a pill.
 STATUS_NAME_RE = re.compile(r'^[^\x00-\x1f:#\[\]{}"\\]{1,40}$')

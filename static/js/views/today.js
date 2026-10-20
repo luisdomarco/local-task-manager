@@ -1,15 +1,16 @@
 // Today: the items of the day (planned today, carried over from past days, due
 // today) on a board whose columns you create yourself — Uncategorized by default,
 // then "Morning", "Waiting"… — or as a plain list. Columns organise the day; they
-// never change an item's status. The board opens with a fixed Meetings column: today's meetings, by date. Tomorrow (same module, dayView(1)) is the list
+// never change an item's status; their cards keep the order you drop them in (TSK-053: `plan_order`, shared with the
+// Week's day), those never placed following, carried over first and then by priority. The board opens with a fixed Meetings column: today's meetings, by date. Tomorrow (same module, dayView(1)) is the list
 // of what is planned or due for tomorrow and what you could pull in from its week.
 import { openCreateModal } from '../create.js';
 import { addDays, isoWeek, relDay, thisWeek, today } from '../dates.js';
 import { addListColumn, listDropZone, listHeader, moveEntries, moveList, startRename } from '../kanban.js';
 import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
-import { PLANNABLE, carriedOverDay, isDone, isEnabled, isPlannedToday } from '../rules.js';
-import { TODAY_DEFAULT, planDay, saveTodayLists, setTodayList, slugId, state, todayListOf, updateMany } from '../state.js';
+import { PLANNABLE, byManualOrder, carriedOverDay, isDone, isEnabled, isPlannedToday } from '../rules.js';
+import { TODAY_DEFAULT, placeInPlan, planDay, saveTodayLists, slugId, state, todayListOf, updateMany } from '../state.js';
 import { byPriority, dropZone, dropdown, emptyState, h, icon, itemCard } from '../ui.js';
 
 const MODE_KEY = 'tm-today-mode';
@@ -53,7 +54,7 @@ function itemsOfToday() {
   return state.items.filter((i) => PLANNABLE.has(i.type)
     && (isPlannedToday(i) || carriedOverDay(i)))
     .filter((i) => !(hideDone && isDone(i)))
-    .sort((a, b) => carriedOverDay(b) - carriedOverDay(a) || byPriority(a, b));
+    .sort(byManualOrder((a, b) => carriedOverDay(b) - carriedOverDay(a) || byPriority(a, b)));
 }
 
 // ── board mode ───────────────────────────────────────────────────────────────
@@ -78,9 +79,11 @@ function todayListMenu(anchor, list, idx, nameEl) {
 
 function todayColumn(list, idx, items) {
   const zone = h('div', { class: 'col-cards' }, items.map((i) => dayCard(i)));
-  dropZone(zone, (key) => {
+  dropZone(zone, (key, index) => {
     const item = state.items.find((i) => i.key === key);
-    if (item && todayListOf(item)?.id !== list.id) setTodayList(item, list.id);
+    if (!item) return;
+    const move = todayListOf(item)?.id !== list.id ? { today_list: list.id === TODAY_DEFAULT ? null : list.id } : {};
+    placeInPlan(item, move, items, index);
   });
   const open = items.filter((i) => !isDone(i)).length;
   return h('section', { class: `board-col today-col ${list.id === TODAY_DEFAULT ? 'default' : ''}`, 'data-list': list.id, 'aria-label': `${list.name} column` },
@@ -129,8 +132,8 @@ function renderBoard(cols) {
 function renderList(body) {
   const t = today();
   const open = { onOpen: openItem };
-  const carried = state.items.filter(carriedOverDay).sort(byPriority);
-  const planned = state.items.filter((i) => isPlannedToday(i) && !(hideDone && isDone(i))).sort(byPriority);
+  const carried = state.items.filter(carriedOverDay).sort(byManualOrder(byPriority));
+  const planned = state.items.filter((i) => isPlannedToday(i) && !(hideDone && isDone(i))).sort(byManualOrder(byPriority));
   body.replaceChildren(...[
     group('Carried over', carried, withToToday, {
       cls: 'warn',
@@ -188,7 +191,7 @@ function mountDay(root, offset) {
       subtitle.textContent = new Date(`${d}T12:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
       const toDay = (item) => h('button', { class: 'btn small', title: `Plan for ${relDay(d)}`, onclick: () => planDay(item, d) }, `→ ${title}`);
       const withToDay = { onOpen: openItem, extraFor: toDay };
-      const planned = state.items.filter((i) => i.fields.plan_day === d && !isDone(i)).sort(byPriority);
+      const planned = state.items.filter((i) => i.fields.plan_day === d && !isDone(i)).sort(byManualOrder(byPriority));
       const due = state.items.filter((i) => PLANNABLE.has(i.type) && !isDone(i) && i.fields.plan_day !== d && i.fields.due === d).sort(byPriority);
       const pool = state.items.filter((i) => i.fields.plan_week === week && !i.fields.plan_day && !isDone(i)).sort(byPriority);
       body.replaceChildren(...[

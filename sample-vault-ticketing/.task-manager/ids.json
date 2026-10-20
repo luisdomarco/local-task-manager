@@ -4,6 +4,8 @@
   "ACME-INI": 1,
   "ACME-LRN": 1,
   "ACME-PRD": 1,
+  "ACME-SPEC": 1,
+  "ACME-STY": 2,
   "ACME-SUP": 1,
   "ACT": 1,
   "AGT": 1,
@@ -11,6 +13,7 @@
   "MTG": 1,
   "NOTE": 1,
   "OPS-INI": 1,
+  "OPS-STY": 1,
   "OPS-SUP": 1,
   "TSK": 3
 }
