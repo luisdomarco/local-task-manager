@@ -1,0 +1,33 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # one version failing must not hide how the other did
+      matrix:
+        python: ['3.9', '3.12']  # 3.9 is the floor: the Python that ships with macOS
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests (standard library only, nothing to install)
+        run: python -m unittest discover -s tests -t .
+      - name: The page's copy of the default structure matches the server's
+        run: python tools/sync_structure_js.py --check
+
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Frontend logic (node:test, no dependencies)
+        run: TZ=UTC node --test tests/js/*.test.mjs

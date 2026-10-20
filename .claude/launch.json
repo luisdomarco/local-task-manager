@@ -1,0 +1,45 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "task-manager",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "server.py"
+      ],
+      "port": 3100
+    },
+    {
+      "name": "task-manager-sample",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "tools/serve_sample.py"
+      ],
+      "env": {
+        "TM_PORT": "3101"
+      },
+      "port": 3101
+    },
+    {
+      "name": "task-manager-3102",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-c",
+        "import os; os.environ['TM_PORT'] = '3102'; import server; server.main()"
+      ],
+      "port": 3102
+    },
+    {
+      "name": "task-manager-sample-3103",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "tools/serve_sample.py",
+        "--ticketing"
+      ],
+      "env": {
+        "TM_PORT": "3103"
+      },
+      "port": 3103
+    }
+  ]
+}

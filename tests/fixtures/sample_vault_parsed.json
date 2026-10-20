@@ -1,0 +1,414 @@
+{
+ "activities/ACT-0001-re-pricing-page-copy.md": {
+  "fields": {
+   "archived": false,
+   "created_at": "2026-10-14T23:29",
+   "from": "ana@example.com",
+   "id": "ACT-0001",
+   "labels": [],
+   "links": [],
+   "related_to": "INI-0001",
+   "resolution": null,
+   "resolved_at": null,
+   "session_name": "pricing-copy",
+   "source": "Email",
+   "subject": "Re: pricing page copy",
+   "type": "activity",
+   "updated_at": "2026-10-14T23:32",
+   "url": "https://mail.google.com/mail/u/0/#inbox/18c2"
+  },
+  "sha256": "641f7e1f7d1bbdfe3ee0b76b6cc2eeded8a6c7cfcf82dce68cf2cb352dbac11a"
+ },
+ "activities/ACT-0002-slack-ssl-warning-on-staging.md": {
+  "fields": {
+   "archived": false,
+   "created_at": "2026-10-14T23:29",
+   "from": "@pablo",
+   "id": "ACT-0002",
+   "labels": [],
+   "links": [],
+   "related_to": "TSK-0003",
+   "resolution": "Renewal scheduled, TSK-0003 tracks it.",
+   "resolved_at": "2026-10-14T23:29",
+   "session_name": null,
+   "source": "Slack",
+   "subject": "Slack: SSL warning on staging",
+   "type": "activity",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "e32a66899152d74f4f94c9bf461499a14e9cc4a513f2beac013ec20e4b72e825"
+ },
+ "initiatives/INI-0001-pricing-revamp.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "INI-0001",
+   "labels": [],
+   "links": [
+    {
+     "label": "Figma",
+     "url": "https://www.figma.com/file/pricing"
+    }
+   ],
+   "local_path": "~/Documents",
+   "plan_day": null,
+   "plan_week": "2026-W42",
+   "priority": "High",
+   "redmine_id": "4521",
+   "redmine_url": "https://redmine.example.com/issues/4521",
+   "related_to": null,
+   "session_name": null,
+   "status": "InProgress",
+   "subject": "Pricing revamp",
+   "type": "initiative",
+   "updated_at": "2026-10-14T23:29",
+   "url": "https://www.notion.so/pricing-revamp",
+   "user_stories": []
+  },
+  "sha256": "4b8dff3cd35e4866624dc33f132ded07390584dea398026ee7ceb072294e29fa"
+ },
+ "initiatives/INI-0002-onboarding-emails.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "INI-0002",
+   "labels": [],
+   "links": [],
+   "local_path": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Normal",
+   "redmine_id": null,
+   "redmine_url": null,
+   "related_to": null,
+   "session_name": null,
+   "status": "Backlog",
+   "subject": "Onboarding emails",
+   "type": "initiative",
+   "updated_at": "2026-10-14T23:29",
+   "url": null,
+   "user_stories": []
+  },
+  "sha256": "ffa3e3f238cfb1d27e09ca9177e3d8699d777e4fec38df5d63a9009563e13302"
+ },
+ "meetings/MTG-0001-pricing-kick-off.md": {
+  "fields": {
+   "archived": false,
+   "attendees": [
+    "Ana",
+    "Pablo"
+   ],
+   "created_at": "2026-10-14T23:29",
+   "date": "2026-10-13",
+   "id": "MTG-0001",
+   "labels": [],
+   "links": [],
+   "related_to": "INI-0001",
+   "session_name": null,
+   "subject": "Pricing kick-off",
+   "type": "meeting",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "8554772826dfcd698a15cbf427f1dd7bc1e87742595159056ec5a515a99f7a70"
+ },
+ "notes/NOTE-0001-pricing-ideas.md": {
+  "fields": {
+   "archived": false,
+   "created_at": "2026-10-14T23:29",
+   "id": "NOTE-0001",
+   "labels": [],
+   "links": [],
+   "related_to": "INI-0001",
+   "session_name": null,
+   "subject": "Pricing ideas",
+   "type": "note",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "03c9478c731371c011e86641d4009c4abf4e1212deb0423043250c8f2125dc58"
+ },
+ "stories/US-0007-as-a-buyer-i-see-three-plans-side-by-side.md": {
+  "fields": {
+   "archived": false,
+   "claude_sessions": null,
+   "comments": [],
+   "completed_at": null,
+   "created_at": "2026-10-16T22:18",
+   "due": null,
+   "id": "US-0007",
+   "labels": [],
+   "legacy_id": "US-1",
+   "links": [],
+   "local_path": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Normal",
+   "priority_reason": null,
+   "redmine_id": null,
+   "redmine_url": "https://redmine.example.com/issues/4522",
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "InProgress",
+   "subject": "As a buyer I see three plans side by side",
+   "today_list": null,
+   "type": "story",
+   "updated_at": "2026-10-16T22:18",
+   "url": null,
+   "url_label": null
+  },
+  "sha256": "815befab1a41e03b43848a939f2e9e1fed7864256b07e75efe49725a17bb366b"
+ },
+ "stories/US-0008-as-an-admin-i-can-change-plan-prices.md": {
+  "fields": {
+   "archived": false,
+   "claude_sessions": null,
+   "comments": [],
+   "completed_at": null,
+   "created_at": "2026-10-16T22:18",
+   "due": null,
+   "id": "US-0008",
+   "labels": [],
+   "legacy_id": "US-2",
+   "links": [],
+   "local_path": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Normal",
+   "priority_reason": null,
+   "redmine_id": null,
+   "redmine_url": null,
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "Backlog",
+   "subject": "As an admin I can change plan prices",
+   "today_list": null,
+   "type": "story",
+   "updated_at": "2026-10-16T22:18",
+   "url": null,
+   "url_label": null
+  },
+  "sha256": "0d92365cbabe5268cb47f7cf15ab69271546a85b164d5c3d769cad04e4d15e0f"
+ },
+ "tasks/TSK-0001-benchmark-competitor-pricing.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": "2026-10-16",
+   "id": "TSK-0001",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": "2026-10-14",
+   "plan_week": "2026-W42",
+   "priority": "High",
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "InProgress",
+   "subject": "Benchmark competitor pricing",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "22a2418bfca5fabc5745bd480572cd1968d608def2b1cf21efef1144f7292c40"
+ },
+ "tasks/TSK-0002-draft-pricing-tiers.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0002",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": null,
+   "plan_week": "2026-W42",
+   "priority": "Normal",
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "ToDo",
+   "subject": "Draft pricing tiers",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "3305031b40772367d965c62d18ea29e617eebade5e9db65b1b473cd9414566c0"
+ },
+ "tasks/TSK-0003-renew-ssl-certificate.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0003",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Urgent",
+   "related_to": null,
+   "session_name": null,
+   "status": "Backlog",
+   "subject": "Renew SSL certificate",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "8d6922474c15e57801fe8e6677c22147f3e381a869387ee705f192353a7c0154"
+ },
+ "tasks/TSK-0004-review-analytics-dashboard.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0004",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": "2026-10-13",
+   "plan_week": "2026-W42",
+   "priority": "Normal",
+   "related_to": null,
+   "session_name": null,
+   "status": "Review",
+   "subject": "Review analytics dashboard",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "039fa383f73f954bece30d8210ed8301f01e48ab4c32d40d025bf67989a8e5fd"
+ },
+ "tasks/TSK-0005-set-up-pricing-a-b-test.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0005",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Normal",
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "Blocked",
+   "subject": "Set up pricing A/B test",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "b75912ea935a82e3a135ecc31be706f6d0aa5e3425efb2cd18e39ed9575c6440"
+ },
+ "tasks/TSK-0006-write-welcome-email-copy.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": null,
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0006",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Low",
+   "related_to": "INI-0002",
+   "session_name": null,
+   "status": "Backlog",
+   "subject": "Write welcome email copy",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "3cb24997d3a54e11a8ed4d9463cdd707965ad4aed776e003f7c43001ddb40c6f"
+ },
+ "tasks/TSK-0007-collect-churn-data.md": {
+  "fields": {
+   "archived": false,
+   "completed_at": "2026-10-14T23:29",
+   "created_at": "2026-10-14T23:29",
+   "due": null,
+   "id": "TSK-0007",
+   "labels": [],
+   "links": [],
+   "list": null,
+   "order": null,
+   "plan_day": null,
+   "plan_week": null,
+   "priority": "Normal",
+   "related_to": "INI-0001",
+   "session_name": null,
+   "status": "Done",
+   "subject": "Collect churn data",
+   "type": "task",
+   "updated_at": "2026-10-14T23:29",
+   "url": null
+  },
+  "sha256": "0801844981a054842173aaac22f7df2ebe56dec20f09ad0e3d8c338dc0c597d8"
+ },
+ "worklog/2026/2026-10-13.md": {
+  "fields": {
+   "date": "2026-10-13",
+   "entries": [
+    {
+     "at": "23:29",
+     "id": "TSK-0001",
+     "kind": "Analysis",
+     "note": "competitor list"
+    },
+    {
+     "at": "23:29",
+     "id": "INI-0001",
+     "kind": "Meeting",
+     "note": "kick-off"
+    },
+    {
+     "at": "23:29",
+     "id": "TSK-0006",
+     "kind": "Testing"
+    }
+   ],
+   "type": "worklog",
+   "updated_at": "2026-10-14T23:29"
+  },
+  "sha256": "6cf7e3d45db8fb66fad999649fb3f0ff9dbc08e708e853f83c1d8ca1b5311bb5"
+ },
+ "worklog/2026/2026-10-14.md": {
+  "fields": {
+   "date": "2026-10-14",
+   "entries": [
+    {
+     "at": "23:29",
+     "id": "TSK-0001",
+     "kind": "Analysis",
+     "note": "captured plans"
+    },
+    {
+     "at": "23:29",
+     "id": "TSK-0002",
+     "kind": "Definition"
+    }
+   ],
+   "type": "worklog",
+   "updated_at": "2026-10-14T23:29"
+  },
+  "sha256": "82f62f341ba0fd923b1d4856fc2c380bc4a956189a4eeb075cf4ee2a25a2a7aa"
+ }
+}

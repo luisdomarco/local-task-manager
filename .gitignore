@@ -1,0 +1,33 @@
+# Personal config: points at your real task directory
+config.json
+# The copy server.py kept of it before the first save that writes the vault list (now in backups/)
+config.json.bak-*
+# Secrets for tools/redmine_status_sync.py (see .env.example)
+.env
+# Claude Code's per-user settings for this folder (your permissions): never versioned, never exported
+.claude/settings.local.json
+__pycache__/
+*.pyc
+.DS_Store
+# The sample vaults are versioned with their people, labels and ids (tools/seed_sample_vault.py), but not what the
+# app writes into them while you try it
+sample-vault/.task-manager/*
+!sample-vault/.task-manager/people.md
+!sample-vault/.task-manager/labels.md
+!sample-vault/.task-manager/ids.json
+sample-vault-ticketing/.task-manager/*
+!sample-vault-ticketing/.task-manager/people.md
+!sample-vault-ticketing/.task-manager/labels.md
+!sample-vault-ticketing/.task-manager/ids.json
+# Your real tasks when config.json points here — personal data, never versioned
+vault/
+# A Ticketing vault kept next to the app (Settings → Vaults can point anywhere else)
+tickets-vault/
+# More vaults kept next to the app (vault-work/, vault-projects-and-tickets/…): personal data, never versioned
+vault-*/
+# What the app and its tools set aside before overwriting (config.json.bak-*, <vault>.backup-*): server.py backup_path
+backups/
+# Where those backups went before backups/ existed
+vault.backup-*/
+# System exports (Settings → Export): zips to carry the app between machines
+versions/

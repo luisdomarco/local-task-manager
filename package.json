@@ -1,0 +1,9 @@
+{
+  "name": "local-task-manager",
+  "private": true,
+  "type": "module",
+  "description": "Frontend logic tests only (node --test). The app itself has no build step and no dependencies.",
+  "scripts": {
+    "test:js": "TZ=UTC node --test tests/js/*.test.mjs"
+  }
+}

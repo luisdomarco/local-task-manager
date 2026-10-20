@@ -1,0 +1,16 @@
+{
+  "ACME-ERR": 1,
+  "ACME-HFX": 1,
+  "ACME-INI": 1,
+  "ACME-LRN": 1,
+  "ACME-PRD": 1,
+  "ACME-SUP": 1,
+  "ACT": 1,
+  "AGT": 1,
+  "INB": 1,
+  "MTG": 1,
+  "NOTE": 1,
+  "OPS-INI": 1,
+  "OPS-SUP": 1,
+  "TSK": 3
+}

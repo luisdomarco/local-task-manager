@@ -1,0 +1,44 @@
+{
+  "port": 3100,
+  "vaults": [
+    {
+      "id": "work",
+      "name": "Work",
+      "path": "~/Documents/work-vault",
+      "structure": "folders",
+      "disabled_types": []
+    },
+    {
+      "id": "tickets",
+      "name": "Tickets",
+      "path": "~/Documents/tickets-vault",
+      "structure": "ticketing",
+      "disabled_types": []
+    }
+  ],
+  "default_vault": "work",
+  "root": "~/Documents/work-vault",
+  "work_kinds": [
+    "Analysis",
+    "Definition",
+    "Testing",
+    "Meeting",
+    "Management"
+  ],
+  "editor_app": "Cursor",
+  "claude_command": "claude",
+  "claude_paths": ["~/work"],
+  "claude_cwd": "~/work",
+  "claude_path_names": {},
+  "claude_model": "",
+  "claude_effort": "",
+  "terminal": "Terminal",
+  "sync": {
+    "me_email": "me@company.com",
+    "calendar_id": "",
+    "connectors": {
+      "calendar": "",
+      "slack": ""
+    }
+  }
+}
