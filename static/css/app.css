@@ -54,6 +54,7 @@
   --row-h: 48px;                   /* a table row's minimum height (every .grid) */
   --radius: 8px;
   --radius-sm: 6px;
+  --side-strip: 44px; /* a folded side column: the width of its button's strip */
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b5b66' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -343,8 +344,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .page.two-panel { flex: 1; min-height: 0; gap: 0; }
 .page.two-panel > .crumbs { margin-bottom: 10px; flex: none; }
 .page-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 20px; }
-.page-body.collapsed { grid-template-columns: minmax(0, 1fr); }
-.page-body.collapsed .page-side { display: none; }
+.page-body.collapsed { grid-template-columns: minmax(0, 1fr) var(--side-strip); }
 /* Its own scroll: 24px between the content and the scrollbar, as on an item's card (.im-main); an initiative's, a project's, a PRD's page */
 .page-main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 0 24px 40px 0; }
 /* The right panel: squared corners */
@@ -935,8 +935,22 @@ table.grid.fixed { table-layout: fixed; }
 .im-foot .spacer { flex: 1; }
 .im-in { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .im-body { display: grid; grid-template-columns: minmax(0, 1fr) 500px; grid-template-rows: minmax(0, 1fr); } /* side column: 380px + 15% + 15% */
-.im-body.collapsed, .im-body.solo { grid-template-columns: minmax(0, 1fr); }
-.im-body.collapsed > .im-side { display: none; }
+.im-body.solo { grid-template-columns: minmax(0, 1fr); }
+/* Folded: the side column is a strip with only its button (sideFold), to open it again */
+.im-body.collapsed { grid-template-columns: minmax(0, 1fr) var(--side-strip); }
+.im-body.collapsed > .im-side > :not(.side-fold), .page-body.collapsed > .page-side > :not(.side-fold) { display: none; }
+.im-body.collapsed > .im-side, .page-body.collapsed > .page-side { padding: 0; }
+/* The fold button: inside the side column, top right, level with its tabs (which keep clear of it) */
+.im-side { position: relative; }
+.side-fold { position: absolute; top: 6px; right: 7px; z-index: 2; }
+.im-side.tabbed > .tabs-bar { margin-right: var(--side-strip); overflow-x: auto; scrollbar-width: none; }
+.im-side.tabbed > .tabs-bar::-webkit-scrollbar { display: none; }
+.im-side.tabbed > .tabs-bar .tab-btn { flex: none; }
+/* the bar's line goes on under the button (the bar is 42px tall on a card, 40px on a page) */
+.im-side.tabbed::before { content: ''; position: absolute; right: 0; width: var(--side-strip); top: 0; height: 42px; box-sizing: border-box; border-bottom: 1px solid var(--border); pointer-events: none; }
+.page-side.im-side.tabbed::before { height: 40px; }
+.im-body.collapsed > .im-side.tabbed::before, .page-body.collapsed > .page-side::before { display: none; }
+.im-side:not(.tabbed) { padding-top: 44px; }
 .im-main { padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 20px; min-width: 0; min-height: 0; overflow-y: auto; }
 .im-side { padding: 20px 20px 24px; background: var(--well); border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .im-side { min-height: 0; overflow-y: auto; }
@@ -1254,6 +1268,8 @@ table.grid.fixed { table-layout: fixed; }
   .page-body { display: block; }
   .page-main { overflow: visible; padding-right: 0; } /* the page scrolls, not the column: no bar to keep clear of */
   .page-side.im-side { margin-top: 16px; height: 70vh; }
+  /* folded, one above the other: the side column is a thin row with its button */
+  .im-body.collapsed > .im-side, .page-body.collapsed > .page-side.im-side { height: 40px; min-height: 40px; }
   #view:has(> .page.two-panel) { padding: 20px 16px 40px; }
   .tab-panel, .tab-panel.fill { overflow: visible; }
   .im-side .panel-section.activity { flex: none; }
@@ -1335,8 +1351,13 @@ table.grid.fixed { table-layout: fixed; }
 #modal.remap-modal .field .select-btn { width: 100%; }
 
 /* attachments (attachments.js): the drop zone, the table of an item's files, the viewer */
-.attachments .body-tabs { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.attachments .body-tabs h4 { display: flex; align-items: center; gap: 6px; margin: 0; }
+/* under the drop zone, the title and its count fold the list (attach-head, as a table's group toggle) */
+.attach-head { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 2px; padding: 4px; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
+.attach-head:hover { background: var(--accent); }
+.attach-head .attach-title { font-size: var(--fs-h4); font-weight: 650; }
+.attach-head .icon { color: var(--muted-foreground); }
+.attach-empty { margin: 4px 0 0 26px; }
 .attach-zone {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px; cursor: pointer;
   border: 1.5px dashed var(--input); border-radius: var(--radius); color: var(--muted-foreground); background: var(--well);
@@ -1344,7 +1365,7 @@ table.grid.fixed { table-layout: fixed; }
 .attach-zone:hover, .attach-zone:focus-visible { border-color: var(--foreground); color: var(--foreground); outline: none; }
 .attach-zone.over { border-color: var(--foreground); border-style: solid; background: var(--accent); color: var(--foreground); }
 .attach-zone.busy { pointer-events: none; opacity: .7; }
-.attach-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: var(--fs-sm); }
+.attach-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: var(--fs-sm); }
 .attach-table thead th { text-align: left; font-weight: 550; color: var(--muted-foreground); padding: 0 8px 6px; border-bottom: 1px solid var(--border); }
 .attach-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .attach-table tr:last-child td { border-bottom: 0; }

@@ -10,7 +10,7 @@ import { api } from './api.js';
 import { COL, DETAIL_PAGE, TASK_COLUMNS, columnOf, dataTable, fixedColumns, paged, pagedBox } from './datatable.js';
 import { addDays, relDay, shiftWeek, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL, trapFocus } from './create.js';
-import { itemFields, linkLabelControl, modalFrame, modalTitle, parentFields, planKey, propField, relatedControl } from './itemform.js';
+import { itemFields, linkLabelControl, modalFrame, modalTitle, parentFields, planKey, propField, relatedControl, sideFold } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
@@ -834,7 +834,7 @@ function keepFocus(root, render) {
   if (!inside) return;
   const target = fk ? root.querySelector(`[data-fk="${fk}"]`) : root.querySelectorAll(FOCUSABLE)[idx];
   if (!target) return;
-  target.focus();
+  target.focus({ preventScroll: true }); // the render put the scroll back where it was: focusing must not move it
   try { if (sel && sel[0] !== null) target.setSelectionRange(...sel); } catch { /* not a text control */ }
 }
 
@@ -1183,9 +1183,14 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     const keepScroll = scrollFor === current;
     const mainTop = keepScroll ? mainScroller(host())?.scrollTop || 0 : 0;
     const panelTop = keepScroll ? host().querySelector('.tab-panel:not([hidden])')?.scrollTop || 0 : 0;
+    // A full-screen editor scrolls inside itself (.mde-code): its scroll too, in the order the editors come.
+    const editorTops = keepScroll ? [...host().querySelectorAll('.mde-code')].map((e) => e.scrollTop) : [];
     // replaceChildren() would print a skipped section as the text "null".
     host().replaceChildren(...layout(item, ctx).flat().filter((x) => x !== null && x !== undefined && x !== false));
     scrollFor = current;
+    // The rebuilt editors take their full height before the scroll goes back, or it is clipped to their minimum.
+    host().querySelectorAll('.mde.coloured').forEach((e) => e.dispatchEvent(new Event('mde:fit')));
+    host().querySelectorAll('.mde-code').forEach((e, i) => { if (editorTops[i]) e.scrollTop = editorTops[i]; });
     const newMain = mainScroller(host());
     if (newMain) newMain.scrollTop = mainTop;
     const newPanel = host().querySelector('.tab-panel:not([hidden])');
@@ -1412,8 +1417,7 @@ function stat(label, value, { sub = null, pct = null } = {}) {
 }
 
 let pageTab = 'details'; // the right panel's tab, kept while the page re-renders
-const SIDE_KEY = 'tm.iniSidePanel'; // one choice for every page (named when only initiatives had one)
-const sidePanelOpen = () => { try { return localStorage.getItem(SIDE_KEY) !== 'closed'; } catch { return true; } };
+const SIDE_KEY = 'tm.iniSidePanel'; // its side panel folded or not: one choice for every page (named when only initiatives had one)
 
 /** The scorecards at the top of a page: what is done of it (an initiative, a PRD), or what its project holds open. */
 function pageStats(item) {
@@ -1462,16 +1466,7 @@ function pageLayout(item, c, rerender) {
   const parent = f.related_to ? state.byId.get(f.related_to) : null;
   const project = hasProject(item.type) ? projectOf(item) : null;
   const up = parent || project; // where the crumbs lead: its parent, else the project it lives in
-  const open = sidePanelOpen();
-  const body = h('div', { class: `page-body ${open ? '' : 'collapsed'}` });
-  const toggle = h('button', { class: `btn icon toggle ${open ? 'on' : ''}`, 'aria-pressed': String(open), title: open ? 'Hide the side panel' : 'Show the side panel' }, icon('panel', 16));
-  toggle.addEventListener('click', () => {
-    const folded = body.classList.toggle('collapsed');
-    toggle.classList.toggle('on', !folded);
-    toggle.setAttribute('aria-pressed', String(!folded));
-    toggle.title = folded ? 'Show the side panel' : 'Hide the side panel';
-    try { localStorage.setItem(SIDE_KEY, folded ? 'closed' : 'open'); } catch { /* it just opens again next time */ }
-  });
+  const body = h('div', { class: 'page-body' });
   const crumbs = h('nav', { class: 'crumbs' },
     h('a', { href: `#/${def.route || 'today'}` }, def.plural || item.type),
     up ? [icon('right', 13), h('a', { href: itemHref(up) }, up.title)] : null,
@@ -1479,7 +1474,7 @@ function pageLayout(item, c, rerender) {
     h('span', { class: 'mono' }, item.id || pageRef(item) || 'no id'),
     f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
     h('span', { class: 'spacer' }),
-    c.sidebar, c.claude, c.pin, c.copyPath, c.more, toggle);
+    c.sidebar, c.claude, c.pin, c.copyPath, c.more);
 
   const main = [
     c.subject,
@@ -1494,7 +1489,7 @@ function pageLayout(item, c, rerender) {
     c.foot,
   ];
   const side = sideTabs(item, rerender, pageTab, (key) => { pageTab = key; });
-  body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, ...side));
+  body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, sideFold(body, SIDE_KEY), ...side));
   return [crumbs, body];
 }
 

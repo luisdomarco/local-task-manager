@@ -116,7 +116,7 @@ class RoundTripTest(TicketingBase):
     def test_a_status_change_touches_only_status_log_and_dates(self):
         sup = self.s.create('support', 'Algo', {'project': 'HB'})
         before = read(self.root, sup['path'])
-        out = self.s.update(sup['id'], {'status': 'InProgress'})
+        out = self.s.update(sup['id'], {'status': 'InProgress'}, by='owner')  # as the page does
         after = read(self.root, sup['path'])
         changed = self.changed_keys(before, after)  # updated_date is a date: the same day, the same line
         self.assertTrue({'status_ticket', 'status_log'} <= changed <= {'status_ticket', 'status_log', 'updated_date'}, changed)
@@ -246,6 +246,21 @@ class RulesTest(TicketingBase):
         with self.assertRaises(StoreError) as cm:
             self.s.update(ini['id'], {'status': 'ToDo'})
         self.assertIn('at least one story', str(cm.exception))  # the template gives it a size and a regime; a story it must be given
+
+    def test_the_owner_moves_freely_an_agent_through_the_gates(self):
+        ini = self.s.create('initiative', 'Algo', {'project': 'HB'})
+        with self.assertRaises(StoreError):
+            self.s.update(ini['id'], {'status': 'InProgress'})  # an agent (the Store's default): Backlog → ToDo first
+        moved = self.s.update(ini['id'], {'status': 'InProgress'}, by='owner')  # the owner, in the app
+        self.assertEqual(moved['fields']['status'], 'InProgress')
+        sup = self.s.create('support', 'Otro', {'project': 'HB'})
+        self.assertEqual(self.s.update(sup['id'], {'status': 'Discarded'}, by='owner')['fields']['status'], 'Discarded')  # no reason asked
+        log = fm.parse(fm.split(read(self.root, moved['path']))[0])['status_log']
+        self.assertEqual(log[-1]['by'], 'owner')
+        story = self.s.create('story', 'Una', {'project': 'HB', 'related_to': ini['id']})
+        with self.assertRaises(StoreError):
+            self.s.update(story['id'], {'status': 'ToDo'}, by='agent')  # its gate: no scenario, no spec impact
+        self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'}, by='owner')['fields']['status'], 'ToDo')
 
     def test_promote_and_close_with_what_it_became(self):
         sup = self.s.create('support', 'Algo serio', {'project': 'ECD', 'level': 'C1'})

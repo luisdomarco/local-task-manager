@@ -832,9 +832,10 @@ class Store:
         out = self._rule('on_create', item_type, values, r, stamp)
         return values if out is None else out
 
-    def _ticket_rules_on_update(self, it, values, r, stamp):
-        """The structure's own rules for a change (allowed transitions, gates, a level that only goes up…)."""
-        out = self._rule('on_update', it, values, r, stamp)
+    def _ticket_rules_on_update(self, it, values, r, stamp, by='agent'):
+        """The structure's own rules for a change (allowed transitions and gates for an agent's; a level that only goes
+        up…)."""
+        out = self._rule('on_update', it, values, r, stamp, by)
         return values if out is None else out
 
     @writes
@@ -865,7 +866,7 @@ class Store:
         except codec.rule_error as e:
             raise StoreError(400, str(e))
 
-    def _write_coded(self, it, values, body, text, path, stamp):
+    def _write_coded(self, it, values, body, text, path, stamp, by='agent'):
         """Patch the item's file through the codec; a new title renames the file (and every link to it). → its key."""
         r = self._resolver()
         scoped = it['type'] in self.structure.extras.get('project_scoped', ())
@@ -876,9 +877,9 @@ class Store:
                 raise StoreError(400, f"unknown project: {values['project']}")
         if it['type'] == 'project':  # its key names every id of the project
             values = {k: v for k, v in values.items() if k not in ('project_key', 'project')}
-        values = self._ticket_rules_on_update(it, values, r, stamp)
+        values = self._ticket_rules_on_update(it, values, r, stamp, by)
         raw = fm.parse(fm.split(text)[0])
-        disk = self.structure.codec.encode(it['type'], values, raw, r, stamp=stamp, current=it['fields'])
+        disk = self.structure.codec.encode(it['type'], values, raw, r, stamp=stamp, by=by, current=it['fields'])
         atomic_write(path, fm.patch(text, disk, body))
         key = it['key']
         if it['type'] == 'project' and 'enabled_types' in values:  # a type it turns on gets its folder (vault check)
@@ -927,10 +928,12 @@ class Store:
         return len(edits)
 
     @writes
-    def update(self, key, values=None, body=None, base_rev=None, base_body_rev=None):
+    def update(self, key, values=None, body=None, base_rev=None, base_body_rev=None, by='agent'):
         """Patch fields and, when `body` is given, replace the body. `base_body_rev` (the body_rev the
         editor loaded) makes a body write a 409 if the body changed on disk since; `base_rev` (the
-        file's rev) does the same for any change to the file. Both optional: without them, last write wins."""
+        file's rev) does the same for any change to the file. Both optional: without them, last write wins.
+        `by` is who makes the change: 'agent' (a script, a command: the structure's transitions and gates apply) or
+        'owner' (a person in the app: free to move a status anywhere). The server says 'owner' for the page."""
         values = dict(values or {})
         resolved = values.pop('resolved', None)  # explicit "mark resolved / reopen"; the resolution text is left alone
         renamed = 'subject' in values
@@ -987,7 +990,7 @@ class Store:
             self._remember_people(clean_people(values.get('from')) + clean_people(values.get('attendees')) + self._watching_people(values))
             self._remember_labels(values.get('labels'))
             if self.structure.codec:
-                return self.read(self._write_coded(it, values, body, text, path, stamp))
+                return self.read(self._write_coded(it, values, body, text, path, stamp, by))
             atomic_write(path, fm.patch(text, values, body))
         return self.read(it['key'])
 

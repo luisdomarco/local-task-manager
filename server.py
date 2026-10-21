@@ -981,8 +981,11 @@ ROUTES = {
     ('GET', '/api/item'): lambda s, q, b: s.read(q['key']),
     ('POST', '/api/item/create'): lambda s, q, b: s.create(
         b['type'], b.get('subject'), b.get('values'), b.get('body') or ''),
+    # A change from the page is the owner's (free to move a status anywhere); a script says "by": "agent" to go through
+    # the structure's transitions and gates (tools/devflow.py, the /dev:* commands).
     ('POST', '/api/item/update'): lambda s, q, b: s.update(
-        b['key'], b.get('values'), b.get('body'), b.get('base_rev'), b.get('base_body_rev')),
+        b['key'], b.get('values'), b.get('body'), b.get('base_rev'), b.get('base_body_rev'),
+        by='agent' if b.get('by') == 'agent' else 'owner'),
     ('POST', '/api/item/delete'): lambda s, q, b: s.delete(b['key']),
     # Attachments (tm/attachments.py): add takes the file's bytes as the body, the item's key in the query.
     ('POST', '/api/attachments/add'): lambda s, q, b: s.add_attachment(q['key'], b['filename'], b['data']),

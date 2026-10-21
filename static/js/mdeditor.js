@@ -25,6 +25,16 @@ const MODES = [['write', 'Markdown'], ['split', 'Both'], ['preview', 'View']];
 
 const LIST_RE = /^(\s*)([-*+]|\d+\.)\s+(\[[ xX]\]\s+)?/;
 
+/** The elements around `el` that scroll vertically (the nearest first), the page's own scroller included. */
+function scrollers(el) {
+  const out = [];
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (p.scrollHeight > p.clientHeight && /(auto|scroll)/.test(getComputedStyle(p).overflowY)) out.push(p);
+  }
+  if (document.scrollingElement) out.push(document.scrollingElement);
+  return out;
+}
+
 /**
  * mdEditor({ value, onInput, minHeight, preview, placeholder, label, onEscape, highlight, markdown, wrap }) →
  * { el, textarea, get(), set(text), focus() }. `preview: false` gives toolbar + textarea only. `onEscape` is what
@@ -52,8 +62,16 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
   };
   const grow = () => { // no scrollbar of its own, so the colours behind it and the text wrap at the same width
     if (!hl) return;
+    if (ta.scrollHeight > ta.clientHeight) { // longer: grow to fit, never through a shorter height
+      ta.style.height = `${ta.scrollHeight}px`;
+      return;
+    }
+    // Maybe shorter (a line deleted): measuring needs it short for a moment, and that clips the scroll of whatever
+    // scrolls around it (the card's column, full screen, the Explorer). Put each one back where it was.
+    const kept = scrollers(ta).map((el) => [el, el.scrollTop]);
     ta.style.height = 'auto';
     ta.style.height = `${ta.scrollHeight}px`;
+    for (const [el, top] of kept) el.scrollTop = top;
   };
   const prev = preview ? h('div', { class: 'mde-preview md', 'aria-label': 'Preview', 'aria-live': 'polite' }) : null;
   let mode = 'write'; // write (Markdown only) | split (both) | preview (rendered only); Markdown is the default
@@ -201,5 +219,8 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
   refresh();
   recolour();
   requestAnimationFrame(grow); // its height once it is on the page
+  // …or at once, for whoever just put it on the page and restores a scroll next (a card re-rendered after a save): a
+  // scroll restored over the editor's minimum height is clipped, and the caret's line lands at the bottom (TSK-055).
+  api.el.addEventListener('mde:fit', grow);
   return api;
 }

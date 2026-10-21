@@ -1,9 +1,10 @@
-// An item's attachments, under its description on its card and its page: a drop zone (or Add files) and the table of
-// its files — name · Open · Delete. Open shows the file in a dialog (an image, a PDF, plain text read as text) or offers to download
+// An item's attachments, under its description on its card and its page: a drop zone (or Add files), then the title
+// with its count, which folds the table of its files — name · Open · Delete — or says there are none. Open shows the file in a dialog (an image, a PDF, plain text read as text) or offers to download
 // it. The files live in the vault's Attachments/ folder and the item names them in `attachments` (tm/attachments.py).
 import { zoomableImage } from './zoom.js';
 import { attachmentUrl } from './api.js';
 import { trapFocus } from './create.js';
+import { pref, setPref } from './prefs.js';
 import { addAttachments, removeAttachment, toast } from './state.js';
 import { h, icon } from './ui.js';
 
@@ -54,12 +55,22 @@ export function attachmentsSection(item) {
     h('td', { class: 'attach-act' }, h('button', { type: 'button', class: 'btn small', onclick: () => openAttachment(path) }, icon('eye', 13), 'Open')),
     h('td', { class: 'attach-act' }, h('button', { type: 'button', class: 'btn small ghost', title: `Delete ${nameOf(path)}`,
       onclick: () => removeAttachment(item.key, path).catch(() => {}) }, icon('trash', 13), 'Delete'))));
-  return h('section', { class: 'panel-section attachments' },
-    h('div', { class: 'body-tabs' }, h('h4', {}, icon('paperclip', 15), 'Attachments'), files.length ? h('span', { class: 'muted small' }, String(files.length)) : null),
-    zone, input,
+  const list = h('div', { class: 'attach-list', id: `attach-list-${String(item.key).replace(/[^\w-]/g, '-')}` }, // a key may be a path
     files.length ? h('table', { class: 'attach-table' },
       h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', { class: 'sr-only' }, 'Open'), h('th', { class: 'sr-only' }, 'Delete'))),
-      h('tbody', {}, rows)) : null);
+      h('tbody', {}, rows)) : h('p', { class: 'muted small attach-empty' }, 'No attachments yet'));
+  // The title folds the list; the choice is kept for every item (this browser only).
+  const head = h('button', { type: 'button', class: 'attach-head', 'aria-controls': list.id });
+  const show = (open) => {
+    list.hidden = !open;
+    head.setAttribute('aria-expanded', String(open));
+    head.title = open ? 'Hide the attachments' : 'Show the attachments';
+    head.replaceChildren(icon(open ? 'down' : 'right', 14), icon('paperclip', 15), h('span', { class: 'attach-title' }, 'Attachments'),
+      h('span', { class: 'muted small' }, String(files.length)));
+  };
+  show(pref('attachments.open', true) !== false);
+  head.addEventListener('click', () => { const open = list.hidden; show(open); setPref('attachments.open', open); });
+  return h('section', { class: 'panel-section attachments' }, zone, input, head, list);
 }
 
 /** A file shown as what it is (`kind`: 'image' | 'pdf' | 'text' | 'other'): an <img>, the browser's PDF viewer in a

@@ -7,7 +7,7 @@ due date; a duplicate support ticket (same signature, open) adds an occurrence i
 allowed status transitions per type and their gates (discard_reason, on_hold, a hotfix's rollback plan and
 post-mortem, an initiative's and a story's readiness, a spec's valid text, a serial project); promote (SUP → INI) and escalate (SUP → HFX);
 the support ticket that closes when what it became closes; the initiative that starts with its first story and closes
-with the last.
+with the last. Transitions and gates bind an agent's change only (Store.update `by`): the owner moves freely.
 Left to the agents and git: commits, branches, shas in production, openspec, frozen owner sections.
 """
 
@@ -131,7 +131,10 @@ def add_occurrence(store, it, evidence, r, stamp):
 
 
 # ── update ───────────────────────────────────────────────────────────────────
-def on_update(store, it, values, r, stamp):
+def on_update(store, it, values, r, stamp, by='agent'):
+    """A change's rules. The allowed transitions and their gates bind an agent's change (`by='agent'`: a script, a
+    /dev:* command); the owner, in the app, moves a status anywhere. The rest (a level that only goes up, a discarded
+    support ticket's resolution) is everyone's."""
     t, f = it['type'], it['fields']
     if t == 'project':
         return _project_settings(values)
@@ -145,12 +148,13 @@ def on_update(store, it, values, r, stamp):
             raise _err(f"a support ticket rises at most one level above where it was born ({f.get('level_base')})")
         values['due'] = due_for(r, f.get('project'), values['level'], f.get('due_from') or _today(stamp))
     new_status = values.get('status')
-    if t == 'spec' and new_status == 'active' and f.get('status') != 'active':
+    if by == 'agent' and t == 'spec' and new_status == 'active' and f.get('status') != 'active':
         wrong = specs.problems(store.read(it['key'])['body'])
         if wrong:
             raise _err(f"a spec is active only with valid requirements: {'; '.join(wrong[:3])}")
     if new_status and new_status != f.get('status') and t in TRANSITIONS:
-        _check_transition(store, it, new_status, {**f, **values}, r)
+        if by == 'agent':
+            _check_transition(store, it, new_status, {**f, **values}, r)
         if t == 'support' and new_status == 'Discarded':
             values.setdefault('disposition', 'discard')
             values.setdefault('resolution', 'discarded')

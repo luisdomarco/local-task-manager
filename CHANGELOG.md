@@ -2,6 +2,18 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [1.3.0] — 2026-10-21
+
+- **The side panel folds from inside it.** Its button sits at the right end of its tabs, and a folded panel is a
+  narrow strip with that button to open it again — on a card, in the create form and on a page. Tabs that do not fit
+  scroll sideways instead of being cut off.
+- **Attachments**: the drop zone comes first, then the title with its count, which folds the list of files
+  (*No attachments yet* when there are none). Folded or not is remembered.
+- **Ticketing: you move a status anywhere in the app.** The allowed moves and their gates bind a script or an agent,
+  which says so when it writes (`"by": "agent"`); the status log records who made each change.
+- The description no longer jumps when it saves while you type: the line you are on stays where it is, in full
+  screen too.
+
 ## [1.2.0] — 2026-10-20
 
 - **Contacts** replaces People: a **People** tab and a **Groups** tab (an email list, a Slack channel or another

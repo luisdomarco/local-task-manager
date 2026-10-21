@@ -33,29 +33,39 @@ import { checkSelect, h, icon, labelInput, parentOptions, select, tagInput, type
 
 // ── the shell ────────────────────────────────────────────────────────────────
 
-// The right column folds away. It starts open, and the choice is kept for every card and form (this browser only).
-const SIDE_KEY = 'tm.modalSide';
-const sideOpen = () => { try { return localStorage.getItem(SIDE_KEY) !== 'closed'; } catch { return true; } };
+// The right column of a card, a form or a page folds to a narrow strip. It starts open, and the choice is kept per kind
+// of screen (this browser only): `tm.modalSide` for cards and forms, `tm.iniSidePanel` for pages.
+const MODAL_SIDE_KEY = 'tm.modalSide';
 
-/** Header + two columns. Every part is a list of nodes; null entries are skipped. A button before the last header control folds the right column. */
+/**
+ * The button that folds a right column (`body` holds it: the class `collapsed` goes on it). It goes first inside the
+ * column, top right, level with its tabs; folded, the column is a strip with only this button, to open it again.
+ */
+export function sideFold(body, key) {
+  const btn = h('button', { class: 'btn icon side-fold' }, icon('panel', 16));
+  const show = (open) => {
+    body.classList.toggle('collapsed', !open);
+    btn.setAttribute('aria-pressed', String(open));
+    btn.title = open ? 'Hide the side panel' : 'Show the side panel';
+  };
+  let open = true;
+  try { open = localStorage.getItem(key) !== 'closed'; } catch { /* storage off: open */ }
+  show(open);
+  btn.addEventListener('click', () => {
+    const now = body.classList.contains('collapsed'); // folded: the click opens it
+    show(now);
+    try { localStorage.setItem(key, now ? 'open' : 'closed'); } catch { /* it just opens again next time */ }
+  });
+  return btn;
+}
+
+/** Header + two columns. Every part is a list of nodes; null entries are skipped. The right column folds (sideFold). */
 export function modalFrame({ head = [], title, main = [], side = [], sideClass = '', foot = null }) {
   const solo = !side.some(Boolean); // nothing for a side column (a prompt): one column, and no button to fold it
-  const open = sideOpen() && !solo;
-  const body = h('div', { class: `im-body ${solo ? 'solo' : open ? '' : 'collapsed'}` },
-    h('div', { class: 'im-main' }, title, ...main),
-    solo ? null : h('aside', { class: `im-side ${sideClass}` }, ...side));
-  const toggle = h('button', { class: `btn icon toggle ${open ? 'on' : ''}`, 'aria-pressed': String(open), title: open ? 'Hide the side panel' : 'Show the side panel' }, icon('panel', 16));
-  toggle.addEventListener('click', () => {
-    const folded = body.classList.toggle('collapsed');
-    toggle.classList.toggle('on', !folded);
-    toggle.setAttribute('aria-pressed', String(!folded));
-    toggle.title = folded ? 'Show the side panel' : 'Hide the side panel';
-    try { localStorage.setItem(SIDE_KEY, folded ? 'closed' : 'open'); } catch { /* it just opens again next time */ }
-  });
-  const controls = head.filter(Boolean);
-  if (!solo) controls.splice(Math.max(0, controls.length - 1), 0, toggle); // before the close button
+  const body = h('div', { class: `im-body ${solo ? 'solo' : ''}` }, h('div', { class: 'im-main' }, title, ...main));
+  if (!solo) body.append(h('aside', { class: `im-side ${sideClass}` }, sideFold(body, MODAL_SIDE_KEY), ...side));
   return [
-    h('header', { class: 'im-head' }, ...controls),
+    h('header', { class: 'im-head' }, ...head.filter(Boolean)),
     body,
     foot ? h('footer', { class: 'im-foot' }, ...foot) : null, // pinned under both columns
   ].filter(Boolean);
