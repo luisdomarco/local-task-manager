@@ -540,9 +540,9 @@ Errors, Learnings) and its own folders (see [5](#5-vault-structures)).
 | **Top bar** | Always across the top of every view. Left, the button that shows a hidden sidebar (always there on a phone), then the **pinned items** (`<root>/.task-manager/pins.md`): a chip opens its item; drag chips to reorder them; drop any card (Week, Board, Inbox…) on the bar to pin it; × or the pin icon in the item unpins. Keyboard: Shift+←/→ moves a focused chip, Delete unpins it. Right, **🔍 Search** (the same as ⌘K, see *Search and keyboard*) and the **Claude terminal** icon: a prompt with no item behind it, with a *History* tab of the terminals opened from there (see *Work with Claude*). |
 | **Board** | Tasks as cards in lists, Trello-style, with the same filter bar as All items (type, relation, plan, labels, text, show closed, show archived); it starts with tasks only, and initiatives or stories can be ticked in to sit in the list of their status. Drag a task up or down to order it by hand (its `order`, within its list: Today and Week keep their own); drag a list by its header to reorder it; **⋯** sets the status it maps to, a WIP limit, rename, delete. **Each list maps to a status.** |
 | **All items** | Everything, sortable by any column; filters by type (a multi-select), relation (initiative, story, task, or *Not related*), plan, labels (any or all of those ticked), text, closed and archived — the same bar as the Board (`filterbar.js`), four to a row on a desktop, two on a tablet and one on a phone; each view keeps its own state. |
-| **Work log** | A table grouped by day with the time of each day totalled, filtered by a from–to date range. Click a row to edit or delete it. Dashed rows are *suggestions*: work you probably did but did not log (see Work log below). |
+| **Work log** | A table grouped by day with the time of each day totalled, filtered by a from–to date range. Click a row to edit or delete it. Dashed rows are *suggestions*: work you probably did but did not log (see Work log below). Rows marked **Tentative** (a clock, a coloured edge) were proposed by a worklog proposal (your own command, from the activity journal and your Claude sessions): they are not counted until you **Confirm** them — one by one, or **Confirm day** — or **Discard** them. |
 | **Labels** | Every label as a table: add one, rename it, delete it. A rename or delete reaches every item that carries it. |
-| **Contacts** | Two tabs, **People** (`#/contacts`; `#/people` still leads there) and **Groups** (`#/contacts/groups`). **People**: everyone named as the sender of an activity or an attendee of a meeting. Each person has a **public name** (what the items store and the app shows), the **name their calendar** gives them, their **emails** (one person, several addresses; an address belongs to one person), their ticket-system and Slack users, **When to use** (when and how to reach them: instructions an agent follows) and **Notes**, the last two on several lines. A click edits them. A new public name reaches every activity and meeting that names them, and the groups they are in; renaming onto someone else merges the two, emails included. A person's chip shows their Calendar name and emails on hover. **Groups**: people reached as one — an **email list**, a **Slack channel** or other — with its address, its **members**, **When to use** and **Notes**. A group's name is never a person's. People and groups can be @mentioned; a prompt for Claude lists each one mentioned with how to reach them, when to use them and their notes. |
+| **Contacts** | Two tabs, **People** (`#/contacts`; `#/people` still leads there) and **Groups** (`#/contacts/groups`). **People**: everyone named as the sender of an activity or an attendee of a meeting who is not a group. Each person has a **public name** (what the items store and the app shows), the **name their calendar** gives them, their **emails** (one person, several addresses; an address belongs to one person), their ticket-system and Slack users, **When to use** (when and how to reach them: instructions an agent follows) and **Notes**, the last two on several lines. A click edits them. A new public name reaches every activity and meeting that names them, and the groups they are in; renaming onto someone else merges the two, emails included. A person's chip shows their Calendar name and emails on hover. **Make it a group** (when editing a person) moves one who is really an email list or a channel — a Squad's list that Calendar invited, say — to Groups under the same name: their first email becomes its address, and the meetings and activities that name it keep it. **Groups**: people reached as one — an **email list**, a **Slack channel** or other — with its address, its **members**, **When to use** and **Notes**. A group's name is never a person's. A group can be a meeting's attendee, an activity's sender or a watcher, like a person: those fields suggest both, and the **Items** column counts every one (the breakdown on hover); renaming or deleting a group reaches all of them. A group's chip shows its address and members on hover. People and groups can be @mentioned; a prompt for Claude lists each one mentioned with how to reach them, when to use them and their notes. |
 | **Transcriptions** | The text of a meeting (`TRN-0001`, folder `transcriptions/`): the body is the transcript, and each one hangs from a **meeting** (*Meeting* field). Create one from its own section, from **+ Add item**, or from the meeting's card, where a **Transcriptions** table with a quick add sits under the description (as Notes do on a task). Like a note it has links, work log and comments, and no status. Quick add: `/transcription` or `/trn`. |
 | **Agents** | A backlog of AI agents (`AGT-0001` with folders per type, folder `agents/`; `AGT-001` in Ticketing, folder `Agents/`). An agent moves through its own statuses — **Idea → Design → Build → Test → Live → Retired** (Retired closes it) — and is not planned: no Today, Week or Board. It has a priority and its reason, **Platform** (Claude Code subagent · Agent SDK · Managed Agent · n8n · Other), **Model**, **Trigger** (manual · scheduled · event) and **Tools & MCP**, and may hang from an initiative. Created with an empty description, its body starts from the sections Purpose · Inputs · Outputs · Tools · Prompt · Evaluation · Runbook. **Its folder is optional**: a vault without it still matches its structure, and the folder is made with the first agent. Quick add: `/agent` or `/agt`. |
 | **Prompts** | Reusable prompts as a table (`PRM-0001`, folder `prompts/`): subject, state, labels, created and updated, with filters (Active / Archived / All, label, text) and **Add prompt**. The body of the file is the prompt itself. Like a note it has no status: it is **active** until you archive it (⋯ → Archive). It relates to nothing, has no side panel (no links, work log or comments) and does not appear in All items, the Board or the Work log suggestions. |
@@ -559,10 +559,13 @@ column goes under the main one, and its tabs scroll sideways when they don't fit
 
 **Relations** (a tab of the side panel, with how many there are) are what an item is linked to: its **Parent** (and the
 chain above it), its **Children** and what it is **Related** to as an equal. Every row opens that item and its **×**
-undoes the link, with Undo in the toast. The row at the foot adds one: *Parent* · *Child* · *Related* (the kind last
-picked is remembered per item type), then the item, from a searchable list. A parent never comes from under the item
-(no cycles); a child that hangs elsewhere moves here (the list says from where). A related link is kept on one of
-the two items and shows on both. Inbox items and prompts are linked to nothing. The create form keeps its
+undoes the link, with Undo in the toast. The row at the foot adds one: *Parent* · *Child* · *Related*, then the item,
+from a searchable list. A parent never comes from under the item (no cycles); a child that hangs elsewhere moves here
+(the list says from where). A related link is kept on one of the two items and shows on both. Between initiatives,
+user stories and tasks (folder per type), *Related* is an issue tracker's list instead — **Related to · Is duplicate of · Has
+duplicate · Blocks · Blocked by · Precedes · Follows · Copied to · Copied from** — read as "this item *Blocks* that
+one"; each related row starts with its kind, a select that changes it, and the other item sees the inverse (*Blocked
+by*). A note, a meeting… is only ever *Related to*. Inbox items and prompts are linked to nothing. The create form keeps its
 *Related to* field (there is no side panel yet); an existing item has its parent, and its Session, in the side panel.
 
 #### Search and keyboard
@@ -873,6 +876,7 @@ can be renamed or moved freely.
 | `url` + `links` | ✓ | ✓ | ✓ | ✓ | ✓ | One main link + N `{label, url}`. |
 | `related_to` | ✓ | ✓ | ✓ | ✓ | ✓ | The parent. task → initiative or story · story → initiative (or nothing) · note/meeting → initiative, story or task · initiative → initiative · transcription → meeting · agent → initiative · activity → initiative, story, task, note or meeting. No cycles. |
 | `relations` | ✓ | ✓ | ✓ | ✓ | ✓ | Ids of items related as equals (any type but inbox and prompt), each once; shown on both items. |
+| `relation_kinds` | | ✓ | ✓ | | | What each of its `relations` is, as an issue tracker names it: `{id: kind}`, kind one of relates · duplicates · duplicated · blocks · blocked · precedes · follows · copied_to · copied_from; an id it does not name is `relates`. Only towards an initiative, a story or a task; the other item reads the inverse. Stories have it too. |
 | `session_name` | ✓ | ✓ | ✓ | ✓ | ✓ | The session (Claude or otherwise) handling the item. Inbox items have it too. |
 | `status` | | ✓ | ✓ | | | Backlog · ToDo · OnHold · Blocked · InProgress · Review · Done · Discarded |
 | `priority` | | ✓ | ✓ | | | Urgent · High · Normal · Low |
@@ -886,7 +890,7 @@ can be renamed or moved freely.
 | `plan_week`, `plan_day`, `due` | | ✓ | ✓ | | | Planning (see below). |
 | `completed_at` | | ✓ | ✓ | | | Set by the server when the status enters its type's Closed group; cleared otherwise. |
 | `list`, `order` | | ✓ | | | | Board placement. |
-| the external ticket id and URL, `local_path` | | | ✓ | | | The item's ticket in an outside ticket system, and its folder on disk. Stories have them too. |
+| the external ticket id and URL, `tracker`, `local_path` | | | ✓ | | | The item's ticket in an outside ticket system (the side panel's **Ticket** block: ID, **Tracker** — Story, Epic… —, URL), and its folder on disk. Stories have them too. |
 | `user_stories` | | | ✓ | | | Legacy: stories used to live here. At startup they become story items (see *User stories*) and the list is left empty. |
 | `labels` | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | `today_list` | | ✓ | ✓ | | | Column on the Today board; cleared when `plan_day` changes. |
@@ -956,6 +960,24 @@ their `updated_at` (`/api/labels`, `/api/people`, each with `/rename` and `/dele
 `<root>/.task-manager/groups.md` (`/api/groups`, with `/update` and `/delete`): `{name, channel, address, members, notes,
 when_to_use}`, `channel` one of email · slack · other; the same in both structures. An initiative, a user story or a task names
 its **watchers** (TSK-051) in `watchers`, a list of names of people or groups; renaming or deleting a contact reaches it.
+`from` and `attendees` take a group's name too: a name on an item is the group's when a group has it, else a person's
+(it is never remembered in `people.md`). `/api/people/to-group` makes a person a group under the same name, their
+first email its address; the items that name them stay as they are. The calendar sync names an attendee by the group
+whose address or name it has, and never makes a group a person.
+
+#### Activity journal
+
+What is done through the app is written down, one file per day, in `<root>/.task-manager/journal/YYYY/YYYY-MM-DD.md`
+(tm/journal.py): `type: journal`, `entries: [{at, until?, actor, action, id, type, title, detail, count?}]` in the
+frontmatter, the same as a readable list in the body ("09:42–09:55 · app · edited TSK-0012 «…» — description — ×14").
+Only the server writes it, after a request that went well: `actor` is `app` for the page (it sends `X-TM-Actor: app`),
+`api` for anything else that calls the API, or the `X-TM-Actor` it sends (`claude:<session>`). What runs through a
+Store of its own — the syncs, the commands, a script — is never in it. The page's own arrangements (pins, sidebar,
+the Board's and Today's columns, settings) are not either. The same thing done again within 10 minutes (the
+description saving as you type) is one entry whose `until` and `count` grow; a status change never merges.
+
+A work-log entry may be `status: tentative` (with its `source`): proposed, not counted until confirmed
+(`/api/worklog/confirm` and `/api/worklog/discard`, `{date, index?}`: one entry, or every tentative one of the day).
 
 #### The browser tab's title
 

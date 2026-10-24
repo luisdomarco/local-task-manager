@@ -11,7 +11,7 @@ A person is a record {name, calendar_name, emails, redmine, slack, notes, when_t
 
 A group is a record {name, channel, address, members, notes, when_to_use} (TSK-050): `channel` is how it is reached
 (CHANNELS), `address` the list's email or the Slack channel, `members` the names of people in it. A group's name is
-never a person's: items name either by the name alone.
+never a person's: items name either by the name alone, as a watcher, a meeting's attendee or an activity's sender.
 
 Items keep the public name, never an id, so a meeting reads well in any editor; renaming a person
 rewrites the items (Store.update_person). The calendar sync finds the person behind an attendee with
@@ -142,6 +142,18 @@ def name_from_email(email):
     """A name for an address with no name: ana.garcia@x.com → Ana Garcia."""
     local = str(email or '').split('@')[0]
     return ' '.join(w.capitalize() for w in re.split(r'[._-]+', local) if w)
+
+
+def match_group(groups, email='', display=''):
+    """The group an attendee is (an email list a meeting invites), among `groups`: by its address, else by its name
+    (ignoring case, accents and spaces); None when it is no group."""
+    email = clean_email(email)
+    if email:
+        found = next((g for g in groups if clean_email(g.get('address')) == email), None)
+        if found:
+            return found
+    key = norm(display)
+    return next((g for g in groups if key and norm(g['name']) == key), None)
 
 
 def match(records, email='', display=''):

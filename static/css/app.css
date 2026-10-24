@@ -394,6 +394,18 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .wl-suggest td { color: var(--muted-foreground); }
 .wl-suggest td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--muted-foreground) 45%, transparent); }
 .chip.suggested { background: transparent; border: 1px dashed var(--muted-foreground); color: var(--muted-foreground); margin-right: 6px; gap: 4px; }
+/* A tentative entry (the worklog proposal's): dashed, not counted until confirmed. */
+.wl-tentative td { color: var(--muted-foreground); border-bottom-style: dashed; }
+.wl-tentative td:first-child { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 55%, transparent); }
+.chip.tentative { background: transparent; border: 1px dashed var(--primary); color: var(--primary); margin-right: 6px; }
+.wl-tentative .c-actions { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.wl-item-in { display: flex; align-items: center; min-width: 0; }
+.wl-item-in .chip { flex: none; }
+.wl-item-in .link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-head .day-actions { float: right; display: inline-flex; gap: 6px; }
+/* The ticket's tracker field and a related item's kind (Blocks, Precedes…) */
+.tracker-input input { width: 100%; }
+.rel-kind-of { margin-right: 6px; max-width: 140px; flex: none; }
 .log-edit-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .btn.icon.toggle.on { color: var(--foreground); background: var(--accent); }
 .theme-switch { display: flex; gap: 2px; padding: 3px; background: var(--muted); border-radius: var(--radius); align-self: flex-start; margin: 0 8px; }
@@ -1550,7 +1562,7 @@ body.term-open.term-collapsed #view { padding-bottom: 60px; }
 .relations .rel-remove { width: 24px; height: 24px; margin-left: auto; flex: none; opacity: 0; }
 .relations li:hover .rel-remove, .relations .rel-remove:focus-visible { opacity: 1; }
 .relations .rel-add { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
-.relations .rel-kind { width: 96px; flex: none; }
+.relations .rel-kind { width: 132px; flex: none; } /* fits "Is duplicate of", Redmine's longest kind */
 .relations .rel-target { flex: 1; min-width: 0; display: flex; }
 .relations .rel-target .select-btn { width: 100%; }
 .relations .rel-none { margin: 0 0 2px; }

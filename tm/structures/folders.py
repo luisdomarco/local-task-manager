@@ -16,6 +16,16 @@ STATUSES = ['Backlog', 'ToDo', 'OnHold', 'Blocked', 'InProgress', 'Review', 'Don
 CLOSED = {'Done', 'Discarded'}
 PRIORITIES = ['Urgent', 'High', 'Normal', 'Low']
 ID_RE = re.compile(r'^([A-Z]+)-(\d+)$')
+# What a relation between equals is, as Redmine names it (its API's relation_type) and shows it, in its order. A
+# relation is kept on one of the two items (`relations`, its kind in `relation_kinds`); the other sees its inverse.
+RELATION_KINDS = (('relates', 'Related to'), ('duplicates', 'Is duplicate of'), ('duplicated', 'Has duplicate'),
+                  ('blocks', 'Blocks'), ('blocked', 'Blocked by'), ('precedes', 'Precedes'), ('follows', 'Follows'),
+                  ('copied_to', 'Copied to'), ('copied_from', 'Copied from'))
+RELATION_INVERSE = {'relates': 'relates', 'duplicates': 'duplicated', 'duplicated': 'duplicates', 'blocks': 'blocked',
+                    'blocked': 'blocks', 'precedes': 'follows', 'follows': 'precedes', 'copied_to': 'copied_from',
+                    'copied_from': 'copied_to'}
+# The types whose relations have a kind; any other relation is plain `relates`.
+RELATION_KIND_TYPES = ('initiative', 'story', 'task')
 ID_PAD = 4
 # Fields written on creation, in this order, after id/type/subject. Status and
 # priority only exist on the actionable types (task, initiative). `session_name`
@@ -24,18 +34,20 @@ ID_PAD = 4
 # without hierarchy: ids of other items, kept on whichever of the two made the link and shown on both.
 COMMON_TAIL = ['related_to', 'relations', 'url', 'url_label', 'links', 'archived', 'session_name']
 TYPE_FIELDS = {
-    'initiative': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'sidebar', 'redmine_id', 'redmine_url', 'local_path',
+    'initiative': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'sidebar', 'redmine_id', 'tracker', 'redmine_url', 'local_path',
                    'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     # A user story: what an initiative is made of and tasks hang from. It stands on its own too
     # (no initiative needed). Its own fields beyond these are still to be defined.
-    'story': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'redmine_id', 'redmine_url', 'local_path',
+    'story': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'redmine_id', 'tracker', 'redmine_url', 'local_path',
               'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
-    'task': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'list', 'order', 'due', 'plan_week',
+    'task': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'list', 'order', 'due', 'plan_week',
              'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     # `plan_order` (initiative, story, task): its place among the cards of its day, or of its week when no day, on Today
     # and Week, where you order them by hand (TSK-053); the Board has its own, `order`, within its list.
     # `docs` (initiative, story, task): what it links in the vault's Docs (TSK-039), [[a doc]] or a folder/ (store.clean_docs)
     # `watchers` (initiative, story, task): the people and groups of Contacts to tell when it changes status (TSK-051)
+    # `relation_kinds` (initiative, story, task): what each of its `relations` is, as Redmine names it (RELATION_KINDS):
+    # {id: kind}, an id it does not name being `relates`. `tracker` (initiative, story): the ticket's tracker (Story, Epic…)
     'note': [*COMMON_TAIL, 'labels', 'comments', 'claude_sessions'],
     # The text of a meeting (a recording turned into text): the body is the transcript, `related_to` is the meeting.
     'transcription': [*COMMON_TAIL, 'labels', 'comments', 'claude_sessions'],
@@ -152,7 +164,10 @@ FOLDER_PER_TYPE = Structure(
     id='folders', label='Folder per type',  # the id config.json names it by
     types={name: _type(name) for name in SHOWN},
     priorities=tuple(PRIORITIES), id_re=ID_RE, id_pad=ID_PAD,
-    external_ref={'id_key': 'redmine_id', 'url_key': 'redmine_url', 'label': 'Redmine',
-                  'id_placeholder': '4521', 'url_placeholder': 'https://redmine…/issues/4521'},
+    # The keys keep their first name (redmine_…): the files and the Redmine sync know them by it.
+    external_ref={'id_key': 'redmine_id', 'url_key': 'redmine_url', 'tracker_key': 'tracker', 'label': 'Ticket',
+                  'id_placeholder': '4521', 'url_placeholder': 'https://redmine…/issues/4521', 'tracker_placeholder': 'Story, Epic…'},
     statuses=tuple(STATUSES), closed=frozenset(CLOSED),
+    extras={'relation_kinds': {'kinds': [list(k) for k in RELATION_KINDS], 'inverse': dict(RELATION_INVERSE),
+                               'types': list(RELATION_KIND_TYPES)}},
 )

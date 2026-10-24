@@ -8,7 +8,8 @@ async function call(method, url, body, file = null) {
     : { 'Content-Type': 'application/json' };
   const res = await fetch(url, {
     method,
-    headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', ...vault } : vault,
+    // X-TM-Actor: what the page does is yours, in the activity journal (tm/journal.py); a script says who it is.
+    headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', ...vault } : vault,
     body: file || (body ? JSON.stringify(body) : undefined),
   });
   const data = await res.json().catch(() => ({}));
@@ -112,6 +113,8 @@ export const api = {
   deletePerson: (name) => post('/api/people/delete', { name }),
   // { name (the public one), calendar_name, emails, redmine, slack, notes, when_to_use }: any of them
   updatePerson: (name, values) => post('/api/people/update', { name, values }),
+  // A person who is really a group (an email list a meeting invited): a group under the same name from now on
+  personToGroup: (name) => post('/api/people/to-group', { name }),
   // Groups (Contacts → Groups, TSK-050): { name, channel, address, members, notes, when_to_use }
   groups: () => get('/api/groups'),
   addGroup: (name, values) => post('/api/groups', { name, values }),
@@ -128,6 +131,9 @@ export const api = {
   logWork: (id, kind, note, date, time) => post('/api/worklog', { id, kind, note, date, time }),
   updateLog: (date, index, values) => post('/api/worklog/update', { date, index, ...values }),
   unlogWork: (date, index) => post('/api/worklog/delete', { date, index }),
+  // Tentative entries (proposed by the worklog proposal command): one by its index, or every one of the day (index null)
+  confirmLog: (date, index = null) => post('/api/worklog/confirm', { date, ...(index === null ? {} : { index }) }),
+  discardLog: (date, index = null) => post('/api/worklog/discard', { date, ...(index === null ? {} : { index }) }),
   openPath: (path) => post('/api/open', { path }),
   // The server itself (Settings → App): how it runs, and stopping it (started on demand, it starts again when opened).
   serverStatus: () => get('/api/server'),

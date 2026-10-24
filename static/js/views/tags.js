@@ -7,7 +7,7 @@
 // Redmine and Slack users (either may be empty), and notes and when to use them (what an agent reads).
 // A group is people reached as one: an email list, a Slack channel…, with its members, notes and when to use it.
 import {
-  addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, renameLabel, state, updateGroup, updatePerson,
+  addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, personToGroup, renameLabel, state, updateGroup, updatePerson,
 } from '../state.js';
 import { trapFocus } from '../create.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
@@ -94,6 +94,7 @@ function openAddModal(cfg) {
  * cfg.extra: more columns after the name, [{ key, label, cell(row), text(row) }] (text: to sort and filter by).
  * cfg.fields: what the edit row edits besides the name, [{ key, label, value(row), placeholder, kind, options, initial }] (fieldInput);
  * cfg.save(row, { name, ...fields }) saves them (without it, cfg.rename(old, new) renames).
+ * cfg.convert: { label, title, icon, run(row) } — one more button in the edit row (People: make it a group).
  * cfg.tabs(): a row of tabs under the title (Contacts: People · Groups).
  */
 function tagScreen(cfg) {
@@ -149,7 +150,12 @@ function tagScreen(cfg) {
           }));
           queueMicrotask(() => { input.focus(); input.select(); });
           const note = h('span', { class: 'muted small' }, r.count ? `Used by ${r.count} item${r.count > 1 ? 's' : ''}: a new name reaches all of them.` : 'Not used by any item yet.');
-          const buttons = [h('button', { class: 'btn small ghost', onclick: () => { open = null; api.update(); } }, 'Cancel'),
+          const buttons = [
+            cfg.convert ? h('button', { class: 'btn small ghost', title: cfg.convert.title, onclick: async () => {
+              open = null;
+              try { await cfg.convert.run(r); } catch { /* toasted */ }
+            } }, icon(cfg.convert.icon, 13), cfg.convert.label) : null,
+            h('button', { class: 'btn small ghost', onclick: () => { open = null; api.update(); } }, 'Cancel'),
             h('button', { class: 'btn small primary', onclick: save }, 'Save')];
           return h('tr', { class: 'tag-edit' }, h('td', { colspan: span }, cfg.fields
             ? h('div', { class: 'person-edit' },
@@ -264,8 +270,15 @@ const peopleScreen = tagScreen({
   save: (r, values) => updatePerson(r.name, values),
   create: (name, values) => addPerson(name, values),
   add: addPerson, remove: deletePerson,
-  breakdown: (r) => [r.sender ? `${plural(r.sender, 'activity')} as sender`.replace('activitys', 'activities') : '', r.attendee ? `${plural(r.attendee, 'meeting')} as attendee` : '', r.watcher ? `watching ${plural(r.watcher, 'item')}` : ''].filter(Boolean).join(' · '),
+  // An email list Calendar invited becomes a person; this makes it the group it is, under the same name (its items keep it).
+  convert: { label: 'Make it a group', icon: 'users', title: 'It is an email list or a channel, not a person: move it to Groups under the same name',
+    run: async (r) => { await personToGroup(r.name); location.hash = '#/contacts/groups'; } },
+  breakdown: (r) => usedAs(r),
 });
+/** Where a contact is named: "3 activities as sender · 2 meetings as attendee · watching 1 item". */
+function usedAs(r) {
+  return [r.sender ? `${plural(r.sender, 'activity')} as sender`.replace('activitys', 'activities') : '', r.attendee ? `${plural(r.attendee, 'meeting')} as attendee` : '', r.watcher ? `watching ${plural(r.watcher, 'item')}` : ''].filter(Boolean).join(' · ');
+}
 
 const CHANNELS = [['email', 'Email list'], ['slack', 'Slack channel'], ['other', 'Other']];
 const channelName = (c) => (CHANNELS.find(([k]) => k === c) || CHANNELS[2])[1];
@@ -273,7 +286,7 @@ const groupsScreen = tagScreen({
   title: 'Contacts', singular: 'group', plural: 'groups', addPlaceholder: 'New group…',
   tabs: contactTabs('groups'),
   empty: 'No groups yet. Add one above: an email list or a Slack channel, with who is in it and when to use it.',
-  deleteEffect: 'It will stop watching all of them.',
+  deleteEffect: 'It will be removed from all of them.',
   rows: () => state.groups,
   chip: (name) => personChip(name),
   nameLabel: 'Name',
@@ -295,7 +308,7 @@ const groupsScreen = tagScreen({
   save: (r, values) => updateGroup(r.name, values),
   create: (name, values) => addGroup(name, values),
   add: (name) => addGroup(name, { channel: 'email' }), remove: deleteGroup,
-  breakdown: (r) => (r.count ? `Watching ${plural(r.count, 'item')}` : ''),
+  breakdown: (r) => usedAs(r),
 });
 
 /** The Contacts section: #/contacts (People) and #/contacts/groups. */

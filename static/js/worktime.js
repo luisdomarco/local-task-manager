@@ -22,5 +22,8 @@ export function cleanTime(value) {
   return m && Number(m[2]) < 60 ? `${m[1].padStart(2, '0')}:${m[2]}` : null;
 }
 
-/** Total time of a list of entries. */
-export const sumTime = (entries) => fromMinutes(entries.reduce((n, e) => n + toMinutes(e.time), 0));
+/** Whether a work-log entry is only proposed (by the worklog proposal command) and not confirmed yet. */
+export const isTentative = (e) => e?.status === 'tentative';
+
+/** Total time of a list of entries; a tentative one does not count until confirmed. */
+export const sumTime = (entries) => fromMinutes(entries.reduce((n, e) => n + (isTentative(e) ? 0 : toMinutes(e.time)), 0));

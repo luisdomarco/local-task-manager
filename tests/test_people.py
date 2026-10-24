@@ -148,7 +148,8 @@ class ContactsTest(unittest.TestCase):
         self.s.add_group('Dev team', {'channel': 'Slack', 'address': '#dev', 'members': ['Ana', 'ana', 'Jan'],
                                       'when_to_use': 'Deploys and outages.'})
         self.assertEqual(self.group('Dev team'), {'name': 'Dev team', 'channel': 'slack', 'address': '#dev', 'members': ['Ana', 'Jan'],
-                                                  'notes': '', 'when_to_use': 'Deploys and outages.', 'count': 0})
+                                                  'notes': '', 'when_to_use': 'Deploys and outages.',
+                                                  'count': 0, 'sender': 0, 'attendee': 0, 'watcher': 0})
         self.s.update_group('Dev team', {'name': 'Developers', 'channel': 'email', 'address': 'dev@x.com'})
         self.assertIsNone(self.group('Dev team'))
         self.assertEqual((self.group('Developers')['channel'], self.group('Developers')['members']), ('email', ['Ana', 'Jan']))
@@ -181,6 +182,72 @@ class ContactsTest(unittest.TestCase):
         note = self.s.mentions_note('Tell @[Ana] and @[Ops] about it')
         self.assertIn('- Ana: email ana@x.com\n  When to use: Pricing.', note)
         self.assertIn('- Ops (group): Slack channel #ops · members Ana\n  Notes: On call: rotates weekly.', note)
+
+
+class GroupsOnItemsTest(unittest.TestCase):
+    """A group can be a meeting's attendee or an activity's sender, as it can be a watcher: the item names it, and it
+    stays a group (an email list Calendar invites is people reached as one, not a person)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.s = Store(self.tmp.name)
+        self.s.add_person('Ana', {'emails': 'ana@x.com'})
+        self.s.add_group('Devs', {'channel': 'email', 'address': 'devs@x.com', 'members': ['Ana']})
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def names(self):
+        return [p['name'] for p in self.s.people()['people']]
+
+    def test_a_group_on_a_meeting_or_an_activity_is_counted_as_a_group_not_a_person(self):
+        mtg = self.s.create('meeting', 'Daily', {'attendees': ['Ana', 'Devs']})
+        self.s.create('activity', 'Mail', {'from': ['Devs']})
+        self.assertEqual(self.s.read(mtg['key'])['fields']['attendees'], ['Ana', 'Devs'])
+        self.assertNotIn('Devs', self.names())
+        g = self.s.groups()['groups'][0]
+        self.assertEqual((g['count'], g['attendee'], g['sender'], g['watcher']), (2, 1, 1, 0))
+
+    def test_renaming_or_deleting_a_group_reaches_its_meetings_and_activities(self):
+        mtg = self.s.create('meeting', 'Daily', {'attendees': ['Ana', 'Devs']})
+        act = self.s.create('activity', 'Mail', {'from': ['Devs']})
+        self.s.update_group('Devs', {'name': 'Developers'})
+        self.assertEqual(self.s.read(mtg['key'])['fields']['attendees'], ['Ana', 'Developers'])
+        self.assertEqual(self.s.read(act['key'])['fields']['from'], ['Developers'])
+        self.s.delete_group('Developers')
+        self.assertEqual(self.s.read(mtg['key'])['fields']['attendees'], ['Ana'])
+
+    def test_a_person_who_is_a_group_is_made_one_and_their_items_keep_the_name(self):
+        self.s.add_person('Squad devs', {'emails': 'squad@x.com, squad.devs@x.com', 'when_to_use': 'Releases.'})
+        self.s.update_group('Devs', {'members': ['Ana', 'Squad devs']})
+        mtg = self.s.create('meeting', 'Daily', {'attendees': ['Ana', 'Squad devs']})
+        with self.assertRaises(StoreError) as e:  # a person's name is never a group's: it must be made one
+            self.s.add_group('Squad devs')
+        self.assertEqual(e.exception.status, 409)
+        self.s.person_to_group('squad DEVS')
+        self.assertNotIn('Squad devs', self.names())
+        g = next(g for g in self.s.groups()['groups'] if g['name'] == 'Squad devs')
+        self.assertEqual((g['channel'], g['address'], g['notes'], g['when_to_use'], g['attendee']),
+                         ('email', 'squad@x.com', 'Other addresses: squad.devs@x.com', 'Releases.', 1))
+        self.assertEqual(self.s.read(mtg['key'])['fields']['attendees'], ['Ana', 'Squad devs'])
+        self.assertEqual(next(g for g in self.s.groups()['groups'] if g['name'] == 'Devs')['members'], ['Ana'])
+        with self.assertRaises(StoreError) as e:
+            self.s.person_to_group('Squad devs')
+        self.assertEqual(e.exception.status, 404)
+
+    def test_a_name_on_items_only_can_be_made_a_group(self):
+        self.s.create('meeting', 'Daily', {'attendees': ['Ops team']})
+        self.s.person_to_group('Ops team')
+        g = next(g for g in self.s.groups()['groups'] if g['name'] == 'Ops team')
+        self.assertEqual((g['channel'], g['address'], g['attendee']), ('other', '', 1))
+        self.assertNotIn('Ops team', self.names())
+
+    def test_a_calendar_sync_never_makes_a_group_a_person(self):
+        self.s.learn_people(new=[{'name': 'Devs', 'emails': ['devs@x.com']}, {'name': 'Dev list', 'emails': ['devs@x.com']},
+                                 {'name': 'Jan', 'emails': ['jan@x.com']}],
+                            learned=[{'name': 'Ana', 'email': 'devs@x.com'}])
+        self.assertEqual(sorted(self.names()), ['Ana', 'Jan'])
+        self.assertEqual(next(p for p in self.s.people()['people'] if p['name'] == 'Ana')['emails'], ['ana@x.com'])
 
 
 class WatchersTest(unittest.TestCase):

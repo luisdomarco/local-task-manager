@@ -41,7 +41,7 @@ class FolderPerTypeTest(unittest.TestCase):
         self.assertEqual([t['name'] for t in pub['types']],
                          ['task', 'initiative', 'story', 'note', 'transcription', 'meeting', 'agent', 'activity', 'prompt', 'inbox'])
         by = {t['name']: t for t in pub['types']}
-        self.assertEqual(pub['external_ref']['label'], 'Redmine')
+        self.assertEqual(pub['external_ref']['label'], 'Ticket')
         self.assertEqual([t for t in by if by[t]['plannable']], ['task', 'initiative', 'story'])
         self.assertEqual([t for t in by if by[t]['convertible']],
                          ['task', 'initiative', 'story', 'note', 'transcription', 'meeting', 'agent', 'activity'])
@@ -171,7 +171,7 @@ class StoreDefaultsToFolderPerTypeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             self.assertIs(Store(root).structure, FOLDER_PER_TYPE)
             self.assertIs(Store(root, structure='folders').structure, FOLDER_PER_TYPE)
-            self.assertIn('- Redmine: #4521', Store(root).claude_prompt(Store(root).create('story', 'S', {'redmine_id': '4521'})['id']))
+            self.assertIn('- Ticket: #4521', Store(root).claude_prompt(Store(root).create('story', 'S', {'redmine_id': '4521'})['id']))
 
 
 if __name__ == '__main__':

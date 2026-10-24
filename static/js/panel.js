@@ -27,6 +27,7 @@ import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
 import { itemName, setCardTitle, setPageTitle } from './tabtitle.js';
 import { sumTime } from './worktime.js';
+import { kindChange, kindLabel, kindOf, kinded } from './relkinds.js';
 import {
   addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planWeek, progress, setStatus, updateLog,
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
@@ -296,8 +297,18 @@ function relationsSection(item, rerender) {
     const holder = (f.relations || []).includes(r.id) ? item : r;
     const other = holder === item ? r.id : item.id;
     const before = holder.fields.relations || [];
-    relink(() => updateItem(holder.key, { relations: before.filter((x) => x !== other) }), () => updateItem(holder.key, { relations: before }), `${item.id} and ${r.id} are no longer related`);
+    // Its kind goes with it (the server drops it); Undo brings both back.
+    const was = { relations: before, ...(holder.fields.relation_kinds ? { relation_kinds: holder.fields.relation_kinds } : {}) };
+    relink(() => updateItem(holder.key, { relations: before.filter((x) => x !== other) }), () => updateItem(holder.key, was), `${item.id} and ${r.id} are no longer related`);
   };
+  // What this item is to each related one (it Blocks it, it Precedes it…: Redmine's kinds, read as "<this> Blocks
+  // <that>"), where both types have kinds: a small select before it that changes the kind on whichever of the two
+  // keeps the relation.
+  const RK = STRUCTURE.relation_kinds;
+  const kindPick = (r) => (kinded(RK, item.type, r.type) ? select(RK.kinds, kindOf(item, r, RK), (v) => {
+    const c = kindChange(item, r, v, RK);
+    relink(() => updateItem(c.holder.key, c.values), () => updateItem(c.holder.key, c.was), `${item.id}: ${kindLabel(RK, v)} ${r.id}`);
+  }, { class: 'small rel-kind-of', 'aria-label': `What ${item.id} is to ${r.id}`, 'data-fk': 'relation-kind-of' }) : null);
 
   // Its project: the one it was created in, for good, for a ticket (its id carries the key); a choice, for a task,
   // a note, a meeting or an activity, which may have none.
@@ -356,19 +367,26 @@ function relationsSection(item, rerender) {
       const page = paged({ key: `relations.children.${item.type}`, at: `relations.children.${item.key}`, rows: kids, size: DETAIL_PAGE, onChange: rerenderBox });
       return [h('ul', { class: 'chain' }, page.rows.map((k) => row(k, { remove: { title: `Unlink ${k.title}`, run: () => unlinkChild(k) } }))), page.pager];
     })) : null,
-    related.length ? group('Related', h('ul', { class: 'chain' }, related.map((r) => row(r, { remove: { title: `Unrelate ${r.title}`, run: () => unrelate(r) } })))) : null,
+    related.length ? group('Related', h('ul', { class: 'chain' }, related.map((r) => row(r, { lead: kindPick(r), remove: { title: `Unrelate ${r.title}`, run: () => unrelate(r) } })))) : null,
     nothing ? h('p', { class: 'muted small' }, 'Not linked to anything yet.') : null,
     RELATABLE(item.type) ? addRelation(item, { chain, kids, related, childTypes }) : null);
 }
 
-/** The foot of the Relations section: [Related | Parent | Child] + a searchable item list + Add. */
+/**
+ * The foot of the Relations section: [Related | Parent | Child] + a searchable item list + Add. Where the item's
+ * relations have kinds (an initiative, a story, a task), Related is Redmine's list instead: Related to, Is duplicate
+ * of… Copied from, a kind other than Related to offering only items whose relations have kinds too.
+ */
 function addRelation(item, { chain, kids, related, childTypes }) {
   const f = item.fields;
+  const RK = STRUCTURE.relation_kinds;
+  const typed = RK && RK.types.includes(item.type);
   const kinds = [
-    item.id ? ['related', 'Related'] : null, // related and children name it by its id: one without can only get a parent
+    ...(!item.id ? [] : typed ? RK.kinds.map(([k, label]) => [`rel:${k}`, label]) : [['related', 'Related']]), // related and children name it by its id: one without can only get a parent
     PARENT_TYPES[item.type].length && !chain.length ? ['parent', 'Parent'] : null, // one parent at most
     item.id && childTypes.length ? ['child', 'Child'] : null,
   ].filter(Boolean);
+  const relKind = () => (kind.startsWith('rel:') ? kind.slice(4) : 'relates');
   if (!kinds.length) return null;
   let kind = kinds[0][0];
   let picked = null;
@@ -389,7 +407,8 @@ function addRelation(item, { chain, kids, related, childTypes }) {
         .map((i) => [i.id, `${titled(i)}${inParent(i)}`]);
     }
     const have = new Set(related.map((r) => r.id));
-    return state.items.filter((i) => i.id && RELATABLE(i.type) && i.id !== item.id && !have.has(i.id)).map((i) => [i.id, titled(i)]);
+    const fits = relKind() === 'relates' ? () => true : (i) => kinded(RK, item.type, i.type); // a note only ever "relates"
+    return state.items.filter((i) => i.id && RELATABLE(i.type) && i.id !== item.id && !have.has(i.id) && fits(i)).map((i) => [i.id, titled(i)]);
   };
   const addBtn = h('button', { class: 'btn small', type: 'button', disabled: true }, 'Add');
   const targetSlot = h('span', { class: 'rel-target' });
@@ -414,7 +433,12 @@ function addRelation(item, { chain, kids, related, childTypes }) {
       relink(() => updateItem(other.key, { related_to: item.id }), () => updateItem(other.key, { related_to: was }), `${other.id} now hangs from ${item.id}`);
     } else {
       const before = f.relations || [];
-      relink(() => updateItem(item.key, { relations: [...before, other.id] }), () => updateItem(item.key, { relations: before }), `${item.id} and ${other.id} are now related`);
+      const rk = relKind();
+      const kindsBefore = f.relation_kinds || {};
+      const now = { relations: [...before, other.id], ...(rk !== 'relates' ? { relation_kinds: { ...kindsBefore, [other.id]: rk } } : {}) };
+      const was = { relations: before, ...(rk !== 'relates' ? { relation_kinds: kindsBefore } : {}) };
+      relink(() => updateItem(item.key, now), () => updateItem(item.key, was),
+        rk === 'relates' ? `${item.id} and ${other.id} are now related` : `${item.id}: ${kindLabel(RK, rk)} ${other.id}`);
     }
   });
   fillTarget();
@@ -474,6 +498,17 @@ function openPathBtn(path) {
 
 const openUrlBtn = (url) => (url ? h('a', { class: 'btn icon', href: url, target: '_blank', rel: 'noopener', title: `Open ${url}` }, icon('external', 14)) : null);
 
+/**
+ * The ticket's tracker (Story, Epic, Technical subtask…: what the Redmine sync brings), as free text suggesting the
+ * trackers the vault's items already have. `input(key, attrs)` is the block's own text input (saves on change).
+ */
+export function trackerInput(input, ext) {
+  const used = [...new Set(state.items.map((i) => i.fields[ext.tracker_key]).filter(Boolean))].sort();
+  return h('span', { class: 'tracker-input' },
+    input(ext.tracker_key, { type: 'text', placeholder: ext.tracker_placeholder || '', list: 'tm-trackers', autocomplete: 'off' }),
+    h('datalist', { id: 'tm-trackers' }, used.map((t) => h('option', { value: t }))));
+}
+
 // The top of the side panel: where the work happens. An initiative or a story points at an issue of the vault's
 // outside tracker (`ext`: Redmine in the folder-per-type structure) and a folder; every item names the session handling it (Session sits
 // under Local path; alone where there is none).
@@ -493,6 +528,7 @@ function externalRef(item, ext) {
     h('h4', {}, `${ext.label} & local`),
     h('div', { class: 'fields' },
       field(`${ext.label} ID`, input(ext.id_key, { type: 'text', placeholder: ext.id_placeholder })),
+      ext.tracker_key && hasField(item.type, ext.tracker_key) ? field('Tracker', trackerInput(input, ext)) : null,
       field(`${ext.label} URL`, h('div', { class: 'inline' }, input(ext.url_key, { type: 'text', inputmode: 'url', placeholder: ext.url_placeholder }), openUrlBtn(f[ext.url_key]))),
       field('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), 'span2'),
       session));

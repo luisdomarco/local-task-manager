@@ -28,14 +28,14 @@ import errno
 import queue
 import signal
 
-from tm import attachments, export
+from tm import attachments, export, journal
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
                        ide_open_url, resume_flags, session_flags, session_updated)
 from tm.pty import MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS, Terms, dim
 from tm.store import (ACTIVITY_SOURCES, DEFAULT_FOLDERS, DEFAULT_WORK_KINDS, ITEM_TYPES, PARENT_TYPES, PRIORITIES,
-                      STATUSES, Store, StoreError, now_stamp)
+                      META_DIR, STATUSES, Store, StoreError, now_stamp)
 from tm.structures import DEFAULT_STRUCTURE, REGISTRY, STRUCTURES
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -75,6 +75,7 @@ TERMINALS = ('Terminal', 'iTerm')
 # The apps the Explorer may open a vault file in (`open -a`): a closed list, so a config can never name a program.
 EDITORS = ('Cursor', 'Visual Studio Code', 'Zed', 'Sublime Text', 'BBEdit', 'TextEdit')
 VAULT_HEADER = 'X-TM-Vault'
+ACTOR_HEADER = 'X-TM-Actor'  # who makes a request, for the activity journal: `app` (the page), `claude:<session>`…
 VAULT_ID_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,31}$')
 
 
@@ -533,7 +534,13 @@ class Handler(BaseHTTPRequestHandler):
             if method == 'POST' and self.headers.get('X-Task-Manager') != '1':
                 return self.send_json({'error': 'missing X-Task-Manager header'}, 403)
             body = (self.read_upload() if route in UPLOAD_ROUTES else self.read_json()) if method == 'POST' else {}
-            return self.send_json(handler(self.vault_store(route), q, body))
+            store = self.vault_store(route)
+            if method != 'POST' or store is None:
+                return self.send_json(handler(store, q, body))
+            before = journal_before(store, url.path, body)
+            result = handler(store, q, body)
+            journal_after(store, self.headers.get(ACTOR_HEADER), url.path, body, before, result)
+            return self.send_json(result)
         except StoreError as e:
             return self.send_json({**e.extra, 'error': str(e)}, e.status)
         except export.ExportError as e:
@@ -630,6 +637,28 @@ def stop_server():
     if stop:
         threading.Timer(0.4, stop).start()
     return {'stopping': bool(stop), 'on_demand': SERVER['on_demand']}
+
+
+# ── the activity journal (tm/journal.py): what a request did, written after it went well ──
+def journal_before(store, path, body):
+    """The item a request is about, as it is before it runs (to say what changed, or what was deleted); None when
+    the route names none or it cannot be read. Never in the way of the request."""
+    key = (body or {}).get(journal.BEFORE_KEY.get(path, ''))
+    if not key:
+        return None
+    try:
+        return store.read(key)
+    except (StoreError, OSError, ValueError):
+        return None
+
+
+def journal_after(store, actor, path, body, before, result):
+    """Add what the request did to the day's journal (tm/journal.py), by who made it. A journal that cannot be
+    written is reported here and never fails the request."""
+    try:
+        journal.record(os.path.join(store.root, META_DIR), journal.actor_of(actor), journal.describe(path, body, before, result))
+    except Exception:  # noqa: BLE001 — the change is made; only its line in the journal is lost
+        traceback.print_exc()
 
 
 def open_in_editor(store, path):
@@ -1006,6 +1035,7 @@ ROUTES = {
     ('POST', '/api/people'): lambda s, q, b: s.add_person(b.get('name'), b.get('values')),
     ('POST', '/api/people/rename'): lambda s, q, b: s.rename_person(b.get('old'), b.get('new')),
     ('POST', '/api/people/delete'): lambda s, q, b: s.delete_person(b.get('name')),
+    ('POST', '/api/people/to-group'): lambda s, q, b: s.person_to_group(b.get('name')),
     ('POST', '/api/people/update'): lambda s, q, b: s.update_person(b.get('name'), b.get('values')),
     ('GET', '/api/groups'): lambda s, q, b: s.groups(),
     ('POST', '/api/groups'): lambda s, q, b: s.add_group(b.get('name'), b.get('values')),
@@ -1020,7 +1050,10 @@ ROUTES = {
     ('POST', '/api/sidebar'): lambda s, q, b: s.save_sidebar_order(b.get('items')),
     ('GET', '/api/worklog'): lambda s, q, b: {'entries': s.worklog(q.get('from'), q.get('to'))},
     ('POST', '/api/worklog'): lambda s, q, b: s.log_work(
-        b['id'], b['kind'], b.get('note') or '', b.get('date'), APP.config['work_kinds'], b.get('time')),
+        b['id'], b['kind'], b.get('note') or '', b.get('date'), APP.config['work_kinds'], b.get('time'), bool(b.get('tentative'))),
+    # A tentative entry (the worklog proposal's): `index` one of them, else every one of the day.
+    ('POST', '/api/worklog/confirm'): lambda s, q, b: s.confirm_log(b['date'], b.get('index')),
+    ('POST', '/api/worklog/discard'): lambda s, q, b: s.discard_log(b['date'], b.get('index')),
     ('POST', '/api/worklog/update'): lambda s, q, b: s.update_log(
         b['date'], int(b['index']), {k: b[k] for k in ('kind', 'time', 'note', 'new_date') if k in b}, APP.config['work_kinds']),
     ('POST', '/api/item/claude/preview'): lambda s, q, b: claude_preview(s, b.get('key'), b.get('instruction') or '', b.get('model'), b.get('effort'), b.get('cwd')),

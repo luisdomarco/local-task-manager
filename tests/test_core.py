@@ -95,6 +95,40 @@ class StoreTest(unittest.TestCase):
             self.s.update('INB-0001', {'relations': ['TSK-0001']})  # an inbox item relates to nothing
         self.assertEqual(self.s.update('TSK-0001', {'relations': []})['fields']['relations'], [])
 
+    def test_a_relation_has_a_redmine_kind_seen_inverse_from_the_other_side(self):
+        self.s.create('story', 'S')
+        self.s.create('task', 'T')
+        self.s.create('note', 'N')
+        t = self.s.update('TSK-0001', {'relations': ['US-0001', 'NOTE-0001'], 'relation_kinds': {'US-0001': 'blocks', 'NOTE-0001': 'relates'}})
+        self.assertEqual(t['fields']['relation_kinds'], {'US-0001': 'blocks'})  # `relates`, the default, is not kept
+        story, task = self.s.read('US-0001'), self.s.read('TSK-0001')
+        self.assertEqual((self.s.relation_kind(task, story), self.s.relation_kind(story, task)), ('blocks', 'blocked'))
+        self.assertEqual(self.s.relation_kind(task, self.s.read('NOTE-0001')), 'relates')
+        self.assertIn('TSK-0001 · T (Blocked by)', self.s.claude_prompt('US-0001'))
+        # removing the relation takes its kind with it; a relation without one (from before) is `relates`
+        self.assertEqual(self.s.update('TSK-0001', {'relations': ['NOTE-0001']})['fields']['relation_kinds'], {})
+        self.assertEqual(self.s.relation_kind(self.s.read('US-0001'), self.s.read('TSK-0001')), 'relates')
+
+    def test_a_relation_kind_is_checked(self):
+        self.s.create('task', 'T')
+        self.s.create('task', 'U')
+        self.s.create('note', 'N')
+        for bad in ({'TSK-0002': 'parent'}, {'NOTE-0001': 'blocks'}, ['TSK-0002']):  # no such kind; a note only relates; not a map
+            with self.assertRaises(StoreError) as e:
+                self.s.update('TSK-0001', {'relations': ['TSK-0002', 'NOTE-0001'], 'relation_kinds': bad})
+            self.assertEqual(e.exception.status, 400)
+        made = self.s.create('task', 'V', {'relations': ['TSK-0001', 'TSK-0002'], 'relation_kinds': {'TSK-0001': 'precedes', 'TSK-0009': 'blocks'}})
+        self.assertEqual(made['fields']['relation_kinds'], {'TSK-0001': 'precedes'})  # only for what it relates to
+        self.assertNotIn('relation_kinds', self.s.update('NOTE-0001', {'relation_kinds': {'TSK-0001': 'blocks'}})['fields'])
+
+    def test_the_ticket_tracker_is_free_text(self):
+        s = self.s.create('story', 'S', {'redmine_id': '4521', 'tracker': '  Story '})
+        self.assertEqual(s['fields']['tracker'], 'Story')
+        self.assertIsNone(self.s.update('US-0001', {'tracker': ''})['fields']['tracker'])
+        self.assertNotIn('tracker', self.s.create('task', 'T', {'tracker': 'Epic'})['fields'])  # a task has no ticket
+        self.s.update('US-0001', {'tracker': 'Epic'})
+        self.assertIn('- Tracker: Epic', self.s.claude_prompt('US-0001'))
+
     def test_status_drives_completed_at_and_validation(self):
         self.s.create('task', 'T')
         self.assertTrue(self.s.update('TSK-0001', {'status': 'Done'})['fields']['completed_at'])
@@ -342,7 +376,7 @@ class StoreTest(unittest.TestCase):
                                           'redmine_id': '4521', 'url': 'https://e.io/a', 'labels': ['billing']}, 'Offer three tiers.\n\n- [ ] draft')
         text = self.s.claude_prompt('US-0001')
         for needle in ('# US-0001 · Tiers', '- Status: InProgress', '- Priority: High', '- Due: 2026-11-01', '- Related to: INI-0001 · Pricing',
-                       '- Labels: billing', '- Redmine: #4521', 'https://e.io/a', 'Offer three tiers.', '- [ ] draft', CLAUDE_DEFAULT_INSTRUCTION):
+                       '- Labels: billing', '- Ticket: #4521', 'https://e.io/a', 'Offer three tiers.', '- [ ] draft', CLAUDE_DEFAULT_INSTRUCTION):
             self.assertIn(needle, text)
         self.assertIn(f"- Item file: {self.s.abs(self.s.find('US-0001')['path'])}", text)
         self.assertTrue(self.s.claude_prompt('US-0001', 'Write the tests first').rstrip().endswith('Write the tests first'))
@@ -716,6 +750,22 @@ class StoreTest(unittest.TestCase):
         self.assertEqual([e['kind'] for e in self.s.worklog()], ['Testing'])
         with self.assertRaises(StoreError):
             self.s.log_work('TSK-0001', 'Coding', kinds=['Analysis'])
+
+    def test_tentative_work_is_confirmed_or_discarded_and_a_confirmed_one_never_touched(self):
+        self.s.create('task', 'A')
+        self.s.log_work('TSK-0001', 'Analysis', 'mine', '2026-10-14', time='01:00')
+        self.s.log_work('TSK-0001', 'Testing', 'proposed', '2026-10-14', time='00:30', tentative=True, source='proposal')
+        self.s.log_work('TSK-0001', 'Meeting', 'proposed too', '2026-10-14', time='00:45', tentative=True, source='proposal')
+        e = self.s.worklog()
+        self.assertEqual([(x.get('status'), x.get('source')) for x in e], [(None, None), ('tentative', 'proposal'), ('tentative', 'proposal')])
+        with self.assertRaises(StoreError) as err:
+            self.s.confirm_log('2026-10-14', 0)  # a confirmed entry is not a tentative one
+        self.assertEqual(err.exception.status, 404)
+        self.assertEqual(self.s.confirm_log('2026-10-14', 1), {'confirmed': 1})
+        self.assertEqual(self.s.discard_log('2026-10-14'), {'discarded': 1})  # every tentative one left: the Meeting
+        self.assertEqual([(x['kind'], x.get('status')) for x in self.s.worklog()], [('Analysis', None), ('Testing', None)])
+        with open(os.path.join(self.s.root, 'worklog', '2026', '2026-10-14.md'), encoding='utf-8') as f:
+            self.assertNotIn('tentative', f.read())
 
     def test_work_can_be_logged_on_every_type_of_item(self):
         made = [self.s.create(t, f'x {t}') for t in ('inbox', 'initiative', 'story', 'task', 'note', 'meeting', 'activity')]

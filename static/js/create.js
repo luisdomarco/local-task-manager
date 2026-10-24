@@ -57,7 +57,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated, fixedTy
     project: values.project || null, project_key: '', project_kind: 'product',
     related_to: values.related_to || null, planned: values.plan || null, due: '', date: today(), time: '', duration: '', attendees: [], labels: [...(values.labels || [])], url: '', body: '',
     source: values.source || 'Email', from: [], session_name: values.session_name || '', url_label: '',
-    [EXTERNAL_REF.id_key]: '', [EXTERNAL_REF.url_key]: '', local_path: '' };
+    [EXTERNAL_REF.id_key]: '', [EXTERNAL_REF.url_key]: '', ...(EXTERNAL_REF.tracker_key ? { [EXTERNAL_REF.tracker_key]: '' } : {}), local_path: '' };
 
   const input = (key, attrs = {}) => {
     const el = h('input', { id: `cf-${key}`, value: form[key] || '', ...attrs });
@@ -108,7 +108,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated, fixedTy
     if (form.labels.length) v.labels = form.labels;
     if (!standsAlone && form.url.trim()) { v.url = form.url.trim(); if (form.url_label) v.url_label = form.url_label; }
     if (hasExternalRef(form.type)) {
-      for (const k of [EXTERNAL_REF.id_key, EXTERNAL_REF.url_key, 'local_path']) if (form[k].trim()) v[k] = form[k].trim();
+      for (const k of [EXTERNAL_REF.id_key, EXTERNAL_REF.tracker_key, EXTERNAL_REF.url_key, 'local_path']) if (k && hasField(form.type, k) && form[k].trim()) v[k] = form[k].trim();
     }
     submitting = true;
     let item;
@@ -199,6 +199,10 @@ export function openCreateModal(type = 'task', values = {}, { onCreated, fixedTy
         hasExternalRef(form.type) ? h('section', { class: 'panel-section' },
           h('h4', {}, `${EXTERNAL_REF.label} & local`),
           h('label', { class: 'field' }, h('span', {}, `${EXTERNAL_REF.label} ID`), input(EXTERNAL_REF.id_key, { type: 'text', placeholder: EXTERNAL_REF.id_placeholder })),
+          EXTERNAL_REF.tracker_key && hasField(form.type, EXTERNAL_REF.tracker_key) ? h('label', { class: 'field' }, h('span', {}, 'Tracker'),
+            input(EXTERNAL_REF.tracker_key, { type: 'text', placeholder: EXTERNAL_REF.tracker_placeholder || '', list: 'cf-trackers', autocomplete: 'off' }),
+            h('datalist', { id: 'cf-trackers' }, [...new Set(state.items.map((i) => i.fields[EXTERNAL_REF.tracker_key]).filter(Boolean))].sort()
+              .map((t) => h('option', { value: t })))) : null,
           h('label', { class: 'field' }, h('span', {}, `${EXTERNAL_REF.label} URL`), input(EXTERNAL_REF.url_key, { type: 'text', inputmode: 'url', placeholder: EXTERNAL_REF.url_placeholder })),
           h('label', { class: 'field' }, h('span', {}, 'Local path'), input('local_path', { type: 'text', placeholder: '~/work/pricing' })),
           session)

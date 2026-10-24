@@ -30,5 +30,6 @@ describe('worktime', () => {
     assert.equal(sumTime([{ time: '01:30' }, { time: '00:45' }]), '02:15');
     assert.equal(sumTime([{ time: '20:00' }, { time: '10:30' }]), '30:30');
     assert.equal(sumTime([{ time: '01:00' }, {}]), '01:00'); // an entry without a time counts nothing
+    assert.equal(sumTime([{ time: '01:00' }, { time: '02:00', status: 'tentative' }]), '01:00'); // proposed: not counted yet
   });
 });

@@ -1,15 +1,16 @@
-// Work log: a table grouped by day, with the time of each day totalled. Two kinds of rows:
-// what you logged (click one to edit or delete it), and what the app suggests you did but
-// did not log (accept it, adjust it first, or dismiss it). A from–to filter picks the days.
+// Work log: a table grouped by day, with the time of each day totalled. Three kinds of rows:
+// what you logged (click one to edit or delete it); what the worklog proposal command proposed (tentative: dashed,
+// not counted until you confirm it — one by one, or the whole day — or discard it); and what the app suggests you
+// did but did not log (accept it, adjust it first, or dismiss it). A from–to filter picks the days.
 import { addDays, relDay, shiftWeek, thisWeek, today, weekDays } from '../dates.js';
 import { fixedColumns } from '../datatable.js';
 import { logForm } from '../logform.js';
 import { opener } from '../links.js';
 import { openItem } from '../panel.js';
-import { logWork, state, unlogWork, updateLog } from '../state.js';
+import { confirmLog, discardLog, logWork, state, unlogWork, updateLog } from '../state.js';
 import { loadDismissed, saveDismissed, suggestLog } from '../suggestions.js';
 import { emptyState, h, icon } from '../ui.js';
-import { sumTime } from '../worktime.js';
+import { isTentative, sumTime } from '../worktime.js';
 
 const LOG_FIXED = fixedColumns(['time', 'kind', 'item', 'note', 'actions'].map((key) => ({ key }))); // the shared column widths
 
@@ -61,6 +62,8 @@ export function mount(root) {
     return h('button', { class: 'link', ...opener(item, (it, e) => { e.stopPropagation(); openItem(it); }) }, h('span', { class: 'mono' }, id), ' ', item.title); // a live item shows its current title
   };
   const kindChip = (k) => h('span', { class: `chip kind k-${String(k).toLowerCase()}` }, k);
+  // A chip before the item's link, in one line that cuts the link's title short (…) rather than hiding it.
+  const withChip = (chip, link) => h('span', { class: 'wl-item-in' }, chip, link);
   const COLS = 5;
   const openRow = (key) => { open = key; api.update(); };
   const closeRow = () => { open = null; api.update(); };
@@ -77,13 +80,26 @@ export function mount(root) {
           onDelete: async () => { open = null; try { await unlogWork(e.date, e.index); } catch { /* toasted */ } },
         })));
     }
-    return h('tr', { class: 'wl-row', tabindex: '0', title: 'Click to edit', 'aria-label': `${e.kind} ${e.time} on ${e.id}`, onclick: () => openRow(key), onkeydown: rowKeys(() => openRow(key)) },
-      h('td', { class: `wl-time ${e.time === '00:00' ? 'zero' : ''}` }, e.time),
-      h('td', {}, kindChip(e.kind)),
-      h('td', { class: 'wl-item' }, itemLink(e.id, e.title)),
-      h('td', { class: 'wl-note', title: e.note || null }, e.note || ''),
-      h('td', { class: 'c-actions' }, h('span', { class: 'muted small', title: 'Logged at' }, e.at || '')));
+    const tentative = isTentative(e);
+    return h('tr', {
+      class: `wl-row ${tentative ? 'wl-tentative' : ''}`, tabindex: '0', title: tentative ? 'Proposed, not counted yet: click to adjust' : 'Click to edit',
+      'aria-label': `${tentative ? 'Tentative: ' : ''}${e.kind} ${e.time} on ${e.id}`, onclick: () => openRow(key), onkeydown: rowKeys(() => openRow(key)),
+    },
+    h('td', { class: `wl-time ${e.time === '00:00' ? 'zero' : ''}` }, e.time),
+    h('td', {}, kindChip(e.kind)),
+    h('td', { class: 'wl-item' }, tentative
+      ? withChip(h('span', { class: 'chip tentative', title: 'Tentative: proposed from your activity, not counted until you confirm it', 'aria-label': 'Tentative' }, icon('clock', 12)), itemLink(e.id, e.title))
+      : itemLink(e.id, e.title)),
+    h('td', { class: 'wl-note', title: e.note || null }, e.note || ''),
+    h('td', { class: 'c-actions' }, tentative
+      ? [h('button', { class: 'btn small', title: 'Confirm: it counts from now on', onclick: (ev) => { ev.stopPropagation(); confirmLog(e.date, e.index).catch(() => {}); } }, icon('check', 13), 'Confirm'),
+        h('button', { class: 'btn icon', title: 'Discard this proposal', 'aria-label': `Discard ${e.id}`, onclick: (ev) => { ev.stopPropagation(); discardLog(e.date, e.index).catch(() => {}); } }, icon('x', 14))]
+      : h('span', { class: 'muted small', title: 'Logged at' }, e.at || '')));
   };
+  // A day with tentative entries (the worklog proposal's) confirms or discards them all at once.
+  const dayActions = (d, es) => (es.some(isTentative) ? h('span', { class: 'day-actions' },
+    h('button', { class: 'btn small', onclick: () => confirmLog(d).catch(() => {}) }, icon('check', 13), 'Confirm day'),
+    h('button', { class: 'btn small ghost', onclick: () => discardLog(d).catch(() => {}) }, icon('x', 13), 'Discard proposals')) : null);
 
   const accept = async (s, values) => {
     open = null;
@@ -102,7 +118,7 @@ export function mount(root) {
     return h('tr', { class: 'wl-row wl-suggest', tabindex: '0', title: 'Click to adjust before adding', onclick: () => openRow(key), onkeydown: rowKeys(() => openRow(key)) },
       h('td', { class: 'wl-time zero' }, '00:00'),
       h('td', {}, kindChip(s.kind)),
-      h('td', { class: 'wl-item' }, h('span', { class: 'chip suggested', title: 'Suggested from your activity' }, icon('sparkles', 12)), itemLink(s.id, s.title)),
+      h('td', { class: 'wl-item' }, withChip(h('span', { class: 'chip suggested', title: 'Suggested from your activity' }, icon('sparkles', 12)), itemLink(s.id, s.title))),
       h('td', { class: 'wl-note', title: s.note }, s.note),
       h('td', { class: 'c-actions' },
         h('button', { class: 'btn small', title: 'Add it as it is', onclick: (e) => { e.stopPropagation(); accept(s, { kind: s.kind, time: '00:00', date: s.date, note: s.note }); } }, icon('plus', 13), 'Add'),
@@ -130,6 +146,7 @@ export function mount(root) {
 
       const kinds = [...new Set([...state.config.work_kinds, ...entries.map((e) => e.kind)])];
       const minutes = sumTime(entries);
+      const tentatives = entries.filter(isTentative).length;
       summary.replaceChildren(
         h('div', { class: 'kind-legend' }, kinds.map((k) => {
           const of = entries.filter((e) => e.kind === k);
@@ -139,8 +156,8 @@ export function mount(root) {
             onclick: () => { kind = kind === k ? null : k; api.update(); },
           }, `${k} · ${sumTime(of)}`);
         }),
-        h('span', { class: 'muted' }, `${entries.length} entries · ${minutes} · ${new Set(entries.map((e) => e.id)).size} items · ${new Set(entries.map((e) => e.date)).size} days`
-          + (suggestions.length ? ` · ${suggestions.length} suggested` : ''))));
+        h('span', { class: 'muted' }, `${entries.length - tentatives} entries · ${minutes} · ${new Set(entries.map((e) => e.id)).size} items · ${new Set(entries.map((e) => e.date)).size} days`
+          + (tentatives ? ` · ${tentatives} tentative` : '') + (suggestions.length ? ` · ${suggestions.length} suggested` : ''))));
 
       const days = new Map();
       const day = (d) => days.get(d) || days.set(d, { entries: [], suggestions: [] }).get(d);
@@ -152,12 +169,15 @@ export function mount(root) {
       const body = [];
       for (const [d, { entries: es, suggestions: ss }] of ordered) {
         es.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+        const real = es.filter((e) => !isTentative(e));
+        const proposed = es.length - real.length;
         body.push(h('tr', { class: 'day-head' }, h('td', { colspan: COLS }, h('strong', {}, relDay(d)), h('span', { class: 'muted' }, ` ${d}`),
-          h('span', { class: 'count' }, es.length + ss.length))));
+          h('span', { class: 'count' }, es.length + ss.length), dayActions(d, es))));
         body.push(...es.map(entryRows), ...ss.map(suggestionRows));
         body.push(h('tr', { class: 'day-total' },
           h('td', { class: 'wl-time' }, sumTime(es)),
-          h('td', { colspan: COLS - 1 }, `Total · ${es.length} entr${es.length === 1 ? 'y' : 'ies'}`,
+          h('td', { colspan: COLS - 1 }, `Total · ${real.length} entr${real.length === 1 ? 'y' : 'ies'}`,
+            proposed ? h('span', { class: 'muted' }, ` · ${proposed} tentative, not counted until confirmed`) : null,
             ss.length ? h('span', { class: 'muted' }, ` · ${ss.length} suggested, not counted`) : null)));
       }
       table.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed log-grid', style: LOG_FIXED.style, 'aria-label': 'Work log' }, LOG_FIXED.colgroup.cloneNode(true),

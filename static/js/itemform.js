@@ -28,7 +28,7 @@ import { addDays, isoWeek, relDay, shiftWeek, thisWeek, today } from './dates.js
 import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, parentProject, splitsInitiative, statusesOf, tabOf } from './rules.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
-import { allLabels, allPeople, state } from './state.js';
+import { allContacts, allLabels, state } from './state.js';
 import { checkSelect, h, icon, labelInput, parentOptions, select, tagInput, typeIcon } from './ui.js';
 
 // ── the shell ────────────────────────────────────────────────────────────────
@@ -160,9 +160,9 @@ export function itemFields(b) {
     el.addEventListener(b.live ? 'input' : 'change', () => b.set(key, el.value));
     return el;
   };
-  // Who: tags like the labels, suggested from everyone ever named on an activity or a meeting.
+  // Who: tags like the labels, suggested from the people and the groups of Contacts (an email list invited to a meeting).
   const person = (label, key) => h('div', { class: 'field' }, h('span', {}, label),
-    tagInput(peopleOf(b.get(key)), (names) => b.set(key, names), { kind: 'person', suggest: allPeople, fk: key }));
+    tagInput(peopleOf(b.get(key)), (names) => b.set(key, names), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: key }));
   const date = (key) => {
     const el = h('input', { type: 'date', value: b.get(key) || '', 'data-fk': key });
     el.addEventListener(b.live ? 'input' : 'change', () => b.set(key, el.value));

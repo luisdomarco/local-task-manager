@@ -227,7 +227,7 @@ class HttpVaultsTest(VaultsBase):
     def test_the_structure_is_the_vaults_own(self):
         self.assertEqual(self.request('/api/structure', vault=None)[0], 400)
         code, out = self.request('/api/structure', vault='b')
-        self.assertEqual((code, out['id'], out['external_ref']['label']), (200, 'folders', 'Redmine'))
+        self.assertEqual((code, out['id'], out['external_ref']['label']), (200, 'folders', 'Ticket'))
         self.assertEqual(out, json.loads(json.dumps(FOLDER_PER_TYPE.public())))
 
     def test_the_same_id_in_two_vaults_never_crosses(self):

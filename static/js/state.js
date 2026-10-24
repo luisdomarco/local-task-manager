@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { today, thisWeek, isoWeek } from './dates.js';
 import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
 import { pickVault } from './vault.js';
+import { isTentative } from './worktime.js';
 
 export const state = {
   all: [],      // every item, archived included (Table "Show archived")
@@ -122,7 +123,7 @@ async function mutate(fn) {
 export const allLabels = () => state.labels.map((l) => l.name);
 /** Every person ever named on an item, most used first — the suggestions for person inputs. */
 export const allPeople = () => state.people.map((p) => p.name);
-/** People and groups (Contacts), for a field that takes either: an item's watchers (TSK-051). */
+/** People and groups (Contacts), for a field that takes either: an item's watchers (TSK-051), a meeting's attendees, an activity's sender. */
 export const allContacts = () => [...allPeople(), ...state.groups.map((g) => g.name)];
 export const byType = (type) => state.items.filter((i) => i.type === type);
 export const childrenOf = (id) => state.items.filter((i) => i.fields.related_to === id);
@@ -151,7 +152,8 @@ export function progress(id) {
   return { done, total: tasks.length, pct: tasks.length ? Math.round((100 * done) / tasks.length) : 0 };
 }
 
-export const logOf = (id) => state.worklog.filter((e) => e.id === id);
+// An item's work log: what was logged, without what is only proposed (tentative, until confirmed in the Work log).
+export const logOf = (id) => state.worklog.filter((e) => e.id === id && !isTentative(e));
 
 // ── mutations ────────────────────────────────────────────────────────────────
 export function createItem(type, subject, values = {}, body = '') {
@@ -294,10 +296,13 @@ export const addPerson = (name, values) => mutate(() => api.addPerson(name, valu
 export const renamePerson = (old, name) => mutate(() => api.renamePerson(old, name));
 export const deletePerson = (name) => mutate(() => api.deletePerson(name));
 export const updatePerson = (name, values) => mutate(() => api.updatePerson(name, values));
+export const personToGroup = (name) => mutate(() => api.personToGroup(name));
 export const addGroup = (name, values) => mutate(() => api.addGroup(name, values));
 export const updateGroup = (name, values) => mutate(() => api.updateGroup(name, values));
 export const deleteGroup = (name) => mutate(() => api.deleteGroup(name));
 export const unlogWork = (date, index) => mutate(() => api.unlogWork(date, index));
+export const confirmLog = (date, index = null) => mutate(() => api.confirmLog(date, index));
+export const discardLog = (date, index = null) => mutate(() => api.discardLog(date, index));
 // The trash: what was deleted, kept in <root>/.task-manager/trash until it is restored or emptied.
 export const restoreFromTrash = (trashed) => mutate(() => api.restoreTrashed(trashed));
 // The Explorer's operations on the vault's files (explorer.js); a deleted file or folder waits in the trash.

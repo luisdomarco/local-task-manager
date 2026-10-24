@@ -12,6 +12,7 @@ import { quickAddBar } from '../quickadd.js';
 import { byManualOrder, isDone, pickDays, weekBuckets } from '../rules.js';
 import { placeInPlan, planWeek, state } from '../state.js';
 import { byPriority, checkSelect, dropZone, h, icon, itemCard } from '../ui.js';
+import { isTentative } from '../worktime.js';
 
 const MODE_KEY = 'tm-week-mode';
 const readMode = () => { try { return localStorage.getItem(MODE_KEY) === 'board' ? 'board' : 'list'; } catch { return 'list'; } };
@@ -98,7 +99,7 @@ export function mount(root) {
       const toDay = (d) => (it, index) => placeInPlan(it, it.fields.plan_day === d ? {} : { plan_day: d, plan_week: isoWeek(d) }, b.byDay[d], index);
       const toAnytime = (it, index) => placeInPlan(it, !it.fields.plan_day && it.fields.plan_week === week ? {} : { plan_week: week, plan_day: null },
         b.anytime, index);
-      const logged = (d) => state.worklog.filter((e) => e.date === d).length;
+      const logged = (d) => state.worklog.filter((e) => e.date === d && !isTentative(e)).length;
       const dayMeta = (d) => [
         d === today() ? h('span', { class: 'chip plan today' }, 'Today') : null,
         logged(d) ? h('span', { class: 'muted small', title: 'Work log entries' }, icon('clock', 11), ` ${logged(d)}`) : null,
