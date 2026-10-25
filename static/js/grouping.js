@@ -20,6 +20,10 @@ export function ancestorsOf(item, byId) {
 /** The nearest initiative up the chain (a task → its story → that story's initiative), or NONE. */
 export const initiativeOf = (item, byId) => ancestorsOf(item, byId).find((p) => p.type === 'initiative')?.id || NONE;
 
+/** An initiative's group: the initiative its tree starts at — the topmost one up the chain, or itself when it hangs
+ *  from none. So each top initiative heads a group with every sub-initiative (its epics, theirs…) under it. */
+export const topInitiativeOf = (item, byId) => ancestorsOf(item, byId).filter((p) => p.type === 'initiative').at(-1)?.id || item.id;
+
 /** A Ticketing item's project: the key its `project` field holds, or NONE. */
 export const projectOf = (item) => item.fields.project || NONE;
 
@@ -62,16 +66,19 @@ const planRank = rank(PLAN_BUCKETS.map(([k]) => k));
 const byName = (name) => (a, b) => (a === NONE ? 1 : b === NONE ? -1 : name(a).localeCompare(name(b)));
 
 /**
- * The ways a list can be grouped: { label, by(item, byId) → key, order(a, b, byId, projectName) }.
- * `projectName(key)` names a project by its key (a project note has no id, so it is not in byId).
+ * The ways a list can be grouped: { label, by(item, byId) → key, order(a, b, byId, projectName), lead?(key, item) }.
+ * `projectName(key)` names a project by its key (a project note has no id, so it is not in byId). `lead` picks the
+ * row that goes first in its group, before the sort: the one the group is.
  * Which ones a list offers is up to its type (the structure's list config, views/list.js listConfig).
  */
 export const GROUPS = {
   initiative: {
     label: 'Initiative',
-    by: initiativeOf,
+    // Anything else falls under the nearest initiative it hangs from; an initiative, in its own tree's.
+    by: (item, byId) => (item.type === 'initiative' ? topInitiativeOf(item, byId) : initiativeOf(item, byId)),
     // By title, the rows with no initiative last.
     order: (a, b, byId) => byName((k) => byId.get(k)?.title || k)(a, b),
+    lead: (key, item) => item.id === key,
   },
   project: {
     label: 'Project',

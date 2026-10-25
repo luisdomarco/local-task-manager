@@ -23,7 +23,7 @@ const WIDTH = {
   resolved: 116, state: 100,
   deleted_at: 108, path: 260, unlinked: 96, count: 96, edit: 96, actions: 150,
   day: 84, time: 72, kind: 116, item: 320,
-  exported: 140, vault: 160, host: 150, version: 230, size: 90, calendar_name: 220, emails: 280, redmine: 140, extref: 140, slack: 160,
+  exported: 140, vault: 160, host: 150, version: 230, size: 90, calendar_name: 220, emails: 280, redmine: 140, extref: 140, tracker: 120, slack: 160,
   started: 140, when: 96, folder: 140, model: 80, effort: 80, cs_actions: 196, cs_actions_compact: 132, last: 140, last_short: 96, // Claude sessions (claude.js)
 };
 const FLEX = { subject: 480, note: 100, name: 200 }; // name: a person's or label's, beside its own columns
@@ -99,7 +99,8 @@ export function pagedBox(build) {
 /**
  * dataTable({ columns, rows, sort, onSort, onRow, empty, label, rowClass, group, paging })
  * `group` (optional) arranges the rows under headers: { by(row) → key, header(key, rows) → node,
- * order(a, b)?, collapsed: Set of keys, onToggle(key) }. The sort still applies inside each group.
+ * order(a, b)?, lead(key, row)?, collapsed: Set of keys, onToggle(key) }. The sort still applies inside each group,
+ * after the rows `lead` picks (the one the group is: an initiative above its epics).
  * `paging` (optional) shows the rows a page at a time: { key, at?, size } as in paged(). The table
  * then turns its own pages, without its caller re-rendering it.
  */
@@ -145,7 +146,8 @@ function groupsOf(sorted, group) {
     const key = group.by(r);
     (groups.get(key) || groups.set(key, []).get(key)).push(r);
   }
-  return [...groups.keys()].sort(group.order || (() => 0)).map((k) => [k, groups.get(k)]);
+  const led = (k, rows) => (group.lead ? [...rows.filter((r) => group.lead(k, r)), ...rows.filter((r) => !group.lead(k, r))] : rows);
+  return [...groups.keys()].sort(group.order || (() => 0)).map((k) => [k, led(k, groups.get(k))]);
 }
 
 /**
@@ -263,6 +265,11 @@ export const COL = {
   extref: {
     key: 'extref', get label() { return `${EXTERNAL_REF.label} ID`; }, get: (i) => String(i.fields[EXTERNAL_REF.id_key] || '~'),
     cell: (i) => (i.fields[EXTERNAL_REF.id_key] ? h('span', { class: 'mono' }, `#${i.fields[EXTERNAL_REF.id_key]}`) : ''),
+  },
+  // That ticket's tracker (Story, Epic…), beside its ID.
+  tracker: {
+    key: 'tracker', label: 'Tracker', get: (i) => String(i.fields[EXTERNAL_REF.tracker_key] || '~').toLowerCase(),
+    cell: (i) => i.fields[EXTERNAL_REF.tracker_key] || '',
   },
   // A meeting's or an activity's day; sorted with its time, so the same day's come in the order they happened.
   date: {

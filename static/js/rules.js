@@ -101,6 +101,10 @@ export function statusPasses(it, ticked) {
 const closedName = (st) => STRUCTURE.types.some((t) => t.statuses?.includes(st) && groupOf(t.name, st) === 'closed');
 /** Whether a type carries that field (a support ticket has no priority; only a Ticketing item has a project). */
 export const hasField = (type, key) => !!TYPE_DEFS[type]?.fields.includes(key);
+/** Whether an item is in a page table that takes only some of its type (TypeDef.child_tables `where`): each field
+ *  holds that value, in any case and with spaces around. No `where`: every item is. */
+export const matchesWhere = (item, where) => Object.entries(where || {})
+  .every(([k, v]) => String(item.fields[k] ?? '').trim().toLowerCase() === String(v).toLowerCase());
 /** What an item may hang from, by project (Ticketing): with a project chosen, only items of that project; with
  *  none, any. A parent's project comes with it (parentProject), so an item and what it hangs from share one. */
 export const inProject = (project) => (parent) => !project || parent.fields.project === project;

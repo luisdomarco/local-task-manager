@@ -21,7 +21,7 @@ import { attachmentsSection } from './attachments.js';
 import { quickAddBar } from './quickadd.js';
 import { STORY_COLUMNS } from './stories.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, inProject, isDone, isEnabled, isOverdue, pageRef, parentProject, propsIn, splitsInitiative,
+  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, inProject, isDone, isEnabled, isOverdue, matchesWhere, pageRef, parentProject, propsIn, splitsInitiative,
 } from './rules.js';
 import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
@@ -641,9 +641,11 @@ const SCOPE_TEST = { open: (k) => !isDone(k), closed: isDone, all: () => true };
  * beside it picking which rows show. The tab counts all of them.
  * All remembered per kind of table (child.scope.<item type>.<type>, the sort, the page size).
  * Before, they were per listed type alone (child.scope.<type>…): what was chosen then is where each starts.
+ * `where` (TypeDef.child_tables) keeps only the items whose fields hold those values, and its quick add writes them.
  */
-function childTable(item, rerender, { type, title, cols, qa = null }) {
-  const holds = heldBy(item);
+function childTable(item, rerender, { type, title, cols, qa = null, where = null }) {
+  const hangs = heldBy(item);
+  const holds = (k) => hangs(k) && matchesWhere(k, where);
   const all = state.items.filter((k) => k.type === type && holds(k));
   const labels = SCOPE_LABELS[childScope(type)];
   const kind = `${item.type}.${type}`;
@@ -659,7 +661,7 @@ function childTable(item, rerender, { type, title, cols, qa = null }) {
       type: 'button', class: `btn small ${scope === k ? 'active' : ''}`, 'aria-pressed': String(scope === k),
       onclick: () => { setPref(`child.scope.${kind}`, k); rerender(); },
     }, l))) : null;
-  const add = qa ? withFk(`page-${type}-qa`, quickAddBar({ type, values: item.type === 'project' ? { project: item.fields.project_key } : { related_to: item.id } }, { placeholder: qa, mic: false })) : null;
+  const add = qa ? withFk(`page-${type}-qa`, quickAddBar({ type, values: item.type === 'project' ? { project: item.fields.project_key } : { related_to: item.id, ...where } }, { placeholder: qa, mic: false })) : null;
   // With items, an empty table is the scope's doing: say so, and how many the default scope hides.
   // (Only types that close have a scope: for the rest, rows are all of them and this is never shown.)
   const none = !all.length || !labels ? `No ${title.toLowerCase()} yet${qa ? ' — add the first one above' : ''}.`
@@ -727,19 +729,25 @@ const PAGE_TABLES = {
  *  note's enabled_types names them (a system project has neither). */
 const projectHas = (project, type) => !(STRUCTURE.optional_types || []).includes(type) || (project.fields.enabled_types || []).includes(type);
 
-/** One table per type its structure lists for its page (TypeDef.children), each turned on and able to hang from it. */
+/** One table per type its structure lists for its page (TypeDef.children), each turned on and able to hang from it.
+ *  A table of only some of a type (child_tables: an initiative's Epics) shows once it holds one, archived or not. */
 function pageTables(item, rerender) {
   const project = item.type === 'project';
+  const some = TYPE_DEFS[item.type]?.child_tables || {};
   return (TYPE_DEFS[item.type]?.children || [])
     .filter((t) => isEnabled(t) && (project ? projectHas(item, t) : (PARENT_TYPES[t] || []).includes(item.type)))
+    .filter((t) => !some[t] || state.all.some((k) => k.type === t && heldBy(item)(k) && matchesWhere(k, some[t].where)))
     .map((t) => {
       const def = TYPE_DEFS[t];
       const known = PAGE_TABLES[t];
+      const { label, noun, where } = some[t] || {};
+      // Without the columns every row of it shares: its parent, its project, the field its `where` fixes.
       const cols = known?.cols || (def.list?.columns || ['id', 'subject', 'updated']).map(columnOf)
-        .filter((c) => c && c.key !== 'parent' && c.key !== 'project' && !(c.key === 'initiative' && item.type === 'initiative'));
+        .filter((c) => c && c.key !== 'parent' && c.key !== 'project' && !(c.key === 'initiative' && item.type === 'initiative')
+          && !(where && c.key in where));
       // On a project's page a plan cannot be added from here: it is born under an initiative or a support ticket.
-      const qa = project && t === 'plan' ? null : known?.qa || `Add ${def.label.toLowerCase()}…`;
-      return childTable(item, rerender, { type: t, title: def.plural, cols, qa });
+      const qa = project && t === 'plan' ? null : known?.qa || `Add ${(noun || def.label).toLowerCase()}…`;
+      return childTable(item, rerender, { type: t, title: label || def.plural, cols, qa, where });
     });
 }
 

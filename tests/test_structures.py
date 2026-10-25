@@ -110,10 +110,13 @@ class LayoutTest(unittest.TestCase):
     def types(self, structure):
         return {t['name']: t for t in structure.public()['types']}
 
-    def test_folders_has_one_page_the_initiatives_with_its_four_tables(self):
+    def test_folders_has_one_page_the_initiatives_with_its_five_tables(self):
         types = self.types(FOLDER_PER_TYPE)
         self.assertEqual([n for n, t in types.items() if t.get('page')], ['initiative'])
-        self.assertEqual(types['initiative']['children'], ['story', 'task', 'note', 'meeting'])
+        # Its epics first: the sub-initiatives whose tracker says Epic.
+        self.assertEqual(types['initiative']['children'], ['initiative', 'story', 'task', 'note', 'meeting'])
+        self.assertEqual(types['initiative']['child_tables'], {'initiative': {'label': 'Epics', 'noun': 'Epic', 'where': {'tracker': 'Epic'}}})
+        self.assertNotIn('child_tables', types['story'])
         self.assertEqual(types['initiative']['parent_label'], 'Sub-initiative of')
 
     def test_ticketing_has_pages_for_its_projects_initiatives_and_prds(self):

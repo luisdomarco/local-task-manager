@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, placement, planFilter,
+  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, matchesWhere, placement, planFilter,
 } from '../../static/js/rules.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -10,6 +10,14 @@ const task = (fields) => ({ type: 'task', fields });
 describe('rules', () => {
   beforeEach(freezeDate);
   afterEach(unfreezeDate);
+
+  it('keeps an item in a page table by the values its `where` fixes, in any case', () => {
+    const epic = { type: 'initiative', fields: { tracker: ' epic ' } };
+    assert.equal(matchesWhere(epic, { tracker: 'Epic' }), true);
+    assert.equal(matchesWhere({ type: 'initiative', fields: { tracker: 'Story' } }, { tracker: 'Epic' }), false);
+    assert.equal(matchesWhere({ type: 'initiative', fields: {} }, { tracker: 'Epic' }), false);
+    assert.equal(matchesWhere({ type: 'initiative', fields: {} }, null), true);
+  });
 
   it('closes by status, and activities by resolution', () => {
     assert.equal(isDone(task({ status: 'Done' })), true);

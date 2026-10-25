@@ -92,8 +92,9 @@ EXTRA_FIELDS = {'initiative': ('user_stories',), 'story': ('legacy_id',)}
 PLANNED = ['id', 'subject', 'status', 'priority', 'plan', 'due']
 LISTS = {
     'initiative': {'sort': {'col': 'priority', 'dir': 1}, 'relation': None, 'scopes': 'status',
-                   'columns': [*PLANNED, 'extref', 'labels', 'progress', 'parent:Parent', 'updated'],
-                   'group_by': ['status', 'priority', 'plan']},
+                   'columns': [*PLANNED, 'extref', 'tracker', 'labels', 'progress', 'parent:Parent', 'updated'],
+                   # By initiative: each one heads a group with the sub-initiatives (its epics) under it (grouping.js).
+                   'group_by': ['initiative', 'status', 'priority', 'plan']},
     'story': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status', 'group_key': 'tm.groupStories',
               'noun': 'User story', 'relation_label': 'Initiative or story', 'relation_any': 'Any initiative or story',
               'columns': [*PLANNED, 'extref', 'labels', 'parent:Initiative', 'progress', 'updated'],
@@ -153,8 +154,10 @@ def _type(name):
         closed_when='resolved_at' if name == 'activity' else '',
         nav=nav, list=LISTS.get(name), creatable=name != 'inbox', convertible=name not in ('inbox', 'prompt'),
         plannable=plannable, counted=counted, go_key=go_key, tokens=tuple(tokens), extra_fields=EXTRA_FIELDS.get(name, ()),
-        # Only an initiative has a page: its stories, tasks, notes and meetings as tables.
-        page=name == 'initiative', children=('story', 'task', 'note', 'meeting') if name == 'initiative' else (),
+        # Only an initiative has a page: its epics, stories, tasks, notes and meetings as tables. Its epics are the
+        # sub-initiatives whose tracker says Epic; the rest of them are only in its Relations tab, under Children.
+        page=name == 'initiative', children=('initiative', 'story', 'task', 'note', 'meeting') if name == 'initiative' else (),
+        child_tables={'initiative': {'label': 'Epics', 'noun': 'Epic', 'where': {'tracker': 'Epic'}}} if name == 'initiative' else None,
         parent_label=PARENT_LABEL.get(name, ''),
         props=agents.PROPS if agent else (), folder_optional=agent, body=agents.BODY if agent else '',
     )

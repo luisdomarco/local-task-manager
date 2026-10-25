@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GROUPS, NONE, ancestorsOf, initiativeOf, planBucket, projectOf } from '../../static/js/grouping.js';
+import { GROUPS, NONE, ancestorsOf, initiativeOf, planBucket, projectOf, topInitiativeOf } from '../../static/js/grouping.js';
 
 const item = (id, type, related_to) => ({ id, type, fields: { related_to } });
 const byIdOf = (...items) => new Map(items.map((i) => [i.id, i]));
@@ -46,6 +46,18 @@ describe('grouping', () => {
     const tk = item('TSK-9', 'task', 'INI-1');
     const note = item('NOTE-1', 'note', 'TSK-9');
     assert.equal(initiativeOf(note, byIdOf(ini, tk, note)), 'INI-1');
+  });
+
+  it('groups an initiative with its epics, under the top one, which leads its group', () => {
+    const epic = item('INI-2', 'initiative', 'INI-1');
+    const sub = item('INI-3', 'initiative', 'INI-2');
+    const us = item('US-2', 'story', 'INI-2');
+    const all = byIdOf(ini, epic, sub, us);
+    assert.deepEqual([ini, epic, sub].map((i) => topInitiativeOf(i, all)), ['INI-1', 'INI-1', 'INI-1']);
+    assert.deepEqual([ini, epic, sub].map((i) => GROUPS.initiative.by(i, all)), ['INI-1', 'INI-1', 'INI-1']);
+    assert.equal(GROUPS.initiative.by(us, all), 'INI-2'); // a story still falls under its nearest one
+    assert.equal(GROUPS.initiative.lead('INI-1', ini), true);
+    assert.equal(GROUPS.initiative.lead('INI-1', epic), false);
   });
 
   it('puts an item with no status or priority in the defaults', () => {

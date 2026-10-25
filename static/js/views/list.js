@@ -259,6 +259,7 @@ export function listView(type) {
           const group = g ? {
             by: (i) => g.by(i, state.byId),
             order: (a, b) => g.order(a, b, state.byId, projectName),
+            lead: g.lead || null,
             collapsed: folded,
             onToggle: (key) => { if (!folded.delete(key)) folded.add(key); api.update(); },
             header: groupHeader,
