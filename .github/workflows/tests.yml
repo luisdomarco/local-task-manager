@@ -7,7 +7,8 @@ on:
 
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # not -latest: setup-python has no 3.9 for Ubuntu 26.04
+
     strategy:
       fail-fast: false  # one version failing must not hide how the other did
       matrix:

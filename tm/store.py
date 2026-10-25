@@ -1191,7 +1191,8 @@ class Store:
         moved = []
         if self.full_structure is not FOLDER_PER_TYPE or 'story' not in self.structure.types:  # folder per type only; kept embedded while stories are off
             return moved
-        for ini in [i for i in self.items() if i['type'] == 'initiative']:
+        # By id: the scan comes in the file system's order, sorted on macOS but not on Linux.
+        for ini in sorted((i for i in self.items() if i['type'] == 'initiative'), key=lambda i: i['id'] or ''):
             legacy = ini['fields'].get('user_stories') or []
             if not legacy or not ini['id']:
                 continue
