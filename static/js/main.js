@@ -33,14 +33,15 @@ import * as table from './views/table.js';
 import * as today from './views/today.js';
 import { tomorrow } from './views/today.js';
 import * as week from './views/week.js';
+import * as prioritization from './views/prioritization.js';
 import * as docs from './views/docs.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, tomorrow, week, board, table, log, labels, contacts, trash, settings, files, find, docs };
+const FIXED_VIEWS = { inbox, today, tomorrow, week, prioritization, board, table, log, labels, contacts, trash, settings, files, find, docs };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
-  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', board: 'Board', table: 'All items', log: 'Work log',
+  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', prioritization: 'Prioritization', board: 'Board', table: 'All items', log: 'Work log',
   labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs',
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
@@ -159,7 +160,7 @@ async function route() {
   // A view whose items this vault turned off (the Board shows tasks; the day views, what can be planned) goes home.
   // A type turned off has no list or page view at all.
   const planning = STRUCTURE.types.some((t) => t.plannable);
-  const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week'].includes(name) && !planning);
+  const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week', 'prioritization'].includes(name) && !planning);
   if (name === 'people') { location.replace('#/contacts'); return; } // People is Contacts' first tab (TSK-050)
   if (!VIEWS[name] || off) { location.hash = planning ? '#/today' : '#/table'; return; }
   const key = `${name}/${param || ''}`;
@@ -203,6 +204,7 @@ function renderSidebar() {
     tomorrow: state.items.filter((i) => i.fields.plan_day === addDays(todayYmd(), 1) && !isDone(i)).length,
     // What the Week view lists: planned for the week or one of its days, plus what is carried over from past weeks.
     week: state.items.filter((i) => !isDone(i) && (isPlannedWeek(i) || days.includes(i.fields.plan_day) || carriedOverWeek(i))).length,
+    prioritization: prioritization.openCount(),
     trash: state.trash.length + state.trashedFiles.length,
   };
   for (const [k, n] of Object.entries(counts)) {
@@ -230,7 +232,7 @@ function renderSidebar() {
   // planned) go when what they show is turned off too.
   box.closest('.side-section').hidden = !isEnabled('initiative');
   document.querySelector('#sidebar a[data-view="board"]').hidden = !isEnabled('task');
-  for (const view of ['today', 'tomorrow', 'week']) {
+  for (const view of ['today', 'tomorrow', 'week', 'prioritization']) {
     document.querySelector(`#sidebar a[data-view="${view}"]`).hidden = !STRUCTURE.types.some((t) => t.plannable);
   }
   wireSidebarDrop(box, move);

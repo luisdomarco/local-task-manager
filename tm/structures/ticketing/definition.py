@@ -224,7 +224,8 @@ PARENT_LABEL = {'story': 'Initiative', 'prd': 'Initiative', 'hotfix': 'Origin', 
 
 # The app's own fields every ticket may carry (planning, comments, Claude sessions…), besides its own.
 APP_FIELDS = ('related_to', 'relations', 'project', 'url', 'url_label', 'links', 'archived', 'session_name', 'local_path',
-              'ticket_id', 'ticket_url', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'completed_at', 'labels', 'comments', 'claude_sessions')
+              'ticket_id', 'ticket_url', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'prio_list', 'prio_order',
+              'completed_at', 'labels', 'comments', 'claude_sessions')
 OWN_FIELDS = {
     'project': (),
     # docs: TSK-039 (store.clean_docs); watchers: the people and groups of Contacts to tell when it changes status (TSK-051)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, matchesWhere, placement, planFilter,
+  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, prioHorizon, labelsPass, matchesWhere, placement, planFilter,
 } from '../../static/js/rules.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -83,6 +83,21 @@ describe('rules', () => {
     assert.equal(carriedOverDay({ type: 'note', fields: { plan_day: '2026-10-01' } }), false); // only plannable types
     assert.equal(carriedOverWeek(task({ plan_week: '2026-W40', status: 'ToDo' })), true);
     assert.equal(carriedOverWeek(task({ plan_week: '2026-W42', status: 'ToDo' })), false);
+  });
+
+  it('puts in the Prioritization pool what is planned within four weeks, late included (today: Thu 2026-10-15, W42)', () => {
+    const at = (fields) => prioHorizon(task({ status: 'ToDo', ...fields }));
+    assert.equal(at({ plan_day: '2026-10-14' }), 'late'); // a past day, still open
+    assert.equal(at({ plan_week: '2026-W41' }), 'late'); // a past week
+    assert.equal(at({ plan_day: '2026-10-15', plan_week: '2026-W42' }), 'week');
+    assert.equal(at({ plan_week: '2026-W42' }), 'week');
+    assert.equal(at({ plan_day: '2026-10-19' }), 'next'); // a day decides by its own week
+    assert.equal(at({ plan_week: '2026-W43' }), 'next');
+    assert.equal(at({ plan_week: '2026-W45' }), 'later'); // the fourth week, the last one in
+    assert.equal(at({ plan_day: '2026-11-09' }), null); // W46: further out
+    assert.equal(at({}), null); // unplanned
+    assert.equal(prioHorizon(task({ status: 'Done', plan_week: '2026-W42' })), null); // closed
+    assert.equal(prioHorizon({ type: 'note', fields: { plan_week: '2026-W42' } }), null); // not plannable
   });
 
   it('tells overdue from due', () => {

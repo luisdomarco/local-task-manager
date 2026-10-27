@@ -1,8 +1,8 @@
 // DOM helpers and shared components. Everything is built with createElement:
 // titles come from files on disk, so nothing user-provided goes through innerHTML
 // except rendered markdown, which is sanitized with DOMPurify.
-import { relDay } from './dates.js';
-import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, statusTree } from './rules.js';
+import { addDays, dayLabel, relDay, today } from './dates.js';
+import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, prioHorizon, statusTree } from './rules.js';
 import { fitChips } from './chipfit.js';
 import { opener } from './links.js';
 import { allLabels, state, setCompleted } from './state.js';
@@ -38,6 +38,7 @@ export function h(tag, attrs = {}, ...children) {
 const ICONS = {
   inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  prioritize: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="M11 4h10"/><path d="M11 8h7"/><path d="M11 12h4"/>',
   calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   kanban: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7M12 7v4M16 7v9"/>',
   table: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
@@ -652,15 +653,31 @@ export const statusChip = (status) => h('span', { class: `chip status s-${cssKey
 export const priorityChip = (p) => h('span', { class: `chip prio pr-${cssKey(p)}` }, p);
 
 /**
- * What a card shows besides its subject: status, priority and due date (a meeting its date, an activity
- * whether it is resolved). The parent is its own line (see itemCard); everything else lives in the item's card.
+ * When an item is planned for, as a chip (Prioritization's cards): Today, Tomorrow, the weekday within the coming week
+ * ("Thu 30"), else the date, or its week ("W45") when it has no day; in red when that has passed and it is still open.
  */
-export function chips(item, { hideStatus = false } = {}) {
+export function planChip(item) {
+  const { plan_day: day, plan_week: week } = item.fields;
+  if (!day && !week) return null;
+  const t = today();
+  const label = !day ? week.split('-')[1] : day > t && day <= addDays(t, 6) && day !== addDays(t, 1) ? dayLabel(day) : relDay(day);
+  const late = prioHorizon(item) === 'late';
+  return h('span', { class: `chip plan ${late ? 'late' : ''}`, title: `Planned for ${day || week}${late ? ' · late' : ''}` },
+    icon('calendar', 12), label);
+}
+
+/**
+ * What a card shows besides its subject: status, priority and due date (a meeting its date, an activity
+ * whether it is resolved), and when it is planned for if `showPlan`. The parent is its own line (see itemCard);
+ * everything else lives in the item's card.
+ */
+export function chips(item, { hideStatus = false, showPlan = false } = {}) {
   const f = item.fields;
   const out = [];
   if (PLANNABLE.has(item.type)) {
     if (!hideStatus && f.status) out.push(statusChip(f.status));
     out.push(priorityChip(f.priority || 'Normal'));
+    if (showPlan) { const plan = planChip(item); if (plan) out.push(plan); }
     if (f.due) out.push(h('span', { class: `chip due ${isOverdue(item) ? 'late' : ''}` }, icon('flag', 12), relDay(f.due)));
   }
   if (item.type === 'meeting' && f.date) out.push(h('span', { class: 'chip' }, icon('users', 12), relDay(f.date)));
@@ -692,7 +709,7 @@ export function checkbox(item) {
   }, isDone(item) ? icon('check', 12) : '');
 }
 
-export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, cls = '', titleAction = null } = {}) {
+export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, showPlan = false, cls = '', titleAction = null } = {}) {
   const el = h('div', {
     class: `card t-${item.type} ${isDone(item) ? 'done' : ''} ${cls}`,
     'data-key': item.key,
@@ -707,7 +724,7 @@ export function itemCard(item, { onOpen, draggable = false, extra = null, hidePa
         item.title),
       titleAction),
     hideParent ? null : parentLink(item),
-    h('div', { class: 'chips' }, chips(item, { hideStatus }))),
+    h('div', { class: 'chips' }, chips(item, { hideStatus, showPlan }))),
   extra ? h('div', { class: 'card-extra', onclick: (e) => e.stopPropagation() }, extra) : null);
   if (draggable) {
     el.addEventListener('dragstart', (e) => {

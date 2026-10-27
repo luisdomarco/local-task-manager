@@ -1,6 +1,6 @@
 // Business rules: which item shows up where. Views only ask these questions;
 // they never inspect frontmatter fields to decide membership themselves.
-import { addDays, shiftWeek, today, thisWeek, weekDays } from './dates.js';
+import { addDays, isoWeek, shiftWeek, today, thisWeek, weekDays } from './dates.js';
 import { FOLDER_PER_TYPE } from './structure.js';
 
 // Catalogs: the vault's structure (GET /api/structure, tm/structures; the server validates against the same
@@ -171,6 +171,27 @@ export function weekBuckets(items, week, { hideDone = false, sort = () => 0 } = 
 export const pickDays = (days, picked = []) => (picked.length ? days.filter((_, n) => picked.includes(n)) : days);
 
 export const isOverdue = (it) => !isDone(it) && !!it.fields.due && it.fields.due < today();
+
+/** How many weeks the Prioritization pool looks ahead: this one and the next three. */
+export const PRIO_WEEKS = 4;
+/** The pool's sections, in order (rules.prioHorizon names them). */
+export const PRIO_HORIZONS = [['late', 'Late'], ['week', 'This week'], ['next', 'Next week'], ['later', 'In 2–3 weeks']];
+
+/**
+ * Where an open, plannable item falls in the Prioritization pool, by what it is planned for (its day, else its week):
+ * 'late' (a past day or week, still open), 'week', 'next', 'later' (the two after), or null — unplanned, closed, or
+ * further out than PRIO_WEEKS.
+ */
+export function prioHorizon(it) {
+  if (!PLANNABLE.has(it.type) || isDone(it)) return null;
+  const { plan_day: day, plan_week: week } = it.fields;
+  if (!day && !week) return null;
+  if (day ? day < today() : week < thisWeek()) return 'late';
+  const w = day ? isoWeek(day) : week;
+  if (w === thisWeek()) return 'week';
+  if (w === shiftWeek(thisWeek(), 1)) return 'next';
+  return w <= shiftWeek(thisWeek(), PRIO_WEEKS - 1) ? 'later' : null;
+}
 
 /** Plan filters shared by Board, Tasks, Initiatives and All items. */
 export const PLAN_FILTERS = {

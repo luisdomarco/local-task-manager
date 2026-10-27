@@ -815,6 +815,41 @@ button.status-select, button.prio-select { --chevron-current: url("data:image/sv
 .add-list-btn:hover { background: var(--accent); color: var(--foreground); }
 .row-actions { display: flex; align-items: center; gap: 6px; }
 
+/* ── prioritization (views/prioritization.js) ──────────────── */
+/* Its columns are a quarter wider than Today's (300px): cards carry their plan and parent too. */
+.prio-layout { display: flex; gap: 14px; align-items: flex-start; min-width: 0; }
+.prio-board { flex: 1; min-width: 0; }
+.prio-board .board-col { flex-basis: min(380px, calc(100vw - 48px)); }
+.prio-col .list-head { padding-left: 10px; }
+.chip.plan { gap: 4px; }
+.prio-pool {
+  flex: 0 0 310px; min-width: 0; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 190px);
+  background: var(--card); border-radius: 12px; padding: 6px 8px 8px; box-shadow: 0 0 0 1px var(--border);
+}
+.pool-head { display: flex; align-items: center; gap: 6px; min-height: 42px; padding: 0 2px; }
+.pool-head h2 { font-size: var(--fs-h4); font-weight: 650; margin: 0; flex: 1; }
+.pool-body { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.pool-search { width: 100%; }
+.pool-types .select-btn { width: 100%; }
+.pool-list { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 60px; padding: 2px; }
+.pool-group h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted-foreground); }
+.pool-group.late h3 { color: var(--destructive); }
+.pool-cards { display: flex; flex-direction: column; gap: 8px; }
+.pool-cards .card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.pool-empty { margin: 4px 2px; }
+/* Folded: a slim bar with its button and count, the board takes the room. */
+.prio-pool.closed { flex-basis: 48px; align-items: center; }
+.prio-pool.closed .pool-head { flex-direction: column; padding: 0; }
+.prio-pool.closed .pool-head h2 { writing-mode: vertical-rl; flex: none; }
+.prio-pool.closed .pool-body { display: none; }
+@media (max-width: 860px) {
+  .prio-layout { flex-direction: column-reverse; }
+  .prio-pool, .prio-pool.closed { flex-basis: auto; width: 100%; max-height: none; align-items: stretch; }
+  .prio-pool.closed .pool-head { flex-direction: row; }
+  .prio-pool.closed .pool-head h2 { writing-mode: horizontal-tb; flex: 1; }
+  .prio-board { width: 100%; }
+}
+
 /* ── today board ─────────────────────────────────────────── */
 .today-board .board-col { flex-basis: 300px; }
 .today-col .list-head { padding-left: 10px; }

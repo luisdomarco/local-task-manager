@@ -609,3 +609,15 @@ class PlanOrderTicketingTest(TicketingBase):
             after = f.read()
         self.assertEqual(self.s.read(task['key'])['fields']['plan_order'], 20)
         self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'plan_order'})
+
+    def test_prio_column_touches_only_its_keys(self):
+        task = self.s.create('task', 'Priorizar', {'project': 'HB', 'plan_week': '2026-W44'})
+        path = os.path.join(self.root, task['path'])
+        with open(path, encoding='utf-8') as f:
+            before = f.read()
+        self.s.update(task['key'], {'prio_list': 'now', 'prio_order': 10})
+        with open(path, encoding='utf-8') as f:
+            after = f.read()
+        fields = self.s.read(task['key'])['fields']
+        self.assertEqual((fields['prio_list'], fields['prio_order']), ('now', 10))
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'prio_list', 'prio_order'})

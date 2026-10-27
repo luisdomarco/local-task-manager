@@ -40,6 +40,9 @@ DEFAULT_LISTS = [{'id': s.lower(), 'name': s, 'status': s} for s in STATUSES]
 # column cannot be deleted; an item whose `today_list` names no column lands there.
 TODAY_DEFAULT = 'uncategorized'
 DEFAULT_TODAY_LISTS = [{'id': TODAY_DEFAULT, 'name': 'Uncategorized'}]
+# Prioritization board: columns you order what is coming up in, never a status or a priority. None is fixed: an item
+# whose `prio_list` names no column is in the pool, beside the board.
+DEFAULT_PRIO_LISTS = [{'id': 'now', 'name': 'Now'}, {'id': 'next', 'name': 'Next'}, {'id': 'later', 'name': 'Later'}]
 # Where an activity (a pasted email, Slack message, comment…) came from.
 ACTIVITY_SOURCES = ['Email', 'Slack', 'Comment', 'Other']
 # `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; a file without
@@ -147,11 +150,12 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'priority must be one of {priorities}')
     if values.get('source') and values['source'] not in ACTIVITY_SOURCES:
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
-    if 'plan_order' in values:  # a card's place on Today and Week (TSK-053): a number, or none
-        v = values['plan_order']
-        if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
-            raise StoreError(400, 'plan_order must be a number')
-        values['plan_order'] = v if v not in (None, '') else None
+    for key in ('plan_order', 'prio_order'):  # a card's place on Today and Week (TSK-053), on Prioritization: a number, or none
+        if key in values:
+            v = values[key]
+            if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
+                raise StoreError(400, f'{key} must be a number')
+            values[key] = v if v not in (None, '') else None
     if 'sidebar' in values:  # whether an initiative is listed in the sidebar
         values['sidebar'] = bool(values['sidebar'])
     if 'resolved' in values:  # an action, never stored: see Store.update
@@ -2528,6 +2532,33 @@ class Store:
         body = '# Today board\n\nColumns of the Today board, in order. Edited from the app.\n\n' + \
             '\n'.join(f"- **{l['name']}** (`{l['id']}`)" for l in clean) + '\n'
         atomic_write(path, fm.build({'type': 'today', 'lists': clean, 'updated_at': now_stamp()}, body))
+        return {'lists': clean}
+
+    # ── prioritization board: user columns in <root>/.task-manager/prioritization.md ──
+    def _prio_path(self):
+        return os.path.join(self.root, META_DIR, 'prioritization.md')
+
+    def prio_lists(self):
+        path = self._prio_path()
+        if os.path.exists(path):
+            fields, _ = self._read(path)
+            if isinstance(fields.get('lists'), list):  # every column deleted is an empty board, not the defaults again
+                return {'lists': fields['lists']}
+        return {'lists': DEFAULT_PRIO_LISTS}
+
+    @writes
+    def save_prio_lists(self, lists):
+        if not isinstance(lists, list):
+            raise StoreError(400, 'lists must be a list')
+        ids = [l.get('id') for l in lists]
+        if len(set(ids)) != len(ids) or not all(ids):
+            raise StoreError(400, 'lists need unique non-empty ids')
+        clean = [{'id': str(l['id']), 'name': str(l.get('name') or l['id'])} for l in lists]
+        path = self._prio_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        body = '# Prioritization board\n\nColumns of the Prioritization board, in order. Edited from the app.\n\n' + \
+            '\n'.join(f"- **{l['name']}** (`{l['id']}`)" for l in clean) + '\n'
+        atomic_write(path, fm.build({'type': 'prioritization', 'lists': clean, 'updated_at': now_stamp()}, body))
         return {'lists': clean}
 
     # ── pins: the ordered list of items shown in the top bar ─────────────────
