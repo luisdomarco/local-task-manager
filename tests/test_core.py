@@ -272,29 +272,27 @@ class StoreTest(unittest.TestCase):
         it = self.s.update('TSK-0001', {'plan_day': '2026-10-15'})  # a new day starts in Uncategorized
         self.assertIsNone(it['fields']['today_list'])
 
-    def test_prioritization_board(self):
-        self.assertEqual([l['id'] for l in self.s.prio_lists()['lists']], ['now', 'next', 'later'])
-        out = self.s.save_prio_lists([{'id': 'next', 'name': 'Next'}, {'id': 'now', 'name': 'Right now'}])
-        self.assertEqual(out['lists'], [{'id': 'next', 'name': 'Next'}, {'id': 'now', 'name': 'Right now'}])
-        self.assertEqual(self.s.prio_lists(), out)
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.task-manager', 'prioritization.md')))
-        self.assertEqual(self.s.save_prio_lists([])['lists'], [])  # no fixed column: every one can go
-        self.assertEqual(self.s.prio_lists()['lists'], [])  # and the defaults do not come back
+    def test_week_board(self):
+        self.assertEqual(self.s.week_lists()['lists'], [{'id': 'uncategorized', 'name': 'Uncategorized'}])
+        out = self.s.save_week_lists([{'id': 'waiting', 'name': 'Waiting'}, {'id': 'deep', 'name': 'Deep work'}])
+        self.assertEqual([l['id'] for l in out['lists']], ['uncategorized', 'waiting', 'deep'])  # the default comes back
+        self.assertEqual(self.s.week_lists(), out)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.task-manager', 'week.md')))
         for bad in ([{'id': 'a'}, {'id': 'a'}], [{'name': 'No id'}], 'now'):
             with self.assertRaises(StoreError):
-                self.s.save_prio_lists(bad)
+                self.s.save_week_lists(bad)
         for t in ('initiative', 'story', 'task'):
-            self.assertIn('prio_list', self.s.structure.allowed_fields(t), t)
-            self.assertIn('prio_order', self.s.structure.allowed_fields(t), t)
+            for key in ('plan_month', 'week_list', 'week_order'):
+                self.assertIn(key, self.s.structure.allowed_fields(t), (t, key))
         self.s.create('task', 'T', {'plan_week': '2026-W42'})
-        it = self.s.update('TSK-0001', {'prio_list': 'now', 'prio_order': 10})
-        self.assertEqual((it['fields']['prio_list'], it['fields']['prio_order']), ('now', 10))
-        it = self.s.update('TSK-0001', {'plan_day': '2026-10-20', 'plan_week': '2026-W43'})  # replanning keeps the column
-        self.assertEqual(it['fields']['prio_list'], 'now')
+        it = self.s.update('TSK-0001', {'week_list': 'waiting', 'week_order': 10})
+        self.assertEqual((it['fields']['week_list'], it['fields']['week_order']), ('waiting', 10))
+        it = self.s.update('TSK-0001', {'plan_day': '2026-10-20', 'plan_week': '2026-W43'})  # another week keeps the column
+        self.assertEqual(it['fields']['week_list'], 'waiting')
         with self.assertRaises(StoreError):
-            self.s.update('TSK-0001', {'prio_order': 'first'})
-        it = self.s.update('TSK-0001', {'prio_list': None, 'prio_order': None})  # back to the pool
-        self.assertIsNone(it['fields'].get('prio_list'))
+            self.s.update('TSK-0001', {'week_order': 'first'})
+        it = self.s.update('TSK-0001', {'plan_month': '2026-11', 'plan_week': None, 'plan_day': None})  # this month, no week
+        self.assertEqual((it['fields']['plan_month'], it['fields'].get('plan_week')), ('2026-11', None))
 
     def test_comments(self):
         self.s.create('meeting', 'M')

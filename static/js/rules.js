@@ -1,6 +1,6 @@
 // Business rules: which item shows up where. Views only ask these questions;
 // they never inspect frontmatter fields to decide membership themselves.
-import { addDays, isoWeek, shiftWeek, today, thisWeek, weekDays } from './dates.js';
+import { addDays, isoWeek, monthOf, shiftWeek, thisMonth, today, thisWeek, weekDays, weekMonth } from './dates.js';
 import { FOLDER_PER_TYPE } from './structure.js';
 
 // Catalogs: the vault's structure (GET /api/structure, tm/structures; the server validates against the same
@@ -172,26 +172,64 @@ export const pickDays = (days, picked = []) => (picked.length ? days.filter((_, 
 
 export const isOverdue = (it) => !isDone(it) && !!it.fields.due && it.fields.due < today();
 
-/** How many weeks the Prioritization pool looks ahead: this one and the next three. */
-export const PRIO_WEEKS = 4;
-/** The pool's sections, in order (rules.prioHorizon names them). */
-export const PRIO_HORIZONS = [['late', 'Late'], ['week', 'This week'], ['next', 'Next week'], ['later', 'In 2–3 weeks']];
+/** Planned for a past month with no week nor day yet, and still open → "Carried over" in Month. */
+export const carriedOverMonth = (it) =>
+  PLANNABLE.has(it.type) && !isDone(it) && !it.fields.plan_day && !it.fields.plan_week && !!it.fields.plan_month
+  && it.fields.plan_month < thisMonth();
+
+/** Late: planned for a day, a week or a month gone by, and still open. */
+export const isLate = (it) => carriedOverDay(it) || carriedOverWeek(it) || carriedOverMonth(it);
+
+/** The Month board's columns, in order (rules.planHorizon names them). */
+export const MONTH_HORIZONS = [['carried', 'Carried over'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'],
+  ['nextweek', 'Next week'], ['month', 'Later this month']];
 
 /**
- * Where an open, plannable item falls in the Prioritization pool, by what it is planned for (its day, else its week):
- * 'late' (a past day or week, still open), 'week', 'next', 'later' (the two after), or null — unplanned, closed, or
- * further out than PRIO_WEEKS.
+ * Where a plannable item falls on the Month board, by what it is planned for — its day, else its week, else its month
+ * (`plan_month`, kept for what has no week yet): 'today' (also a past day still open, as on Today), 'tomorrow', 'week'
+ * (the rest of this week, or any day of it), 'nextweek', 'month' (later this month: a week or day after next week whose
+ * month is this one, or the month itself), 'carried' (a past week or month, still open), or null — unplanned, closed in
+ * the past, or further out than this month and next week.
  */
-export function prioHorizon(it) {
-  if (!PLANNABLE.has(it.type) || isDone(it)) return null;
-  const { plan_day: day, plan_week: week } = it.fields;
-  if (!day && !week) return null;
-  if (day ? day < today() : week < thisWeek()) return 'late';
-  const w = day ? isoWeek(day) : week;
-  if (w === thisWeek()) return 'week';
-  if (w === shiftWeek(thisWeek(), 1)) return 'next';
-  return w <= shiftWeek(thisWeek(), PRIO_WEEKS - 1) ? 'later' : null;
+export function planHorizon(it) {
+  if (!PLANNABLE.has(it.type)) return null;
+  const { plan_day: day, plan_week: week, plan_month: month } = it.fields;
+  const open = !isDone(it);
+  const t = today();
+  if (day) {
+    if (day < t) return open ? 'today' : null;
+    if (day === t) return 'today';
+    if (day === addDays(t, 1)) return 'tomorrow';
+  }
+  if (day || week) {
+    const w = day ? isoWeek(day) : week;
+    if (w < thisWeek()) return open ? 'carried' : null;
+    if (w === thisWeek()) return 'week';
+    if (w === shiftWeek(thisWeek(), 1)) return 'nextweek';
+    return (day ? monthOf(day) : weekMonth(w)) === thisMonth() ? 'month' : null;
+  }
+  if (!month) return null;
+  if (month < thisMonth()) return open ? 'carried' : null;
+  return month === thisMonth() ? 'month' : null;
 }
+
+/** The Month board's buckets (a key of MONTH_HORIZONS → its items), `hideDone` leaving the closed ones out, each sorted by `sort`. */
+export function monthBuckets(items, { hideDone = false, sort = () => 0 } = {}) {
+  const out = Object.fromEntries(MONTH_HORIZONS.map(([k]) => [k, []]));
+  for (const it of items) {
+    const k = planHorizon(it);
+    if (k && !(hideDone && isDone(it))) out[k].push(it);
+  }
+  for (const k of Object.keys(out)) out[k].sort(sort);
+  return out;
+}
+
+/** Planned within this month: its day, its week (by its Thursday) or the month itself, or carried over from a past month. */
+export const isPlannedMonth = (it) => {
+  const { plan_day: day, plan_week: week, plan_month: month } = it.fields;
+  const m = day ? monthOf(day) : week ? weekMonth(week) : month;
+  return m === thisMonth() || carriedOverMonth(it);
+};
 
 /** Plan filters shared by Board, Tasks, Initiatives and All items. */
 export const PLAN_FILTERS = {
@@ -200,8 +238,9 @@ export const PLAN_FILTERS = {
   tomorrow: { label: 'Tomorrow', test: (it) => it.fields.plan_day === addDays(today(), 1) },
   week: { label: 'This week', test: (it) => it.fields.plan_week === thisWeek() || carriedOverWeek(it) },
   nextweek: { label: 'Next week', test: (it) => it.fields.plan_week === shiftWeek(thisWeek(), 1) },
+  month: { label: 'This month', test: isPlannedMonth },
   overdue: { label: 'Overdue', test: (it) => isOverdue(it) || carriedOverDay(it) },
-  unplanned: { label: 'Unplanned', test: (it) => !it.fields.plan_day && !it.fields.plan_week },
+  unplanned: { label: 'Unplanned', test: (it) => !it.fields.plan_day && !it.fields.plan_week && !it.fields.plan_month },
 };
 export const planFilter = (key) => (PLAN_FILTERS[key] || PLAN_FILTERS.any).test;
 

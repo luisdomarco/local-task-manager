@@ -30,7 +30,7 @@ MERGE_MINUTES = 10
 ACTOR_RE = re.compile(r'^[A-Za-z0-9:._-]{1,80}$')
 _lock = threading.Lock()
 # Fields that change on every write, or that a person never edits as such: not "what was edited".
-QUIET_FIELDS = {'updated_at', 'completed_at', 'resolved_at', 'rev', 'body_rev', 'plan_order', 'prio_order', 'order'}
+QUIET_FIELDS = {'updated_at', 'completed_at', 'resolved_at', 'rev', 'body_rev', 'plan_order', 'week_order', 'order'}
 
 
 def actor_of(header):

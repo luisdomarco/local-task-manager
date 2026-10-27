@@ -90,5 +90,15 @@ describe('grouping', () => {
       assert.equal(plan({ plan_week: '2026-W50' }), 'later');
       assert.equal(plan({}), NONE);
     });
+
+    it('after next week, what falls in this month is Later this month; a month alone counts too', () => {
+      assert.equal(plan({ plan_week: '2026-W44' }), 'month'); // its Thursday, Oct 29
+      assert.equal(plan({ plan_day: '2026-10-28' }), 'month');
+      assert.equal(plan({ plan_month: '2026-10' }), 'month');
+      assert.equal(plan({ plan_month: '2026-11' }), 'later');
+      assert.equal(plan({ plan_month: '2026-09' }), 'overdue');
+      assert.equal(plan({ plan_month: '2026-09' }, 'Done'), 'past');
+      assert.equal(plan({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'tomorrow'); // the day wins
+    });
   });
 });

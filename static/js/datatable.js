@@ -6,7 +6,7 @@ import { peopleOf } from './people.js';
 import { EXTERNAL_REF, PRIORITIES, PRIORITY_RANK, defaultOf, isDone, isOverdue, statusesOf } from './rules.js';
 import { pref, setPref } from './prefs.js';
 import { planControl, planKey, planValues } from './itemform.js';
-import { progress, setStatus, state, updateItem } from './state.js';
+import { noMonth, progress, setStatus, state, updateItem } from './state.js';
 import { itemHref, opener } from './links.js';
 import { cssKey, h, icon, labelChip, select } from './ui.js';
 
@@ -225,12 +225,12 @@ export const COL = {
   }),
   // Edited in place like Status: the same Planned select as the item's card (itemform.js).
   plan: {
-    key: 'plan', label: 'Planned', get: (i) => i.fields.plan_day || i.fields.plan_week || '~',
+    key: 'plan', label: 'Planned', get: (i) => i.fields.plan_day || i.fields.plan_week || i.fields.plan_month || '~',
     cell: (i) => {
       let current = planKey(i.fields);
       return h('span', { onclick: (e) => e.stopPropagation() }, planControl(() => current, (v) => {
         current = planKey(planValues(v)); // a picked date that is today reads back as "Today"
-        updateItem(i.key, { plan_day: null, plan_week: null, ...planValues(v) }).catch(() => {});
+        updateItem(i.key, { plan_day: null, plan_week: null, ...noMonth(i), ...planValues(v) }).catch(() => {});
       }, { class: 'small', 'aria-label': `Planned for ${i.title}` }, { short: true }));
     },
   },

@@ -1,8 +1,8 @@
 // DOM helpers and shared components. Everything is built with createElement:
 // titles come from files on disk, so nothing user-provided goes through innerHTML
 // except rendered markdown, which is sanitized with DOMPurify.
-import { addDays, dayLabel, relDay, today } from './dates.js';
-import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, prioHorizon, statusTree } from './rules.js';
+import { addDays, dayLabel, monthLabel, relDay, today } from './dates.js';
+import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isLate, isOverdue, onStructure, statusTree } from './rules.js';
 import { fitChips } from './chipfit.js';
 import { opener } from './links.js';
 import { allLabels, state, setCompleted } from './state.js';
@@ -38,10 +38,10 @@ export function h(tag, attrs = {}, ...children) {
 const ICONS = {
   inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-  prioritize: '<path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="M11 4h10"/><path d="M11 8h7"/><path d="M11 12h4"/>',
   calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   kanban: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7M12 7v4M16 7v9"/>',
   table: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
+  columns: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/>',
   clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   plus: '<path d="M5 12h14M12 5v14"/>',
@@ -653,16 +653,18 @@ export const statusChip = (status) => h('span', { class: `chip status s-${cssKey
 export const priorityChip = (p) => h('span', { class: `chip prio pr-${cssKey(p)}` }, p);
 
 /**
- * When an item is planned for, as a chip (Prioritization's cards): Today, Tomorrow, the weekday within the coming week
- * ("Thu 30"), else the date, or its week ("W45") when it has no day; in red when that has passed and it is still open.
+ * When an item is planned for, as a chip (the Free board's and Month's cards): Today, Tomorrow, the weekday within the
+ * coming week ("Thu 30"), else the date, its week ("W45") when it has no day, or its month ("Nov") with neither; in red
+ * when that has passed and it is still open.
  */
 export function planChip(item) {
-  const { plan_day: day, plan_week: week } = item.fields;
-  if (!day && !week) return null;
+  const { plan_day: day, plan_week: week, plan_month: month } = item.fields;
+  if (!day && !week && !month) return null;
   const t = today();
-  const label = !day ? week.split('-')[1] : day > t && day <= addDays(t, 6) && day !== addDays(t, 1) ? dayLabel(day) : relDay(day);
-  const late = prioHorizon(item) === 'late';
-  return h('span', { class: `chip plan ${late ? 'late' : ''}`, title: `Planned for ${day || week}${late ? ' · late' : ''}` },
+  const label = day ? (day > t && day <= addDays(t, 6) && day !== addDays(t, 1) ? dayLabel(day) : relDay(day))
+    : week ? week.split('-')[1] : monthLabel(month, true);
+  const late = isLate(item);
+  return h('span', { class: `chip plan ${late ? 'late' : ''}`, title: `Planned for ${day || week || month}${late ? ' · late' : ''}` },
     icon('calendar', 12), label);
 }
 

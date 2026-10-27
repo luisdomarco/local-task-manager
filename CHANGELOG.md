@@ -2,6 +2,19 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Next week** and **Month** join the sidebar after Week. Next week is the Week view fixed on next week. Month is a
+  board of this month by horizon: Today · Tomorrow · This week · Next week · Later this month, and what was carried
+  over; drag a card onto a column to plan it there.
+- **This month** in *Planned*, in the lists' plan filter and as `@month` in quick add: for what has no week yet
+  (`plan_month`).
+- Week and Next week have a third layout, **Free board**: the week's cards on columns of your own, like Today's, one
+  set shared by both views so a card keeps its column from one week to the next.
+- **Prioritization is gone**: Month and the Free board take its place. Its columns (`prioritization.md`) and the
+  `prio_list` / `prio_order` keys it left in files are no longer read.
+- An empty column on Today, Week or Month has room to drop a card on.
+
 ## [1.3.0] — 2026-10-21
 
 - **The side panel folds from inside it.** Its button sits at the right end of its tabs, and a folded panel is a

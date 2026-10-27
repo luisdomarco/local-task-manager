@@ -250,7 +250,7 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
 
 One line per area; each links to its reference section.
 
-- **Views** — Inbox, Today (a board of your own columns), Tomorrow, Week, Prioritization, one list per type, an initiative's (or
+- **Views** — Inbox, Today (a board of your own columns), Tomorrow, Week, Next week, Month, one list per type, an initiative's (or
   Ticketing project's) page, Board, All items, Work log, Labels, Contacts, Trash, Settings. → [Views](#views)
 - **Items and their cards** — the card, relations (parent, children, related), pins, minimized cards, comments, Undo.
   → [Views](#views), [Data model](#data-model)
@@ -258,7 +258,7 @@ One line per area; each links to its reference section.
   jumps to a view. → [Search and keyboard](#search-and-keyboard)
 - **Quick add and Inbox** — `q` captures a line; tokens set its type, plan, priority and parent; Inbox items convert
   to any type. → [Quick add](#quick-add), [Inbox items](#inbox-items)
-- **Planning** — Today / Tomorrow / Week by date, carried-over items, Prioritization of the next four weeks, Board
+- **Planning** — Today / Tomorrow / Week / Next week / Month by date, carried-over items, free boards for the week, Board
   lists mapped to statuses. → [Week / Today](#week--today), [Board lists ↔ status](#board-lists--status)
 - **Statuses** — per vault and per type, each in a fixed group (Not started · In progress · Closed).
   → [Statuses and their groups](#statuses-and-their-groups)
@@ -532,9 +532,10 @@ Errors, Learnings) and its own folders (see [5](#5-vault-structures)).
 | **Inbox** | Captured items (`type: inbox`), newest first, each with *Convert to* any type an inbox item can become, and a *Related to…* picker. Unrelated tasks, notes, meetings and activities are found in **All items** with the *Not related* filter. |
 | **Today** | Only what is planned for today or *carried over* from a past day (red marker, `→ Today` on the card) — on a **board whose columns are yours**: *Uncategorized* by default, add *Morning* / *Waiting*…, drag cards between them and **up or down to order them by hand** (cards never placed follow, carried over first, then by priority), drag a header to reorder. Columns organise the day and never change a status. The board opens with a fixed **Meetings** column — the meetings dated today, with their time — that cannot be renamed, moved or deleted, and whose cards do not drag. **List** mode shows the same as two groups (carried over · today). |
 | **Tomorrow** | Planned for tomorrow · due tomorrow · pick from tomorrow's week, each with "→ Tomorrow". |
-| **Week** | An agenda: *Anytime this week* then one section per day, Mon–Sun, with full-width cards and a quick add per day. Drag a card onto a day to plan it, at the place you drop it: cards keep the order you give them, in both modes and on Today (the same `plan_order` for a day); those never placed follow, by priority. Previous/next week. Carried over from past weeks on top. **Board** mode shows the same as columns side by side (Carried over · Anytime · Mon–Sun); its **days** filter (several at once, *All days* when none is ticked) keeps the board to the weekdays you pick — Carried over and Anytime always show. The layout and the days are remembered in this browser. |
-| **Prioritization** | What is coming up, in the order you choose. On the right, the **pool**: every open item that can be planned (initiatives, stories, tasks; in Ticketing support, hotfixes and PRDs too) and is planned within the **next four weeks** — this week and the three after, by its day or its week — or planned earlier and still open, in sections *Late · This week · Next week · In 2–3 weeks*, soonest first, with a search (id, title, label) and a type filter. Nothing else puts an item there: you plan it from its *Planned* field. **Hide the pool** with its button to give the board the room (remembered in this browser). On the left, a **board whose columns are yours** (*Now · Next · Later* to begin with, wider than Today's): drag a card from the pool onto a column to place it, up or down to order it, back onto the pool to take it out; add, rename, move and delete columns (a deleted column's cards go back to the pool). A column is an order, never a status or a priority, and a card placed stays in its column whatever its plan becomes, until you take it out — closed ones hide behind *Hide closed*, on by default. Every card shows what it is **planned** for (Today, Thu 30, Nov 12, W45), in red when that has passed. A card added from a column's *+ Add a card* is a task placed there. |
-| **Initiatives · User stories · Tasks · Notes · Transcriptions · Meetings · Activity** | One sortable table per type with **Add ‹type›** top right, which opens a form. On top, always visible: **Open / Closed / All** — **Today / Tomorrow / Week / All** for meetings, by their date — and the search. The **filter** icon on the right opens a side panel (closed on every visit; a badge on the icon counts the filters on) with the rest: **Group by** (initiative, status, priority, planned — what applies to the type; Initiatives by initiative: each top one heads its group, first, with its sub-initiatives under it), **status** and **priority** (several at once), relation (an initiative takes in everything under it, the tasks of its stories too), **plan** (today, tomorrow, this week, next week, overdue, unplanned), **labels** (several at once, matching any of them — OR — or all of them — AND), and for meetings a **from – to** date (the same day in both is that day). Each list remembers its scope, filters, grouping and sort between visits. Initiatives show their ticket's **Ticket ID** and **Tracker** (Story, Epic…) side by side. Status and priority are edited in the row; a click elsewhere opens the item. |
+| **Week** | Three layouts, remembered in this browser. **List**: an agenda — *Anytime this week* then one section per day, Mon–Sun, with full-width cards and a quick add per day. Drag a card onto a day to plan it, at the place you drop it: cards keep the order you give them, in List, Board and on Today (the same `plan_order` for a day); those never placed follow, by priority. Previous/next week. Carried over from past weeks on top. **Board**: the same as columns side by side (Carried over · Anytime · Mon–Sun); its **days** filter (several at once, *All days* when none is ticked) keeps the board to the weekdays you pick — Carried over and Anytime always show (remembered too). **Free board**: the week's cards (carried over, anytime and every day) on a **board whose columns are yours**, like Today's — *Uncategorized* by default and fixed, add *Waiting* / *Deep work*…, rename, move (drag a header, or ⋯ → Move) and delete them (a deleted column's cards go to *Uncategorized*). Dropping a card on a column, or up and down in it, changes only its column and its place there, never its day; each card shows what it is **planned** for (Mon 2, W45), in red when that has passed. **One set of columns for Week and Next week**: a card keeps its column when it moves to another week. A card added from a column's *+ Add a card* is a task planned for that week, placed there. |
+| **Next week** | The Week view fixed on next week, with the same three layouts (remembered apart from Week's) and the same Free board columns. |
+| **Month** | This month on one board, a column per horizon: **Today** (with what is carried over from past days, as on Today) · **Tomorrow** · **This week** (the rest of it) · **Next week** · **Later this month** — and first, when there is any, **Carried over** from past weeks or months. What goes where: an item's day, else its week, else its month (*This month* in *Planned*); a week counts in the month of its Thursday, so next week shows here even when it starts the next month. Drag a card onto a column to plan it there — Today or Tomorrow give it that day, This week and Next week that week with no day, *Later this month* the month with neither — at the place you drop it (`plan_order`, as on Today and Week). Every card shows what it is planned for. *+ Add a card* adds a task planned for that column. |
+| **Initiatives · User stories · Tasks · Notes · Transcriptions · Meetings · Activity** | One sortable table per type with **Add ‹type›** top right, which opens a form. On top, always visible: **Open / Closed / All** — **Today / Tomorrow / Week / All** for meetings, by their date — and the search. The **filter** icon on the right opens a side panel (closed on every visit; a badge on the icon counts the filters on) with the rest: **Group by** (initiative, status, priority, planned — what applies to the type; Initiatives by initiative: each top one heads its group, first, with its sub-initiatives under it), **status** and **priority** (several at once), relation (an initiative takes in everything under it, the tasks of its stories too), **plan** (today, tomorrow, this week, next week, this month, overdue, unplanned), **labels** (several at once, matching any of them — OR — or all of them — AND), and for meetings a **from – to** date (the same day in both is that day). Each list remembers its scope, filters, grouping and sort between visits. Initiatives show their ticket's **Ticket ID** and **Tracker** (Story, Epic…) side by side. Status and priority are edited in the row; a click elsewhere opens the item. |
 | **User stories** | Every user story is a real item (`US-0001`, folder `stories/`), listed in a table filtered by initiative, status, plan and label. It belongs to an initiative or to none; tasks, notes and meetings can hang from it. A row opens its card, which has the same blocks as a task's plus the external ticket and local path. |
 | **Initiative page** | `#/initiative/INI-0001`, two panels. Left: stats · properties · description · attachments, then what hangs from it as **tabs**, each with its count: **Epics** (its sub-initiatives whose tracker is Epic, in any case; first, and only once it has one — its quick add makes the new one an Epic), **User stories**, **Tasks**, **Notes**, **Meetings** (in each, its quick add with Open / Closed / All beside it, then its table; the tab shown is remembered per item type). Every sub-initiative, Epic or not, is in the Relations tab under Children, as its stories and tasks are. Right, with tabs: **Details** (external ticket & local · session · links · log work), **Relations**, **Activity** (comments) and **AI**. With folders per type only initiatives have a page; in Ticketing, projects (`#/project/<KEY>`), initiatives and PRDs do (an initiative's first tab is its **Stories**), and tickets have a **Delivery** tab too, one field per row in titled groups — Readiness, Execution, Spec and release, Triage, Paused or discarded — with only the ones the type has (`DELIVERY_GROUPS` in `ticketing/definition.py`). The side panel folds with the button at the right end of its tabs: folded, it is a narrow strip with that button to open it again (on a card, in the create form and on a page alike; the choice is remembered per kind of screen). |
 | **Card** | Every item without a page opens as a Trello-style modal, a little clear of the window's edges: status, title, plan, properties, description, attachments, then what hangs from it as tabs with their counts (a task's Notes and Meetings…, as on a page), links; on the side, **what it hangs from** (the parent and on up to its initiative, each a link, above the links), **Watchers** (initiatives, user stories and tasks: the people and groups of Contacts to tell when its status changes — a prompt for Claude lists them with how to reach each and when to use them), work log, related items and **Activity** — what happened to the item plus your comments, oldest first, with the composer at the bottom (Enter adds; `@` mentions a person). Files dropped on a card or page are attached to the item (kept in the vault's `Attachments/`): the drop zone comes first, then **Attachments** with its count, which folds the list of files under it (*No attachments yet* when there are none; folded or not, it is remembered for every item). **📌 Pin** (left of ⋯) fixes the item to the top bar; **▁ Minimize**, right of it, sets the card aside on the top bar. |
@@ -613,7 +614,7 @@ The sidebar shows the vault in one of **two modes**, the two buttons at its top 
 
 - **Project** — first **Favourites**, right under *Add item*: the initiatives starred on their page (the ☆ in the
   page's header; a new one is not until you star it), each with its progress ring, in the order you drag them
-  (or Shift+↑/↓). Then the views built from the vault's structure: Inbox, Today, Tomorrow, Week, Prioritization, Board and All items, then
+  (or Shift+↑/↓). Then the views built from the vault's structure: Inbox, Today, Tomorrow, Week, Next week, Month, Board and All items, then
   one link per item type the structure has and the vault has on, without a count (Inbox, Activity and the days keep
   theirs; `static/js/main.js` builds them
   from `GET /api/structure`: a type's `nav`, `route` and `counted`), then **Docs** (under Notes), Work log, Labels,
@@ -834,7 +835,7 @@ the `q` capture (which makes an inbox item unless a type token says otherwise). 
 | `/task` `/note` `/meeting` `/ini` `/story` `/trn` `/agt` `/act`… (each type's own; Ticketing `/sup`, `/hfx`, `/prd`…) | the type (the field's own type when none) |
 | `#INI-0003` | the parent (`related_to`) |
 | `!1`…`!4`, `!urgent` `!high` `!normal` `!low` | the priority |
-| `@today` `@tomorrow` `@week` `@nextweek` `@mon`…`@sun` | the plan |
+| `@today` `@tomorrow` `@week` `@nextweek` `@month` `@mon`…`@sun` | the plan |
 | `due:2026-10-20`, `due:today`, `due:fri` | the due date |
 | `+label` | a label |
 | `https://…`, `www.…` | the main link (a second one goes to the links) |
@@ -888,13 +889,14 @@ can be renamed or moved freely.
 | `event_id` | | | | ✓ | | The calendar event it was imported from, if any (blank for a meeting made by hand). |
 | `source`, `from` | | | | | ✓ | Where the message came from and who sent it. |
 | `resolution`, `resolved_at` | | | | | ✓ | What was done about it; `resolved_at` follows `resolution` (server-set). |
-| `plan_week`, `plan_day`, `due` | | ✓ | ✓ | | | Planning (see below). |
+| `plan_week`, `plan_day`, `plan_month`, `due` | | ✓ | ✓ | | | Planning (see below). |
 | `completed_at` | | ✓ | ✓ | | | Set by the server when the status enters its type's Closed group; cleared otherwise. |
 | `list`, `order` | | ✓ | | | | Board placement. |
 | the external ticket id and URL, `tracker`, `local_path` | | | ✓ | | | The item's ticket in an outside ticket system (the side panel's **Ticket** block: ID, **Tracker** — Story, Epic… —, URL), and its folder on disk. Stories have them too. |
 | `user_stories` | | | ✓ | | | Legacy: stories used to live here. At startup they become story items (see *User stories*) and the list is left empty. |
 | `labels` | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | `today_list` | | ✓ | ✓ | | | Column on the Today board; cleared when `plan_day` changes. |
+| `week_list`, `week_order` | | ✓ | ✓ | | | Column on the Free board of Week and Next week, and the place in it; kept when the week changes. |
 | `comments` | ✓ | ✓ | ✓ | ✓ | ✓ | `[{at, text}]`, oldest first. |
 | `claude_sessions` | ✓ | ✓ | ✓ | ✓ | ✓ | `[{id, at, cwd, instruction, model?, effort?}]`, oldest first: one per "work on it with Claude" launch, resumable from the card's AI tab. Prompts have none. |
 
@@ -913,14 +915,16 @@ Planning is by date, not by a flag, so it rolls over on its own:
 
 - `plan_week: 2026-W42` (ISO week) → the item is in **Week** for that week.
 - `plan_day: 2026-10-14` → it is in **Today** on that day (and in that day's section in Week).
+- `plan_month: 2026-10` → planned for that month with no week nor day yet: **Later this month** on **Month**. A day
+  or a week says more and wins; planning one clears it.
 - `today_list: morning` → the Today-board column it sits in (columns in `<root>/.task-manager/today.md`;
   *uncategorized* when empty or when the column no longer exists). Changing `plan_day` clears it: every day
   starts in *Uncategorized*.
-- Still open after its day/week has passed → shown as **Carried over**, with a one-click "→ Today" /
+- Still open after its day/week/month has passed → shown as **Carried over**, with a one-click "→ Today" /
   "→ This week".
-- `prio_list: now` → the Prioritization column it sits in (columns in `<root>/.task-manager/prioritization.md`);
-  `prio_order` its place there. Empty, or a column that no longer exists → it is in the pool, which shows it while it
-  is open and planned within the next four weeks. Changing the plan never moves it out of its column.
+- `week_list: waiting` → the Free board column it sits in on Week and Next week (columns in
+  `<root>/.task-manager/week.md`, one set for both; *uncategorized* when empty or when the column no longer exists);
+  `week_order` its place there. Changing its week keeps it.
 
 #### Board lists ↔ status
 

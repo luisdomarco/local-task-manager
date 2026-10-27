@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { addDays, isoWeek, nextDow, relDay, shiftWeek, thisWeek, today, weekDays } from '../../static/js/dates.js';
+import { addDays, isoWeek, monthLabel, monthOf, nextDow, relDay, shiftWeek, thisMonth, thisWeek, today, weekDays, weekMonth } from '../../static/js/dates.js';
 import { TODAY, freezeDate, unfreezeDate } from './helpers.mjs';
 
 describe('dates', () => {
@@ -39,6 +39,17 @@ describe('dates', () => {
     assert.equal(shiftWeek('2026-W42', 1), '2026-W43');
     assert.equal(shiftWeek('2026-W42', -1), '2026-W41');
     assert.equal(shiftWeek('2020-W53', 1), '2021-W01');
+  });
+
+  it('gives a week the month of its Thursday', () => {
+    assert.equal(thisMonth(), '2026-10');
+    assert.equal(monthOf('2026-11-02'), '2026-11');
+    assert.equal(weekMonth('2026-W44'), '2026-10'); // Oct 26 – Nov 1
+    assert.equal(weekMonth('2026-W45'), '2026-11');
+    assert.equal(weekMonth('2026-W53'), '2026-12'); // Dec 28 – Jan 3
+    assert.equal(monthLabel('2026-11', true), 'Nov');
+    assert.equal(monthLabel('2027-01', true), 'Jan 2027');
+    assert.equal(monthLabel('2026-10'), 'October 2026');
   });
 
   it('names days relative to today', () => {

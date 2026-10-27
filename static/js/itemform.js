@@ -24,7 +24,7 @@
 // Keys: status, priority, related_to, project, session_name, planned, due, date, time, duration, attendees,
 // source, from, labels. `planned` is one of 'today' | 'tomorrow' | 'week' | 'nextweek'
 // | 'YYYY-MM-DD' | 'YYYY-Www' | null.
-import { addDays, isoWeek, relDay, shiftWeek, thisWeek, today } from './dates.js';
+import { addDays, isoWeek, monthLabel, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, parentProject, splitsInitiative, statusesOf, tabOf } from './rules.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
@@ -78,8 +78,9 @@ export const modalTitle = (type, subjectInput) =>
 // ── planning ─────────────────────────────────────────────────────────────────
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
 
-/** The plan key an item's plan_day / plan_week stand for. */
+/** The plan key an item's plan_day / plan_week / plan_month stand for (the day wins, then the week). */
 export function planKey(f) {
   if (f.plan_day) {
     if (f.plan_day === today()) return 'today';
@@ -88,32 +89,37 @@ export function planKey(f) {
   }
   if (f.plan_week === thisWeek()) return 'week';
   if (f.plan_week === shiftWeek(thisWeek(), 1)) return 'nextweek';
-  return f.plan_week || null;
+  if (f.plan_week) return f.plan_week;
+  if (f.plan_month === thisMonth()) return 'month';
+  return f.plan_month || null;
 }
 
-/** plan_day / plan_week values for a plan key (the create form sends these). */
+/** plan_day / plan_week / plan_month values for a plan key (the create form sends these). */
 export function planValues(plan) {
   if (plan === 'today') return { plan_day: today(), plan_week: thisWeek() };
   if (plan === 'tomorrow') { const d = addDays(today(), 1); return { plan_day: d, plan_week: isoWeek(d) }; }
   if (plan === 'week') return { plan_week: thisWeek() };
   if (plan === 'nextweek') return { plan_week: shiftWeek(thisWeek(), 1) };
+  if (plan === 'month') return { plan_month: thisMonth() };
+  if (plan && MONTH_RE.test(plan)) return { plan_month: plan };
   if (plan && DAY_RE.test(plan)) return { plan_day: plan, plan_week: isoWeek(plan) };
   if (plan) return { plan_week: plan };
   return {};
 }
 
-const PLAN_CHOICES = [[null, 'Not planned', 'ban'], ['today', 'Today', 'sun'], ['tomorrow', 'Tomorrow', 'sunrise'], ['week', 'This week', 'calendar'], ['nextweek', 'Next week', 'calendarplus']];
+const PLAN_CHOICES = [[null, 'Not planned', 'ban'], ['today', 'Today', 'sun'], ['tomorrow', 'Tomorrow', 'sunrise'], ['week', 'This week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'This month', 'calendardays']];
 const PICK = '__pick__';
 
 /** Options for the Planned select; a plan outside the presets (a given day, another week) gets its own row (`short`: a day without its week). */
 function planOptions(current, short = false) {
   const custom = current && !PLAN_CHOICES.some(([k]) => k === current)
-    ? [[current, DAY_RE.test(current) ? (short ? relDay(current) : `${relDay(current)} · ${isoWeek(current)}`) : current, 'calendardays']] : [];
+    ? [[current, DAY_RE.test(current) ? (short ? relDay(current) : `${relDay(current)} · ${isoWeek(current)}`)
+      : MONTH_RE.test(current) ? monthLabel(current) : current, 'calendardays']] : [];
   return [...PLAN_CHOICES, ...custom, [PICK, 'Pick a date…', 'calendarsearch']];
 }
 
 /**
- * The Planned select: Today / Tomorrow / This week / Next week, or a given day through the date picker.
+ * The Planned select: Today / Tomorrow / This week / Next week / This month, or a given day through the date picker.
  * get() → the current plan key, set(key) saves a new one; the control redraws itself after each pick.
  * Shared by the item's fields and the Planned column of the tables (datatable.js), which passes `short`.
  */

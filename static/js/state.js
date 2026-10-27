@@ -1,7 +1,7 @@
 // App state + every mutation. Each mutation hits the API, reloads, and notifies
 // listeners, so views stay dumb: they read `state` and call these functions.
 import { api } from './api.js';
-import { today, thisWeek, isoWeek } from './dates.js';
+import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
 import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
 import { pickVault } from './vault.js';
 import { isTentative } from './worktime.js';
@@ -12,7 +12,7 @@ export const state = {
   byId: new Map(),
   board: { lists: [] },
   today: { lists: [] },   // Today board columns (<root>/.task-manager/today.md)
-  prio: { lists: [] },    // Prioritization board columns (<root>/.task-manager/prioritization.md)
+  weekBoard: { lists: [] }, // Free board columns of Week and Next week (<root>/.task-manager/week.md)
   pins: [],      // ordered ids fixed to the top bar (<root>/.task-manager/pins.md)
   sidebar: [],   // initiative ids in their sidebar order (<root>/.task-manager/sidebar.md)
   config: { work_kinds: [] },
@@ -44,7 +44,7 @@ function forgetVaultData() {
   state.byId = new Map();
   state.board = { lists: [] };
   state.today = { lists: [] };
-  state.prio = { lists: [] };
+  state.weekBoard = { lists: [] };
   state.pins = [];
   state.sidebar = [];
   state.worklog = [];
@@ -82,8 +82,8 @@ export async function reload() {
       loadedOnce(); // its files still show (the Explorer), and what waits for the first load must not wait forever
       return;
     }
-    const [items, board, log, pins, sidebar, todayLists, prioLists, people, groups, labels, trash] = await Promise.all([
-      api.items(), api.board(), api.worklog(), api.pins(), api.sidebar(), api.today(), api.prioritization(), api.people(), api.groups(),
+    const [items, board, log, pins, sidebar, todayLists, weekLists, people, groups, labels, trash] = await Promise.all([
+      api.items(), api.board(), api.worklog(), api.pins(), api.sidebar(), api.today(), api.weekBoard(), api.people(), api.groups(),
       api.labels(), api.trash(),
     ]);
     state.all = items.items;
@@ -93,7 +93,7 @@ export async function reload() {
     state.pins = pins.items;
     state.sidebar = sidebar.items;
     state.today = todayLists;
-    state.prio = prioLists;
+    state.weekBoard = weekLists;
     state.worklog = log.entries;
     state.people = people.people;
     state.groups = groups.groups;
@@ -236,10 +236,17 @@ export function moveToList(item, list, order) {
 export const updateMany = (patches) =>
   mutate(async () => { for (const [key, values] of patches) await api.update(key, values); });
 
+/**
+ * A day or a week says more than a month: planning one clears `plan_month`. Only when the item has one, so a Ticketing
+ * file (also edited in Obsidian) never gets an empty key it did not have.
+ */
+export const noMonth = (item) => (item.fields.plan_month ? { plan_month: null } : {});
 export const planDay = (item, day) =>
-  updateItem(item.key, { plan_day: day, plan_week: day ? isoWeek(day) : item.fields.plan_week });
-export const planWeek = (item, week = thisWeek()) => updateItem(item.key, { plan_week: week, plan_day: null });
-export const unplan = (item) => updateItem(item.key, { plan_week: null, plan_day: null });
+  updateItem(item.key, { plan_day: day, plan_week: day ? isoWeek(day) : item.fields.plan_week, ...(day ? noMonth(item) : {}) });
+export const planWeek = (item, week = thisWeek()) => updateItem(item.key, { plan_week: week, plan_day: null, ...noMonth(item) });
+/** Planned for a month ('YYYY-MM'), no week nor day yet. */
+export const planMonth = (item, month = thisMonth()) => updateItem(item.key, { plan_month: month, plan_week: null, plan_day: null });
+export const unplan = (item) => updateItem(item.key, { plan_week: null, plan_day: null, ...noMonth(item) });
 
 /**
  * A card dropped on a column of Today or Week (TSK-053): `values` move it there (its day, its week, its Today column…; {}
@@ -272,19 +279,20 @@ export const todayListOf = (item) =>
   state.today.lists.find((l) => l.id === item.fields.today_list) || state.today.lists.find((l) => l.id === TODAY_DEFAULT) || state.today.lists[0];
 export const setTodayList = (item, listId) => updateItem(item.key, { today_list: listId === TODAY_DEFAULT ? null : listId });
 
-// ── Prioritization board ─────────────────────────────────────────────────────
-export const savePrioLists = (lists) => mutate(() => api.savePrioritization(lists));
-/** The Prioritization column an item sits in, or null: in the pool (no column, or one since deleted). */
-export const prioListOf = (item) => state.prio.lists.find((l) => l.id === item.fields.prio_list) || null;
+// ── Free board of Week and Next week ─────────────────────────────────────────
+export const saveWeekLists = (lists) => mutate(() => api.saveWeekBoard(lists));
+/** The Free board column an item sits in: its own when that column still exists, else the default (Uncategorized). */
+export const weekListOf = (item) =>
+  state.weekBoard.lists.find((l) => l.id === item.fields.week_list) || state.weekBoard.lists.find((l) => l.id === TODAY_DEFAULT) || state.weekBoard.lists[0];
 /**
- * A card dropped on a Prioritization column (`listId`; null = back to the pool) at `index` among `cards`: its
- * `prio_list` and `prio_order`, and the column's when it has to be numbered (rules.js placement). The pool keeps no order.
+ * A card dropped on a Free board column (`listId`) at `index` among `cards`: its `week_list` and `week_order`, and the
+ * column's when it has to be numbered (rules.js placement). Its day and week stay as they are.
  */
-export function placeInPrio(item, listId, cards, index) {
-  if (!listId) return updateItem(item.key, { prio_list: null, prio_order: null }).catch(() => {});
-  const patches = placement(item, cards.filter((c) => c.key !== item.key), index, 'prio_order');
-  const others = patches.filter(([c, o]) => c.key !== item.key && c.fields.prio_order !== o).map(([c, o]) => [c.key, { prio_order: o }]);
-  const mine = { prio_list: listId, prio_order: patches.find(([c]) => c.key === item.key)[1] };
+export function placeInWeekList(item, listId, cards, index) {
+  const patches = placement(item, cards.filter((c) => c.key !== item.key), index, 'week_order');
+  const others = patches.filter(([c, o]) => c.key !== item.key && c.fields.week_order !== o).map(([c, o]) => [c.key, { week_order: o }]);
+  const move = weekListOf(item)?.id !== listId ? { week_list: listId === TODAY_DEFAULT ? null : listId } : {};
+  const mine = { ...move, week_order: patches.find(([c]) => c.key === item.key)[1] };
   return updateMany([...others, [item.key, mine]]).catch(() => {});
 }
 

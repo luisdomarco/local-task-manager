@@ -8,7 +8,7 @@
 // own open item, content draft and focus.
 import { api } from './api.js';
 import { COL, DETAIL_PAGE, TASK_COLUMNS, columnOf, dataTable, fixedColumns, paged, pagedBox } from './datatable.js';
-import { addDays, relDay, shiftWeek, thisWeek, today } from './dates.js';
+import { addDays, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL, trapFocus } from './create.js';
 import { itemFields, linkLabelControl, modalFrame, modalTitle, parentFields, planKey, propField, relatedControl, sideFold } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
@@ -29,7 +29,7 @@ import { itemName, setCardTitle, setPageTitle } from './tabtitle.js';
 import { sumTime } from './worktime.js';
 import { kindChange, kindLabel, kindOf, kinded } from './relkinds.js';
 import {
-  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planWeek, progress, setStatus, updateLog,
+  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, progress, setStatus, updateLog,
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { openClaudeDialog, sessionList } from './claude.js';
@@ -64,6 +64,8 @@ function editBinding(item) {
     if (plan === 'tomorrow') return planDay(item, addDays(today(), 1));
     if (plan === 'week') return planWeek(item, thisWeek());
     if (plan === 'nextweek') return planWeek(item, shiftWeek(thisWeek(), 1));
+    if (plan === 'month') return planMonth(item, thisMonth());
+    if (/^\d{4}-\d{2}$/.test(plan)) return planMonth(item, plan);
     return /^\d{4}-\d{2}-\d{2}$/.test(plan) ? planDay(item, plan) : planWeek(item, plan);
   };
   return {

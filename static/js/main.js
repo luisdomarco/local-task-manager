@@ -9,7 +9,7 @@ import { filesHref } from './filetree.js';
 import { restoreTerms } from './term.js';
 import { openQuickModal } from './quickadd.js';
 import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
-import { addDays, thisWeek, today as todayYmd, weekDays } from './dates.js';
+import { addDays, shiftWeek, thisWeek, today as todayYmd, weekDays } from './dates.js';
 import { byType, createVaultFolders, firstLoad, onChange, progress, reload, saveSidebarOrder, state, toast } from './state.js';
 import { cssKey, h, icon, menuIsOpen, select } from './ui.js';
 import { switchVault, vaultId } from './vault.js';
@@ -33,15 +33,16 @@ import * as table from './views/table.js';
 import * as today from './views/today.js';
 import { tomorrow } from './views/today.js';
 import * as week from './views/week.js';
-import * as prioritization from './views/prioritization.js';
+import { nextWeek as nextweek } from './views/week.js';
+import * as month from './views/month.js';
 import * as docs from './views/docs.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, tomorrow, week, prioritization, board, table, log, labels, contacts, trash, settings, files, find, docs };
+const FIXED_VIEWS = { inbox, today, tomorrow, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
-  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', prioritization: 'Prioritization', board: 'Board', table: 'All items', log: 'Work log',
+  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'All items', log: 'Work log',
   labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs',
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
@@ -55,7 +56,7 @@ let NAV_OF = {};
 // even at 0 ("nothing left today" is news too), and so do the types whose link says so (Inbox, Activity); the
 // rest only when there is something.
 let COUNTED = [];
-const ALWAYS_COUNTED = new Set(['today', 'tomorrow', 'week']);
+const ALWAYS_COUNTED = new Set(['today', 'tomorrow', 'week', 'nextweek', 'month']);
 
 onStructure((s) => {
   VIEWS = {
@@ -160,7 +161,7 @@ async function route() {
   // A view whose items this vault turned off (the Board shows tasks; the day views, what can be planned) goes home.
   // A type turned off has no list or page view at all.
   const planning = STRUCTURE.types.some((t) => t.plannable);
-  const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week', 'prioritization'].includes(name) && !planning);
+  const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week', 'nextweek', 'month'].includes(name) && !planning);
   if (name === 'people') { location.replace('#/contacts'); return; } // People is Contacts' first tab (TSK-050)
   if (!VIEWS[name] || off) { location.hash = planning ? '#/today' : '#/table'; return; }
   const key = `${name}/${param || ''}`;
@@ -197,6 +198,8 @@ function renderVaultSwitch() {
 
 function renderSidebar() {
   const days = weekDays(thisWeek());
+  const next = shiftWeek(thisWeek(), 1);
+  const nextDays = weekDays(next);
   const counts = {
     // Archived items are left out of byType: the prompts counted are the active ones.
     ...Object.fromEntries(COUNTED.map(([route, type, counted]) => [route, byType(type).filter((i) => counted === 'all' || !isDone(i)).length])),
@@ -204,7 +207,8 @@ function renderSidebar() {
     tomorrow: state.items.filter((i) => i.fields.plan_day === addDays(todayYmd(), 1) && !isDone(i)).length,
     // What the Week view lists: planned for the week or one of its days, plus what is carried over from past weeks.
     week: state.items.filter((i) => !isDone(i) && (isPlannedWeek(i) || days.includes(i.fields.plan_day) || carriedOverWeek(i))).length,
-    prioritization: prioritization.openCount(),
+    nextweek: state.items.filter((i) => !isDone(i) && (isPlannedWeek(i, next) || nextDays.includes(i.fields.plan_day))).length,
+    month: month.openCount(),
     trash: state.trash.length + state.trashedFiles.length,
   };
   for (const [k, n] of Object.entries(counts)) {
@@ -232,7 +236,7 @@ function renderSidebar() {
   // planned) go when what they show is turned off too.
   box.closest('.side-section').hidden = !isEnabled('initiative');
   document.querySelector('#sidebar a[data-view="board"]').hidden = !isEnabled('task');
-  for (const view of ['today', 'tomorrow', 'week', 'prioritization']) {
+  for (const view of ['today', 'tomorrow', 'week', 'nextweek', 'month']) {
     document.querySelector(`#sidebar a[data-view="${view}"]`).hidden = !STRUCTURE.types.some((t) => t.plannable);
   }
   wireSidebarDrop(box, move);

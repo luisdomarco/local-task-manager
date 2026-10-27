@@ -29,6 +29,14 @@ describe('quick add parser', () => {
     assert.deepEqual(p.errors, []);
   });
 
+  it('plans for this month with @month, clearing a week or day typed before it', () => {
+    const p = parseQuick('Plan Q4 review @week @month');
+    assert.equal(p.title, 'Plan Q4 review');
+    assert.equal(p.values.plan_month, '2026-10');
+    assert.equal(p.values.plan_week, null);
+    assert.equal(p.values.plan_day, null);
+  });
+
   it('reads numeric priorities and the first link as the main one', () => {
     const p = parseQuick('Read this !1 https://a.io www.b.io');
     assert.equal(p.values.priority, 'Urgent');

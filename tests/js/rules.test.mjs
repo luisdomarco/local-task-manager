@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, prioHorizon, labelsPass, matchesWhere, placement, planFilter,
+  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, MONTH_HORIZONS, carriedOverMonth, isLate, monthBuckets, planHorizon, matchesWhere, placement, planFilter,
 } from '../../static/js/rules.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -85,19 +85,47 @@ describe('rules', () => {
     assert.equal(carriedOverWeek(task({ plan_week: '2026-W42', status: 'ToDo' })), false);
   });
 
-  it('puts in the Prioritization pool what is planned within four weeks, late included (today: Thu 2026-10-15, W42)', () => {
-    const at = (fields) => prioHorizon(task({ status: 'ToDo', ...fields }));
-    assert.equal(at({ plan_day: '2026-10-14' }), 'late'); // a past day, still open
-    assert.equal(at({ plan_week: '2026-W41' }), 'late'); // a past week
-    assert.equal(at({ plan_day: '2026-10-15', plan_week: '2026-W42' }), 'week');
+  it('puts each item in its Month column by its day, else its week, else its month (today: Thu 2026-10-15, W42)', () => {
+    const at = (fields, status = 'ToDo') => planHorizon(task({ status, ...fields }));
+    assert.equal(at({ plan_day: '2026-10-14' }), 'today'); // a past day, still open: carried over to Today
+    assert.equal(at({ plan_day: '2026-10-14' }, 'Done'), null); // done back then
+    assert.equal(at({ plan_day: '2026-10-15', plan_week: '2026-W42' }), 'today');
+    assert.equal(at({ plan_day: '2026-10-16' }), 'tomorrow');
+    assert.equal(at({ plan_day: '2026-10-17' }), 'week'); // Saturday: the rest of this week
     assert.equal(at({ plan_week: '2026-W42' }), 'week');
-    assert.equal(at({ plan_day: '2026-10-19' }), 'next'); // a day decides by its own week
-    assert.equal(at({ plan_week: '2026-W43' }), 'next');
-    assert.equal(at({ plan_week: '2026-W45' }), 'later'); // the fourth week, the last one in
-    assert.equal(at({ plan_day: '2026-11-09' }), null); // W46: further out
+    assert.equal(at({ plan_day: '2026-10-20' }), 'nextweek'); // a day decides by its own week
+    assert.equal(at({ plan_week: '2026-W43' }), 'nextweek');
+    assert.equal(at({ plan_week: '2026-W44' }), 'month'); // Oct 26 – Nov 1: its Thursday is in October
+    assert.equal(at({ plan_day: '2026-10-30' }), 'month');
+    assert.equal(at({ plan_month: '2026-10' }), 'month');
+    assert.equal(at({ plan_week: '2026-W45' }), null); // November
+    assert.equal(at({ plan_day: '2026-11-03' }), null);
+    assert.equal(at({ plan_month: '2026-11' }), null);
+    assert.equal(at({ plan_week: '2026-W41' }), 'carried'); // a past week, still open
+    assert.equal(at({ plan_week: '2026-W41' }, 'Done'), null);
+    assert.equal(at({ plan_month: '2026-09' }), 'carried');
+    assert.equal(at({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'tomorrow'); // the day wins over a month left behind
     assert.equal(at({}), null); // unplanned
-    assert.equal(prioHorizon(task({ status: 'Done', plan_week: '2026-W42' })), null); // closed
-    assert.equal(prioHorizon({ type: 'note', fields: { plan_week: '2026-W42' } }), null); // not plannable
+    assert.equal(planHorizon({ type: 'note', fields: { plan_week: '2026-W42' } }), null); // not plannable
+  });
+
+  it('fills the Month board, closed ones left out on request, each column sorted', () => {
+    const items = [task({ plan_month: '2026-10', status: 'ToDo', n: 2 }), task({ plan_week: '2026-W44', status: 'ToDo', n: 1 }),
+      task({ plan_day: '2026-10-15', status: 'Done' }), task({})];
+    const b = monthBuckets(items, { sort: (a, c) => a.fields.n - c.fields.n });
+    assert.deepEqual(MONTH_HORIZONS.map(([k]) => k), ['carried', 'today', 'tomorrow', 'week', 'nextweek', 'month']);
+    assert.deepEqual(b.month.map((i) => i.fields.n), [1, 2]);
+    assert.equal(b.today.length, 1);
+    assert.equal(monthBuckets(items, { hideDone: true }).today.length, 0);
+  });
+
+  it('tells late from planned, a month too', () => {
+    assert.equal(carriedOverMonth(task({ plan_month: '2026-09', status: 'ToDo' })), true);
+    assert.equal(carriedOverMonth(task({ plan_month: '2026-09', plan_week: '2026-W43', status: 'ToDo' })), false); // its week says more
+    assert.equal(carriedOverMonth(task({ plan_month: '2026-10', status: 'ToDo' })), false);
+    assert.equal(isLate(task({ plan_week: '2026-W41', status: 'ToDo' })), true);
+    assert.equal(isLate(task({ plan_day: '2026-10-14', status: 'ToDo' })), true);
+    assert.equal(isLate(task({ plan_month: '2026-10', status: 'ToDo' })), false);
   });
 
   it('tells overdue from due', () => {
@@ -112,6 +140,11 @@ describe('rules', () => {
     assert.equal(planFilter('today')(task({ plan_day: '2026-10-12', status: 'ToDo' })), true); // carried over counts
     assert.equal(planFilter('tomorrow')(task({ plan_day: '2026-10-16' })), true);
     assert.equal(planFilter('nextweek')(task({ plan_week: '2026-W43' })), true);
+    assert.equal(planFilter('month')(task({ plan_month: '2026-10' })), true);
+    assert.equal(planFilter('month')(task({ plan_week: '2026-W44' })), true); // Thursday Oct 29
+    assert.equal(planFilter('month')(task({ plan_week: '2026-W45' })), false);
+    assert.equal(planFilter('month')(task({ plan_month: '2026-09', status: 'ToDo' })), true); // carried over counts
+    assert.equal(planFilter('unplanned')(task({ plan_month: '2026-10' })), false);
     assert.equal(planFilter('overdue')(task({ due: '2026-10-01', status: 'ToDo' })), true);
     assert.equal(planFilter('whatever')(task({})), true); // an unknown key means "any"
     assert.ok(Object.keys(PLAN_FILTERS).includes('any'));

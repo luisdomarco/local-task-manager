@@ -14,7 +14,7 @@ import { state } from './state.js';
 import { TYPE_ICON_NAME, h, icon, typeIcon } from './ui.js';
 
 // The views every vault has (main.js FIXED_VIEWS); each type's list joins them from the vault's structure (views()).
-const DAYS = [['today', 'Today', 'sun'], ['tomorrow', 'Tomorrow', 'sun'], ['week', 'Week', 'calendar'], ['prioritization', 'Prioritization', 'prioritize'], ['board', 'Board', 'kanban'], ['table', 'All items', 'table']];
+const DAYS = [['today', 'Today', 'sun'], ['tomorrow', 'Tomorrow', 'sun'], ['week', 'Week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'Month', 'calendardays'], ['board', 'Board', 'kanban'], ['table', 'All items', 'table']];
 const TOOLS = [['log', 'Work log', 'clock'], ['labels', 'Labels', 'tag'], ['contacts', 'Contacts', 'user']];
 const LAST = [['trash', 'Trash', 'trash'], ['settings', 'Settings', 'settings']];
 const PER_TYPE = 5; // items shown of each type until its "Show all"

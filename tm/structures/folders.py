@@ -35,17 +35,20 @@ ID_PAD = 4
 COMMON_TAIL = ['related_to', 'relations', 'url', 'url_label', 'links', 'archived', 'session_name']
 TYPE_FIELDS = {
     'initiative': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'sidebar', 'redmine_id', 'tracker', 'redmine_url', 'local_path',
-                   'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'prio_list', 'prio_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
+                   'due', 'plan_week', 'plan_day', 'plan_month', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     # A user story: what an initiative is made of and tasks hang from. It stands on its own too
     # (no initiative needed). Its own fields beyond these are still to be defined.
     'story': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'redmine_id', 'tracker', 'redmine_url', 'local_path',
-              'due', 'plan_week', 'plan_day', 'today_list', 'plan_order', 'prio_list', 'prio_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
+              'due', 'plan_week', 'plan_day', 'plan_month', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     'task': ['status', 'priority', 'priority_reason', *COMMON_TAIL, 'relation_kinds', 'list', 'order', 'due', 'plan_week',
-             'plan_day', 'today_list', 'plan_order', 'prio_list', 'prio_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
+             'plan_day', 'plan_month', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions'],
     # `plan_order` (initiative, story, task): its place among the cards of its day, or of its week when no day, on Today
     # and Week, where you order them by hand (TSK-053); the Board has its own, `order`, within its list.
-    # `prio_list` / `prio_order` (initiative, story, task): its column on Prioritization and its place in it; no column (or
-    # one since deleted) leaves it in the pool, where it shows while planned within the next four weeks.
+    # `plan_month` (initiative, story, task): the month ('YYYY-MM') it is planned for when it has no week nor day yet; a
+    # day or a week, when set, says more and wins (Month view, rules.js planHorizon).
+    # `week_list` / `week_order` (initiative, story, task): its column on the Free board of Week and Next week (one set of
+    # columns for both, so a card keeps it when it moves to another week) and its place in it; none, or one since
+    # deleted, is Uncategorized.
     # `docs` (initiative, story, task): what it links in the vault's Docs (TSK-039), [[a doc]] or a folder/ (store.clean_docs)
     # `watchers` (initiative, story, task): the people and groups of Contacts to tell when it changes status (TSK-051)
     # `relation_kinds` (initiative, story, task): what each of its `relations` is, as Redmine names it (RELATION_KINDS):

@@ -1,7 +1,7 @@
 // "Group by" for the list tables: what key a row falls under, and in what order the groups go.
 // Pure: no DOM, no state (the item lookup is passed in), so the rules are testable on their own.
 // The group headers are drawn by the list view (views/list.js).
-import { addDays, isoWeek, shiftWeek, today } from './dates.js';
+import { addDays, isoWeek, monthOf, shiftWeek, today, weekMonth } from './dates.js';
 import { PRIORITY_RANK, anyStatusRank, isDone } from './rules.js';
 
 export const NONE = ''; // the group of rows that have no value: "No initiative", "Unplanned"…
@@ -30,32 +30,38 @@ export const projectOf = (item) => item.fields.project || NONE;
 // The "Planned" groups, in the order they show.
 export const PLAN_BUCKETS = [
   ['overdue', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'],
-  ['nextweek', 'Next week'], ['later', 'Later'], ['past', 'Planned before'], [NONE, 'Unplanned'],
+  ['nextweek', 'Next week'], ['month', 'Later this month'], ['later', 'Later'], ['past', 'Planned before'], [NONE, 'Unplanned'],
 ];
 
 /**
  * Which "Planned" group an item falls in (a key of PLAN_BUCKETS), from its plan_day
- * ('YYYY-MM-DD') and plan_week ('YYYY-Www'); both may be empty. `now` is today's date.
- *   - The day decides when there is one; the week only counts without a day.
+ * ('YYYY-MM-DD'), plan_week ('YYYY-Www') and plan_month ('YYYY-MM'); any may be empty. `now` is today's date.
+ *   - The day decides when there is one; the week only counts without a day, the month without either.
+ *   - After next week, what falls in this month (a week by its Thursday) is Later this month, the rest Later.
  *   - A past plan is Overdue while the item is open, and Planned before once it is closed (it was done).
  *   - A week-only plan for this week is This week, whichever day it is.
  * Days and weeks are compared as strings: both formats sort in date order.
  */
 export function planBucket(item, now = today()) {
-  const { plan_day: day, plan_week: week } = item.fields;
-  if (!day && !week) return NONE;
+  const { plan_day: day, plan_week: week, plan_month: month } = item.fields;
+  if (!day && !week && !month) return NONE;
   const current = isoWeek(now);
   const next = shiftWeek(current, 1);
+  const thisMonth = monthOf(now);
   const past = isDone(item) ? 'past' : 'overdue';
+  const after = (m) => (m === thisMonth ? 'month' : 'later'); // after next week
   if (day) {
     if (day < now) return past;
     if (day === now) return 'today';
     if (day === addDays(now, 1)) return 'tomorrow';
     const w = isoWeek(day);
-    return w === current ? 'week' : w === next ? 'nextweek' : 'later';
+    return w === current ? 'week' : w === next ? 'nextweek' : after(monthOf(day));
   }
-  if (week < current) return past;
-  return week === current ? 'week' : week === next ? 'nextweek' : 'later';
+  if (week) {
+    if (week < current) return past;
+    return week === current ? 'week' : week === next ? 'nextweek' : after(weekMonth(week));
+  }
+  return month < thisMonth ? past : after(month);
 }
 
 const rank = (list) => (key) => { const i = list.indexOf(key); return i < 0 ? list.length : i; };

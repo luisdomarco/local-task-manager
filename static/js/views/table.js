@@ -1,5 +1,5 @@
 // All items: every item, sortable by any column, with the filters it shares with the Board (filterbar.js).
-import { relDay, shortDate } from '../dates.js';
+import { monthLabel, relDay, shortDate } from '../dates.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { itemHref, opener } from '../links.js';
 import { openItem } from '../panel.js';
@@ -26,7 +26,8 @@ const COLUMNS = [
   { key: 'priority', label: 'Priority', get: (i) => (PLANNABLE.has(i.type) ? PRIORITY_RANK[i.fields.priority] || 3 : 9),
     cell: (i) => (PLANNABLE.has(i.type) ? priorityChip(i.fields.priority || 'Normal') : '') },
   { key: 'related', label: 'Related to', get: (i) => parentTitle(i.fields.related_to).toLowerCase(), cell: (i) => (i.fields.related_to ? h('span', { class: 'chip parent', title: parentTitle(i.fields.related_to) }, parentTitle(i.fields.related_to)) : '') },
-  { key: 'plan', label: 'Plan', get: (i) => i.fields.plan_day || i.fields.plan_week || '~', cell: (i) => (i.fields.plan_day ? relDay(i.fields.plan_day) : i.fields.plan_week || '') },
+  { key: 'plan', label: 'Plan', get: (i) => i.fields.plan_day || i.fields.plan_week || i.fields.plan_month || '~',
+    cell: (i) => (i.fields.plan_day ? relDay(i.fields.plan_day) : i.fields.plan_week || (i.fields.plan_month ? monthLabel(i.fields.plan_month, true) : '')) },
   { key: 'due', label: 'Due / Date', get: (i) => i.fields.due || i.fields.date || '~', cell: (i) => shortDate(i.fields.due || i.fields.date) },
   { key: 'progress', label: 'Progress', get: (i) => (i.type === 'initiative' ? progress(i.id).pct : i.checklist.total ? (100 * i.checklist.done) / i.checklist.total : -1),
     cell: (i) => (i.type === 'initiative' ? `${progress(i.id).pct}%` : i.checklist.total ? `${i.checklist.done}/${i.checklist.total}` : '') },

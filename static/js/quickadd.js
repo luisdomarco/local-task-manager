@@ -3,11 +3,11 @@
 //   #INI-0003                    related_to
 //   !1 … !4 | !urgent !high !normal !low   priority Urgent…Low
 //   https://… | www.…            main url (a second one goes to links)
-//   @today @tomorrow @week @nextweek @mon…@sun   plan
+//   @today @tomorrow @week @nextweek @month @mon…@sun   plan
 //   due:2026-10-20 | due:today | due:tomorrow | due:fri
 //   +label                       label
 //   session:name                 session_name (the Claude session handling it)
-import { addDays, isoWeek, nextDow, relDay, shiftWeek, thisWeek, today } from './dates.js';
+import { addDays, isoWeek, monthLabel, nextDow, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './rules.js';
 import { createItem, state, toast } from './state.js';
 import { h, icon, labelChip, priorityChip } from './ui.js';
@@ -41,6 +41,7 @@ export function parseQuick(text, defaults = {}) {
     }
     else if (lw === '@week') { out.values.plan_week = thisWeek(); out.values.plan_day = null; }
     else if (lw === '@nextweek') { out.values.plan_week = shiftWeek(thisWeek(), 1); out.values.plan_day = null; }
+    else if (lw === '@month') { out.values.plan_month = thisMonth(); out.values.plan_week = null; out.values.plan_day = null; }
     else if ((m = lw.match(/^@(\w[\w-]*)$/)) && resolveDay(m[1])) {
       out.values.plan_day = resolveDay(m[1]);
       out.values.plan_week = isoWeek(out.values.plan_day);
@@ -52,7 +53,7 @@ export function parseQuick(text, defaults = {}) {
   out.title = words.join(' ');
   out.values = { ...defaults.values, ...out.values };
   if (!PLANNABLE.has(out.type)) {
-    for (const k of ['plan_day', 'plan_week', 'priority', 'due', 'status', 'list', 'today_list']) delete out.values[k];
+    for (const k of ['plan_day', 'plan_week', 'plan_month', 'priority', 'due', 'status', 'list', 'today_list']) delete out.values[k];
   }
   const parent = out.values.related_to && state.byId.get(out.values.related_to);
   if (out.values.related_to && !parent) out.errors.push(`${out.values.related_to} not found`);
@@ -69,6 +70,7 @@ function preview(p) {
   for (const l of v.links || []) parts.push(h('span', { class: 'chip' }, `+ ${l.url}`));
   if (v.plan_day) parts.push(h('span', { class: 'chip plan today' }, icon('sun', 12), relDay(v.plan_day)));
   else if (v.plan_week) parts.push(h('span', { class: 'chip plan week' }, icon('calendar', 12), v.plan_week));
+  else if (v.plan_month) parts.push(h('span', { class: 'chip plan week' }, icon('calendar', 12), monthLabel(v.plan_month, true)));
   if (v.due) parts.push(h('span', { class: 'chip due' }, icon('flag', 12), relDay(v.due)));
   for (const l of v.labels || []) parts.push(labelChip(l));
   if (v.session_name) parts.push(h('span', { class: 'chip session' }, icon('terminal', 12), v.session_name));

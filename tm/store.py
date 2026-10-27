@@ -40,9 +40,9 @@ DEFAULT_LISTS = [{'id': s.lower(), 'name': s, 'status': s} for s in STATUSES]
 # column cannot be deleted; an item whose `today_list` names no column lands there.
 TODAY_DEFAULT = 'uncategorized'
 DEFAULT_TODAY_LISTS = [{'id': TODAY_DEFAULT, 'name': 'Uncategorized'}]
-# Prioritization board: columns you order what is coming up in, never a status or a priority. None is fixed: an item
-# whose `prio_list` names no column is in the pool, beside the board.
-DEFAULT_PRIO_LISTS = [{'id': 'now', 'name': 'Now'}, {'id': 'next', 'name': 'Next'}, {'id': 'later', 'name': 'Later'}]
+# Free board of Week and Next week: columns of your own, one set for both, like Today's (never a status): Uncategorized
+# is the fixed one, where an item whose `week_list` names no column lands.
+DEFAULT_WEEK_LISTS = [{'id': TODAY_DEFAULT, 'name': 'Uncategorized'}]
 # Where an activity (a pasted email, Slack message, comment…) came from.
 ACTIVITY_SOURCES = ['Email', 'Slack', 'Comment', 'Other']
 # `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; a file without
@@ -150,7 +150,7 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'priority must be one of {priorities}')
     if values.get('source') and values['source'] not in ACTIVITY_SOURCES:
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
-    for key in ('plan_order', 'prio_order'):  # a card's place on Today and Week (TSK-053), on Prioritization: a number, or none
+    for key in ('plan_order', 'week_order'):  # a card's place on Today and Week (TSK-053), on the Free board: a number, or none
         if key in values:
             v = values[key]
             if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
@@ -1235,7 +1235,7 @@ class Store:
         add('Status', f.get('status'))
         add('Priority', f.get('priority'))
         add('Priority reason', f.get('priority_reason'))
-        add('Planned', f.get('plan_day') or f.get('plan_week'))
+        add('Planned', f.get('plan_day') or f.get('plan_week') or f.get('plan_month'))
         add('Due', f.get('due'))
         add('Date', f.get('date'))
         add('Time', f.get('time'))
@@ -2534,31 +2534,33 @@ class Store:
         atomic_write(path, fm.build({'type': 'today', 'lists': clean, 'updated_at': now_stamp()}, body))
         return {'lists': clean}
 
-    # ── prioritization board: user columns in <root>/.task-manager/prioritization.md ──
-    def _prio_path(self):
-        return os.path.join(self.root, META_DIR, 'prioritization.md')
+    # ── week free board: user columns in <root>/.task-manager/week.md, shared by Week and Next week ──
+    def _week_path(self):
+        return os.path.join(self.root, META_DIR, 'week.md')
 
-    def prio_lists(self):
-        path = self._prio_path()
+    def week_lists(self):
+        path = self._week_path()
         if os.path.exists(path):
             fields, _ = self._read(path)
-            if isinstance(fields.get('lists'), list):  # every column deleted is an empty board, not the defaults again
+            if isinstance(fields.get('lists'), list) and fields['lists']:
                 return {'lists': fields['lists']}
-        return {'lists': DEFAULT_PRIO_LISTS}
+        return {'lists': DEFAULT_WEEK_LISTS}
 
     @writes
-    def save_prio_lists(self, lists):
+    def save_week_lists(self, lists):
         if not isinstance(lists, list):
             raise StoreError(400, 'lists must be a list')
         ids = [l.get('id') for l in lists]
         if len(set(ids)) != len(ids) or not all(ids):
             raise StoreError(400, 'lists need unique non-empty ids')
         clean = [{'id': str(l['id']), 'name': str(l.get('name') or l['id'])} for l in lists]
-        path = self._prio_path()
+        if not any(l['id'] == TODAY_DEFAULT for l in clean):  # never deletable
+            clean.insert(0, dict(DEFAULT_WEEK_LISTS[0]))
+        path = self._week_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        body = '# Prioritization board\n\nColumns of the Prioritization board, in order. Edited from the app.\n\n' + \
+        body = '# Week free board\n\nColumns of the Free board of Week and Next week, in order. Edited from the app.\n\n' + \
             '\n'.join(f"- **{l['name']}** (`{l['id']}`)" for l in clean) + '\n'
-        atomic_write(path, fm.build({'type': 'prioritization', 'lists': clean, 'updated_at': now_stamp()}, body))
+        atomic_write(path, fm.build({'type': 'week', 'lists': clean, 'updated_at': now_stamp()}, body))
         return {'lists': clean}
 
     # ── pins: the ordered list of items shown in the top bar ─────────────────

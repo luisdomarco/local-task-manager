@@ -33,6 +33,11 @@ export function weekDays(week) {
 export const thisWeek = () => isoWeek(today());
 export const shiftWeek = (week, n) => isoWeek(addDays(weekDays(week)[0], 7 * n));
 
+// Months are 'YYYY-MM': they sort as strings too. A week belongs to the month of its Thursday, as ISO weeks do to years.
+export const monthOf = (day) => day.slice(0, 7);
+export const weekMonth = (week) => monthOf(weekDays(week)[3]);
+export const thisMonth = () => monthOf(today());
+
 const DOW = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -64,6 +69,13 @@ export function relDay(s) {
   if (s === addDays(t, 1)) return 'Tomorrow';
   if (s === addDays(t, -1)) return 'Yesterday';
   return shortDate(s);
+}
+
+/** 'YYYY-MM' → "October 2026"; `short` → "Oct" (this year) or "Oct 2027". */
+export function monthLabel(month, short = false) {
+  const [y, m] = month.split('-').map(Number);
+  if (short) return y === new Date().getFullYear() ? MONTHS[m - 1] : `${MONTHS[m - 1]} ${y}`;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 }
 
 export function weekLabel(week) {
