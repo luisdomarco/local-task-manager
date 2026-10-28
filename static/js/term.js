@@ -13,7 +13,7 @@ import { pref, setPref } from './prefs.js';
 import { itemName, itemPicker } from './itempicker.js';
 import { claudeAssociate, claudeChatOpen, claudeTermOpen, onChange, state, toast } from './state.js';
 import { setAlertTitle } from './tabtitle.js';
-import { h, icon, typeIcon } from './ui.js';
+import { closeMenu, dropdown, h, icon, typeIcon } from './ui.js';
 import { vaultId } from './vault.js';
 
 const VENDOR = 'vendor/xterm';
@@ -68,7 +68,7 @@ function ensureDock() {
   const list = h('div', { class: 'td-list', role: 'listbox', 'aria-label': 'Claude sessions' });
   const side = h('div', { class: 'td-side' },
     h('div', { class: 'td-side-head' }, h('span', {}, 'Sessions'),
-      h('button', { class: 'btn icon', title: 'New session', onclick: () => import('./claude.js').then((m) => m.openClaudeDialog(null)) }, icon('plus', 14))),
+      h('button', { class: 'btn icon', title: NEW_TITLE, onclick: () => newSession() }, icon('plus', 14))),
     list);
   const main = h('div', { class: 'td-main' });
   const body = h('div', { class: 'td-body' }, side, main);
@@ -91,6 +91,8 @@ function ensureDock() {
       icon('terminal', 13), h('span', { class: 'td-seg-text' }, 'Terminal')));
   dock = h('aside', { id: 'termdock', 'aria-label': 'Claude sessions', hidden: true }, grip,
     h('div', { class: 'td-head' }, h('span', { class: 'td-title' }, icon('bot', 14)),
+      h('button', { type: 'button', class: 'btn small td-switch', 'aria-haspopup': 'menu', title: 'Sessions',
+        onclick: (e) => sessionsMenu(e.currentTarget) }, h('span', { class: 'td-dot' }), h('span', { class: 'td-count' }), icon('down', 12)),
       h('div', { class: 'td-name' }, h('span', { class: 'td-name-label' })),
       h('button', { type: 'button', class: 'btn small td-item', 'aria-haspopup': 'dialog', onclick: (e) => pickItem(e.currentTarget) }),
       h('span', { class: 'spacer' }), seg, max, collapse,
@@ -218,6 +220,29 @@ function paintRow(t) {
   t.row.classList.toggle('ended', !t.alive);
   t.row.classList.toggle('needs-you', st === 'needs_you');
   if (t.id === active) paintHead();
+  else paintSwitch();
+}
+
+// ── a narrow dock (a phone): the list is a menu, opened from the head (app.css hides the side and shows this) ──
+/** Its button: how many sessions, and a dot — amber when any of them needs you, else the one shown's. */
+function paintSwitch() {
+  const all = [...tabs.values()];
+  const shown = active && tabs.get(active);
+  const st = all.some((t) => status(t) === 'needs_you') ? 'needs_you' : shown ? status(shown) : 'ended';
+  dock.querySelector('.td-switch .td-dot').className = `td-dot tone-${statusTone(st)}`;
+  dock.querySelector('.td-count').textContent = String(all.length);
+  dock.querySelector('.td-switch').title = `${all.length} session${all.length === 1 ? '' : 's'}${st === 'needs_you' ? ' — one needs you' : ''}`;
+}
+
+/** The sessions as the list has them (newest on top), each with its dot and what it is doing; then a new one. */
+function sessionsMenu(anchor) {
+  const rows = [...listEl().querySelectorAll('.td-row')].map((row) => [...tabs.values()].find((t) => t.row === row)).filter(Boolean);
+  const entry = (t) => h('button', { type: 'button', role: 'menuitem', class: `menu-item td-menurow ${t.id === active ? 'current' : ''}`,
+    onclick: () => { closeMenu(); activate(t.id); } },
+  h('span', { class: t.row.querySelector('.td-dot').className }),
+  h('span', { class: 'td-rowtext' }, h('span', { class: 'td-label' }, t.label), h('span', { class: 'td-sub' }, t.row.querySelector('.td-sub').textContent)));
+  dropdown(anchor, [{ heading: 'Sessions' }, h('div', { class: 'td-menu' }, rows.map(entry)), '-',
+    { label: 'New session', icon: 'plus', onSelect: () => newSession() }], { width: 280 });
 }
 
 function paintHead() {
@@ -228,6 +253,7 @@ function paintHead() {
   name.querySelector('.td-name-label').textContent = t ? t.label : '';
   name.title = t ? `${t.label}\nRuns in ${t.cwd || '?'}` : '';
   paintItemChip(t);
+  paintSwitch();
   for (const b of dock.querySelectorAll('.td-seg button')) {
     const on = Boolean(t) && (b.dataset.view === 'terminal') === (t.kind === 'term');
     b.classList.toggle('on', on);
@@ -293,11 +319,8 @@ async function moveTo(t, it) {
   let out;
   try { out = await claudeAssociate(t.id, t.key, to); } catch { return; } // toasted by the state
   t.key = to;
-  t.label = out.session?.label || (it ? itemName(it) : t.label);
-  t.row.querySelector('.td-label').textContent = t.label;
-  t.row.title = `${t.label}\n${t.cwd || ''}`;
+  rename(t, out.session?.label || (it ? itemName(it) : t.label));
   paintRow(t);
-  if (t.id === active) paintHead();
   if (it) t.view?.attachItem(it);
   toast(it ? `Moved to ${it.id || it.title}'s history` : 'Moved to the general history');
 }
@@ -411,6 +434,7 @@ function attachChat(info, row = null) {
   t.view = chatView(info, {
     onChange: (v) => {
       t.alive = !v.chat.ended;
+      if (v.chat.label && v.chat.label !== t.label) rename(t, v.chat.label); // a chat started empty, named by its first message
       paintRow(t);
       const st = v.status();
       tell(t, st, t.lastStatus);
@@ -482,28 +506,55 @@ async function closeTab(id) {
     if (nextId) activate(nextId);
     else paintHead();
   }
+  if (tabs.size) paintSwitch();
   hideIfEmpty(); // the UI goes first: ending the process can take a second or two
   try { await (t.kind === 'chat' ? api.chatClose(id) : api.termClose(id)); } catch { /* already gone */ }
 }
 
 // ── what the rest of the app calls ──────────────────────────────────────────
 /** A new session on an item (or a bare prompt, key null), in the dock: a chat, or a terminal when that is the view
- * last picked. Recorded like a Terminal.app launch. */
-export async function openClaudeHere({ key = null, instruction = '', model = '', effort = '', cwd = '' } = {}) {
+ * last picked. Recorded like a Terminal.app launch. `empty`: nothing is sent, it waits for the first message. */
+export async function openClaudeHere({ key = null, instruction = '', model = '', effort = '', cwd = '', empty = false } = {}) {
   if (viewPref() === 'chat') {
-    const out = await claudeChatOpen(key, instruction, model, effort, cwd, ''); // toasted by the state
+    const out = await claudeChatOpen(key, instruction, model, effort, cwd, '', empty); // toasted by the state
     attachChat(out.chat);
     return out;
   }
   const pane = await makePane();
   try {
-    const out = await claudeTermOpen(key, instruction, model, effort, cwd, pane.term.cols, pane.term.rows);
+    const out = await claudeTermOpen(key, instruction, model, effort, cwd, pane.term.cols, pane.term.rows, empty);
     attach(out.term, pane);
     return out;
   } catch (e) {
     pane.pane.remove(); pane.term.dispose(); hideIfEmpty();
     throw e; // toasted by the state
   }
+}
+
+const NEW_TITLE = 'New session — empty, about the item open in the card (if any); the top bar\'s Claude button has the full dialog';
+
+/** The list's "+": a session at once, with nothing sent, in the view last picked — about the item open in the card if
+ *  there is one, with Settings' model and effort (the composer changes them). A chat gets that item as a chip for its
+ *  first message, so its context goes along unless removed. The dialog (a folder, a saved prompt, Terminal.app or an
+ *  editor) stays on the top bar's Claude button and the card's. */
+async function newSession() {
+  const key = (await import('./panel.js')).openItemKey();
+  const item = key ? state.items.find((it) => it.key === key) : null;
+  const { claude_model: model = '', claude_effort: effort = '', claude_cwd: dflt = '' } = state.config;
+  let out;
+  try { out = await openClaudeHere({ key: item?.key || null, model, effort, cwd: item ? '' : dflt, empty: true }); } catch { return; } // toasted by the state
+  const t = out.chat && tabs.get(out.chat.id);
+  if (t && item) t.view.attachItem(item);
+  t?.view.focus();
+}
+
+/** A session's new name (another item, or the first message of one started empty), in its row and the head. */
+function rename(t, label) {
+  t.label = label;
+  if (!t.row) return;
+  t.row.querySelector('.td-label').textContent = label;
+  t.row.title = `${label}\n${t.cwd || ''}`;
+  if (t.id === active) paintHead();
 }
 
 /** A recorded session, reopened here (`claude --resume`), as the view last picked. If it is already running in the
@@ -534,7 +585,10 @@ export async function resumeClaudeHere(key, sessionId) {
 export async function restoreTerms() {
   let chats = [];
   let terms = [];
-  try { [chats, terms] = await Promise.all([api.chatList().then((r) => r.chats), api.termList().then((r) => r.terms)]); } catch { return; }
+  try {
+    [chats, terms] = await Promise.all([api.chatList().then((r) => { state.claudeModels = r.offered || []; return r.chats; }),
+      api.termList().then((r) => r.terms)]);
+  } catch { return; }
   const all = [...chats.map((c) => ['chat', c]), ...terms.map((t) => ['term', t])].sort((a, b) => a[1].started - b[1].started);
   for (const [kind, info] of all) {
     if (tabs.has(info.id)) continue;

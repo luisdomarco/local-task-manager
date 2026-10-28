@@ -1533,11 +1533,12 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .td-item.is-title { flex: 0 1 auto; min-width: 0; max-width: min(520px, 60%); margin-left: 0; color: var(--foreground); font-weight: 600; }
 .td-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-item .icon { flex: none; }
-/* A phone: no bot glyph, Chat | Terminal as icons, and the chip gives way (its text cut short) so the head's × stays
-   in view */
+/* A phone: no bot glyph nor fill button (the edge still drags, double-click fills), Chat | Terminal as icons, and the
+   title gives way (its text cut short) so the head's × stays in view — about no item, the name does and "No item" stays */
 @media (max-width: 760px) {
-  .td-title, .td-seg-text { display: none; }
+  .td-title, .td-seg-text, .td-max { display: none; }
   .td-item, .td-item.is-title { flex: 0 1 auto; min-width: 0; max-width: none; margin-left: 0; }
+  .td-item:not(.is-title) { flex: none; margin-left: 4px; }
 }
 /* The item picker: a search box over the rows, which scroll */
 .menu.ip { width: min(380px, calc(100vw - 16px)); display: flex; flex-direction: column; gap: 4px; }
@@ -1555,10 +1556,10 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .td-seg button.on { background: var(--card); color: var(--foreground); box-shadow: 0 0 0 1px var(--border); }
 .td-seg button:disabled { cursor: default; opacity: .6; }
 /* The sessions, down the left side: a dot for what each is doing (chat-model.js STATUSES) */
-#termdock { --tone-warning: #b7791f; --tone-accent: #2563eb; --tone-success: #15803d; --tone-muted: #8c8c97; --tone-error: #c81e1e; }
-:root[data-theme="dark"] #termdock { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
+#termdock, .td-menu { --tone-warning: #b7791f; --tone-accent: #2563eb; --tone-success: #15803d; --tone-muted: #8c8c97; --tone-error: #c81e1e; }
+:root[data-theme="dark"] #termdock, :root[data-theme="dark"] .td-menu { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) #termdock { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
+  :root:not([data-theme="light"]) #termdock, :root:not([data-theme="light"]) .td-menu { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
 }
 .td-side { width: 210px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--sidebar); }
 .td-side-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 2px 12px; font-size: var(--fs-2xs); color: var(--muted-foreground); }
@@ -1595,6 +1596,9 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .cv { display: flex; flex-direction: column; padding: 0; }
 .cv-thread { flex: 1 1 auto; overflow-y: auto; padding: 14px 18px 8px; font-size: var(--fs-sm); line-height: 1.55; }
 .cv-thread > * { max-width: 860px; margin-left: auto; margin-right: auto; }
+/* A session started empty (the list's +): a line in place of the conversation until the first message */
+.cv-thread.blank { display: flex; align-items: center; justify-content: center; }
+.cv-thread.blank::before { content: 'Nothing sent yet — your first message starts the conversation.'; color: var(--muted-foreground); font-size: var(--fs-xs); text-align: center; }
 /* Down to what is new (chat.js paintJump): over the foot of the thread, takes no room of its own */
 .cv-jumpbar { position: relative; height: 0; flex: none; }
 .cv-jump {
@@ -1751,14 +1755,27 @@ button.cv-chip:hover, button.cv-chip[aria-expanded="true"] { color: var(--foregr
 .cv-planpop .cv-todos { font-size: var(--fs-xs); }
 .cv-meter.full { color: var(--tone-warning); }
 /* The chips are as wide as what they show now, not as their longest option. A narrow chat (its own width, not the
-   dock's): the meter goes, then the mode shows its icon only, then the model and the effort too (their title and
-   menu still name them). */
+   dock's): the meter goes, then the mode shows its icon only, then the model and the effort in a few letters (their
+   title and menu still name them in full). */
 .cv { container: cv / inline-size; }
 .cv-tools .cv-pick .select-sizer { display: none; }
 @container cv (max-width: 620px) { .cv-meter { display: none; } .cv-tools .cv-mode .select-text { font-size: 0; } .cv-tools .select-btn.cv-mode { padding-right: 18px; } }
-@container cv (max-width: 440px) { .cv-tools .cv-pick .select-text { font-size: 0; } .cv-tools .select-btn.cv-pick { padding-right: 18px; } }
-/* A narrow dock (a small window): the list becomes a strip of dots */
-@container (max-width: 640px) { .td-side { width: 52px; } .td-rowtext, .td-side-head span, .td-x { display: none; } .td-row { justify-content: center; } }
+/* …and narrower still, model and effort in a few letters ("S 5.5", "Low": chat.js paintPickers sets data-short) */
+@container cv (max-width: 440px) {
+  .cv-tools .cv-pick .select-text { font-size: 0; }
+  .cv-tools .select-btn.cv-pick { padding-right: 18px; }
+  .cv-tools .select-btn.cv-pick[data-short]::after { content: attr(data-short); margin-left: 4px; font-size: var(--fs-2xs); white-space: nowrap; }
+}
+/* A narrow dock (a phone, a small window): the list goes, and a button in the head opens it as a menu (term.js
+   sessionsMenu) — how many there are, with a dot that turns amber when one needs you */
+.td-head { container: tdhead / inline-size; }
+.td-switch { display: none; flex: none; gap: 6px; padding: 0 6px 0 8px; font-variant-numeric: tabular-nums; }
+@container tdhead (max-width: 640px) { .td-switch { display: inline-flex; } }
+@container (max-width: 640px) { .td-side { display: none; } }
+.td-menu { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+.td-menurow { gap: 8px; }
+.menu-item.td-menurow > .td-dot { flex: none; } /* not the menu's own spans, which grow */
+.td-menurow.current { background: var(--accent); }
 /* The main column keeps its last rows reachable above the dock (--dock-room: its height, folded or not; term.js place). */
 body.term-open #view { padding-bottom: calc(var(--dock-room, 42vh) + 24px); }
 @media (max-width: 760px) { #termdock { left: 0; } }

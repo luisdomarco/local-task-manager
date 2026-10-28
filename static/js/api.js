@@ -77,7 +77,8 @@ export const api = {
   claudeUpdated: (sessions) => post('/api/claude/updated', { sessions: sessions.map(({ id, cwd }) => ({ id, cwd })) }),
   // The dock: claude in a pty inside the server (its output comes on /api/term/stream, an EventSource).
   termList: () => get('/api/term/list'),
-  termOpen: (key, instruction, model, effort, cwd, cols, rows) => post('/api/term/open', { key, instruction, model, effort, cwd, cols, rows }),
+  termOpen: (key, instruction, model, effort, cwd, cols, rows, empty = false) =>
+    post('/api/term/open', { key, instruction, model, effort, cwd, cols, rows, empty }),
   termResume: (key, sessionId, cols, rows) => post('/api/term/resume', { key, session_id: sessionId, cols, rows }),
   termInput: (id, data) => post('/api/term/input', { id, data }),
   termResize: (id, cols, rows) => post('/api/term/resize', { id, cols, rows }),
@@ -85,7 +86,7 @@ export const api = {
   // The dock's chats: claude -p in stream-json inside the server (its messages come on /api/chat/stream, an EventSource).
   chatList: () => get('/api/chat/list'),
   chatFiles: (id) => get(`/api/chat/files?id=${encodeURIComponent(id)}`),
-  chatOpen: (key, instruction, model, effort, cwd, mode) => post('/api/chat/open', { key, instruction, model, effort, cwd, mode }),
+  chatOpen: (key, instruction, model, effort, cwd, mode, empty = false) => post('/api/chat/open', { key, instruction, model, effort, cwd, mode, empty }),
   chatResume: (key, sessionId, mode) => post('/api/chat/resume', { key, session_id: sessionId, mode }),
   // items: keys in this vault; images: [{ data: base64, thumb: data URL }]
   chatSend: (id, text, items = [], images = []) => post('/api/chat/send', { id, text, items, images, vault: vaultId() }),

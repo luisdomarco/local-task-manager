@@ -602,12 +602,19 @@ shown as a terminal takes **Claude Code's own theme** (the `theme` in `~/.claude
 Claude was installed and changed with `/theme`; dark when unset), because Claude draws that screen for its own one.
 Scrolled up in a chat while something new comes in, a **New messages ↓** button takes you down to it; it reads
 **Claude needs you** when a permission, a question or a plan is waiting. Drag its top edge (or ↑/↓ on
-it) to resize it. Double-click the edge, or use its ⌃ button, to fill it up to the top bar. Its height is
+it) to resize it. Double-click the edge, or use its ⌃ button (not on a phone), to fill it up to the top bar. Its height is
 remembered.
 
 The dock is **one layer for every session**, wherever it was opened (the top bar, a card, a history): across the
 bottom of the content, above the pages and above an open card, which shrinks to end where the dock begins. It never
-covers the top bar. In a narrow dock the list shrinks to its dots.
+covers the top bar. In a narrow dock (a phone, a small window) the list becomes a **menu in the head**: a button with
+how many sessions there are and a dot, amber when one of them needs you.
+
+The list's **+** (and *New session* in that menu) **starts a session at once**, with nothing sent: in the view last
+picked, about the item open in the card if there is one, with Settings' model and effort (the composer changes them).
+Until something is sent its thread says so. A chat gets that item as a chip, so its context goes with the first message unless you take it off; that first
+message names the session and is what its history shows as the instruction. The dialog — a folder, a saved prompt,
+the prompt it will send, Terminal.app or an editor — is the top bar's Claude button and the card's.
 
 **A session is about an item, or about none.** One opened from a card is about that item; one from the top bar about
 none. The **item chip** in the dock's head changes it: about an item, the chip is the head's title (*TSK-0001 ·
@@ -1066,7 +1073,8 @@ understood and wait for your go-ahead).
   description, cut at 16 KB), inside `<attached-items>` — so "what is left on this?" needs no copying. The message
   shows its items as chips, also when the chat is resumed. The composer carries the **permission mode** (Ask, Accept
   edits, Plan, Auto — `bypassPermissions` is not offered), the **model** — claude's own list, each with its version
-  (*Opus 5.5*, *Haiku 4.5*…, the default saying which one it is), so a new model shows up without a change here — the
+  (*Opus 5.5*, *Sonnet 5.5*…, the default saying which one it is), then the **older versions** it still offers (*Opus
+  4.8*, *Haiku 4.5*…) under their own heading, so a new model shows up without a change here — the
   **effort** (Low to Max, those the model takes; set as a flag setting of claude's for the rest of the session, never
   written to a settings file). The effort **holds across a change of model**: claude would give each model a default
   of its own, so the session's goes on with the new one (or the nearest below, when that model lacks it: Extra high →
@@ -1074,12 +1082,15 @@ understood and wait for your go-ahead).
   effort*) and the session's record keeps it, so its history shows the model it really runs; one claude refuses
   comes back with the reason. Under each answer, in small, the model that gave it. The composer also carries the plan's progress (TodoWrite; its chip opens the list), **how full the context is**
   (a percentage of the model's window, asked of claude after each turn) and the cost so far, and **Stop** (interrupts
-  the turn, the session goes on). A session that needs you, or finishes its turn, while you cannot see it — the dock
+  the turn, the session goes on). In a narrow chat the mode keeps its icon, and the model and effort read in a few
+  letters (*S 5.5*, *Low*). A session that needs you, or finishes its turn, while you cannot see it — the dock
   folded, another session shown, another browser tab — says so: a toast, a mark in the tab's title until you come back
   and, in another tab, a browser notification (asked for the first time a chat opens). Messages come on
-  `GET /api/chat/stream?id=` (Server-Sent Events); the rest are POSTs: `/api/chat/open`, `/resume`, `/send` (text,
+  `GET /api/chat/stream?id=` (Server-Sent Events); the rest are POSTs: `/api/chat/open` (`empty: true` for the
+  dock's **+**: nothing sent, the first `/send` names it; `/api/term/open` takes it too), `/resume`, `/send` (text,
   item keys, images), `/permission` (with `answers` for a question, `mode` for a plan), `/interrupt`, `/control` (mode,
-  model, effort), `/close`, and `GET /api/chat/list`. A request's body is at most 32 MB.
+  model, effort), `/close`, and `GET /api/chat/list` (the chats, and as `offered` the models claude listed to the
+  latest one, which the dialog and Settings show too). A request's body is at most 32 MB.
   **Chat | Terminal** hands the same session (same id) from one to the other: the server ends the one running it and
   `--resume`s it in the other, so it is never driven twice; a chat resumed this way (or from *Resume*) starts with
   what was said before, read from Claude Code's transcript (`tm/transcript.py`, only read). The server keeps a chat's
@@ -1123,9 +1134,12 @@ understood and wait for your go-ahead).
   can pick any of the saved folders for this launch instead; the server accepts only those (`claude_paths` in `config.json`,
   `claude_cwd` being the default one), never a folder typed in the browser. Settings holds the list: add as many as you want,
   give each a name the dialog shows instead of its path, mark one as default, remove them.
-- **Model and effort:** two selectors in the dialog (model: Fable, Opus, Sonnet, Haiku; effort: low, medium, high, extra high, max) become
-  `--model` and `--effort`. They start at the defaults chosen in Settings ("Claude's default" adds no flag) and can be changed for one launch
-  without touching Settings. The dialog shows the exact command line. Only values from those lists are accepted by the server.
+- **Model and effort:** two selectors in the dialog become `--model` and `--effort`. The models are the chat's list —
+  claude's own, the current ones and then the older versions, as the latest chat was told; before any chat has run,
+  Fable, Opus, Sonnet and Haiku — and the efforts low, medium, high, extra high, max. They start at the defaults chosen
+  in Settings ("Claude's default" adds no flag; Settings offers the same list) and can be changed for one launch
+  without touching Settings. The dialog shows the exact command line. The server accepts only those aliases and
+  efforts, or a model's id by its shape (`claude-opus-4-8`), never anything a shell would read.
 - **Settings:** default folder, the command (`claude`; extra flags allowed), the terminal app, and the default model and effort.
 - **Safety:** the browser only sends the item's key and the extra instruction; the server rebuilds the prompt from the file.
   It is written to a private temporary file and read by the script, never pasted into a command line, so quotes, `$(…)` or

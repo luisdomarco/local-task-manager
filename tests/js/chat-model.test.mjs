@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { STATUSES, apply, build, currentModel, editDiff, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortPath, subagentSummary,
+import { STATUSES, apply, build, currentModel, editDiff, emptyChat, kTokens, launchModelOptions, modelName, modelOptions, questionAnswers, sessionStatus, shortEffort, shortModel, shortPath, subagentSummary,
   toolTarget } from '../../static/js/chat-model.js';
 
 const assistant = (content, extra = {}) => ({ type: 'assistant', message: { content }, ...extra });
@@ -224,9 +224,30 @@ describe('the model and effort menus', () => {
     { value: 'fable', label: 'Fable 5.1', description: 'For your toughest challenges', resolved: 'claude-fable-5-1', efforts: ['low', 'high'] },
     { value: 'claude-haiku-4-5', label: 'Haiku 4.5', description: 'Fastest', resolved: 'claude-haiku-4-5', efforts: [] },
   ];
-  it('names each model with its version, the default with the one it is', () => {
-    assert.deepEqual(modelOptions(models), [['default', 'Default (Fable 5.1)'], ['fable', 'Fable 5.1'], ['claude-haiku-4-5', 'Haiku 4.5']]);
+  it('names each model with its version, the default with the one it is, the older versions under a heading', () => {
+    assert.deepEqual(modelOptions(models), [['default', 'Default (Fable 5.1)'], ['fable', 'Fable 5.1'],
+      { heading: 'Older versions' }, ['claude-haiku-4-5', 'Haiku 4.5']]);
+    assert.deepEqual(modelOptions(models.slice(0, 2)), [['default', 'Default (Fable 5.1)'], ['fable', 'Fable 5.1']]); // no older: no heading
     assert.deepEqual(modelOptions([], ['opus']), [['opus', 'Opus']]); // before claude has listed them
+  });
+
+  it('offers a launch the same list, Claude\'s default first and a saved value kept', () => {
+    assert.deepEqual(launchModelOptions(models, ['opus']), [['', "Claude's default (Fable 5.1)"], ['fable', 'Fable 5.1'],
+      { heading: 'Older versions' }, ['claude-haiku-4-5', 'Haiku 4.5']]);
+    assert.deepEqual(launchModelOptions([], ['opus', 'haiku']), [['', "Claude's default"], ['opus', 'Opus'], ['haiku', 'Haiku']]); // no chat yet
+    assert.deepEqual(launchModelOptions([], ['opus'], 'claude-opus-4-8').at(-1), ['claude-opus-4-8', 'Opus 4.8']); // saved, not listed now
+    assert.equal(launchModelOptions(models, [], 'fable').length, 4); // already on it: not twice
+  });
+
+  it('shortens a model and an effort for a phone', () => {
+    assert.equal(shortModel('Sonnet 5.5'), 'S 5.5');
+    assert.equal(shortModel('Opus 5'), 'O 5');
+    assert.equal(shortModel('something'), 'something');
+    assert.deepEqual(['low', 'medium', 'xhigh', 'max', ''].map(shortEffort), ['Low', 'Med', 'XHigh', 'Max', '']);
+  });
+
+  it('takes the name a chat started empty gets from its first message', () => {
+    assert.equal(build([{ type: 'tm_label', label: 'Compare the plans' }]).label, 'Compare the plans');
   });
 
   it('finds the model a session runs by alias or full id, an alias before the default', () => {

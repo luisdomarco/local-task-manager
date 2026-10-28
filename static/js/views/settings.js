@@ -9,7 +9,7 @@ import { fixedColumns } from '../datatable.js';
 import { pref, setPref } from '../prefs.js';
 import { warningGroups } from '../housekeeping.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
-import { CLAUDE_EFFORTS, CLAUDE_MODELS } from '../claude.js';
+import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
 import { keyboardHelp } from '../shortcuts.js';
 import { h, icon, renderMarkdown, select, tabPanels } from '../ui.js';
 import { vaultId } from '../vault.js';
@@ -224,7 +224,7 @@ export function mount(root, param) {
       const terminalSel = select([['Terminal', 'Terminal'], ['iTerm', 'iTerm']], terminal, (v) => { terminal = v; }, { 'aria-label': 'Terminal app' });
       let model = c.claude_model || '';
       let effort = c.claude_effort || '';
-      const modelSel = select(CLAUDE_MODELS, model, (v) => { model = v || ''; }, { 'aria-label': 'Default model' });
+      const modelSel = select(claudeModelOptions(model), model, (v) => { model = v || ''; }, { 'aria-label': 'Default model' });
       const effortSel = select(CLAUDE_EFFORTS, effort, (v) => { effort = v || ''; }, { 'aria-label': 'Default effort' });
       const missing = state.items.filter((i) => !i.id);
       const doSave = async () => {

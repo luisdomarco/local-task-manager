@@ -432,6 +432,35 @@ class HttpTest(unittest.TestCase):
             time.sleep(0.02)
         self.assertEqual((record()['model'], record()['effort']), ('claude-sonnet-8-1', 'max'))
 
+    def test_a_session_started_empty_is_named_by_its_first_message(self):
+        if sys.platform == 'win32':
+            self.skipTest('needs a pipe-driven child process')
+        fake = os.path.join(os.path.dirname(__file__), 'fixtures', 'fake_claude.py')
+        self.addCleanup(server.CHATS.close_all)
+        task = self.call('/api/item/create', {'type': 'task', 'subject': 'Pick a model'})
+        self.assertEqual(self.request('/api/chat/open', {'key': None, 'instruction': ''})[0], 400)  # a launch still needs a prompt
+        with mock.patch.dict(server.APP.config, {'claude_command': f"'{sys.executable}' '{fake}'", 'claude_model': ''}):
+            bare = self.call('/api/chat/open', {'key': None, 'instruction': 'ignored', 'empty': True})['chat']
+            about = self.call('/api/chat/open', {'key': task['key'], 'empty': True})['chat']
+        self.assertEqual((bare['label'], about['label']), ('New chat', f"{task['id']} · Pick a model"))
+        global_record = lambda: self.call('/api/claude/sessions')['sessions'][0]
+        item_record = lambda: self.call(f'/api/item?key={quote(task["key"])}')['fields']['claude_sessions'][0]
+        self.assertEqual((global_record()['instruction'], item_record()['instruction']), ('', ''))  # nothing was sent
+        self.assertFalse([e for e in server.CHATS.get(bare['id'])._events if e.get('type') == 'tm_user'])
+        self.call('/api/chat/send', {'id': bare['id'], 'text': 'Compare the plans\nand say which'})
+        self.call('/api/chat/send', {'id': about['id'], 'text': 'Start with the prices'})
+        self.assertEqual(server.CHATS.get(bare['id']).label, 'Compare the plans')  # about no item: named by it
+        self.assertEqual(server.CHATS.get(about['id']).label, f"{task['id']} · Pick a model")  # about an item: still its name
+        self.assertEqual((global_record()['instruction'], item_record()['instruction']), ('Compare the plans', 'Start with the prices'))
+        self.call('/api/chat/send', {'id': bare['id'], 'text': 'And then?'})  # only the first one names it
+        self.assertEqual((server.CHATS.get(bare['id']).label, global_record()['instruction']), ('Compare the plans', 'Compare the plans'))
+        chat = server.CHATS.get(bare['id'])
+        for _ in range(250):  # claude lists its models once it has started: a new session's menus offer them too
+            if chat.models:
+                break
+            time.sleep(0.02)
+        self.assertEqual(self.call('/api/chat/list')['offered'], chat.models)
+
     def test_the_dock_needs_the_command_on_the_path(self):
         with mock.patch.dict(server.APP.config, {'claude_command': 'no-such-claude-binary-xyz'}):
             code, out = self.request('/api/term/open', {'key': None, 'instruction': 'hi'})

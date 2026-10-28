@@ -1,7 +1,7 @@
 // The dock's chat as data: the messages the server streams (tm/chat.py — claude's own stream-json, slimmed, plus our
 // tm_* events) folded into what the view draws. No DOM here, so it is tested on its own (tests/js/chat-model.test.mjs).
 //
-// A chat is { items, pending, busy, ended, mode, model, effort, models, cost, context, window, plan }. Its items:
+// A chat is { items, pending, busy, ended, mode, model, effort, models, cost, context, window, plan, label }. Its items:
 //   { kind: 'user', text, attached, images, queued }   a message the user sent, the vault items and images with it;
 //                                                     `queued` when it went while Claude was still working
 //   { kind: 'text', text, partial }             Claude's text; `partial` while it is still streaming
@@ -16,7 +16,7 @@
 
 export const emptyChat = () => ({
   items: [], pending: 0, busy: false, ended: false, exitCode: null, mode: 'default', model: '', effort: '', models: [],
-  cost: 0, context: 0, window: null, plan: null, answeredBy: '',
+  cost: 0, context: 0, window: null, plan: null, answeredBy: '', label: '',
 });
 
 const last = (chat) => chat.items[chat.items.length - 1];
@@ -146,6 +146,7 @@ export function apply(chat, msg) {
       break;
     case 'tm_notice': chat.items.push({ kind: 'notice', text: String(msg.text || ''), tone: msg.tone || 'muted' }); break;
     case 'tm_models': chat.models = Array.isArray(msg.models) ? msg.models : []; break;
+    case 'tm_label': chat.label = String(msg.label || ''); break; // named by its first message (it started empty)
     case 'tm_context': chat.window = msg.window || null; break;
     case 'tm_exit':
       dropPartial(chat);
@@ -217,12 +218,41 @@ export function modelName(models, model) {
   return id ? `${id[1][0].toUpperCase()}${id[1].slice(1)} ${id[2]}${id[3] ? `.${id[3]}` : ''}` : m;
 }
 
-/** The model menu: [value, label] from claude's list, its version in the name ("Opus 5.5"; the default says which
- *  one it is). Before claude has listed them, the aliases the server knows, by name only. */
+const OLDER = { heading: 'Older versions' };
+const pinned = (m) => m.value.startsWith('claude-'); // a version by its id; the rest are aliases that follow the latest
+const named = (m) => [m.value, m.label];
+const capital = (a) => a[0].toUpperCase() + a.slice(1);
+
+/** The model menu of a running chat: claude's list, the aliases first ("Opus 5.5"; the default says which one it is),
+ *  then a heading and the older versions it pins by id. Before claude has listed them, the aliases the server
+ *  knows, by name only. [value, label] pairs and one { heading }, as ui.js select takes them. */
 export function modelOptions(models, fallback = []) {
-  if (!models?.length) return fallback.map((m) => [m, m[0].toUpperCase() + m.slice(1)]);
-  return models.map((m) => [m.value, m.value === 'default' && m.description ? `Default (${m.description})` : m.label]);
+  if (!models?.length) return fallback.map((m) => [m, capital(m)]);
+  const latest = models.filter((m) => !pinned(m)).map((m) => (m.value === 'default' && m.description ? [m.value, `Default (${m.description})`] : named(m)));
+  const older = models.filter(pinned).map(named);
+  return older.length ? [...latest, OLDER, ...older] : latest;
 }
+
+/** The same list for a launch (the dialog, Settings' default): '' is Claude's own default (no --model), the aliases,
+ *  then the older versions. Before any chat has listed them, the aliases alone. `current`, a value saved earlier,
+ *  stays on the menu even when the list no longer has it. */
+export function launchModelOptions(models, aliases = [], current = '') {
+  const listed = models || [];
+  const dflt = listed.find((m) => m.value === 'default');
+  const latest = listed.length ? listed.filter((m) => !pinned(m) && m.value !== 'default').map(named) : aliases.map((a) => [a, capital(a)]);
+  const older = listed.filter(pinned).map(named);
+  const out = [['', dflt?.description ? `Claude's default (${dflt.description})` : "Claude's default"], ...latest, ...(older.length ? [OLDER, ...older] : [])];
+  if (current && !out.some((o) => Array.isArray(o) && o[0] === current)) out.push([current, modelName(listed, current)]);
+  return out;
+}
+
+/** A model and an effort as few letters, for a phone's composer: "Sonnet 5.5" → "S 5.5", "Extra high" → "XHigh". */
+export function shortModel(label) {
+  const m = /^([A-Za-z])[a-z]*\s+(\d+(?:\.\d+)?)/.exec(String(label || ''));
+  return m ? `${m[1].toUpperCase()} ${m[2]}` : String(label || '');
+}
+const EFFORT_SHORT = { low: 'Low', medium: 'Med', high: 'High', xhigh: 'XHigh', max: 'Max' };
+export const shortEffort = (e) => EFFORT_SHORT[e] || e;
 
 // ── what a tool call shows on its one line ───────────────────────────────────
 const firstLine = (s) => String(s || '').split('\n')[0];

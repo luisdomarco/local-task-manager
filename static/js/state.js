@@ -26,6 +26,8 @@ export const state = {
   vault: null,      // { id, name, structure, path, root }: the vault this page shows (vault.js)
   vaultCheck: null, // whether its folder matches its structure (tm/structures/check.py); when not, nothing else is loaded
   vaultMatches: [], // when it does not: the other structures its folder does match, if any [{ id, label }]
+  claudeModels: [], // the models claude offers ({ value, label, description, resolved, efforts }), as the latest chat to
+                    // start was told: every model menu shows them (chat-model.js modelOptions, launchModelOptions)
   error: null,
 };
 
@@ -204,11 +206,11 @@ export const claudeForget = (key, index) => mutate(() => api.claudeForget(key, i
  * card's AI tab shows it there. → { session_id, session? } (session: the dock's chat or terminal of it, renamed). */
 export const claudeAssociate = (sessionId, fromKey, toKey) => mutate(() => api.claudeAssociate(sessionId, fromKey, toKey));
 /** The same launch, in the dock instead of Terminal.app: recorded all the same, so the state reloads. */
-export const claudeTermOpen = (key, instruction, model, effort, cwd, cols, rows) =>
-  mutate(() => api.termOpen(key, instruction, model, effort, cwd, cols, rows));
+export const claudeTermOpen = (key, instruction, model, effort, cwd, cols, rows, empty = false) =>
+  mutate(() => api.termOpen(key, instruction, model, effort, cwd, cols, rows, empty));
 /** …or as a chat in the dock: recorded the same way. */
-export const claudeChatOpen = (key, instruction, model, effort, cwd, mode) =>
-  mutate(() => api.chatOpen(key, instruction, model, effort, cwd, mode));
+export const claudeChatOpen = (key, instruction, model, effort, cwd, mode, empty = false) =>
+  mutate(() => api.chatOpen(key, instruction, model, effort, cwd, mode, empty));
 
 /** Status is the single source of truth; clearing `list` lets listOf() re-place the card. */
 export const setStatus = (item, status) =>

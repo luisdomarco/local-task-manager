@@ -205,12 +205,16 @@ def kind(msg):
 
 
 class Chat:
+    # The models the latest chat to start was offered: what a new session can pick from before its own claude runs.
+    last_models = []
+
     def __init__(self, chat_id, argv, cwd, env, label='', key=None, mode='default', model='', history=(), effort=''):
         exe = shutil.which(argv[0])
         if not exe:
             raise StoreError(500, f'{argv[0]!r} was not found in the PATH of this server — set the full path in Settings → Command')
         self.id, self.cwd, self.label, self.key = chat_id, cwd, label, key
         self.vault = None  # the vault its record is in, set by the server: where a change of item moves it
+        self.untitled = False  # started with no first message: the first one sent names it (the server's chat_send)
         self.mode, self.model, self.effort = mode or 'default', model or '', effort or ''
         self.window = None  # how full the context is: {used, max, percent}, from claude's get_context_usage
         self.models = []  # what claude offers, from its `initialize` answer: [{value, label, description, resolved, efforts}]
@@ -291,6 +295,8 @@ class Chat:
             return
         if what == 'initialize':
             self.models = [model_choice(m) for m in body.get('models') or [] if isinstance(m, dict) and m.get('value')]
+            if self.models:
+                Chat.last_models = self.models
             self._emit({'type': 'tm_models', 'models': self.models}, keep=False)
             self._ask('get_settings')
         elif what == 'set_model':
@@ -536,6 +542,11 @@ class Chat:
     def unsubscribe(self, q):
         with self._lock:
             self._subs.discard(q)
+
+    def rename(self, label):
+        """A new name for the session, for the dock's list and head."""
+        self.label = label
+        self._emit({'type': 'tm_label', 'label': label}, keep=False)
 
     def info(self):
         return {'id': self.id, 'label': self.label, 'key': self.key, 'vault': self.vault, 'cwd': self.cwd, 'alive': self.alive,

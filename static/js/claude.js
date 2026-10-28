@@ -11,6 +11,7 @@ import { itemPicker } from './itempicker.js';
 import { moveClaudeSession, openClaudeHere, resumeClaudeHere, termIsLive } from './term.js';
 import { dropdown, h, icon, select, tabPanels } from './ui.js';
 import { withMic } from './dictation.js';
+import { launchModelOptions } from './chat-model.js';
 
 const SOURCE = {
   item: () => 'the Local path of this item',
@@ -31,7 +32,9 @@ const folderName = (path) => (state.config.claude_path_names || {})[path] || '';
 
 // The choices for the model and the effort. The dialog starts at what Settings says and can change it for this launch only;
 // '' leaves it to Claude's own default.
-export const CLAUDE_MODELS = [['', "Claude's default"], ['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
+/** The model menu of a launch: claude's own list (the same as a chat's composer), else these aliases until a chat has
+ *  run. `current` (a value saved earlier) stays on it. */
+export const claudeModelOptions = (current = '') => launchModelOptions(state.claudeModels, ['fable', 'opus', 'sonnet', 'haiku'], current);
 export const CLAUDE_EFFORTS = [['', "Claude's default"], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
 
 // Open in ▾ (TSK-038): where a session can open besides the dock — Terminal, and Claude Desktop, Cursor and Antigravity
@@ -190,7 +193,7 @@ function requestPane(item, close) {
     : [...paths.map(folderOption), ['', `${folderName('') || 'The project folder of this app'}${dflt ? '' : ' · default'}`, 'folder']];
   if (!item) choice.cwd = dflt;
   const folderSel = paths.length ? select(folderOptions, choice.cwd, (v) => { choice.cwd = v || ''; refresh(); }, { 'aria-label': 'Folder' }) : null;
-  const modelSel = select(CLAUDE_MODELS, choice.model, (v) => { choice.model = v || ''; refresh(); }, { 'aria-label': 'Model' });
+  const modelSel = select(claudeModelOptions(choice.model), choice.model, (v) => { choice.model = v || ''; refresh(); }, { 'aria-label': 'Model' });
   const effortSel = select(CLAUDE_EFFORTS, choice.effort, (v) => { choice.effort = v || ''; refresh(); }, { 'aria-label': 'Effort' });
   const preview = h('textarea', { class: 'claude-preview', readonly: true, 'aria-label': 'Prompt that will be sent', spellcheck: 'false' });
   const copy = h('button', { class: 'btn', disabled: true, onclick: async () => {

@@ -447,7 +447,8 @@ export function withMentions(text) {
  * field once the list is long.
  *
  * It keeps the contract callers had with <select>: options are [value, label] pairs, or
- * [value, label, iconName] to draw an icon beside the label (a null value is the "none / any" row), `.value` reads and writes the selected value
+ * [value, label, iconName] to draw an icon beside the label (a null value is the "none / any" row), or { heading } for
+ * a label over the options after it (left out while searching), `.value` reads and writes the selected value
  * ('' for none) and onChange(value | null) fires when the user picks a different one.
  * attrs: class, aria-label, data-fk… as on any element, plus `search: true | false` to
  * force the search field on or off (default: on from 11 options), and `clearable: true` for an × beside
@@ -460,12 +461,13 @@ export function select(options, value, onChange, attrs = {}) {
     : /\bprio-select\b/.test(cls) ? { prefix: 'pr-', kind: 'prio' }
       : /\bkind-select\b/.test(cls) ? { prefix: 'k-', kind: 'kind' } : null; // work-log kinds: the coloured square
   let current = value ?? null;
-  const optionOf = (v) => options.find(([ov]) => (ov ?? null) === (v ?? null)) || [null, ''];
+  const choices = options.filter(Array.isArray); // the headings ({ heading }) are only drawn in the menu
+  const optionOf = (v) => choices.find(([ov]) => (ov ?? null) === (v ?? null)) || [null, ''];
   const face = ([, text, ico]) => [ico ? icon(ico, 14) : null, text]; // an option's icon + label
 
   const label = h('span', { class: 'select-label' });
   // Hidden copy of every label: the button is as wide as the longest one, so it never resizes on pick.
-  const sizer = h('span', { class: 'select-sizer', 'aria-hidden': 'true' }, options.map((o) => h('span', {}, ...face(o))));
+  const sizer = h('span', { class: 'select-sizer', 'aria-hidden': 'true' }, choices.map((o) => h('span', {}, ...face(o))));
   const btn = h('button', { type: 'button', 'aria-haspopup': 'listbox', ...rest, class: `select-btn ${cls}` },
     h('span', { class: 'select-text' }, label, sizer));
 
@@ -484,7 +486,7 @@ export function select(options, value, onChange, attrs = {}) {
   paint();
 
   const open = () => {
-    const searchable = search ?? options.length > 10;
+    const searchable = search ?? choices.length > 10;
     const list = h('div', { class: 'menu-list', role: 'listbox', 'aria-label': rest['aria-label'] || null });
     const input = searchable
       ? h('input', { type: 'search', class: 'small', placeholder: 'Search…', 'aria-label': 'Search options', autocomplete: 'off' }) : null;
@@ -498,8 +500,10 @@ export function select(options, value, onChange, attrs = {}) {
     const rows = () => [...list.querySelectorAll('.menu-item')];
     const render = () => {
       const q = input ? input.value.trim().toLowerCase() : '';
-      const shown = options.filter(([v, l]) => !q || v == null || l.toLowerCase().includes(q)); // the none row stays: a way out while searching
-      list.replaceChildren(...(shown.length ? shown.map(([v, l, ico]) => {
+      const shown = options.filter((o) => (Array.isArray(o) ? !q || o[0] == null || o[1].toLowerCase().includes(q) : !q)); // the none row stays: a way out while searching
+      list.replaceChildren(...(shown.some(Array.isArray) ? shown.map((o) => {
+        if (!Array.isArray(o)) return h('div', { class: 'menu-label', role: 'presentation' }, o.heading);
+        const [v, l, ico] = o;
         const picked = (v ?? null) === current;
         const text = tone ? h('span', {}, h('span', { class: `chip ${tone.kind} ${tone.prefix}${cssKey(v)}` }, l)) : h('span', {}, l);
         const lead = ico ? icon(ico, 15) : null;

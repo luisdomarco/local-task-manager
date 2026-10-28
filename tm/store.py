@@ -273,6 +273,11 @@ def clean_docs(raw):
     return list(dict.fromkeys(out))
 
 
+def clean_instruction(text):
+    """An instruction as a session's record keeps it: its first line, spaces collapsed, cut to CLAUDE_INSTRUCTION_MAX."""
+    return ' '.join(str(text or '').strip().split('\n')[0].split())[:CLAUDE_INSTRUCTION_MAX]
+
+
 def clean_claude_sessions(raw):
     """Claude sessions as stored: id (a UUID, or the entry is refused), at, cwd (required: a resume runs there),
     the first line of the instruction, and the model / effort flags if any. Anything else is dropped."""
@@ -286,8 +291,7 @@ def clean_claude_sessions(raw):
         cwd = str(s.get('cwd') or '').strip()
         if not cwd:
             raise StoreError(400, 'a Claude session needs the folder it ran in')
-        instruction = ' '.join(str(s.get('instruction') or '').strip().split('\n')[0].split())[:CLAUDE_INSTRUCTION_MAX]
-        entry = {'id': sid, 'at': str(s.get('at') or now_stamp()), 'cwd': cwd, 'instruction': instruction}
+        entry = {'id': sid, 'at': str(s.get('at') or now_stamp()), 'cwd': cwd, 'instruction': clean_instruction(s.get('instruction'))}
         for k in ('model', 'effort'):
             if s.get(k):
                 entry[k] = str(s[k]).strip()
@@ -1148,11 +1152,24 @@ class Store:
                     self._save_global_claude_sessions(rest)
             return entry
 
-    @writes
     def set_claude_session_settings(self, key, session_id, model, effort):
         """The model and effort a session now runs with (changed from the chat), on its entry in the item's list or
         the global one: what its history shows and a resume starts from. Unchanged → nothing written. → the entry,
         or None when it is not on record there."""
+        def patch(entry):
+            entry = {k: v for k, v in entry.items() if k not in ('model', 'effort')}
+            return {**entry, **{k: v for k, v in (('model', model), ('effort', effort)) if v}}
+        return self._patch_claude_session(key, session_id, patch)
+
+    def set_claude_session_instruction(self, key, session_id, text):
+        """What a session started with nothing was first asked (the first line of its first message), on its entry, as
+        a launch's instruction is: its history says what it was about. → the entry, or None when not on record."""
+        return self._patch_claude_session(key, session_id, lambda entry: {**entry, 'instruction': clean_instruction(text)})
+
+    @writes
+    def _patch_claude_session(self, key, session_id, patch):
+        """A session's entry in the item's list (or the global one, key None), changed by `patch(entry) → entry`.
+        Unchanged → nothing written. → the entry, or None when it is not on record there."""
         sid = str(session_id or '').strip().lower()
         with self._lock:
             it = self.find(key) if key else None
@@ -1160,8 +1177,7 @@ class Store:
             at = next((i for i, s in enumerate(sessions) if s.get('id') == sid), None)
             if at is None:
                 return None
-            entry = {k: v for k, v in sessions[at].items() if k not in ('model', 'effort')}
-            entry.update({k: v for k, v in (('model', model), ('effort', effort)) if v})
+            entry = patch(dict(sessions[at]))
             if entry == sessions[at]:
                 return entry
             sessions[at] = entry

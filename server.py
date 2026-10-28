@@ -37,7 +37,7 @@ from tm.chat import CHAT_MODES, Chat, Chats, chat_flags, session_files
 from tm.pty import MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS, Terms, dim
 from tm.transcript import history as transcript_history
 from tm.store import (ACTIVITY_SOURCES, DEFAULT_FOLDERS, DEFAULT_WORK_KINDS, ITEM_TYPES, PARENT_TYPES, PRIORITIES,
-                      META_DIR, STATUSES, Store, StoreError, now_stamp)
+                      META_DIR, STATUSES, Store, StoreError, clean_instruction, now_stamp)
 from tm.structures import DEFAULT_STRUCTURE, REGISTRY, STRUCTURES
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -863,19 +863,28 @@ def _open_terminal(cwd, flags, prompt=None):
     return {'launched': True, 'cwd': cwd, 'terminal': APP.config['terminal'], 'command': _command_line(flags)}
 
 
-def _launch_plan(store, key, instruction, model, effort, cwd):
+def _launch_plan(store, key, instruction, model, effort, cwd, empty=False):
     """Everything a new launch needs, before anything runs: the preview (prompt, folder, flags), the item, a fresh
-    session id, the flags that carry it, and the entry to record. Shared by Terminal.app and the embedded terminal."""
+    session id, the flags that carry it, and the entry to record. Shared by Terminal.app and the embedded terminal.
+    `empty`: the dock's "+", a session that starts with nothing sent (prompt None) and waits for the first message."""
+    if empty:
+        instruction = ''
     info = claude_preview(store, key, instruction, model, effort, cwd)
-    if not key and not info['prompt']:
+    if empty:
+        info['prompt'] = None
+    elif not key and not info['prompt']:
         raise StoreError(400, 'a prompt is needed when no item is given')
     item = store.read(key) if key else None
     session_id = str(uuid.uuid4())
-    name = f"{item['id'] or item['type']} · {item['title']}" if item else info['prompt'].split('\n', 1)[0]
+    name = (f"{item['id'] or item['type']} · {item['title']}" if item
+            else info['prompt'].split('\n', 1)[0] if info['prompt'] else UNTITLED)
     flags = [*info['flags'], *session_flags(session_id, name)]
     entry = {'id': session_id, 'at': now_stamp(), 'cwd': info['cwd'], 'instruction': (instruction or '').strip(),
              'model': info['model'], 'effort': info['effort']}
     return info, item, session_id, flags, entry, name
+
+
+UNTITLED = 'New chat'  # the name of a session started empty, until its first message names it
 
 
 def _record(store, out, item, entry):
@@ -946,10 +955,10 @@ def _spawn_term(term_id, flags, cwd, cols, rows, label, prompt=None):
     return TERMS.open(term_id, argv, cwd, dim(cols, 100, MIN_COLS, MAX_COLS), dim(rows, 30, MIN_ROWS, MAX_ROWS), env, label)
 
 
-def open_term(store, key, instruction='', model=None, effort=None, cwd=None, cols=None, rows=None):
+def open_term(store, key, instruction='', model=None, effort=None, cwd=None, cols=None, rows=None, empty=False):
     """Like launch_claude, but in the dock: the same session id, flags, folder and record; the prompt is an argument
     of the process (no shell, no file), so quotes, `$(…)` or backticks in a description are just text."""
-    info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd)
+    info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd, empty)
     term = _spawn_term(session_id, flags, info['cwd'], cols, rows, name, info['prompt'])
     term.key, term.vault = (item['key'] if item else None), getattr(store, 'vault_id', None)
     return _record(store, {'term': term.info(), 'cwd': info['cwd'], 'command': _command_line(flags)}, item, entry)
@@ -1006,13 +1015,14 @@ def _record_settings(chat, model, effort):
         pass
 
 
-def open_chat(store, key, instruction='', model=None, effort=None, cwd=None, mode=''):
+def open_chat(store, key, instruction='', model=None, effort=None, cwd=None, mode='', empty=False):
     """Like open_term, but as a chat: the same session id, flags, folder and record; the prompt goes in as the first
-    message on stdin."""
-    info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd)
+    message on stdin. `empty`: nothing goes in; the first message the user sends names it (chat_send)."""
+    info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd, empty)
     chat = _spawn_chat(session_id, flags, info['cwd'], name, item['key'] if item else None, mode, info['model'], info['prompt'],
                        effort=info['effort'])
     chat.vault = getattr(store, 'vault_id', None)
+    chat.untitled = bool(empty)
     return _record(store, {'chat': chat.info(), 'cwd': info['cwd'], 'command': _command_line([*chat_flags(mode), *flags])}, item, entry)
 
 
@@ -1094,7 +1104,23 @@ def chat_send(chat_id, text, keys=None, vault_id=None, images=None):
             it = store.read(key)
             items.append({'id': it['id'], 'title': it['title'], 'type': it['type'], 'context': store.claude_item_context(key)})
     chat.send(text, items, images or [])
+    if chat.untitled and str(text or '').strip():
+        _name_untitled(chat, text)
     return {'ok': True}
+
+
+def _name_untitled(chat, text):
+    """A chat started empty, named by its first message: its first line is the instruction on its record (what its
+    history shows) and, about no item, its name in the dock. Not on record (a vault since removed): just the name."""
+    chat.untitled = False
+    line = clean_instruction(text)
+    if not chat.key:
+        chat.rename(line)
+    if chat.vault:
+        try:
+            APP.store_for(chat.vault).set_claude_session_instruction(chat.key, chat.id, line)
+        except StoreError:
+            pass
 
 
 def chat_control(chat_id, mode=None, model=None, effort=None):
@@ -1249,14 +1275,15 @@ ROUTES = {
     ('POST', '/api/claude/associate'): lambda s, q, b: associate_claude(s, b.get('session_id'), b.get('from_key'), b.get('to_key')),
     ('GET', '/api/term/list'): lambda s, q, b: {'terms': TERMS.list()},
     ('POST', '/api/term/open'): lambda s, q, b: open_term(s, b.get('key'), b.get('instruction') or '', b.get('model'), b.get('effort'),
-                                                       b.get('cwd'), b.get('cols'), b.get('rows')),
+                                                       b.get('cwd'), b.get('cols'), b.get('rows'), bool(b.get('empty'))),
     ('POST', '/api/term/resume'): lambda s, q, b: resume_term(s, b.get('key'), b.get('session_id'), b.get('cols'), b.get('rows')),
     ('POST', '/api/term/input'): lambda s, q, b: term_input(b.get('id'), b.get('data')),
     ('POST', '/api/term/resize'): lambda s, q, b: term_resize(b.get('id'), b.get('cols'), b.get('rows')),
     ('POST', '/api/term/close'): lambda s, q, b: TERMS.close(b.get('id')),
-    ('GET', '/api/chat/list'): lambda s, q, b: {'chats': CHATS.list(), 'modes': list(CHAT_MODES), 'models': list(CLAUDE_MODELS)},
+    ('GET', '/api/chat/list'): lambda s, q, b: {'chats': CHATS.list(), 'modes': list(CHAT_MODES), 'models': list(CLAUDE_MODELS),
+                                                 'offered': Chat.last_models},
     ('POST', '/api/chat/open'): lambda s, q, b: open_chat(s, b.get('key'), b.get('instruction') or '', b.get('model'), b.get('effort'),
-                                                       b.get('cwd'), b.get('mode') or ''),
+                                                       b.get('cwd'), b.get('mode') or '', bool(b.get('empty'))),
     ('POST', '/api/chat/resume'): lambda s, q, b: resume_chat(s, b.get('key'), b.get('session_id'), b.get('mode') or ''),
     ('GET', '/api/chat/files'): lambda s, q, b: chat_files(q.get('id')),
     ('POST', '/api/chat/send'): lambda s, q, b: chat_send(b.get('id'), b.get('text'), b.get('items'), b.get('vault'), b.get('images')),

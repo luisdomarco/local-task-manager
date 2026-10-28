@@ -51,6 +51,13 @@ All notable changes to this project are written down here. Versions follow [Sema
   theme. Its head shows the **item as its title** (a chip that reads as a button, which changes it), the session's
   name only when it is about no item, and the folder in the tooltip. Scrolled up in a chat, **New messages ↓** takes
   you down to what came in, and says **Claude needs you** when it is waiting for an answer.
+- The dock's **+ starts a session at once**: empty, in the view last picked, about the item open in the card (which
+  goes along as a chip with the first message) and with Settings' model and effort. The first message names it in
+  its history. The full dialog (a folder, a saved prompt, Terminal.app, an editor) stays on the top bar and the card.
+- **One model list** everywhere — the chat, the dialog, Settings' default: Claude's own, the current models first and
+  the **older versions** it still offers under their own heading.
+- On a phone (or any narrow dock) the sessions are a **menu in the head**, with a dot that turns amber when one needs
+  you, and the chat's model and effort read in a few letters (*S 5.5 · Low*).
 
 ## [1.3.0] — 2026-10-21
 

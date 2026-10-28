@@ -10,7 +10,7 @@ import unittest
 
 from tm import frontmatter as fm
 from tm.launch import SESSION_RE, claude_flags, claude_script, resume_flags, session_flags
-from tm.store import (ALLOWED_FIELDS, CLAUDE_DEFAULT_INSTRUCTION, CLAUDE_MAX_PROMPT, ITEM_TYPES, TYPE_FIELDS, Store,
+from tm.store import (ALLOWED_FIELDS, CLAUDE_DEFAULT_INSTRUCTION, CLAUDE_INSTRUCTION_MAX, CLAUDE_MAX_PROMPT, ITEM_TYPES, TYPE_FIELDS, Store,
                       StoreError)
 
 
@@ -431,7 +431,11 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(claude_flags('opus', ''), ['--model', 'opus'])
         self.assertEqual(claude_flags('', 'xhigh'), ['--effort', 'xhigh'])
         self.assertEqual(claude_flags('sonnet', 'low'), ['--model', 'sonnet', '--effort', 'low'])
-        for bad in (('gpt-5', ''), ('opus; rm -rf ~', ''), ('', 'extreme'), ('--dangerously-skip-permissions', '')):
+        # An older version, pinned by its id as claude lists it: by its shape, never anything a shell would read
+        self.assertEqual(claude_flags('claude-opus-4-8', ''), ['--model', 'claude-opus-4-8'])
+        self.assertEqual(claude_flags('claude-haiku-4-5-20251001', ''), ['--model', 'claude-haiku-4-5-20251001'])
+        for bad in (('gpt-5', ''), ('opus; rm -rf ~', ''), ('', 'extreme'), ('--dangerously-skip-permissions', ''),
+                    ('claude-opus-4-8 --x', ''), ('claude-opus-$(id)', ''), ('claude-Opus-4', ''), ('claude-opus-4-8-x', '')):
             with self.assertRaises(ValueError):
                 claude_flags(*bad)
 
@@ -569,6 +573,18 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.s.global_claude_sessions()['sessions'][0], {'id': other, 'at': self.s.global_claude_sessions()['sessions'][0]['at'],
                                                                          'cwd': '/tmp/g', 'instruction': '', 'model': 'opus', 'effort': 'max'})
         self.assertIsNone(self.s.set_claude_session_settings(None, sid, 'opus', 'max'))  # not on record there
+
+    def test_a_session_started_empty_takes_its_first_message_as_instruction(self):
+        self.s.create('task', 'A')
+        sid = '0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b'
+        self.s.add_claude_session('TSK-0001', {'id': sid, 'cwd': '/tmp/w', 'model': 'opus'})
+        got = self.s.set_claude_session_instruction('TSK-0001', sid, '  Compare   the  plans\nand say which')
+        self.assertEqual((got['instruction'], got['model']), ('Compare the plans', 'opus'))  # its first line, the rest kept
+        self.assertEqual(self.s.read('TSK-0001')['fields']['claude_sessions'][0]['instruction'], 'Compare the plans')
+        self.s.add_global_claude_session({'id': sid, 'cwd': '/tmp/g'})
+        self.s.set_claude_session_instruction(None, sid, 'x' * 500)
+        self.assertEqual(len(self.s.global_claude_sessions()['sessions'][0]['instruction']), CLAUDE_INSTRUCTION_MAX)
+        self.assertIsNone(self.s.set_claude_session_instruction('TSK-0001', '0f1e2d3c-4b5a-4978-8a6b-000000000001', 'hi'))
 
     def test_a_claude_session_moves_between_histories(self):
         self.s.create('task', 'A')

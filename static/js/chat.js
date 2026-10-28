@@ -4,7 +4,7 @@
 // options, a plan as the plan) — and a composer with the session's mode, model, effort, plan, attached items and
 // images, and a stop button. What the messages mean is chat-model.js; this file only draws it. term.js hosts it.
 import { api } from './api.js';
-import { STATUSES, apply, currentModel, editDiff, effortLabel, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortPath,
+import { STATUSES, apply, currentModel, editDiff, effortLabel, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortEffort, shortModel, shortPath,
   subagentSummary, toolTarget } from './chat-model.js';
 import { IMAGE_TYPES, dropToken, imageFit, insertPick, matchCommands, matchFiles, matchItems, tokenAt } from './composer.js';
 import { isDone } from './rules.js';
@@ -329,6 +329,7 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
       rendered.push({ item: items[i], sig: sig(items[i]), el: node });
     }
     working.hidden = !chat.busy || chat.pending > 0 || chat.items.at(-1)?.partial;
+    thread.classList.toggle('blank', !items.length && !chat.busy && !chat.ended); // started empty: nothing said yet (app.css)
     paintSend();
     modeSel.value = chat.mode;
     paintPickers();
@@ -459,15 +460,17 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     chips.hidden = !attached.length && !images.length;
     paintSend();
   }
-  // Model and effort: claude's own list once it has given it — each model with its version, the efforts it takes.
+  // Model and effort: claude's own list once it has given it — each model with its version, the efforts it takes. The
+  // list is also the one every other model menu shows (the dialog, Settings): state.claudeModels.
   function paintPickers() {
+    if (chat.models.length) state.claudeModels = chat.models;
     const options = modelOptions(chat.models, MODELS);
     const cur = currentModel(chat.models, chat.model);
     const efforts = cur?.efforts || [];
     const sigNow = JSON.stringify([options, efforts]);
     if (sigNow !== pickersSig) {
       pickersSig = sigNow;
-      const m = select(options.map(([v, l]) => [v, l, 'sparkles']), null, async (v) => {
+      const m = select(options.map((o) => (Array.isArray(o) ? [...o, 'sparkles'] : o)), null, async (v) => {
         try { await api.chatControl(info.id, { model: v }); } catch (e) { toast(e.message, true); paintPickers(); }
       }, { class: 'small cv-pick', 'aria-label': 'Model', title: 'Model' });
       const e = select(efforts.map((x) => [x, effortLabel(x), 'flame']), null, async (v) => {
@@ -478,7 +481,9 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     }
     modelSel.value = cur?.value || MODELS.find((m) => (chat.model || '').includes(m)) || null;
     modelSel.hidden = !modelSel.value; // claude's default, not yet named: nothing to show until it says
+    modelSel.dataset.short = shortModel(cur?.label || modelName(chat.models, chat.model)); // a phone shows these (app.css)
     effortSel.value = efforts.includes(chat.effort) ? chat.effort : null;
+    effortSel.dataset.short = shortEffort(chat.effort);
     effortSel.hidden = !efforts.length || !effortSel.value;
   }
   // Grows with what is typed, up to a third of the pane, so the conversation always keeps most of it.

@@ -9,6 +9,9 @@ from urllib.parse import quote, urlencode
 
 # What the dialog may ask for. Closed lists: the browser never sends a free-form argument to the command line.
 CLAUDE_MODELS = ("fable", "opus", "sonnet", "haiku")
+# …or a version pinned by its id, as claude lists the older ones ("claude-opus-4-8", "claude-haiku-4-5-20251001"): a
+# shape, not a list, since claude names them; it never holds anything a shell would read.
+MODEL_ID_RE = re.compile(r"claude-[a-z]+(?:-\d{1,2}){1,2}(?:-\d{8})?")
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 # A Claude Code session id (what `--session-id` sets and `--resume` takes back): a lowercase UUID v4.
 SESSION_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -55,8 +58,8 @@ def session_updated(session_id, cwd, home=None):
 def claude_flags(model="", effort=""):
     """`--model` / `--effort` for claude, from the dialog's choices (empty = leave it to Claude's own default)."""
     model, effort = (model or "").strip(), (effort or "").strip()
-    if model and model not in CLAUDE_MODELS:
-        raise ValueError(f"model must be one of {', '.join(CLAUDE_MODELS)}")
+    if model and model not in CLAUDE_MODELS and not MODEL_ID_RE.fullmatch(model):
+        raise ValueError(f"model must be one of {', '.join(CLAUDE_MODELS)}, or a model's id")
     if effort and effort not in CLAUDE_EFFORTS:
         raise ValueError(f"effort must be one of {', '.join(CLAUDE_EFFORTS)}")
     return (["--model", model] if model else []) + (["--effort", effort] if effort else [])
