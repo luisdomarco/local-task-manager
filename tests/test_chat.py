@@ -147,7 +147,8 @@ class ChatTest(unittest.TestCase):
         _, q = chat.subscribe()
         until(q, lambda m: m.get('type') == 'tm_effort')  # asked once claude has answered initialize
         info = chat.info()
-        self.assertEqual([(m['value'], m['label']) for m in info['models']], [('opus', 'Opus 9.9'), ('claude-haiku-1-0', 'Haiku 1.0')])
+        self.assertEqual([(m['value'], m['label']) for m in info['models']][:3],
+                         [('opus', 'Opus 9.9'), ('claude-haiku-1-0', 'Haiku 1.0'), ('claude-sonnet-8-1', 'Sonnet 8.1')])
         self.assertEqual(info['models'][0]['efforts'], ['low', 'medium', 'high', 'xhigh', 'max'])
         self.assertEqual(info['models'][1]['efforts'], [])  # it takes none
         self.assertEqual(info['effort'], 'high')
@@ -165,6 +166,56 @@ class ChatTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertIn({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': 'low'}}, reqs)  # in memory, no settings file
+
+    def test_the_effort_holds_across_a_change_of_model(self):
+        chat = self.open(prompt='hi')
+        settled = []
+        chat.on_settings = lambda model, effort: settled.append((model, effort))
+        _, q = chat.subscribe()
+        until(q, lambda m: m.get('type') == 'tm_effort')
+        self.assertEqual(chat.info()['effort'], 'high')  # what claude applies when none was set
+        # Without our effort, claude would give Sonnet its own default (medium): the session's High goes on with it.
+        chat.set_model('claude-sonnet-8-1')
+        got = until(q, lambda m: m.get('type') == 'tm_settings')[-1]
+        self.assertEqual(got, {'type': 'tm_settings', 'model': 'claude-sonnet-8-1', 'effort': 'high'})
+        self.assertEqual(settled[-1], ('claude-sonnet-8-1', 'high'))
+        # Extra high on Opus, then a model without it: the nearest below.
+        chat.set_model('opus')
+        until(q, lambda m: m.get('type') == 'tm_settings')
+        chat.set_effort('xhigh')
+        self.assertEqual(until(q, lambda m: m.get('type') == 'tm_settings')[-1]['effort'], 'xhigh')
+        chat.set_model('claude-sonnet-8-1')
+        self.assertEqual(until(q, lambda m: m.get('type') == 'tm_settings')[-1]['effort'], 'high')
+        self.assertEqual(chat.info()['effort'], 'high')
+        # A model that takes none: no effort shown, none recorded.
+        chat.set_model('claude-haiku-1-0')
+        self.assertEqual(until(q, lambda m: m.get('type') == 'tm_settings')[-1]['effort'], '')
+        self.assertEqual((chat.info()['effort'], settled[-1]), ('', ('claude-haiku-1-0', '')))
+        # The change is in the conversation a reload gets back.
+        kept, _ = chat.subscribe()
+        self.assertEqual(len([m for m in kept if m.get('type') == 'tm_settings']), 5)
+
+    def test_a_model_claude_refuses_is_undone_and_said(self):
+        chat = self.open(prompt='hi')
+        settled = []
+        chat.on_settings = lambda model, effort: settled.append((model, effort))
+        _, q = chat.subscribe()
+        until(q, lambda m: m.get('type') == 'tm_effort')
+        chat.set_model('opus')
+        until(q, lambda m: m.get('type') == 'tm_settings')
+        chat.set_model('claude-gone-0-1')  # listed, but this account cannot use it
+        got = until(q, lambda m: m.get('type') == 'tm_notice')
+        self.assertEqual([m['model'] for m in got if m.get('type') == 'tm_model'], ['claude-gone-0-1', 'opus'])
+        self.assertEqual(got[-1], {'type': 'tm_notice', 'tone': 'error', 'text': "Claude did not switch models: Model 'claude-gone-0-1' not found"})
+        self.assertEqual(chat.info()['model'], 'opus')
+        self.assertEqual(settled, [('opus', 'high')])  # nothing recorded for the refused one
+
+    def test_effort_for_a_model(self):
+        self.assertEqual(tchat.effort_for('xhigh', ['low', 'medium', 'high', 'max']), 'high')
+        self.assertEqual(tchat.effort_for('low', ['medium', 'high']), 'medium')  # none below: its lowest
+        self.assertEqual(tchat.effort_for('max', ['low', 'max']), 'max')
+        self.assertEqual(tchat.effort_for('high', []), '')  # it takes none
+        self.assertEqual(tchat.effort_for('', ['low', 'high']), '')  # none set: claude's default for the model
 
     def test_attached_items_go_to_claude_and_show_as_chips(self):
         chat = self.open()

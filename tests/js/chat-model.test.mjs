@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { STATUSES, apply, build, currentModel, editDiff, emptyChat, kTokens, modelOptions, questionAnswers, sessionStatus, shortPath, subagentSummary,
+import { STATUSES, apply, build, currentModel, editDiff, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortPath, subagentSummary,
   toolTarget } from '../../static/js/chat-model.js';
 
 const assistant = (content, extra = {}) => ({ type: 'assistant', message: { content }, ...extra });
@@ -242,5 +242,35 @@ describe('the model and effort menus', () => {
     assert.equal(chat.models.length, 3);
     assert.equal(chat.effort, 'low');
     assert.deepEqual(chat.items[0].attached, [{ id: 'TSK-1', title: 'One', type: 'task' }]);
+  });
+
+  it('names a model by its id, listed or not', () => {
+    assert.equal(modelName(models, 'claude-fable-5-1'), 'Fable 5.1'); // the alias's name, not the default's
+    assert.equal(modelName(models, 'fable'), 'Fable 5.1');
+    assert.equal(modelName([], 'claude-sonnet-5-5'), 'Sonnet 5.5');
+    assert.equal(modelName([], 'claude-haiku-4-5-20251001'), 'Haiku 4.5');
+    assert.equal(modelName([], 'claude-opus-5'), 'Opus 5');
+    assert.equal(modelName([], 'something-else'), 'something-else');
+  });
+
+  it('says a change of model or effort in the thread, and the model that answered each turn', () => {
+    const answer = (text, model) => ({ type: 'assistant', message: { model, content: [{ type: 'text', text }] } });
+    const chat = build([
+      { type: 'tm_models', models }, { type: 'tm_effort', effort: 'high' },
+      answer('one', 'claude-fable-5-1'), { type: 'result', subtype: 'success' },
+      { type: 'tm_settings', model: 'claude-haiku-4-5', effort: '' },
+      answer('two', 'claude-haiku-4-5'), answer('', '<synthetic>'), { type: 'result', subtype: 'success' },
+      { type: 'tm_notice', tone: 'error', text: "Claude did not switch models: Model 'x' not found" },
+      { type: 'result', subtype: 'success' }, // a turn with no answer of its own (a command): no model under it
+    ]);
+    assert.deepEqual(chat.items.map((i) => [i.kind, i.text || i.model || '', i.effort ?? '']), [
+      ['text', 'one', ''], ['turn', 'claude-fable-5-1', ''],
+      ['settings', 'claude-haiku-4-5', ''],
+      ['text', 'two', ''], ['turn', 'claude-haiku-4-5', ''], // not the '<synthetic>' that came after it
+      ['notice', "Claude did not switch models: Model 'x' not found", ''],
+    ]);
+    assert.equal(chat.effort, ''); // a model that takes none
+    const past = build([{ ...answer('then', 'claude-fable-5-1'), history: true }, { type: 'result', subtype: 'success' }]);
+    assert.deepEqual(past.items.map((i) => i.kind), ['text']); // a resumed conversation's answers carry no turn line
   });
 });

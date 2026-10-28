@@ -404,6 +404,34 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(self.request('/api/claude/associate', {'session_id': cid, 'from_key': task['key'], 'to_key': None},
                                       header=False)[0], 403)
 
+    def test_a_model_changed_in_the_chat_is_kept_on_its_record(self):
+        if sys.platform == 'win32':
+            self.skipTest('needs a pipe-driven child process')
+        fake = os.path.join(os.path.dirname(__file__), 'fixtures', 'fake_claude.py')
+        self.addCleanup(server.CHATS.close_all)
+        task = self.call('/api/item/create', {'type': 'task', 'subject': 'Pick a model'})
+        with mock.patch.dict(server.APP.config, {'claude_command': f"'{sys.executable}' '{fake}'", 'claude_model': ''}):
+            cid = self.call('/api/chat/open', {'key': task['key'], 'instruction': 'Go', 'model': 'opus', 'effort': 'low'})['chat']['id']
+        record = lambda: (self.call(f'/api/item?key={quote(task["key"])}')['fields']['claude_sessions'][0])
+        self.assertEqual((record()['model'], record()['effort']), ('opus', 'low'))
+        chat = server.CHATS.get(cid)
+        for _ in range(250):  # claude lists its models once it has started
+            if chat.models:
+                break
+            time.sleep(0.02)
+        self.call('/api/chat/control', {'id': cid, 'model': 'claude-sonnet-8-1'})
+        for _ in range(250):  # written once claude has confirmed it
+            if record().get('model') == 'claude-sonnet-8-1':
+                break
+            time.sleep(0.02)
+        self.assertEqual((record()['model'], record()['effort']), ('claude-sonnet-8-1', 'low'))  # the Low it had goes on
+        self.call('/api/chat/control', {'id': cid, 'effort': 'max'})
+        for _ in range(250):
+            if record().get('effort') == 'max':
+                break
+            time.sleep(0.02)
+        self.assertEqual((record()['model'], record()['effort']), ('claude-sonnet-8-1', 'max'))
+
     def test_the_dock_needs_the_command_on_the_path(self):
         with mock.patch.dict(server.APP.config, {'claude_command': 'no-such-claude-binary-xyz'}):
             code, out = self.request('/api/term/open', {'key': None, 'instruction': 'hi'})

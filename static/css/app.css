@@ -1620,6 +1620,13 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .cv-answered.allow .icon { color: var(--tone-success); } .cv-answered.deny .icon { color: var(--tone-error); }
 .cv-notice { margin: 8px auto; font-size: var(--fs-2xs); color: var(--muted-foreground); text-align: center; }
 .cv-notice.error { color: var(--tone-error); }
+/* A change of model or effort, between the turns it separates; under each answer, the model that gave it */
+.cv-settings { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.cv-settings .icon { color: var(--tone-accent); }
+.cv-turn { margin: -2px 0 6px; font-size: var(--fs-2xs); color: var(--muted-foreground); opacity: .75; }
+/* A table in a reply keeps its columns and scrolls on its own: an id in a cell is never cut letter by letter */
+.cv-text table { display: block; max-width: 100%; overflow-x: auto; }
+.cv-text td code, .cv-text th code { white-space: nowrap; }
 .cv-working { display: flex; align-items: center; gap: 8px; padding: 2px 18px 6px; font-size: var(--fs-2xs); color: var(--muted-foreground); }
 .cv-working[hidden], .cv-endedbar[hidden], .cv-composer[hidden], .cv-suggest[hidden] { display: none; }
 .cv-spin { width: 11px; height: 11px; flex: none; border: 2px solid var(--border); border-top-color: var(--tone-accent); border-radius: 50%; animation: cv-spin .8s linear infinite; }

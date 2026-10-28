@@ -11,10 +11,12 @@
 //   { kind: 'permission', id, tool, input, description, form, answer, always, answers }   answer: null until answered;
 //                                               form: 'question' (AskUserQuestion), 'plan' (ExitPlanMode) or ''
 //   { kind: 'notice', text, tone }              interrupted, compacted, ended, an error
+//   { kind: 'settings', model, effort }         the model or effort changed from the composer, once Claude took it
+//   { kind: 'turn', model }                     the end of a turn: the model that answered it
 
 export const emptyChat = () => ({
   items: [], pending: 0, busy: false, ended: false, exitCode: null, mode: 'default', model: '', effort: '', models: [],
-  cost: 0, context: 0, window: null, plan: null,
+  cost: 0, context: 0, window: null, plan: null, answeredBy: '',
 });
 
 const last = (chat) => chat.items[chat.items.length - 1];
@@ -79,6 +81,7 @@ export function apply(chat, msg) {
       if (u) chat.context = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0);
       addBlocks(chat, chat.items, msg.message?.content, false);
       if (!msg.history) chat.busy = true;
+      if (!msg.history && msg.message?.model && !msg.message.model.startsWith('<')) chat.answeredBy = msg.message.model; // not '<synthetic>'
       break;
     }
     case 'user': {
@@ -120,6 +123,8 @@ export function apply(chat, msg) {
       if (msg.subtype && msg.subtype !== 'success' && msg.subtype !== 'error_during_execution') {
         chat.items.push({ kind: 'notice', text: `The turn ended with an error (${msg.subtype})`, tone: 'error' });
       }
+      if (chat.answeredBy) chat.items.push({ kind: 'turn', model: chat.answeredBy });
+      chat.answeredBy = '';
       break;
     case 'system':
       if (msg.subtype === 'init') {
@@ -135,6 +140,11 @@ export function apply(chat, msg) {
     case 'tm_mode': chat.mode = msg.mode; break;
     case 'tm_model': chat.model = msg.model; break;
     case 'tm_effort': chat.effort = msg.effort; break;
+    case 'tm_settings':
+      chat.effort = msg.effort || '';
+      chat.items.push({ kind: 'settings', model: msg.model || chat.model, effort: msg.effort || '' });
+      break;
+    case 'tm_notice': chat.items.push({ kind: 'notice', text: String(msg.text || ''), tone: msg.tone || 'muted' }); break;
     case 'tm_models': chat.models = Array.isArray(msg.models) ? msg.models : []; break;
     case 'tm_context': chat.window = msg.window || null; break;
     case 'tm_exit':
@@ -195,6 +205,16 @@ export const effortLabel = (e) => EFFORT_LABEL[e] || e;
 export function currentModel(models, model) {
   const hits = (models || []).filter((m) => model && (m.value === model || m.resolved === model));
   return hits.find((m) => m.value !== 'default') || hits[0] || null;
+}
+
+/** A model's name with its version, for the chat's lines: from claude's list (by full id or alias) when it is on it,
+ *  else read off the id ("claude-sonnet-5-5" → "Sonnet 5.5", a dated id too); anything else as it is. */
+export function modelName(models, model) {
+  const m = String(model || '');
+  const listed = currentModel(models, m);
+  if (listed && listed.value !== 'default') return listed.label;
+  const id = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(m);
+  return id ? `${id[1][0].toUpperCase()}${id[1].slice(1)} ${id[2]}${id[3] ? `.${id[3]}` : ''}` : m;
 }
 
 /** The model menu: [value, label] from claude's list, its version in the name ("Opus 5.5"; the default says which

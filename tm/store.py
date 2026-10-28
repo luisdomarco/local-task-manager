@@ -1148,6 +1148,29 @@ class Store:
                     self._save_global_claude_sessions(rest)
             return entry
 
+    @writes
+    def set_claude_session_settings(self, key, session_id, model, effort):
+        """The model and effort a session now runs with (changed from the chat), on its entry in the item's list or
+        the global one: what its history shows and a resume starts from. Unchanged → nothing written. → the entry,
+        or None when it is not on record there."""
+        sid = str(session_id or '').strip().lower()
+        with self._lock:
+            it = self.find(key) if key else None
+            sessions = list((it['fields'].get('claude_sessions') if it else self.global_claude_sessions()['sessions']) or [])
+            at = next((i for i, s in enumerate(sessions) if s.get('id') == sid), None)
+            if at is None:
+                return None
+            entry = {k: v for k, v in sessions[at].items() if k not in ('model', 'effort')}
+            entry.update({k: v for k, v in (('model', model), ('effort', effort)) if v})
+            if entry == sessions[at]:
+                return entry
+            sessions[at] = entry
+            if it:
+                self.update(it['key'], {'claude_sessions': sessions})
+            else:
+                self._save_global_claude_sessions(sessions)
+            return entry
+
     def claude_session(self, key, session_id):
         """The recorded entry a resume starts from (its cwd is what the shell gets). 404 if it is not on record."""
         sessions = self.find(key)['fields'].get('claude_sessions') if key else self.global_claude_sessions()['sessions']

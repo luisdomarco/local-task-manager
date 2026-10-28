@@ -549,6 +549,27 @@ class StoreTest(unittest.TestCase):
             self.s.forget_global_claude_session(1)
         self.assertEqual(self.s.forget_global_claude_session(0), {'sessions': []})
 
+    def test_a_claude_session_keeps_the_model_and_effort_it_runs_with(self):
+        self.s.create('task', 'A')
+        sid, other = '0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b', '0f1e2d3c-4b5a-4978-8a6b-000000000001'
+        self.s.add_claude_session('TSK-0001', {'id': other, 'cwd': '/tmp/o', 'model': 'haiku'})
+        self.s.add_claude_session('TSK-0001', {'id': sid, 'cwd': '/tmp/w', 'instruction': 'Fix it', 'model': 'haiku'})
+        entry = lambda: next(e for e in self.s.read('TSK-0001')['fields']['claude_sessions'] if e['id'] == sid)
+        got = self.s.set_claude_session_settings('TSK-0001', sid.upper(), 'sonnet', 'low')
+        self.assertEqual((got['model'], got['effort'], got['instruction']), ('sonnet', 'low', 'Fix it'))
+        self.assertEqual((entry()['model'], entry()['effort']), ('sonnet', 'low'))
+        self.assertEqual(self.s.read('TSK-0001')['fields']['claude_sessions'][0]['model'], 'haiku')  # the other one stays
+        self.s.set_claude_session_settings('TSK-0001', sid, 'claude-haiku-1-0', '')  # a model that takes no effort
+        self.assertEqual((entry()['model'], 'effort' in entry()), ('claude-haiku-1-0', False))
+        before = self.s.read('TSK-0001')['fields']['updated_at']
+        self.s.set_claude_session_settings('TSK-0001', sid, 'claude-haiku-1-0', '')  # nothing changed: nothing written
+        self.assertEqual(self.s.read('TSK-0001')['fields']['updated_at'], before)
+        self.s.add_global_claude_session({'id': other, 'cwd': '/tmp/g'})  # the global list, the same way
+        self.s.set_claude_session_settings(None, other, 'opus', 'max')
+        self.assertEqual(self.s.global_claude_sessions()['sessions'][0], {'id': other, 'at': self.s.global_claude_sessions()['sessions'][0]['at'],
+                                                                         'cwd': '/tmp/g', 'instruction': '', 'model': 'opus', 'effort': 'max'})
+        self.assertIsNone(self.s.set_claude_session_settings(None, sid, 'opus', 'max'))  # not on record there
+
     def test_a_claude_session_moves_between_histories(self):
         self.s.create('task', 'A')
         self.s.create('task', 'B')

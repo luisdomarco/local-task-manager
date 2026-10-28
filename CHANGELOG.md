@@ -42,6 +42,11 @@ All notable changes to this project are written down here. Versions follow [Sema
 - **Prioritization is gone**: Month and the Free board take its place. Its columns (`prioritization.md`) and the
   `prio_list` / `prio_order` keys it left in files are no longer read.
 - An empty column on Today, Week or Month has room to drop a card on.
+- **Fix:** in the chat, **the effort no longer changes on its own with the model** (Claude gives each model its own
+  default: the session's goes on, or the nearest below when the model lacks it), and a change of model or effort is
+  **kept on the session's record**, so its history shows what it runs. A line in the thread says each change once
+  Claude has taken it, one Claude refuses is undone with the reason, and each answer says which model gave it.
+  Tables in a reply keep ids whole and scroll on their own.
 
 ## [1.3.0] — 2026-10-21
 

@@ -989,7 +989,21 @@ def _spawn_chat(session_id, flags, cwd, label, key, mode, model='', prompt=None,
         raise StoreError(400, str(e))
     if TERMS.live(session_id):  # the same session in a terminal: it hands over
         TERMS.close(session_id)
-    return CHATS.open(session_id, argv, cwd, dict(os.environ), label, key, mode or 'default', model, prompt, history, effort)
+    chat = CHATS.open(session_id, argv, cwd, dict(os.environ), label, key, mode or 'default', model, prompt, history, effort)
+    chat.on_settings = lambda model, effort: _record_settings(chat, model, effort)
+    return chat
+
+
+def _record_settings(chat, model, effort):
+    """A chat's model or effort, changed from its composer and confirmed by claude, onto its record — in the vault
+    and on the item it belongs to now (both read at the time: a change of item moves the record). Not on record
+    (a vault since removed, an entry forgotten): nothing to keep."""
+    if not chat.vault:
+        return
+    try:
+        APP.store_for(chat.vault).set_claude_session_settings(chat.key, chat.id, model, effort)
+    except StoreError:
+        pass
 
 
 def open_chat(store, key, instruction='', model=None, effort=None, cwd=None, mode=''):

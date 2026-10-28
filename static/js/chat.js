@@ -4,7 +4,7 @@
 // options, a plan as the plan) — and a composer with the session's mode, model, effort, plan, attached items and
 // images, and a stop button. What the messages mean is chat-model.js; this file only draws it. term.js hosts it.
 import { api } from './api.js';
-import { STATUSES, apply, currentModel, editDiff, effortLabel, emptyChat, kTokens, modelOptions, questionAnswers, sessionStatus, shortPath,
+import { STATUSES, apply, currentModel, editDiff, effortLabel, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortPath,
   subagentSummary, toolTarget } from './chat-model.js';
 import { IMAGE_TYPES, dropToken, imageFit, insertPick, matchCommands, matchFiles, matchItems, tokenAt } from './composer.js';
 import { isDone } from './rules.js';
@@ -235,6 +235,9 @@ function itemEl(item, chat, cwd, answer, opened) {
     case 'tool': return toolItem(item, cwd, opened);
     case 'permission': return permissionItem(item, chat, cwd, answer);
     case 'notice': return h('div', { class: `cv-notice ${item.tone || ''}` }, item.text);
+    case 'settings': return h('div', { class: 'cv-notice cv-settings' }, icon('sparkles', 12),
+      `Now ${modelName(chat.models, item.model)}${item.effort ? ` · ${effortLabel(item.effort)} effort` : ''}`);
+    case 'turn': return h('div', { class: 'cv-turn', title: item.model }, modelName(chat.models, item.model));
     default: return h('div');
   }
 }

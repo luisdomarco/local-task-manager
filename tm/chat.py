@@ -87,6 +87,18 @@ def model_choice(m):
             'resolved': str(m.get('resolvedModel') or ''), 'efforts': [e for e in efforts or [] if e in CLAUDE_EFFORTS]}
 
 
+def effort_for(wanted, allowed):
+    """The effort a model is given when the session switches to it: the one it had, if the model takes it; else the
+    nearest one below (Extra high on a model without it: High), else its lowest. '' when it takes none, or when no
+    effort was set (claude's own default for the model, then)."""
+    if not allowed or wanted not in CLAUDE_EFFORTS:
+        return ''
+    if wanted in allowed:
+        return wanted
+    below = [e for e in allowed if CLAUDE_EFFORTS.index(e) < CLAUDE_EFFORTS.index(wanted)]
+    return below[-1] if below else allowed[0]
+
+
 ITEMS_OPEN, ITEMS_CLOSE = '<attached-items>', '</attached-items>'
 ITEM_RE = re.compile(r'<item ref="([^"]*)">')
 
@@ -202,7 +214,9 @@ class Chat:
         self.mode, self.model, self.effort = mode or 'default', model or '', effort or ''
         self.window = None  # how full the context is: {used, max, percent}, from claude's get_context_usage
         self.models = []  # what claude offers, from its `initialize` answer: [{value, label, description, resolved, efforts}]
-        self._asked = {}  # request_id → subtype, for our control requests whose answer we read
+        # Called with (model, effort) once claude has confirmed a change of either: the server keeps the record in step.
+        self.on_settings = None
+        self._asked = {}  # request_id → (subtype, what it was asked with), for our control requests whose answer we read
         self.started = self.activity = time.time()
         self.exit_code = None
         self.busy = False  # from a message sent to its turn's `result`
@@ -260,34 +274,73 @@ class Chat:
             q.put(None)  # the sentinel: nothing more will come
 
     def _answered(self, response):
-        """claude's answer to one of our control requests: the models it offers (`initialize`), the effort it applies
-        (`get_settings`). The rest need nothing back."""
-        what = self._asked.pop(response.get('request_id'), None)
+        """claude's answer to one of our control requests: the models it offers (`initialize`), a change of model or
+        effort done (then the settings it applies are asked: claude answers out of order, so never before), the effort
+        it applies (`get_settings`). A refused change is undone here and said in the chat."""
+        what, ctx = self._asked.pop(response.get('request_id'), (None, {}))
         body = response.get('response') or {}
+        if response.get('subtype') == 'error':
+            error = str(response.get('error') or 'refused')
+            if what == 'set_model':
+                self.model = ctx.get('was', '')
+                self._emit({'type': 'tm_model', 'model': self.model})
+                self._emit({'type': 'tm_notice', 'tone': 'error', 'text': f"Claude did not switch models: {error}"})
+            elif what == 'apply_flag_settings':
+                self._emit({'type': 'tm_notice', 'tone': 'error', 'text': f"Claude did not change the effort: {error}"})
+                self._ask('get_settings')  # what it does apply, so the menu shows it
+            return
         if what == 'initialize':
             self.models = [model_choice(m) for m in body.get('models') or [] if isinstance(m, dict) and m.get('value')]
             self._emit({'type': 'tm_models', 'models': self.models}, keep=False)
-            try:
-                self._control({'subtype': 'get_settings'})
-            except StoreError:
-                pass
+            self._ask('get_settings')
+        elif what == 'set_model':
+            # claude gives each model its own default effort unless one was set: the session's goes on with it.
+            current = self.current_model()
+            effort = effort_for(self.effort, current['efforts'] if current else [])
+            if effort:
+                self._ask('apply_flag_settings', settings={'effortLevel': effort}, changed=True)
+            else:
+                self._ask('get_settings', changed=True)
+        elif what == 'apply_flag_settings':
+            self._ask('get_settings', changed=ctx.get('changed', False))
         elif what == 'get_settings':
             effort = (body.get('applied') or {}).get('effort')
             if isinstance(effort, str) and effort:
                 self.effort = effort
                 self._emit({'type': 'tm_effort', 'effort': effort}, keep=False)
+            if ctx.get('changed'):
+                self._settled()
         elif what == 'get_context_usage':
             used, most, pct = body.get('totalTokens'), body.get('maxTokens'), body.get('percentage')
             if all(isinstance(x, (int, float)) for x in (used, most, pct)) and most > 0:
                 self.window = {'used': int(used), 'max': int(most), 'percent': int(pct)}
                 self._emit({'type': 'tm_context', 'window': self.window}, keep=False)
 
-    def _ask_context(self):
-        """How full the context is now: asked after each turn and each compaction, answered in _answered."""
+    def _ask(self, subtype, changed=False, **request):
+        """A control request whose answer _answered reads, from the reading thread: a chat that has ended asks
+        nothing. `changed`: it follows a change of model or effort, which its answer then confirms."""
         try:
-            self._control({'subtype': 'get_context_usage'})
+            self._control({'subtype': subtype, **request}, changed=changed)
         except StoreError:
             pass
+
+    def _settled(self):
+        """A change of model or effort confirmed by claude: said in the chat (kept, so a reload shows it too) and
+        handed to the server for the record."""
+        current = self.current_model()
+        if current and not current['efforts']:
+            self.effort = ''  # a model that takes none: what the last one had no longer applies
+        self._emit({'type': 'tm_settings', 'model': (current['resolved'] or current['value']) if current else self.model,
+                    'effort': self.effort})
+        if self.on_settings:
+            try:
+                self.on_settings(self.model, self.effort)
+            except Exception:  # the record is the server's business: the chat goes on whatever it does
+                pass
+
+    def _ask_context(self):
+        """How full the context is now: asked after each turn and each compaction, answered in _answered."""
+        self._ask('get_context_usage')
 
     def _pump_stderr(self):
         for raw in self._proc.stderr:
@@ -319,11 +372,11 @@ class Chat:
             except (OSError, ValueError) as e:
                 raise StoreError(409, f'this chat is not taking input: {e}')
 
-    def _control(self, request):
+    def _control(self, request, **ctx):
         with self._write_lock:
             self._seq += 1
             rid = f'tm_{self._seq}'
-        self._asked[rid] = request['subtype']
+        self._asked[rid] = (request['subtype'], ctx)
         self._write({'type': 'control_request', 'request_id': rid, 'request': request})
 
     def send(self, text, items=(), images=()):
@@ -414,26 +467,27 @@ class Chat:
         return {'mode': mode}
 
     def set_model(self, model):
-        """One of the models claude listed (any of CLAUDE_MODELS until it has). The effort it then applies is asked
-        again: claude keeps one per model."""
+        """One of the models claude listed (any of CLAUDE_MODELS until it has). Once claude has switched, the session's
+        effort is set on the new model (effort_for), then what it applies is read back and the change said in the
+        chat; if claude refuses, the model it had comes back (_answered)."""
         if self.models and model not in {m['value'] for m in self.models}:
             raise StoreError(400, f"model must be one of {', '.join(m['value'] for m in self.models)}")
-        self._control({'subtype': 'set_model', 'model': model})
+        self._control({'subtype': 'set_model', 'model': model}, was=self.model)
         self.model = model
         self._emit({'type': 'tm_model', 'model': model})
-        self._control({'subtype': 'get_settings'})
         return {'model': model}
 
     def set_effort(self, effort):
         """How hard the model thinks, for the rest of this session: a flag setting of claude's own (in memory, never a
-        settings file), within what the current model supports."""
+        settings file), within what the current model supports. It holds across a change of model (set_model). What
+        claude applies is read back once it has taken it."""
         current = self.current_model()
         allowed = current['efforts'] if current else CLAUDE_EFFORTS
         if not allowed:
             raise StoreError(400, f"{current['label']} takes no effort level")
         if effort not in allowed:
             raise StoreError(400, f"effort must be one of {', '.join(allowed)}")
-        self._control({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': effort}})
+        self._control({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': effort}}, changed=True)
         self.effort = effort
         self._emit({'type': 'tm_effort', 'effort': effort}, keep=False)
         return {'effort': effort}

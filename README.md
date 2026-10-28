@@ -1065,7 +1065,11 @@ understood and wait for your go-ahead).
   edits, Plan, Auto — `bypassPermissions` is not offered), the **model** — claude's own list, each with its version
   (*Opus 5.5*, *Haiku 4.5*…, the default saying which one it is), so a new model shows up without a change here — the
   **effort** (Low to Max, those the model takes; set as a flag setting of claude's for the rest of the session, never
-  written to a settings file), the plan's progress (TodoWrite; its chip opens the list), **how full the context is**
+  written to a settings file). The effort **holds across a change of model**: claude would give each model a default
+  of its own, so the session's goes on with the new one (or the nearest below, when that model lacks it: Extra high →
+  High). A change is applied once claude confirms it — then a line in the thread says it (*Now Sonnet 5.5 · Low
+  effort*) and the session's record keeps it, so its history shows the model it really runs; one claude refuses
+  comes back with the reason. Under each answer, in small, the model that gave it. The composer also carries the plan's progress (TodoWrite; its chip opens the list), **how full the context is**
   (a percentage of the model's window, asked of claude after each turn) and the cost so far, and **Stop** (interrupts
   the turn, the session goes on). A session that needs you, or finishes its turn, while you cannot see it — the dock
   folded, another session shown, another browser tab — says so: a toast, a mark in the tab's title until you come back

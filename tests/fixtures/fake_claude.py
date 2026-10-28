@@ -11,8 +11,10 @@ tools/probe_chat_protocol.py recorded from the real CLI, scripted by what the us
   "agent …"     → an Agent call whose subagent runs a Glob: its messages carry parent_tool_use_id; then "2 files"
   "/compact"    → a compact_boundary, then result
   with images   → "images: <n>" (content as blocks: its text, then the images)
-`initialize` answers with two models (an alias and a full id, as the real one lists them), `get_settings` with the
-effort applied (--effort, then whatever `apply_flag_settings` set), `get_context_usage` with a fixed 1%.
+`initialize` answers with four models (an alias and full ids, as the real one lists them: one takes no effort, one has
+no Extra high, one is listed but refused by `set_model`, as a model the account cannot use is), `get_settings` with the
+model and effort applied (--effort, then whatever `apply_flag_settings` set; with neither, `set_model` gives the new
+model a default of its own, as the real one does), `get_context_usage` with a fixed 1%.
 Every line it reads goes to $FAKE_CLAUDE_LOG (one JSON per line), and its argv as the first line."""
 import json
 import os
@@ -77,11 +79,17 @@ def result(subtype='success'):
 log({'argv': sys.argv[1:]})
 mode = sys.argv[sys.argv.index('--permission-mode') + 1] if '--permission-mode' in sys.argv else 'default'
 effort = sys.argv[sys.argv.index('--effort') + 1] if '--effort' in sys.argv else 'high'
+flagged = '--effort' in sys.argv  # an effort set: it holds across set_model
+model = 'claude-opus-9-9'
 MODELS = [
     {'value': 'opus', 'resolvedModel': 'claude-opus-9-9', 'displayName': 'Opus 9.9', 'description': 'For complex work',
      'supportsEffort': True, 'supportedEffortLevels': ['low', 'medium', 'high', 'xhigh', 'max']},
     {'value': 'claude-haiku-1-0', 'resolvedModel': 'claude-haiku-1-0', 'displayName': 'Haiku 1.0', 'description': 'Old',
      'supportsThinkingOff': True},
+    {'value': 'claude-sonnet-8-1', 'resolvedModel': 'claude-sonnet-8-1', 'displayName': 'Sonnet 8.1', 'description': 'Everyday',
+     'supportsEffort': True, 'supportedEffortLevels': ['low', 'medium', 'high', 'max']},
+    {'value': 'claude-gone-0-1', 'resolvedModel': 'claude-gone-0-1', 'displayName': 'Gone 0.1', 'description': 'Not for this account',
+     'supportsEffort': True, 'supportedEffortLevels': ['low', 'high']},
 ]
 inited = False
 while True:
@@ -95,10 +103,20 @@ while True:
             mode = req['mode']
         elif req.get('subtype') == 'initialize':
             body = {'models': MODELS, 'commands': []}
+        elif req.get('subtype') == 'set_model':
+            if req['model'] == 'claude-gone-0-1':
+                out({'type': 'control_response', 'response': {'subtype': 'error', 'request_id': msg['request_id'],
+                                                              'error': f"Model '{req['model']}' not found"}})
+                continue
+            model = next((m['resolvedModel'] for m in MODELS if m['value'] == req['model']), req['model'])
+            body = {'model': model}
+            if not flagged:
+                effort = 'medium'
         elif req.get('subtype') == 'apply_flag_settings':
             effort = req['settings'].get('effortLevel', effort)
+            flagged = True
         elif req.get('subtype') == 'get_settings':
-            body = {'effective': {}, 'applied': {'model': 'claude-opus-9-9', 'effort': effort}}
+            body = {'effective': {}, 'applied': {'model': model, 'effort': effort}}
         elif req.get('subtype') == 'get_context_usage':
             body = {'totalTokens': 2000, 'maxTokens': 200000, 'percentage': 1, 'categories': []}
         out({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': msg['request_id'], 'response': body}})
