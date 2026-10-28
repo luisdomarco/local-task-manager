@@ -52,12 +52,13 @@ async function loadLibs() {
   return libs;
 }
 
-// The dock's own tokens, not the page's (app.css #termdock): it takes Claude Code's theme (the server reads it,
-// config.claude_theme), because Claude draws its screen for that theme whatever the app's light or dark is.
-const css = (name) => getComputedStyle(document.getElementById('termdock') || document.documentElement).getPropertyValue(name).trim();
-const theme = () => ({
-  background: css('--background'), foreground: css('--foreground'), cursor: css('--foreground'),
-  selectionBackground: css('--accent'), selectionForeground: css('--foreground'),
+// A terminal's pane has tokens of its own, not the page's (app.css .td-term): it takes Claude Code's theme (the
+// server reads it, config.claude_theme), because Claude draws its screen for that theme whatever the app's light or
+// dark is. The rest of the dock, the chat included, is the app's.
+const css = (name, el) => getComputedStyle(el || document.documentElement).getPropertyValue(name).trim();
+const theme = (pane) => ({
+  background: css('--background', pane), foreground: css('--foreground', pane), cursor: css('--foreground', pane),
+  selectionBackground: css('--accent', pane), selectionForeground: css('--foreground', pane),
 });
 const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
@@ -84,11 +85,13 @@ function ensureDock() {
     title: 'Drag to resize · double-click to fill up to the top bar' });
   const max = h('button', { class: 'btn icon td-max', title: 'Fill up to the top bar', onclick: () => toggleMax() }, icon('maximize', 15));
   const seg = h('div', { class: 'td-seg', role: 'tablist', 'aria-label': 'Show as' },
-    h('button', { role: 'tab', 'data-view': 'chat', onclick: () => switchView(active, 'chat') }, icon('message', 13), 'Chat'),
-    h('button', { role: 'tab', 'data-view': 'terminal', onclick: () => switchView(active, 'terminal') }, icon('terminal', 13), 'Terminal'));
+    h('button', { role: 'tab', 'data-view': 'chat', title: 'Chat', onclick: () => switchView(active, 'chat') },
+      icon('message', 13), h('span', { class: 'td-seg-text' }, 'Chat')),
+    h('button', { role: 'tab', 'data-view': 'terminal', title: 'Terminal', onclick: () => switchView(active, 'terminal') },
+      icon('terminal', 13), h('span', { class: 'td-seg-text' }, 'Terminal')));
   dock = h('aside', { id: 'termdock', 'aria-label': 'Claude sessions', hidden: true }, grip,
     h('div', { class: 'td-head' }, h('span', { class: 'td-title' }, icon('bot', 14)),
-      h('div', { class: 'td-name' }, h('span', { class: 'td-name-label' }), h('span', { class: 'td-name-cwd' })),
+      h('div', { class: 'td-name' }, h('span', { class: 'td-name-label' })),
       h('button', { type: 'button', class: 'btn small td-item', 'aria-haspopup': 'dialog', onclick: (e) => pickItem(e.currentTarget) }),
       h('span', { class: 'spacer' }), seg, max, collapse,
       h('button', { class: 'btn icon', title: 'Close every session', onclick: () => [...tabs.keys()].forEach(closeTab) }, icon('x', 16))),
@@ -106,13 +109,13 @@ function ensureDock() {
 const listEl = () => dock.querySelector('.td-list');
 const mainEl = () => dock.querySelector('.td-main');
 
-/** Light or dark as Claude Code is set up; a theme changed since (/theme) is picked up on the next reload. */
+/** A terminal light or dark as Claude Code is set up; a theme changed since (/theme) is picked up on the next reload. */
 function paintTheme() {
   const light = state.config?.claude_theme === 'light';
   if (dock.classList.contains('td-light') === light && dock.dataset.painted) return;
   dock.classList.toggle('td-light', light);
   dock.dataset.painted = '1';
-  for (const t of tabs.values()) if (t.term) t.term.options.theme = theme();
+  for (const t of tabs.values()) if (t.term) t.term.options.theme = theme(t.pane);
 }
 
 // ── where it sits: one layer across the bottom of the content, above the pages and the item card alike ──
@@ -219,10 +222,11 @@ function paintRow(t) {
 
 function paintHead() {
   const t = active && tabs.get(active);
+  // About an item: the item is its title (the chip, which changes it). About none: its own name, then the chip.
   const name = dock.querySelector('.td-name');
+  name.hidden = !t || Boolean(itemOf(t));
   name.querySelector('.td-name-label').textContent = t ? t.label : '';
-  name.querySelector('.td-name-cwd').textContent = t?.cwd || '';
-  name.title = t ? `${t.label}\n${t.cwd || ''}` : '';
+  name.title = t ? `${t.label}\nRuns in ${t.cwd || '?'}` : '';
   paintItemChip(t);
   for (const b of dock.querySelectorAll('.td-seg button')) {
     const on = Boolean(t) && (b.dataset.view === 'terminal') === (t.kind === 'term');
@@ -269,8 +273,9 @@ function paintItemChip(t) {
   const it = itemOf(t);
   const away = otherVault(t);
   b.disabled = away;
-  b.title = away ? 'Opened in another vault: switch to it to change its item'
-    : `${it ? itemName(it) : 'No item'} — change it to list this session in another history`;
+  b.classList.toggle('is-title', Boolean(it));
+  b.title = `${away ? 'Opened in another vault: switch to it to change its item'
+    : `${it ? itemName(it) : 'No item'} — change it to list this session in another history`}\nRuns in ${t.cwd || '?'}`;
   b.replaceChildren(...(it ? [typeIcon(it.type, 13)] : []), // not a null: replaceChildren writes it as text
     h('span', { class: 'td-item-text' }, it ? itemName(it) : t.key ? 'Another vault' : 'No item'), icon('down', 12));
 }
@@ -316,11 +321,11 @@ async function makePane() {
   // xterm goes in an inner box with no padding: the fit addon sizes the columns to its parent's width,
   // and with border-box that width would include the pane's padding (text ran past the right edge).
   const screen = h('div', { class: 'td-screen' });
-  const pane = h('div', { class: 'td-pane' }, screen);
+  const pane = h('div', { class: 'td-pane td-term' }, screen);
   mainEl().append(pane);
   const term = new Terminal({
     cursorBlink: true, fontFamily: css('--mono') || 'ui-monospace, Menlo, monospace', fontSize: 12.5, lineHeight: 1.15,
-    theme: theme(), scrollback: 5000, allowProposedApi: false, macOptionIsMeta: true,
+    theme: theme(pane), scrollback: 5000, allowProposedApi: false, macOptionIsMeta: true,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);

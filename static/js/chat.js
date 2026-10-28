@@ -294,10 +294,24 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
       h('div', { class: 'cv-tools' }, trigger('/', 'Run a command (/)'), trigger('@', 'Mention a file (@)'),
         trigger('#', 'Attach an item of the vault (#)', icon('paperclip', 14)), imageBtn, modeSel, modelSel, effortSel, planChip,
         h('span', { class: 'spacer' }), meter, stop, send)));
-  const el = h('div', { class: 'td-pane cv' }, thread, working, endedBar, composer);
+  // Scrolled up while something new comes in: a button down to it, louder when Claude is waiting for an answer.
+  const jump = h('button', { type: 'button', class: 'cv-jump', hidden: true, onclick: () => toEnd(true) }, icon('down', 13), h('span'));
+  const el = h('div', { class: 'td-pane cv' }, thread, h('div', { class: 'cv-jumpbar' }, jump), working, endedBar, composer);
   view.el = el;
 
   const near = () => thread.scrollHeight - thread.scrollTop - thread.clientHeight < 80;
+  let unseen = false; // drawn while the thread was scrolled up
+  function paintJump() {
+    if (near()) unseen = false;
+    const waiting = chat.pending > 0;
+    jump.hidden = near() || !(unseen || waiting);
+    jump.classList.toggle('urgent', waiting);
+    jump.lastChild.textContent = waiting ? 'Claude needs you' : 'New messages';
+  }
+  function toEnd(smooth = false) {
+    thread.scrollTo({ top: thread.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  }
+  thread.addEventListener('scroll', paintJump, { passive: true });
   async function answer(item, behavior, always = false, extra = {}) {
     try { await api.chatPermission(info.id, item.id, behavior, always, extra); } catch (e) { toast(e.message, true); }
   }
@@ -308,6 +322,7 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     let i = 0;
     while (i < rendered.length && i < items.length && rendered[i].item === items[i] && rendered[i].sig === sig(items[i])) i += 1;
     for (const r of rendered.splice(i)) r.el.remove(); // from the first that changed on, drawn again
+    if (i < items.length && !stick) unseen = true;
     for (; i < items.length; i += 1) {
       const node = itemEl(items[i], chat, info.cwd, answer, opened);
       thread.append(node);
@@ -324,7 +339,8 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     meter.classList.toggle('full', Boolean(w && w.percent >= 80));
     endedBar.hidden = !chat.ended;
     composer.hidden = chat.ended;
-    if (stick) thread.scrollTop = thread.scrollHeight;
+    if (stick) toEnd();
+    paintJump();
     onChange(view);
   }
 
@@ -351,7 +367,9 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     if (p.info.effort) chat.effort = p.info.effort;
     if (p.info.window) chat.window = p.info.window;
     draw();
-    thread.scrollTop = thread.scrollHeight;
+    toEnd(); // a conversation reopened starts at its end
+    unseen = false;
+    paintJump();
   });
   source.addEventListener('msg', (e) => { take(JSON.parse(e.data)); draw(); });
   source.addEventListener('exit', () => { source.close(); if (!chat.ended) { apply(chat, { type: 'tm_exit', exit_code: 0 }); draw(); } });

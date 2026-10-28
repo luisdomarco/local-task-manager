@@ -47,6 +47,10 @@ All notable changes to this project are written down here. Versions follow [Sema
   **kept on the session's record**, so its history shows what it runs. A line in the thread says each change once
   Claude has taken it, one Claude refuses is undone with the reason, and each answer says which model gave it.
   Tables in a reply keep ids whole and scroll on their own.
+- The dock and its chat are **light or dark as the app is**; only a session shown as a terminal keeps Claude Code's
+  theme. Its head shows the **item as its title** (a chip that reads as a button, which changes it), the session's
+  name only when it is about no item, and the folder in the tooltip. Scrolled up in a chat, **New messages ↓** takes
+  you down to what came in, and says **Claude needs you** when it is waiting for an answer.
 
 ## [1.3.0] — 2026-10-21
 

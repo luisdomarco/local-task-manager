@@ -98,8 +98,8 @@
     color-scheme: dark;
   }
 }
-/* The terminal dock takes these too, unless Claude Code is set to light (.td-light, see #termdock). */
-:root[data-theme="dark"], #termdock:not(.td-light) {
+/* A terminal in the dock takes these too, unless Claude Code is set to light (.td-light, see #termdock). */
+:root[data-theme="dark"], #termdock:not(.td-light) .td-term {
   --background: #1f1f1f; --foreground: #ececec; --card: #262626; --popover: #242424; --well: #1b1b1b;
   --muted: #2b2b2b; --muted-foreground: #b4b4b4; --accent: #303030;
   --border: #333333; --input: #6e6e6e; --focus: #ececec;
@@ -1488,16 +1488,18 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .ai-start { display: flex; }
 
 /* ── the dock: Claude's terminals inside the app, across the bottom of the main column ── */
-/* The dock takes Claude Code's theme, not the app's: Claude draws its screen for the theme it was set up
-   with (dark unless chosen otherwise). The dark tokens come from the :root[data-theme="dark"] rule (its
-   selector names the dock), the light ones are under .td-light; term.js reads xterm's colours from the dock.
+/* The dock is the app's, light or dark as the app is; only a terminal's pane (.td-term) takes Claude Code's theme,
+   since Claude draws that screen for the theme it was set up with (dark unless chosen otherwise). Its dark tokens
+   come from the :root[data-theme="dark"] rule (its selector names the pane), the light ones are under .td-light;
+   term.js reads xterm's colours from the pane.
    It is one layer for every session, wherever it was opened: over the item card (20), under dialogs (30) and menus. */
 #termdock {
-  color-scheme: dark; color: var(--foreground);
+  color: var(--foreground);
   position: fixed; left: var(--sidebar-w, 248px); right: 0; bottom: 0; z-index: 22; height: var(--dock-h, 42vh); min-height: 180px;
   display: flex; flex-direction: column; background: var(--background); border-top: 1px solid var(--border); box-shadow: var(--shadow-lg);
 }
-#termdock.td-light {
+#termdock:not(.td-light) .td-term { color-scheme: dark; }
+#termdock.td-light .td-term {
   color-scheme: light;
   --background: #ffffff; --foreground: #09090b; --card: #ffffff; --popover: #ffffff; --well: #f1f1f3;
   --muted: #f0f0f2; --muted-foreground: #5b5b66; --accent: #ececef;
@@ -1518,15 +1520,25 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 #termdock.collapsed .td-body { display: none; }
 .td-head { display: flex; align-items: center; gap: 4px; min-height: 38px; padding: 4px 8px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .td-title { display: inline-flex; color: var(--muted-foreground); padding: 0 6px 0 2px; }
-.td-name { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.td-name { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; line-height: 1.2; }
+.td-name[hidden] { display: none; }
 .td-name-label { font-size: var(--fs-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.td-name-cwd { font: 11px/1.3 var(--mono); color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The item the session is about (term.js paintItemChip): opens the item picker (itempicker.js) */
-.td-item { flex: none; max-width: min(260px, 40%); gap: 6px; margin-left: 8px; color: var(--muted-foreground); font-weight: 500; }
+/* The item the session is about (term.js paintItemChip): a button that opens the item picker (itempicker.js). With an
+   item it is the head's title; with none, a smaller "No item" after the session's name. */
+.td-item {
+  flex: none; max-width: min(220px, 35%); gap: 6px; margin-left: 8px; border: 1px solid var(--border); background: var(--card);
+  color: var(--muted-foreground); font-weight: 500;
+}
+.td-item:hover:not(:disabled) { color: var(--foreground); border-color: var(--input); }
+.td-item.is-title { flex: 0 1 auto; min-width: 0; max-width: min(520px, 60%); margin-left: 0; color: var(--foreground); font-weight: 600; }
 .td-item-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .td-item .icon { flex: none; }
-/* A phone: no bot glyph, and the chip gives way (its text cut short) so the head's × stays in view */
-@media (max-width: 760px) { .td-title { display: none; } .td-item { flex: 0 1 auto; min-width: 0; max-width: 140px; margin-left: 0; } }
+/* A phone: no bot glyph, Chat | Terminal as icons, and the chip gives way (its text cut short) so the head's × stays
+   in view */
+@media (max-width: 760px) {
+  .td-title, .td-seg-text { display: none; }
+  .td-item, .td-item.is-title { flex: 0 1 auto; min-width: 0; max-width: none; margin-left: 0; }
+}
 /* The item picker: a search box over the rows, which scroll */
 .menu.ip { width: min(380px, calc(100vw - 16px)); display: flex; flex-direction: column; gap: 4px; }
 .ip-search { width: 100%; }
@@ -1543,8 +1555,11 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .td-seg button.on { background: var(--card); color: var(--foreground); box-shadow: 0 0 0 1px var(--border); }
 .td-seg button:disabled { cursor: default; opacity: .6; }
 /* The sessions, down the left side: a dot for what each is doing (chat-model.js STATUSES) */
-#termdock { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
-#termdock.td-light { --tone-warning: #b7791f; --tone-accent: #2563eb; --tone-success: #15803d; --tone-muted: #8c8c97; --tone-error: #c81e1e; }
+#termdock { --tone-warning: #b7791f; --tone-accent: #2563eb; --tone-success: #15803d; --tone-muted: #8c8c97; --tone-error: #c81e1e; }
+:root[data-theme="dark"] #termdock { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) #termdock { --tone-warning: #d4a72c; --tone-accent: #6ea8fe; --tone-success: #57c27c; --tone-muted: #8a8a8a; --tone-error: #f87171; }
+}
 .td-side { width: 210px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--sidebar); }
 .td-side-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 2px 12px; font-size: var(--fs-2xs); color: var(--muted-foreground); }
 .td-side-head .btn.icon { width: 26px; height: 26px; }
@@ -1580,6 +1595,16 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .cv { display: flex; flex-direction: column; padding: 0; }
 .cv-thread { flex: 1 1 auto; overflow-y: auto; padding: 14px 18px 8px; font-size: var(--fs-sm); line-height: 1.55; }
 .cv-thread > * { max-width: 860px; margin-left: auto; margin-right: auto; }
+/* Down to what is new (chat.js paintJump): over the foot of the thread, takes no room of its own */
+.cv-jumpbar { position: relative; height: 0; flex: none; }
+.cv-jump {
+  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 1; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--popover); color: var(--foreground);
+  font: inherit; font-size: var(--fs-2xs); box-shadow: var(--shadow-card); cursor: pointer; white-space: nowrap;
+}
+.cv-jump:hover { border-color: var(--input); }
+.cv-jump[hidden] { display: none; }
+.cv-jump.urgent { border-color: color-mix(in srgb, var(--tone-warning) 70%, var(--border)); background: color-mix(in srgb, var(--tone-warning) 14%, var(--popover)); color: var(--tone-warning); font-weight: 600; }
 .cv-user { display: flex; flex-direction: column; align-items: flex-end; margin: 10px auto; }
 .cv-bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; background: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .cv-text { margin: 6px auto; overflow-wrap: anywhere; }

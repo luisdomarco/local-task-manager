@@ -596,10 +596,12 @@ link, a pin — opens it in a new browser tab, and a row's subject offers *Open 
 **The dock** (Claude inside the app) lists its sessions down its left side, each with a dot for what it is doing —
 amber *needs you* (a permission card is waiting), blue *working*, green *your turn*, grey *terminal* or *ended*, red
 when it *ended with an error* — and
-shows the one picked on the right, **as a chat or as a terminal** (*Chat | Terminal* in its head; the choice is
-remembered for the next launch). The dock takes **Claude Code's own theme**: the `theme` in
-`~/.claude/settings.json`, the one picked when Claude was installed and changed with `/theme` (dark when unset).
-It never follows the app's theme, because Claude draws its screen for its own one. Drag its top edge (or ↑/↓ on
+shows the one picked on the right, **as a chat or as a terminal** (*Chat | Terminal* in its head, two icons on a phone; the
+choice is remembered for the next launch). The dock, the chat included, is **light or dark as the app is**. Only a session
+shown as a terminal takes **Claude Code's own theme** (the `theme` in `~/.claude/settings.json`, the one picked when
+Claude was installed and changed with `/theme`; dark when unset), because Claude draws that screen for its own one.
+Scrolled up in a chat while something new comes in, a **New messages ↓** button takes you down to it; it reads
+**Claude needs you** when a permission, a question or a plan is waiting. Drag its top edge (or ↑/↓ on
 it) to resize it. Double-click the edge, or use its ⌃ button, to fill it up to the top bar. Its height is
 remembered.
 
@@ -608,8 +610,9 @@ bottom of the content, above the pages and above an open card, which shrinks to 
 covers the top bar. In a narrow dock the list shrinks to its dots.
 
 **A session is about an item, or about none.** One opened from a card is about that item; one from the top bar about
-none. The **item chip** in the dock's head (*TSK-0001 · title ▾*, or *No item ▾*) changes it: search the vault's items
-by id or title, or pick *No item (general history)*. The session's record moves with it — to that item's **AI** tab, or
+none. The **item chip** in the dock's head changes it: about an item, the chip is the head's title (*TSK-0001 ·
+title ▾*); about none, the session's name comes first, then *No item ▾*. The folder it runs in is in their tooltip. The chip opens a search of the vault's items
+by id or title, with *No item (general history)* at the end. The session's record moves with it — to that item's **AI** tab, or
 to the general **History** — and the session takes the item's name; a chat also gets the item as a chip for its next
 message, to send its context along if you want. Each row of the list shows its item's id under its name. A session
 opened in another vault keeps its chip greyed out until you switch to that vault. The same move is **→** on each row of
