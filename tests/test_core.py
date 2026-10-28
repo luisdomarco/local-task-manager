@@ -549,6 +549,39 @@ class StoreTest(unittest.TestCase):
             self.s.forget_global_claude_session(1)
         self.assertEqual(self.s.forget_global_claude_session(0), {'sessions': []})
 
+    def test_a_claude_session_moves_between_histories(self):
+        self.s.create('task', 'A')
+        self.s.create('task', 'B')
+        self.s.create('prompt', 'P')
+        sid, other = '0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b', '0f1e2d3c-4b5a-4978-8a6b-000000000001'
+        self.s.add_claude_session('TSK-0001', {'id': other, 'cwd': '/tmp/o'})
+        self.s.add_claude_session('TSK-0001', {'id': sid, 'cwd': '/tmp/w', 'instruction': 'Fix it', 'model': 'opus'})
+        ids = lambda key: [e['id'] for e in (self.s.read(key)['fields'].get('claude_sessions') or [])]
+        globals_ = lambda: [e['id'] for e in self.s.global_claude_sessions()['sessions']]
+
+        moved = self.s.move_claude_session(sid.upper(), 'TSK-0001', 'TSK-0002')  # item → item, by id, the entry as it was
+        self.assertEqual((moved['cwd'], moved['instruction'], moved['model']), ('/tmp/w', 'Fix it', 'opus'))
+        self.assertEqual((ids('TSK-0001'), ids('TSK-0002')), ([other], [sid]))
+        self.s.move_claude_session(sid, 'TSK-0002', None)  # item → the general history
+        self.assertEqual((ids('TSK-0002'), globals_()), ([], [sid]))
+        self.s.move_claude_session(sid, None, 'TSK-0001')  # general → item
+        self.assertEqual((ids('TSK-0001'), globals_()), ([other, sid], []))
+        self.assertEqual(self.s.move_claude_session(sid, 'TSK-0001', 'TSK-0001')['id'], sid)  # where it is: nothing changes
+        self.assertEqual(ids('TSK-0001'), [other, sid])
+
+        with self.assertRaises(StoreError) as cm:  # a prompt keeps none: refused, and the entry stays where it was
+            self.s.move_claude_session(sid, 'TSK-0001', 'PRM-0001')
+        self.assertEqual((cm.exception.status, ids('TSK-0001')), (400, [other, sid]))
+        lost = '0f1e2d3c-4b5a-4978-8a6b-00000000000f'
+        with self.assertRaises(StoreError) as cm:  # on record nowhere and nothing to record it from
+            self.s.move_claude_session(lost, None, 'TSK-0002')
+        self.assertEqual(cm.exception.status, 404)
+        # …but the dock knows it (a launch whose record failed): recorded where it goes, from what the dock knows
+        made = self.s.move_claude_session(lost, None, 'TSK-0002', {'cwd': '/tmp/l', 'instruction': 'Hi'})
+        self.assertEqual((made['id'], made['cwd'], ids('TSK-0002')), (lost, '/tmp/l', [lost]))
+        self.s.move_claude_session(lost, 'TSK-0002', 'TSK-0002', {'cwd': '/tmp/l'})  # already there: not twice
+        self.assertEqual(ids('TSK-0002'), [lost])
+
     def test_claude_cwd_without_an_item(self):
         self.assertEqual(self.s.claude_cwd(None, self.tmp.name), {'path': os.path.realpath(self.tmp.name), 'source': 'settings', 'from_id': None})
         self.assertEqual(self.s.claude_cwd(None, '')['source'], 'home')

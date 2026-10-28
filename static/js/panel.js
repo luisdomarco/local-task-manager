@@ -152,6 +152,24 @@ const minimizeButton = () => h('button', {
   class: 'btn icon', title: 'Minimize to the top bar', onclick: () => minimizeItem(),
 }, icon('minimize', 16));
 
+// ── the card expanded: over the whole content (beside the sidebar, under the top bar) instead of floating on it ──
+// Remembered (prefs.js `card.expanded`): the next card opens the way the last one was left. A prompt's small card
+// does not expand.
+export const isExpanded = () => pref('card.expanded', false) === true;
+const paintExpanded = () => backdrop().classList.toggle('expanded', isExpanded() && !modal().classList.contains('is-prompt'));
+function expandButton() {
+  const paint = (b) => {
+    const on = isExpanded();
+    b.title = on ? 'Back to its size' : 'Expand to the whole content';
+    b.setAttribute('aria-label', b.title);
+    b.setAttribute('aria-pressed', String(on));
+    b.replaceChildren(icon(on ? 'restore' : 'maximize', 15));
+  };
+  const b = h('button', { class: 'btn icon im-expand', onclick: () => { setPref('card.expanded', isExpanded() ? null : true); paintExpanded(); paint(b); } });
+  paint(b);
+  return b;
+}
+
 function pinButton(item) {
   if (!item.id) return null;
   const on = isPinned(item.id);
@@ -1306,6 +1324,7 @@ function modalLayout(item, c) {
       h('span', { class: 'spacer' }),
       // Claude first, left of everything else (on the page only the Favourites star goes before it).
       c.claude, item.type === 'inbox' ? convertButton(item) : resolveButton(item), ...ticketActions(item), c.pin, c.minimize, c.copyPath, c.more,
+      item.type === 'prompt' ? null : expandButton(),
       h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
     ],
     title: modalTitle(item.type, c.subject),
@@ -1400,6 +1419,7 @@ async function show(itemOrKey, { parent = null, restore = null } = {}) {
   backdrop().onmousedown = (e) => { if (e.target === backdrop()) closeItem(); };
   modal().onkeydown = (e) => { if (e.key === 'Tab') trapFocus(modal(), e); };
   modalEd.render();
+  paintExpanded();
   if (restore) { // come back to the same place in the column
     const main = mainScroller(modal());
     if (main) main.scrollTop = restore.mainTop;

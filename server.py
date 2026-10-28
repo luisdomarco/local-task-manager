@@ -32,8 +32,10 @@ from tm import attachments, export, journal
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
-                       ide_open_url, resume_flags, session_flags, session_updated)
+                       ide_open_url, resume_flags, session_flags, session_updated, transcript_path)
+from tm.chat import CHAT_MODES, Chat, Chats, chat_flags, session_files
 from tm.pty import MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS, Terms, dim
+from tm.transcript import history as transcript_history
 from tm.store import (ACTIVITY_SOURCES, DEFAULT_FOLDERS, DEFAULT_WORK_KINDS, ITEM_TYPES, PARENT_TYPES, PRIORITIES,
                       META_DIR, STATUSES, Store, StoreError, now_stamp)
 from tm.structures import DEFAULT_STRUCTURE, REGISTRY, STRUCTURES
@@ -74,6 +76,8 @@ DEFAULT_CONFIG = {
 TERMINALS = ('Terminal', 'iTerm')
 # The apps the Explorer may open a vault file in (`open -a`): a closed list, so a config can never name a program.
 EDITORS = ('Cursor', 'Visual Studio Code', 'Zed', 'Sublime Text', 'BBEdit', 'TextEdit')
+# A JSON request's body: the largest is a chat message with its images (tm/chat.py IMAGES_MAX × IMAGE_MAX).
+JSON_MAX = 32 * 1024 * 1024
 VAULT_HEADER = 'X-TM-Vault'
 ACTOR_HEADER = 'X-TM-Actor'  # who makes a request, for the activity journal: `app` (the page), `claude:<session>`…
 VAULT_ID_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,31}$')
@@ -481,6 +485,9 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         if not length:
             return {}
+        if length > JSON_MAX:
+            self.close_connection = True  # the body stays unread: this connection cannot carry another request
+            raise StoreError(413, f'a request is at most {JSON_MAX // (1024 * 1024)} MB')
         return json.loads(self.rfile.read(length).decode('utf-8'))
 
     def send_static(self, rel):
@@ -520,6 +527,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_static(rel)
             if route == ('GET', '/api/term/stream'):  # streams: it writes the response itself
                 return self.stream_term(q)
+            if route == ('GET', '/api/chat/stream'):
+                return self.stream_chat(q)
             if route == ('GET', '/api/exports/file'):  # a zip, not JSON
                 return self.send_export(q.get('name'))
             if route == ('GET', '/api/attachments/file'):  # a file, not JSON; its vault in the query
@@ -610,6 +619,38 @@ class Handler(BaseHTTPRequestHandler):
             pass  # the tab went away
         finally:
             term.unsubscribe(sub)
+
+    # ── the dock's chats: one Server-Sent Events stream per chat shown ──
+    def stream_chat(self, q):
+        """`snapshot` (the conversation so far and the chat's state), then one `msg` per message, then `exit`."""
+        chat = CHATS.get(q.get('id'))
+        snapshot, sub = chat.subscribe()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Accel-Buffering', 'no')
+        self.end_headers()
+
+        def event(name, payload):
+            self.wfile.write(f'event: {name}\ndata: {json.dumps(payload)}\n\n'.encode('utf-8'))
+            self.wfile.flush()
+        try:
+            event('snapshot', {'events': snapshot, 'info': chat.info()})
+            while True:
+                try:
+                    msg = sub.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b': ping\n\n')
+                    self.wfile.flush()
+                    continue
+                if msg is None:
+                    event('exit', {'exit_code': chat.exit_code})
+                    break
+                event('msg', msg)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass  # the tab went away
+        finally:
+            chat.unsubscribe(sub)
 
     def do_GET(self):
         self.dispatch('GET')
@@ -887,7 +928,7 @@ def resume_claude(store, key, session_id, target='terminal'):
         live = TERMS.get(found['id'])  # 404 when the dock never ran it
     except StoreError:
         live = None
-    if target == 'desktop' and live and live.alive:
+    if target == 'desktop' and ((live and live.alive) or CHATS.live(found['id'])):
         raise StoreError(409, 'this session is still running in the dock: close it there first, then open it in Claude Desktop')
     return {**_open_elsewhere(target, found['cwd'], session=found['id']), 'session_id': found['id']}
 
@@ -897,6 +938,8 @@ TERMS = Terms()
 
 
 def _spawn_term(term_id, flags, cwd, cols, rows, label, prompt=None):
+    if CHATS.live(term_id):  # the same session as a chat: it hands over (one driver at a time)
+        CHATS.close(term_id)
     argv = [*shlex.split(APP.config['claude_command']), *flags, *([prompt] if prompt is not None else [])]
     env = {**os.environ, 'TERM': 'xterm-256color', 'COLORTERM': 'truecolor'}
     env.setdefault('LANG', 'en_US.UTF-8')
@@ -908,6 +951,7 @@ def open_term(store, key, instruction='', model=None, effort=None, cwd=None, col
     of the process (no shell, no file), so quotes, `$(…)` or backticks in a description are just text."""
     info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd)
     term = _spawn_term(session_id, flags, info['cwd'], cols, rows, name, info['prompt'])
+    term.key, term.vault = (item['key'] if item else None), getattr(store, 'vault_id', None)
     return _record(store, {'term': term.info(), 'cwd': info['cwd'], 'command': _command_line(flags)}, item, entry)
 
 
@@ -919,6 +963,7 @@ def resume_term(store, key, session_id, cols=None, rows=None):
         it = store.find(key)
         label = f"{it['id'] or it['type']} · {it['title']}"
     term = _spawn_term(found['id'], flags, found['cwd'], cols, rows, label)
+    term.key, term.vault = key or None, getattr(store, 'vault_id', None)
     return {'term': term.info(), 'cwd': found['cwd'], 'session_id': found['id']}
 
 
@@ -931,6 +976,126 @@ def term_resize(term_id, cols, rows):
     term = TERMS.get(term_id)
     term.resize(dim(cols, term.cols, MIN_COLS, MAX_COLS), dim(rows, term.rows, MIN_ROWS, MAX_ROWS))
     return {'cols': term.cols, 'rows': term.rows}
+
+
+# ── the dock's chats: claude -p in stream-json inside this server (tm/chat.py), the same sessions as the terminal ──
+CHATS = Chats()
+
+
+def _spawn_chat(session_id, flags, cwd, label, key, mode, model='', prompt=None, history=(), effort=''):
+    try:
+        argv = [*shlex.split(APP.config['claude_command']), *chat_flags(mode), *flags]
+    except ValueError as e:
+        raise StoreError(400, str(e))
+    if TERMS.live(session_id):  # the same session in a terminal: it hands over
+        TERMS.close(session_id)
+    return CHATS.open(session_id, argv, cwd, dict(os.environ), label, key, mode or 'default', model, prompt, history, effort)
+
+
+def open_chat(store, key, instruction='', model=None, effort=None, cwd=None, mode=''):
+    """Like open_term, but as a chat: the same session id, flags, folder and record; the prompt goes in as the first
+    message on stdin."""
+    info, item, session_id, flags, entry, name = _launch_plan(store, key, instruction, model, effort, cwd)
+    chat = _spawn_chat(session_id, flags, info['cwd'], name, item['key'] if item else None, mode, info['model'], info['prompt'],
+                       effort=info['effort'])
+    chat.vault = getattr(store, 'vault_id', None)
+    return _record(store, {'chat': chat.info(), 'cwd': info['cwd'], 'command': _command_line([*chat_flags(mode), *flags])}, item, entry)
+
+
+def resume_chat(store, key, session_id, mode=''):
+    """A recorded conversation, reopened as a chat with what was said before. A live one is handed back as it is."""
+    found, flags = _resume_plan(store, key, session_id)
+    live = CHATS.live(found['id'])
+    if live:
+        return {'chat': live.info(), 'cwd': found['cwd'], 'session_id': found['id']}
+    label = found.get('instruction') or 'Claude'
+    if key:
+        it = store.find(key)
+        label = f"{it['id'] or it['type']} · {it['title']}"
+    if TERMS.live(found['id']):  # close it first, so its transcript is complete before it is read
+        TERMS.close(found['id'])
+    past = transcript_history(transcript_path(found['id'], found['cwd']))
+    chat = _spawn_chat(found['id'], flags, found['cwd'], label, key or None, mode, found.get('model') or '', history=past,
+                       effort=found.get('effort') or '')
+    chat.vault = getattr(store, 'vault_id', None)
+    return {'chat': chat.info(), 'cwd': found['cwd'], 'session_id': found['id']}
+
+
+def _in_dock(session_id):
+    """The dock's chat or terminal of that session, running or ended, else None."""
+    for pool in (CHATS, TERMS):
+        try:
+            return pool.get(session_id)
+        except StoreError:
+            pass
+    return None
+
+
+def associate_claude(store, session_id, from_key, to_key):
+    """Change the item a session is about: its record moves to that item's list (or the global one, no item), so it
+    is listed there, and the dock's chat or terminal of it takes the item's name. A session the dock runs from
+    another vault is refused: its record is not in this one."""
+    sid = str(session_id or '').strip().lower()
+    live = _in_dock(sid)
+    vault = getattr(store, 'vault_id', None)
+    if live and live.vault and vault and live.vault != vault:
+        raise StoreError(409, 'this session was opened in another vault: switch to it to change its item')
+    fallback = None
+    if live:  # a launch that never got its record still gets one, from what the dock knows of it
+        fallback = {'cwd': live.cwd, 'instruction': '' if live.key else live.label,
+                    **({'model': live.model, 'effort': live.effort} if isinstance(live, Chat) else {})}
+    entry = store.move_claude_session(sid, from_key or None, to_key or None, fallback)
+    out = {'session_id': sid}
+    if live:
+        it = store.find(to_key) if to_key else None
+        live.key = it['key'] if it else None
+        live.label = f"{it['id'] or it['type']} · {it['title']}" if it else (entry.get('instruction') or 'Claude')
+        out['session'] = live.info()
+    return out
+
+
+def chat_files(chat_id):
+    """The files and folders of a chat's folder, for the composer's @."""
+    paths, truncated = session_files(CHATS.get(chat_id).cwd)
+    return {'files': paths, 'truncated': truncated}
+
+
+CHAT_ITEMS_MAX = 10  # vault items attached to one message
+
+
+def chat_send(chat_id, text, keys=None, vault_id=None, images=None):
+    """A message for a chat, with the vault items attached to it: their context is built here from their files, in
+    the vault the page shows (`vault_id` — the chat itself belongs to no vault, so the route is global and does not
+    go into a vault's journal). Its images are checked by the chat (tm/chat.py image_blocks)."""
+    chat = CHATS.get(chat_id)
+    keys = [k for k in (keys or []) if isinstance(k, str) and k]
+    if len(keys) > CHAT_ITEMS_MAX:
+        raise StoreError(400, f'at most {CHAT_ITEMS_MAX} items can be attached to one message')
+    items = []
+    if keys:
+        if not vault_id:
+            raise StoreError(400, 'which vault the items are in: reload the page', reload=True)
+        store = APP.store_for(vault_id)
+        for key in dict.fromkeys(keys):
+            it = store.read(key)
+            items.append({'id': it['id'], 'title': it['title'], 'type': it['type'], 'context': store.claude_item_context(key)})
+    chat.send(text, items, images or [])
+    return {'ok': True}
+
+
+def chat_control(chat_id, mode=None, model=None, effort=None):
+    """The composer's choices, from closed lists: the permission mode, the model (those claude listed), the effort."""
+    chat = CHATS.get(chat_id)
+    out = {}
+    if mode:
+        out.update(chat.set_mode(mode))
+    if model:
+        if not chat.models and model not in CLAUDE_MODELS:
+            raise StoreError(400, f"model must be one of {', '.join(CLAUDE_MODELS)}")
+        out.update(chat.set_model(model))
+    if effort:
+        out.update(chat.set_effort(effort))
+    return {**out, 'chat': chat.info()}
 
 
 def forget_claude_session(store, key, index):
@@ -1067,6 +1232,7 @@ ROUTES = {
                                                                for s in (b.get('sessions') or [])[:500] if isinstance(s, dict)}},
     ('POST', '/api/claude/resume'): lambda s, q, b: resume_claude(s, b.get('key'), b.get('session_id'), b.get('target') or 'terminal'),
     ('POST', '/api/claude/forget'): lambda s, q, b: forget_claude_session(s, b.get('key'), int(b.get('index', -1))),
+    ('POST', '/api/claude/associate'): lambda s, q, b: associate_claude(s, b.get('session_id'), b.get('from_key'), b.get('to_key')),
     ('GET', '/api/term/list'): lambda s, q, b: {'terms': TERMS.list()},
     ('POST', '/api/term/open'): lambda s, q, b: open_term(s, b.get('key'), b.get('instruction') or '', b.get('model'), b.get('effort'),
                                                        b.get('cwd'), b.get('cols'), b.get('rows')),
@@ -1074,6 +1240,17 @@ ROUTES = {
     ('POST', '/api/term/input'): lambda s, q, b: term_input(b.get('id'), b.get('data')),
     ('POST', '/api/term/resize'): lambda s, q, b: term_resize(b.get('id'), b.get('cols'), b.get('rows')),
     ('POST', '/api/term/close'): lambda s, q, b: TERMS.close(b.get('id')),
+    ('GET', '/api/chat/list'): lambda s, q, b: {'chats': CHATS.list(), 'modes': list(CHAT_MODES), 'models': list(CLAUDE_MODELS)},
+    ('POST', '/api/chat/open'): lambda s, q, b: open_chat(s, b.get('key'), b.get('instruction') or '', b.get('model'), b.get('effort'),
+                                                       b.get('cwd'), b.get('mode') or ''),
+    ('POST', '/api/chat/resume'): lambda s, q, b: resume_chat(s, b.get('key'), b.get('session_id'), b.get('mode') or ''),
+    ('GET', '/api/chat/files'): lambda s, q, b: chat_files(q.get('id')),
+    ('POST', '/api/chat/send'): lambda s, q, b: chat_send(b.get('id'), b.get('text'), b.get('items'), b.get('vault'), b.get('images')),
+    ('POST', '/api/chat/permission'): lambda s, q, b: CHATS.get(b.get('id')).answer(
+        b.get('request_id'), b.get('behavior'), bool(b.get('always')), b.get('message') or '', b.get('answers'), b.get('mode') or ''),
+    ('POST', '/api/chat/interrupt'): lambda s, q, b: CHATS.get(b.get('id')).interrupt(),
+    ('POST', '/api/chat/control'): lambda s, q, b: chat_control(b.get('id'), b.get('mode'), b.get('model'), b.get('effort')),
+    ('POST', '/api/chat/close'): lambda s, q, b: CHATS.close(b.get('id')),
     ('POST', '/api/item/comment'): lambda s, q, b: s.add_comment(b.get('key'), b.get('text')),
     ('POST', '/api/item/comment/delete'): lambda s, q, b: s.delete_comment(b.get('key'), int(b.get('index', -1))),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
@@ -1093,6 +1270,8 @@ UPLOAD_ROUTES = {('POST', '/api/attachments/add'), ('POST', '/api/files/upload')
 GLOBAL_ROUTES = {
     ('GET', '/api/config'), ('POST', '/api/config'),
     ('GET', '/api/term/list'), ('POST', '/api/term/input'), ('POST', '/api/term/resize'), ('POST', '/api/term/close'),
+    ('GET', '/api/chat/list'), ('GET', '/api/chat/files'), ('POST', '/api/chat/send'), ('POST', '/api/chat/permission'),
+    ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
     ('POST', '/api/claude/updated'), ('POST', '/api/open'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
 }
@@ -1135,6 +1314,7 @@ def main():
     def stop(*_):
         # launchctl stops the app's LaunchAgent with SIGTERM: the terminals it runs end with it, as they do on Ctrl-C.
         TERMS.close_all()
+        CHATS.close_all()
         print('\nbye', flush=True)
         os._exit(0)
     signal.signal(signal.SIGTERM, stop)

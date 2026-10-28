@@ -200,9 +200,15 @@ export const deleteComment = (key, index) => mutate(() => api.deleteComment(key,
 /** Open Terminal with claude on the item (or on a bare prompt, key null); the launch is recorded, so the state reloads. */
 export const claudeLaunch = (key, instruction, model, effort, cwd, target) => mutate(() => api.claudeLaunch(key, instruction, model, effort, cwd, target));
 export const claudeForget = (key, index) => mutate(() => api.claudeForget(key, index));
+/** A session's record to another item's list (toKey), or to the general one (null): the state reloads, so an open
+ * card's AI tab shows it there. → { session_id, session? } (session: the dock's chat or terminal of it, renamed). */
+export const claudeAssociate = (sessionId, fromKey, toKey) => mutate(() => api.claudeAssociate(sessionId, fromKey, toKey));
 /** The same launch, in the dock instead of Terminal.app: recorded all the same, so the state reloads. */
 export const claudeTermOpen = (key, instruction, model, effort, cwd, cols, rows) =>
   mutate(() => api.termOpen(key, instruction, model, effort, cwd, cols, rows));
+/** …or as a chat in the dock: recorded the same way. */
+export const claudeChatOpen = (key, instruction, model, effort, cwd, mode) =>
+  mutate(() => api.chatOpen(key, instruction, model, effort, cwd, mode));
 
 /** Status is the single source of truth; clearing `list` lets listOf() re-place the card. */
 export const setStatus = (item, status) =>

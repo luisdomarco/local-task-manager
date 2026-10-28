@@ -72,6 +72,7 @@ STATUSES_FILE = 'statuses.json'  # in META_DIR: how this vault arranged its type
 SKIP_DIRS = {'node_modules', '__pycache__', attachments.DIR}  # Attachments/: files, never items
 # What "work on it with Claude" sends: the item as plain text. The user sees it in full before it goes out.
 CLAUDE_MAX_PROMPT = 100_000  # bytes of prompt; the body is cut (and says so) beyond this
+CLAUDE_ITEM_CONTEXT_MAX = 16_000  # bytes of an item's description attached to a chat message
 CLAUDE_DEFAULT_INSTRUCTION = ('Read this item, tell me in a few lines what you understand it asks for and what you would do first, '
                               'and wait for my go-ahead before changing anything.')
 TRASH_STAMP_RE = re.compile(r'^(\d{8})-(\d{6})-(.+)$')  # <deleted-at>-<original file name>
@@ -1114,6 +1115,39 @@ class Store:
             sessions.pop(index)
             return self.update(it['key'], {'claude_sessions': sessions})
 
+    @writes
+    def move_claude_session(self, session_id, from_key, to_key, fallback=None):
+        """Move a session's entry from an item (or the global list: key None) to another, by id, so the session is
+        listed where it now belongs. One on record in neither (its launch was never recorded) is recorded from
+        `fallback`, the live session's own entry. The new place is written before the old one is cleared: a
+        failure leaves it listed twice, never lost. → the entry."""
+        sid = str(session_id or '').strip().lower()
+        with self._lock:
+            source = self.find(from_key) if from_key else None
+            target = self.find(to_key) if to_key else None
+            if target and 'claude_sessions' not in self.structure.allowed_fields(target['type']):
+                raise StoreError(400, f"a {target['type']} keeps no Claude sessions")
+            listed = (source['fields'].get('claude_sessions') if source else self.global_claude_sessions()['sessions']) or []
+            entry = next((s for s in listed if s.get('id') == sid), None)
+            if (source and source['key']) == (target and target['key']):
+                if entry:
+                    return entry
+                listed = []  # not on record where it says it is: recorded there from the fallback below
+            if not entry and not fallback:
+                raise StoreError(404, 'Claude session not found')
+            entry = entry or clean_claude_sessions([dict(fallback, id=sid)])[0]
+            if target:
+                self.add_claude_session(target['key'], entry)
+            else:
+                self.add_global_claude_session(entry)
+            if any(s.get('id') == sid for s in listed):
+                rest = [s for s in listed if s.get('id') != sid]
+                if source:
+                    self.update(source['key'], {'claude_sessions': rest})
+                else:
+                    self._save_global_claude_sessions(rest)
+            return entry
+
     def claude_session(self, key, session_id):
         """The recorded entry a resume starts from (its cwd is what the shell gets). 404 if it is not on record."""
         sessions = self.find(key)['fields'].get('claude_sessions') if key else self.global_claude_sessions()['sessions']
@@ -1224,6 +1258,36 @@ class Store:
         """The item as a prompt: its facts, its relation, its links, its description, then what to do."""
         it = self.read(key)
         f = it['fields']
+        facts = self._claude_facts(it)
+        body = (it.get('body') or '').strip()
+        comments = [c.get('text') for c in f.get('comments') or [] if isinstance(c, dict)]
+        tail_people = self.watchers_note(f.get('watchers')) + self.mentions_note(body, *comments, instruction)
+        head = f"I want to work on this item from my task manager.\n\n# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
+        tail = f"{tail_people}\n\n## What I want\n\n{(instruction or '').strip() or CLAUDE_DEFAULT_INSTRUCTION}\n"
+        room = CLAUDE_MAX_PROMPT - len((head + tail).encode('utf-8')) - 200
+        if body:
+            raw = body.encode('utf-8')
+            if len(raw) > room:
+                body = raw[:max(room, 0)].decode('utf-8', 'ignore') + '\n\n[…the description was cut here: it is longer than the prompt allows]'
+            head += f'\n\n## Description\n\n{body}'
+        return head + tail
+
+    def claude_item_context(self, key, room=CLAUDE_ITEM_CONTEXT_MAX):
+        """An item attached to a chat message: what claude_prompt says of it (its facts, its description, cut to `room`
+        bytes) without the request around it — the message is the request."""
+        it = self.read(key)
+        out = f"# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(self._claude_facts(it))
+        body = (it.get('body') or '').strip()
+        if body:
+            raw = body.encode('utf-8')
+            if len(raw) > room:
+                body = raw[:room].decode('utf-8', 'ignore') + '\n\n[…the description was cut here]'
+            out += f'\n\n## Description\n\n{body}'
+        return out
+
+    def _claude_facts(self, it):
+        """The item's facts for claude, one `- Label: value` line each: type, status, dates, relations, links, its file."""
+        f = it['fields']
         parent = next((i for i in self.items() if i['id'] and i['id'] == f.get('related_to')), None)
         facts = []
 
@@ -1260,18 +1324,7 @@ class Store:
         if links:
             facts.append('- Links:')
             facts += [f"  - {l.get('label') or 'Link'}: {l.get('url')}" for l in links]
-        body = (it.get('body') or '').strip()
-        comments = [c.get('text') for c in f.get('comments') or [] if isinstance(c, dict)]
-        tail_people = self.watchers_note(f.get('watchers')) + self.mentions_note(body, *comments, instruction)
-        head = f"I want to work on this item from my task manager.\n\n# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
-        tail = f"{tail_people}\n\n## What I want\n\n{(instruction or '').strip() or CLAUDE_DEFAULT_INSTRUCTION}\n"
-        room = CLAUDE_MAX_PROMPT - len((head + tail).encode('utf-8')) - 200
-        if body:
-            raw = body.encode('utf-8')
-            if len(raw) > room:
-                body = raw[:max(room, 0)].decode('utf-8', 'ignore') + '\n\n[…the description was cut here: it is longer than the prompt allows]'
-            head += f'\n\n## Description\n\n{body}'
-        return head + tail
+        return facts
 
     def _contact_lines(self, names):
         known = {r['name'].lower(): r for r in self._people_records()}

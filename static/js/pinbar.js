@@ -97,7 +97,12 @@ function wire(el) {
 export function renderPinbar() {
   const el = bar();
   if (!el) return;
-  if (!wired) { wire(el); wired = true; }
+  if (!wired) {
+    wire(el);
+    wired = true;
+    // Its height, for what sits under it: an expanded item card (app.css #item-backdrop.expanded).
+    new ResizeObserver(() => document.documentElement.style.setProperty('--pinbar-h', `${el.offsetHeight}px`)).observe(el);
+  }
   const items = state.pins.map((id) => state.byId.get(id)).filter(Boolean);
   chipsEl().replaceChildren(
     h('span', { class: 'pin-label', title: 'Pinned — drag to reorder, drop a card here to pin it' }, icon('pin', 13)),

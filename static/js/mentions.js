@@ -74,7 +74,7 @@ function open(ta, start, matches) {
 }
 
 function update(ta) {
-  if (ta.readOnly || ta.disabled || ta.selectionStart !== ta.selectionEnd) { close(); return; }
+  if (ta.readOnly || ta.disabled || ta.dataset.mentions === 'off' || ta.selectionStart !== ta.selectionEnd) { close(); return; } // off: its own @ (chat.js)
   const m = QUERY_RE.exec(ta.value.slice(0, ta.selectionStart));
   const matches = m ? matchPeople(m[1]) : [];
   if (!m || !matches.length) { close(); return; }

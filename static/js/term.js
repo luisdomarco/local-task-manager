@@ -1,17 +1,29 @@
-// The dock: Claude's terminals inside the app. A panel across the bottom of the main column, one tab per
-// terminal, each an xterm.js screen attached to a pty the server runs (`claude` on an item, on a bare prompt,
-// or resumed). Output arrives on a Server-Sent Events stream, keystrokes go back with POSTs. Closing a tab ends
-// the process; the conversation itself stays in Claude Code and can be resumed again. xterm.js and its fit
-// addon are vendored under static/vendor/xterm/ and loaded the first time a terminal opens.
+// The dock: Claude's sessions inside the app. A panel across the bottom of the main column: the sessions listed
+// down its left side (with what each is doing), the one picked on the right, shown one of two ways:
+//  - as a chat (chat.js): claude -p in stream-json, messages, tool calls and permission cards;
+//  - as a terminal: an xterm.js screen attached to a pty the server runs, output on Server-Sent Events, keys by POST.
+// The same Claude session either way (one session id): Chat / Terminal in the head hands it from one to the other,
+// the server ending the one before starting the other. Closing a session ends its process; the conversation stays
+// in Claude Code and can be resumed again. xterm.js and its fit addon are vendored under static/vendor/xterm/ and
+// loaded the first time a terminal opens.
 import { api } from './api.js';
+import { chatView, statusLabel, statusTone } from './chat.js';
+import { sessionStatus } from './chat-model.js';
 import { pref, setPref } from './prefs.js';
-import { claudeTermOpen, state, toast } from './state.js';
-import { h, icon } from './ui.js';
+import { itemName, itemPicker } from './itempicker.js';
+import { claudeAssociate, claudeChatOpen, claudeTermOpen, onChange, state, toast } from './state.js';
+import { setAlertTitle } from './tabtitle.js';
+import { h, icon, typeIcon } from './ui.js';
+import { vaultId } from './vault.js';
 
 const VENDOR = 'vendor/xterm';
-const tabs = new Map(); // id → { id, label, term, fit, pane, button, source, alive, writes }
+// id → a session: { id, label, key, vault, cwd, kind: 'chat' | 'term', pane, row, alive, … }
+//   a terminal also has { term, fit, source, writes }; a chat has { view } (chat.js)
+const tabs = new Map();
+const viewPref = () => (pref('dock.view', 'chat') === 'terminal' ? 'terminal' : 'chat');
 let active = null;
 let dock = null;
+let collapseBtn = null;
 let libs = null;
 
 const script = (src) => new Promise((resolve, reject) => {
@@ -52,41 +64,47 @@ const bytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 // ── the dock itself ─────────────────────────────────────────────────────────
 function ensureDock() {
   if (dock) return dock;
-  const tabsEl = h('div', { class: 'td-tabs', role: 'tablist' });
-  const body = h('div', { class: 'td-body' });
-  const collapse = h('button', { class: 'btn icon', title: 'Collapse', onclick: () => {
+  const list = h('div', { class: 'td-list', role: 'listbox', 'aria-label': 'Claude sessions' });
+  const side = h('div', { class: 'td-side' },
+    h('div', { class: 'td-side-head' }, h('span', {}, 'Sessions'),
+      h('button', { class: 'btn icon', title: 'New session', onclick: () => import('./claude.js').then((m) => m.openClaudeDialog(null)) }, icon('plus', 14))),
+    list);
+  const main = h('div', { class: 'td-main' });
+  const body = h('div', { class: 'td-body' }, side, main);
+  const collapse = collapseBtn = h('button', { class: 'btn icon', title: 'Collapse', onclick: () => {
     const folded = dock.classList.toggle('collapsed');
+    if (!folded) setAlertTitle('');
     collapse.title = folded ? 'Expand' : 'Collapse';
     collapse.replaceChildren(icon(folded ? 'up' : 'down', 16));
     document.body.classList.toggle('term-collapsed', folded);
     place();
     if (!folded) fitActive();
   } }, icon('down', 16));
-  const grip = h('div', { class: 'td-grip', role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize the terminal', tabindex: '0',
+  const grip = h('div', { class: 'td-grip', role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize the dock', tabindex: '0',
     title: 'Drag to resize · double-click to fill up to the top bar' });
   const max = h('button', { class: 'btn icon td-max', title: 'Fill up to the top bar', onclick: () => toggleMax() }, icon('maximize', 15));
-  dock = h('aside', { id: 'termdock', 'aria-label': 'Claude terminals', hidden: true }, grip,
-    h('div', { class: 'td-head' }, h('span', { class: 'td-title' }, icon('terminal', 14)), tabsEl, h('span', { class: 'spacer' }),
-      max, collapse,
-      h('button', { class: 'btn icon', title: 'Close every terminal', onclick: () => [...tabs.keys()].forEach(closeTab) }, icon('x', 16))),
+  const seg = h('div', { class: 'td-seg', role: 'tablist', 'aria-label': 'Show as' },
+    h('button', { role: 'tab', 'data-view': 'chat', onclick: () => switchView(active, 'chat') }, icon('message', 13), 'Chat'),
+    h('button', { role: 'tab', 'data-view': 'terminal', onclick: () => switchView(active, 'terminal') }, icon('terminal', 13), 'Terminal'));
+  dock = h('aside', { id: 'termdock', 'aria-label': 'Claude sessions', hidden: true }, grip,
+    h('div', { class: 'td-head' }, h('span', { class: 'td-title' }, icon('bot', 14)),
+      h('div', { class: 'td-name' }, h('span', { class: 'td-name-label' }), h('span', { class: 'td-name-cwd' })),
+      h('button', { type: 'button', class: 'btn small td-item', 'aria-haspopup': 'dialog', onclick: (e) => pickItem(e.currentTarget) }),
+      h('span', { class: 'spacer' }), seg, max, collapse,
+      h('button', { class: 'btn icon', title: 'Close every session', onclick: () => [...tabs.keys()].forEach(closeTab) }, icon('x', 16))),
     body);
-  // The app's shortcuts (q, /, g…) and its Escape must not fire while typing into a terminal.
+  // The app's shortcuts (q, /, g…) and its Escape must not fire while typing into a terminal or a chat.
   dock.addEventListener('keydown', (e) => e.stopPropagation());
   document.body.append(dock);
   wireGrip(grip);
-  new ResizeObserver(() => fitActive()).observe(body);
+  new ResizeObserver(() => fitActive()).observe(main);
   addEventListener('resize', () => { if (!dock.hidden) setHeight(dock.getBoundingClientRect().height, false); });
-  // Follow the item card: opened, closed or minimized (its backdrop's `hidden`), resized, or scrolled.
-  const backdrop = document.getElementById('item-backdrop');
-  if (backdrop) {
-    new MutationObserver(rehome).observe(backdrop, { attributes: true, attributeFilter: ['hidden'] });
-    backdrop.addEventListener('scroll', place, { passive: true });
-  }
-  if (itemModal()) new ResizeObserver(() => place()).observe(itemModal());
+  new ResizeObserver(() => place()).observe(dock); // dragged, folded, unfolded: what is under it makes room again
+  onChange(() => { for (const t of tabs.values()) paintRow(t); if (!active) paintHead(); }); // an item renamed, the vault loaded: the names follow
   return dock;
 }
-const tabsEl = () => dock.querySelector('.td-tabs');
-const bodyEl = () => dock.querySelector('.td-body');
+const listEl = () => dock.querySelector('.td-list');
+const mainEl = () => dock.querySelector('.td-main');
 
 /** Light or dark as Claude Code is set up; a theme changed since (/theme) is picked up on the next reload. */
 function paintTheme() {
@@ -94,58 +112,31 @@ function paintTheme() {
   if (dock.classList.contains('td-light') === light && dock.dataset.painted) return;
   dock.classList.toggle('td-light', light);
   dock.dataset.painted = '1';
-  for (const t of tabs.values()) t.term.options.theme = theme();
+  for (const t of tabs.values()) if (t.term) t.term.options.theme = theme();
 }
 
-// ── where it sits: across the bottom of the page, or, while an item's card is open, inside the card ──
-// The same dock and tabs either way: only its box moves. In the card it takes the card's width and bottom,
-// the card makes room above it, and it never covers the card's header (as on the page it never covers the top bar).
-const itemModal = () => document.getElementById('item-modal');
-const inModal = () => document.getElementById('item-backdrop')?.hidden === false;
-const heightKey = () => (inModal() ? 'dock.hModal' : 'dock.h');
-
+// ── where it sits: one layer across the bottom of the content, above the pages and the item card alike ──
+// Wherever a session was opened from, it is here. What is under it makes room: the page's bottom padding and the
+// item card's (app.css, both from --dock-room, the height the dock takes now — folded, just its head).
 function place() {
   if (!dock) return;
-  const modal = itemModal();
-  const anchored = !dock.hidden && inModal() && modal;
-  dock.classList.toggle('in-modal', Boolean(anchored));
-  modal?.classList.toggle('with-dock', Boolean(anchored));
-  if (!anchored) {
-    dock.style.left = dock.style.width = dock.style.bottom = '';
-    if (modal) modal.style.paddingBottom = '';
-    return;
-  }
-  const r = modal.getBoundingClientRect();
-  dock.style.left = `${r.left}px`;
-  dock.style.width = `${r.width}px`;
-  dock.style.bottom = `${Math.max(0, innerHeight - r.bottom)}px`;
-  modal.style.paddingBottom = `${dock.getBoundingClientRect().height}px`; // the card's columns end where the dock starts
+  const room = dock.hidden ? 0 : Math.round(dock.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--dock-room', `${room}px`);
 }
 
-/** The card opened, closed or was minimized: the dock moves there and takes the height it had in that place. */
-function rehome() {
-  if (!dock || dock.hidden) { place(); return; }
-  setHeight(pref(heightKey(), defaultH()), false);
-}
-
-// ── height: drag the top edge (or ↑/↓ on it); double-click or the button fills up to the top bar (the card's header) ──
+// ── height: drag the top edge (or ↑/↓ on it); double-click or the button fills up to the top bar ──
+const HEIGHT_PREF = 'dock.h';
 const MIN_H = 180;
 const maxHeight = () => {
-  if (inModal() && itemModal()) {
-    const head = itemModal().querySelector('.im-head');
-    const r = itemModal().getBoundingClientRect();
-    return Math.max(MIN_H, r.bottom - (head ? head.getBoundingClientRect().bottom : r.top));
-  }
   const bar = document.getElementById('pinbar');
   return Math.max(MIN_H, innerHeight - (bar ? bar.getBoundingClientRect().bottom : 0));
 };
 const clampH = (px) => Math.round(Math.max(MIN_H, Math.min(maxHeight(), px)));
 const defaultH = () => Math.round(innerHeight * 0.42);
 function setHeight(px, save = true) {
-  if (inModal()) itemModal()?.classList.add('with-dock'); // the card at its full height first: that is the room there is
   const hgt = clampH(px);
   document.documentElement.style.setProperty('--dock-h', `${hgt}px`);
-  if (save) setPref(heightKey(), hgt);
+  if (save) setPref(HEIGHT_PREF, hgt);
   place();
   const max = dock?.querySelector('.td-max');
   if (max) {
@@ -192,7 +183,7 @@ function wireGrip(grip) {
 function show() {
   ensureDock().hidden = false;
   paintTheme();
-  setHeight(pref(heightKey(), defaultH()), false); // a smaller window than last time: clamped, not saved
+  setHeight(pref(HEIGHT_PREF, defaultH()), false); // a smaller window than last time: clamped, not saved
   document.body.classList.add('term-open');
 }
 function hideIfEmpty() {
@@ -204,21 +195,120 @@ function hideIfEmpty() {
 
 function fitActive() {
   const t = active && tabs.get(active);
-  if (!t || dock.hidden || dock.classList.contains('collapsed')) return;
+  if (!t?.fit || dock.hidden || dock.classList.contains('collapsed')) return;
   try { t.fit.fit(); } catch { /* not laid out yet */ }
+}
+
+// ── the sessions list ───────────────────────────────────────────────────────
+function status(t) {
+  return t.kind === 'chat' && t.view ? t.view.status() : sessionStatus({ kind: 'term', alive: t.alive, exit_code: t.exitCode });
+}
+
+/** A session's row in the list: its status dot, its name, what it is doing; and the head, when it is the one shown. */
+function paintRow(t) {
+  if (!t.row) return;
+  const st = status(t);
+  t.row.querySelector('.td-dot').className = `td-dot tone-${statusTone(st)}`;
+  const said = t.kind === 'term' && st !== 'terminal' ? `terminal · ${statusLabel(st)}` : statusLabel(st);
+  const it = itemOf(t);
+  t.row.querySelector('.td-sub').textContent = it ? `${said} · ${it.id || it.type}` : said;
+  t.row.classList.toggle('ended', !t.alive);
+  t.row.classList.toggle('needs-you', st === 'needs_you');
+  if (t.id === active) paintHead();
+}
+
+function paintHead() {
+  const t = active && tabs.get(active);
+  const name = dock.querySelector('.td-name');
+  name.querySelector('.td-name-label').textContent = t ? t.label : '';
+  name.querySelector('.td-name-cwd').textContent = t?.cwd || '';
+  name.title = t ? `${t.label}\n${t.cwd || ''}` : '';
+  paintItemChip(t);
+  for (const b of dock.querySelectorAll('.td-seg button')) {
+    const on = Boolean(t) && (b.dataset.view === 'terminal') === (t.kind === 'term');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+    b.disabled = !t || t.switching;
+  }
+}
+
+function addRow(t, before = null) {
+  t.row = h('div', { class: 'td-row', role: 'option', tabindex: '0', title: `${t.label}\n${t.cwd || ''}`,
+    onclick: () => activate(t.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(t.id); } } },
+  h('span', { class: 'td-dot' }),
+  h('span', { class: 'td-rowtext' }, h('span', { class: 'td-label' }, t.label), h('span', { class: 'td-sub' })),
+  h('button', { class: 'td-x', title: 'Close (ends the process)', onclick: (e) => { e.stopPropagation(); closeTab(t.id); } }, icon('x', 12)));
+  if (before) before.replaceWith(t.row);
+  else listEl().prepend(t.row); // newest on top
+  paintRow(t);
 }
 
 function activate(id) {
   active = id;
+  setAlertTitle('');
   for (const [k, t] of tabs) {
     t.pane.hidden = k !== id;
-    t.button.classList.toggle('active', k === id);
-    t.button.setAttribute('aria-selected', String(k === id));
+    t.row?.classList.toggle('active', k === id);
+    t.row?.setAttribute('aria-selected', String(k === id));
   }
+  paintHead();
   fitActive();
-  tabs.get(id)?.term.focus();
+  const t = tabs.get(id);
+  if (t?.term) t.term.focus();
+  else t?.view?.focus();
 }
 
+// ── the item a session is about: its record is listed there (the item's AI tab), or in the general history ──
+const itemOf = (t) => (t?.key ? state.items.find((it) => it.key === t.key) : null);
+const otherVault = (t) => Boolean(t.vault && vaultId() && t.vault !== vaultId());
+
+function paintItemChip(t) {
+  const b = dock.querySelector('.td-item');
+  b.hidden = !t;
+  if (!t) return;
+  const it = itemOf(t);
+  const away = otherVault(t);
+  b.disabled = away;
+  b.title = away ? 'Opened in another vault: switch to it to change its item'
+    : `${it ? itemName(it) : 'No item'} — change it to list this session in another history`;
+  b.replaceChildren(...(it ? [typeIcon(it.type, 13)] : []), // not a null: replaceChildren writes it as text
+    h('span', { class: 'td-item-text' }, it ? itemName(it) : t.key ? 'Another vault' : 'No item'), icon('down', 12));
+}
+
+function pickItem(btn) {
+  const t = active && tabs.get(active);
+  if (t && !otherVault(t)) itemPicker(btn, t.key, (it) => moveTo(t, it));
+}
+
+/** The session's record goes to `it`'s list (null: the general one) and the session takes its name. A chat also
+ *  gets the item as a chip for the next message, to send its context along if wanted. */
+async function moveTo(t, it) {
+  const to = it ? it.key : null;
+  if (to === (t.key || null)) return;
+  let out;
+  try { out = await claudeAssociate(t.id, t.key, to); } catch { return; } // toasted by the state
+  t.key = to;
+  t.label = out.session?.label || (it ? itemName(it) : t.label);
+  t.row.querySelector('.td-label').textContent = t.label;
+  t.row.title = `${t.label}\n${t.cwd || ''}`;
+  paintRow(t);
+  if (t.id === active) paintHead();
+  if (it) t.view?.attachItem(it);
+  toast(it ? `Moved to ${it.id || it.title}'s history` : 'Moved to the general history');
+}
+
+/** A history row's Move…: the dock's own move when it has that session open (its name and chip follow), else the
+ *  record alone. */
+export async function moveClaudeSession(sessionId, fromKey, it) {
+  const t = tabs.get(sessionId);
+  if (t) return moveTo(t, it);
+  const to = it ? it.key : null;
+  if (to === (fromKey || null)) return;
+  try { await claudeAssociate(sessionId, fromKey, to); } catch { return; } // toasted by the state
+  toast(it ? `Moved to ${it.id || it.title}'s history` : 'Moved to the general history');
+}
+
+// ── a terminal ──────────────────────────────────────────────────────────────
 /** An xterm screen in its own pane, sized to the dock. Resolves to { term, fit, pane } before any process exists. */
 async function makePane() {
   const { Terminal, FitAddon } = await loadLibs();
@@ -227,7 +317,7 @@ async function makePane() {
   // and with border-box that width would include the pane's padding (text ran past the right edge).
   const screen = h('div', { class: 'td-screen' });
   const pane = h('div', { class: 'td-pane' }, screen);
-  bodyEl().append(pane);
+  mainEl().append(pane);
   const term = new Terminal({
     cursorBlink: true, fontFamily: css('--mono') || 'ui-monospace, Menlo, monospace', fontSize: 12.5, lineHeight: 1.15,
     theme: theme(), scrollback: 5000, allowProposedApi: false, macOptionIsMeta: true,
@@ -239,14 +329,11 @@ async function makePane() {
   return { term, fit, pane };
 }
 
-function attach(info, { term, fit, pane }) {
-  const t = { id: info.id, label: info.label || 'Claude', term, fit, pane, alive: info.alive !== false, writes: Promise.resolve() };
-  const label = h('span', { class: 'td-label' }, t.label);
-  t.button = h('button', { class: 'td-tab', role: 'tab', title: `${t.label}\n${info.cwd || ''}`, onclick: () => activate(t.id) },
-    icon('terminal', 12), label,
-    h('span', { class: 'td-x', role: 'button', title: 'Close (ends the process)', onclick: (e) => { e.stopPropagation(); closeTab(t.id); } }, icon('x', 12)));
-  tabsEl().append(t.button);
+function attach(info, { term, fit, pane }, row = null) {
+  const t = { id: info.id, kind: 'term', label: info.label || 'Claude', key: info.key || null, vault: info.vault || null, cwd: info.cwd || '',
+    term, fit, pane, alive: info.alive !== false, exitCode: info.exit_code ?? null, writes: Promise.resolve() };
   tabs.set(t.id, t);
+  addRow(t, row);
 
   // Keystrokes: sent in order (one request after another), never reordered by the network.
   term.onData((data) => {
@@ -266,7 +353,7 @@ function attach(info, { term, fit, pane }) {
   });
   source.addEventListener('data', (e) => term.write(bytes(JSON.parse(e.data).data)));
   source.addEventListener('exit', (e) => { ended(t, JSON.parse(e.data).exit_code); });
-  source.onerror = () => { if (t.alive && source.readyState === EventSource.CLOSED) { ended(t); toast('Lost the terminal stream — close the tab and resume the session', true); } };
+  source.onerror = () => { if (t.alive && source.readyState === EventSource.CLOSED) { ended(t); toast('Lost the terminal stream — close the session and resume it', true); } };
   activate(t.id);
   return t;
 }
@@ -274,31 +361,135 @@ function attach(info, { term, fit, pane }) {
 function ended(t, code) {
   if (!t.alive) return;
   t.alive = false;
+  t.exitCode = code ?? null;
   t.source?.close();
-  t.button.classList.add('ended');
-  t.term.write(`\r\n\x1b[2m[claude ended${code === undefined ? '' : ` with code ${code}`} — close this tab, or resume the session from its card]\x1b[0m\r\n`);
+  paintRow(t);
+  if (t.switching) return; // handed to the chat: no message on a screen about to go
+  t.term.write(`\r\n\x1b[2m[claude ended${code === undefined ? '' : ` with code ${code}`} — close it, or switch to Chat or Terminal to resume it]\x1b[0m\r\n`);
+}
+
+// ── telling you: a session that needs you, or finished its turn, while you look elsewhere ──
+let asked = false; // the browser's permission to notify: asked once per page, with the first chat
+function askToNotify() {
+  if (asked || typeof Notification === 'undefined' || Notification.permission !== 'default') return;
+  asked = true;
+  Notification.requestPermission().catch(() => {});
+}
+addEventListener('visibilitychange', () => { if (!document.hidden && !dock?.classList.contains('collapsed')) setAlertTitle(''); });
+
+/** A chat's status went from `prev` to `st`: worth telling when it waits for you now, or has just finished, and you
+ *  cannot see it — another tab of the browser (a notification, if allowed), the dock folded or another session shown
+ *  (a toast). Either way the tab's title says so until you come back. */
+function tell(t, st, prev) {
+  if (prev === undefined || st === prev) return; // the first status is the conversation loaded, not news
+  const what = st === 'needs_you' ? 'needs you' : prev === 'working' && st === 'idle' ? 'finished' : '';
+  const seen = !document.hidden && !dock.classList.contains('collapsed') && active === t.id;
+  if (!what || seen) return;
+  setAlertTitle(`${t.label} ${what}`);
+  if (!document.hidden) { toast(`Claude · ${t.label} ${what}`); return; }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const n = new Notification(`Claude ${what}`, { body: t.label, tag: `tm-chat-${t.id}` });
+  n.onclick = () => {
+    window.focus();
+    if (dock.classList.contains('collapsed')) collapseBtn.click();
+    if (tabs.has(t.id)) activate(t.id);
+    n.close();
+  };
+}
+
+// ── a chat ──────────────────────────────────────────────────────────────────
+function attachChat(info, row = null) {
+  show();
+  askToNotify();
+  const t = { id: info.id, kind: 'chat', label: info.label || 'Claude', key: info.key || null, vault: info.vault || null, cwd: info.cwd || '',
+    alive: info.alive !== false };
+  t.view = chatView(info, {
+    onChange: (v) => {
+      t.alive = !v.chat.ended;
+      paintRow(t);
+      const st = v.status();
+      tell(t, st, t.lastStatus);
+      t.lastStatus = st;
+    },
+    onResume: () => resumeAs(t.id, 'chat'),
+  });
+  t.pane = t.view.el;
+  mainEl().append(t.pane);
+  tabs.set(t.id, t);
+  addRow(t, row);
+  activate(t.id);
+  return t;
+}
+
+/** Drop a session's view, keeping its row in place for what replaces it. → that row. */
+function dropView(t) {
+  t.source?.close();
+  t.view?.destroy();
+  if (t.term) { t.pane.remove(); t.term.dispose(); }
+  tabs.delete(t.id);
+  return t.row;
+}
+
+/**
+ * Show session `id` as a chat or as a terminal. The server ends the one that runs it now and resumes the session
+ * in the other (`--resume`, same id); the chat starts with what was said before, read from the transcript.
+ */
+async function switchView(id, to, { remember = true } = {}) {
+  const t = tabs.get(id);
+  if (!t || t.switching) return;
+  if (remember) setPref('dock.view', to);
+  if ((to === 'terminal') === (t.kind === 'term') && t.alive) return;
+  await resumeAs(id, to);
+}
+
+async function resumeAs(id, to) {
+  const t = tabs.get(id);
+  if (!t) return;
+  t.switching = true;
+  paintHead();
+  try {
+    if (to === 'terminal') {
+      const pane = await makePane();
+      let out;
+      try { out = await api.termResume(t.key, id, pane.term.cols, pane.term.rows); } catch (e) { pane.pane.remove(); pane.term.dispose(); throw e; }
+      attach(out.term, pane, dropView(t));
+    } else {
+      const out = await api.chatResume(t.key, id);
+      attachChat({ ...out.chat, label: out.chat.label || t.label }, dropView(t));
+    }
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    t.switching = false;
+    if (tabs.get(id)) paintRow(tabs.get(id));
+  }
 }
 
 async function closeTab(id) {
   const t = tabs.get(id);
   if (!t) return;
-  tabs.delete(id);
-  t.source?.close();
-  t.button.remove();
-  t.pane.remove();
-  t.term.dispose();
+  dropView(t);
+  t.row?.remove();
   if (active === id) {
     active = null;
-    const next = [...tabs.keys()].pop();
-    if (next) activate(next);
+    const next = listEl().querySelector('.td-row');
+    const nextId = [...tabs.values()].find((x) => x.row === next)?.id;
+    if (nextId) activate(nextId);
+    else paintHead();
   }
-  hideIfEmpty(); // the UI goes first: ending the process can take a second or two (SIGHUP, then SIGTERM)
-  try { await api.termClose(id); } catch { /* already gone */ }
+  hideIfEmpty(); // the UI goes first: ending the process can take a second or two
+  try { await (t.kind === 'chat' ? api.chatClose(id) : api.termClose(id)); } catch { /* already gone */ }
 }
 
 // ── what the rest of the app calls ──────────────────────────────────────────
-/** A new terminal on an item (or a bare prompt, key null): opened here, recorded like a Terminal.app launch. */
+/** A new session on an item (or a bare prompt, key null), in the dock: a chat, or a terminal when that is the view
+ * last picked. Recorded like a Terminal.app launch. */
 export async function openClaudeHere({ key = null, instruction = '', model = '', effort = '', cwd = '' } = {}) {
+  if (viewPref() === 'chat') {
+    const out = await claudeChatOpen(key, instruction, model, effort, cwd, ''); // toasted by the state
+    attachChat(out.chat);
+    return out;
+  }
   const pane = await makePane();
   try {
     const out = await claudeTermOpen(key, instruction, model, effort, cwd, pane.term.cols, pane.term.rows);
@@ -310,35 +501,48 @@ export async function openClaudeHere({ key = null, instruction = '', model = '',
   }
 }
 
-/** A recorded session, reopened here (`claude --resume`). If its terminal is already running in a tab, that tab comes to the front. */
+/** A recorded session, reopened here (`claude --resume`), as the view last picked. If it is already running in the
+ * dock, it comes to the front as it is. */
 export async function resumeClaudeHere(key, sessionId) {
-  if (tabs.has(sessionId) && tabs.get(sessionId).alive) { show(); activate(sessionId); return null; }
-  if (tabs.has(sessionId)) await closeTab(sessionId); // an ended tab of the same session: start over
-  const pane = await makePane();
+  const t = tabs.get(sessionId);
+  if (t?.alive) { show(); activate(sessionId); return null; }
+  if (t) { t.key = t.key || key; show(); await resumeAs(sessionId, viewPref()); return null; } // ended: started again in place
   try {
-    const out = await api.termResume(key, sessionId, pane.term.cols, pane.term.rows);
-    attach(out.term, pane);
-    return out;
+    if (viewPref() === 'chat') {
+      const out = await api.chatResume(key, sessionId);
+      attachChat(out.chat);
+      return out;
+    }
+    const pane = await makePane();
+    try {
+      const out = await api.termResume(key, sessionId, pane.term.cols, pane.term.rows);
+      attach(out.term, pane);
+      return out;
+    } catch (e) { pane.pane.remove(); pane.term.dispose(); hideIfEmpty(); throw e; }
   } catch (e) {
-    pane.pane.remove(); pane.term.dispose(); hideIfEmpty();
     toast(e.message, true);
     throw e;
   }
 }
 
-/** On page load: the terminals this server still runs get their tabs back, screen included. */
+/** On page load: the chats and terminals this server still runs get their place back, conversation or screen included. */
 export async function restoreTerms() {
-  let terms;
-  try { terms = (await api.termList()).terms; } catch { return; }
-  for (const info of terms) {
+  let chats = [];
+  let terms = [];
+  try { [chats, terms] = await Promise.all([api.chatList().then((r) => r.chats), api.termList().then((r) => r.terms)]); } catch { return; }
+  const all = [...chats.map((c) => ['chat', c]), ...terms.map((t) => ['term', t])].sort((a, b) => a[1].started - b[1].started);
+  for (const [kind, info] of all) {
     if (tabs.has(info.id)) continue;
-    try { attach(info, await makePane()); } catch (e) { toast(e.message, true); return; }
+    try {
+      if (kind === 'chat') attachChat(info);
+      else attach(info, await makePane());
+    } catch (e) { toast(e.message, true); return; }
   }
   if (!tabs.size) return;
-  const live = [...tabs.values()].find((t) => t.alive);
+  const live = [...tabs.values()].find((t) => t.alive && status(t) === 'needs_you') || [...tabs.values()].reverse().find((t) => t.alive);
   activate((live || [...tabs.values()].pop()).id);
 }
 
 export const termIsOpen = () => Boolean(dock && !dock.hidden);
-/** Whether the session `id` is running in a tab of the dock (an ended tab is not): Claude Desktop cannot take it then. */
+/** Whether the session `id` is running in the dock, as a chat or a terminal (an ended one is not): Claude Desktop cannot take it then. */
 export const termIsLive = (id) => Boolean(tabs.get(id)?.alive);

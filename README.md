@@ -538,7 +538,7 @@ Errors, Learnings) and its own folders (see [5](#5-vault-structures)).
 | **Initiatives · User stories · Tasks · Notes · Transcriptions · Meetings · Activity** | One sortable table per type with **Add ‹type›** top right, which opens a form. On top, always visible: **Open / Closed / All** — **Today / Tomorrow / Week / All** for meetings, by their date — and the search. The **filter** icon on the right opens a side panel (closed on every visit; a badge on the icon counts the filters on) with the rest: **Group by** (initiative, status, priority, planned — what applies to the type; Initiatives by initiative: each top one heads its group, first, with its sub-initiatives under it), **status** and **priority** (several at once), relation (an initiative takes in everything under it, the tasks of its stories too), **plan** (today, tomorrow, this week, next week, this month, overdue, unplanned), **labels** (several at once, matching any of them — OR — or all of them — AND), and for meetings a **from – to** date (the same day in both is that day). Each list remembers its scope, filters, grouping and sort between visits. Initiatives show their ticket's **Ticket ID** and **Tracker** (Story, Epic…) side by side. Status and priority are edited in the row; a click elsewhere opens the item. |
 | **User stories** | Every user story is a real item (`US-0001`, folder `stories/`), listed in a table filtered by initiative, status, plan and label. It belongs to an initiative or to none; tasks, notes and meetings can hang from it. A row opens its card, which has the same blocks as a task's plus the external ticket and local path. |
 | **Initiative page** | `#/initiative/INI-0001`, two panels. Left: stats · properties · description · attachments, then what hangs from it as **tabs**, each with its count: **Epics** (its sub-initiatives whose tracker is Epic, in any case; first, and only once it has one — its quick add makes the new one an Epic), **User stories**, **Tasks**, **Notes**, **Meetings** (in each, its quick add with Open / Closed / All beside it, then its table; the tab shown is remembered per item type). Every sub-initiative, Epic or not, is in the Relations tab under Children, as its stories and tasks are. Right, with tabs: **Details** (external ticket & local · session · links · log work), **Relations**, **Activity** (comments) and **AI**. With folders per type only initiatives have a page; in Ticketing, projects (`#/project/<KEY>`), initiatives and PRDs do (an initiative's first tab is its **Stories**), and tickets have a **Delivery** tab too, one field per row in titled groups — Readiness, Execution, Spec and release, Triage, Paused or discarded — with only the ones the type has (`DELIVERY_GROUPS` in `ticketing/definition.py`). The side panel folds with the button at the right end of its tabs: folded, it is a narrow strip with that button to open it again (on a card, in the create form and on a page alike; the choice is remembered per kind of screen). |
-| **Card** | Every item without a page opens as a Trello-style modal, a little clear of the window's edges: status, title, plan, properties, description, attachments, then what hangs from it as tabs with their counts (a task's Notes and Meetings…, as on a page), links; on the side, **what it hangs from** (the parent and on up to its initiative, each a link, above the links), **Watchers** (initiatives, user stories and tasks: the people and groups of Contacts to tell when its status changes — a prompt for Claude lists them with how to reach each and when to use them), work log, related items and **Activity** — what happened to the item plus your comments, oldest first, with the composer at the bottom (Enter adds; `@` mentions a person). Files dropped on a card or page are attached to the item (kept in the vault's `Attachments/`): the drop zone comes first, then **Attachments** with its count, which folds the list of files under it (*No attachments yet* when there are none; folded or not, it is remembered for every item). **📌 Pin** (left of ⋯) fixes the item to the top bar; **▁ Minimize**, right of it, sets the card aside on the top bar. |
+| **Card** | Every item without a page opens as a Trello-style modal, a little clear of the window's edges: status, title, plan, properties, description, attachments, then what hangs from it as tabs with their counts (a task's Notes and Meetings…, as on a page), links; on the side, **what it hangs from** (the parent and on up to its initiative, each a link, above the links), **Watchers** (initiatives, user stories and tasks: the people and groups of Contacts to tell when its status changes — a prompt for Claude lists them with how to reach each and when to use them), work log, related items and **Activity** — what happened to the item plus your comments, oldest first, with the composer at the bottom (Enter adds; `@` mentions a person). Files dropped on a card or page are attached to the item (kept in the vault's `Attachments/`): the drop zone comes first, then **Attachments** with its count, which folds the list of files under it (*No attachments yet* when there are none; folded or not, it is remembered for every item). **📌 Pin** (left of ⋯) fixes the item to the top bar; **▁ Minimize**, right of it, sets the card aside on the top bar; **Expand**, left of ×, gives it the whole content area. |
 | **Top bar** | Always across the top of every view. Left, the button that shows a hidden sidebar (always there on a phone), then the **pinned items** (`<root>/.task-manager/pins.md`): a chip opens its item; drag chips to reorder them; drop any card (Week, Board, Inbox…) on the bar to pin it; × or the pin icon in the item unpins. Keyboard: Shift+←/→ moves a focused chip, Delete unpins it. Right, **🔍 Search** (the same as ⌘K, see *Search and keyboard*) and the **Claude terminal** icon: a prompt with no item behind it, with a *History* tab of the terminals opened from there (see *Work with Claude*). |
 | **Board** | Tasks as cards in lists, Trello-style, with the same filter bar as All items (type, relation, plan, labels, text, show closed, show archived); it starts with tasks only, and initiatives or stories can be ticked in to sit in the list of their status. Drag a task up or down to order it by hand (its `order`, within its list: Today and Week keep their own); drag a list by its header to reorder it; **⋯** sets the status it maps to, a WIP limit, rename, delete. **Each list maps to a status.** |
 | **All items** | Everything, sortable by any column; filters by type (a multi-select), relation (initiative, story, task, or *Not related*), plan, labels (any or all of those ticked), text, closed and archived — the same bar as the Board (`filterbar.js`), four to a row on a desktop, two on a tablet and one on a phone; each view keeps its own state. |
@@ -593,20 +593,35 @@ Completing, reopening, archiving and deleting show a toast with **Undo**.
 with its card open). So **⌘/Ctrl-click or middle-click** anything that opens an item — a table row, a card, a parent
 link, a pin — opens it in a new browser tab, and a row's subject offers *Open in new tab* in its context menu.
 
-**The terminal dock** (Claude inside the app) takes **Claude Code's own theme**: the `theme` in
+**The dock** (Claude inside the app) lists its sessions down its left side, each with a dot for what it is doing —
+amber *needs you* (a permission card is waiting), blue *working*, green *your turn*, grey *terminal* or *ended*, red
+when it *ended with an error* — and
+shows the one picked on the right, **as a chat or as a terminal** (*Chat | Terminal* in its head; the choice is
+remembered for the next launch). The dock takes **Claude Code's own theme**: the `theme` in
 `~/.claude/settings.json`, the one picked when Claude was installed and changed with `/theme` (dark when unset).
 It never follows the app's theme, because Claude draws its screen for its own one. Drag its top edge (or ↑/↓ on
 it) to resize it. Double-click the edge, or use its ⌃ button, to fill it up to the top bar. Its height is
 remembered.
 
-While an item's card is open, the dock sits **inside the card**: across its bottom, at its width, with the card's
-content scrolling above it. It never covers the card's header, the way it never covers the top bar on a page.
-Closing or minimizing the card takes it back to the page, with the same terminals, and each place keeps its own
-height.
+The dock is **one layer for every session**, wherever it was opened (the top bar, a card, a history): across the
+bottom of the content, above the pages and above an open card, which shrinks to end where the dock begins. It never
+covers the top bar. In a narrow dock the list shrinks to its dots.
+
+**A session is about an item, or about none.** One opened from a card is about that item; one from the top bar about
+none. The **item chip** in the dock's head (*TSK-0001 · title ▾*, or *No item ▾*) changes it: search the vault's items
+by id or title, or pick *No item (general history)*. The session's record moves with it — to that item's **AI** tab, or
+to the general **History** — and the session takes the item's name; a chat also gets the item as a chip for its next
+message, to send its context along if you want. Each row of the list shows its item's id under its name. A session
+opened in another vault keeps its chip greyed out until you switch to that vault. The same move is **→** on each row of
+a history (the card's AI tab, the top bar's History).
 
 **Minimize a card** with the button right of its pin. It closes into a dashed chip on the top bar, after the pins.
 A click brings it back on the same tab and scrolled where it was, and × forgets it. Minimized cards are
 remembered between visits, at most 8.
+
+**Expand a card** with the button left of its ×: it takes the whole content area, under the top bar and beside the
+sidebar, which stay in reach; the same button brings it back to its size. The next card opens the way the last one
+was left. Going to another view from the sidebar closes an expanded card (saving, as Esc does).
 
 #### Sidebar modes
 
@@ -1022,6 +1037,48 @@ understood and wait for your go-ahead).
   A page reload reattaches to the terminals the server still runs, screen included (`/api/term/list`). The process
   inherits the **server's** environment, not your shell's: if `claude` is not on that PATH, set its full path in
   Settings → Claude → *Command*. Works wherever the server runs (not macOS only); *Open in Terminal* stays macOS.
+- **The dock as a chat.** By default a session in the dock is a **chat**: the server runs `claude -p --input-format
+  stream-json --output-format stream-json --permission-prompt-tool stdio` (no pty, `tm/chat.py`) and the page draws its
+  messages (`static/js/chat.js`, `chat-model.js`): Claude's text as Markdown, each tool call on one line that opens to
+  its command, output or diff (an edit opens by itself), and **each permission request as a card** — *Allow* (Enter),
+  *Allow for this session* (the rules Claude suggests, added to this session only, never to a settings file) or
+  *Deny* (Esc). Two requests have a card of their own: Claude's **questions** (AskUserQuestion) show their options —
+  one click answers a single question, several are picked and sent together, *Other* takes your own words, *Skip*
+  (Esc) declines — and its **plan** (ExitPlanMode, in Plan mode) shows as Markdown with *Approve, accept edits*,
+  *Approve, ask before edits* (the mode it goes on in) and *Keep planning* with what to change. A **subagent**
+  (Agent / Task) stays on its call's line — how many tools it ran, what it runs now — and opens to its steps; it never
+  mixes into the thread. Thinking, when the model shows it, is folded under *Thought*; a compaction says how much it
+  saved. Each reply and message has a **copy** button. The composer sends with Enter (Shift-Enter for a new line) and grows with what you type up to a third
+  of the dock; **↑** in an empty box brings back the last message, and one sent while Claude works says so (it is
+  taken in when Claude can). **Images** go by pasting, dropping them on the box or its image button (PNG, JPEG, GIF,
+  WebP; five at most, one larger than 2000 px scaled down first): claude gets them as image blocks, and the chat keeps
+  only a thumbnail to show. **`/`** at the start of a message offers the session's commands (those Claude listed in its first
+  reply); **`@`** anywhere offers the files and folders of the session's folder (`GET /api/chat/files?id=` — what git
+  lists in a checkout, else a walk without hidden folders): the name first, best match on top, a folder picked shows
+  what is in it, ↑↓ and Enter or Tab to pick. The path goes in as text, `@static/js/chat.js`: Claude reads it when it
+  needs it (a chat does not attach the file the way the terminal does), and here `@` never mentions a person. The `/`
+  and `@` buttons do the same as typing them. **`#`** (or the paperclip) **attaches an item of the vault** the page
+  shows, found by its id or title: it goes as a chip above the text (× or Backspace at the start takes it off, ten at
+  most), and claude gets its context after the message — what an item's own prompt says of it (its facts, links and
+  description, cut at 16 KB), inside `<attached-items>` — so "what is left on this?" needs no copying. The message
+  shows its items as chips, also when the chat is resumed. The composer carries the **permission mode** (Ask, Accept
+  edits, Plan, Auto — `bypassPermissions` is not offered), the **model** — claude's own list, each with its version
+  (*Opus 5.5*, *Haiku 4.5*…, the default saying which one it is), so a new model shows up without a change here — the
+  **effort** (Low to Max, those the model takes; set as a flag setting of claude's for the rest of the session, never
+  written to a settings file), the plan's progress (TodoWrite; its chip opens the list), **how full the context is**
+  (a percentage of the model's window, asked of claude after each turn) and the cost so far, and **Stop** (interrupts
+  the turn, the session goes on). A session that needs you, or finishes its turn, while you cannot see it — the dock
+  folded, another session shown, another browser tab — says so: a toast, a mark in the tab's title until you come back
+  and, in another tab, a browser notification (asked for the first time a chat opens). Messages come on
+  `GET /api/chat/stream?id=` (Server-Sent Events); the rest are POSTs: `/api/chat/open`, `/resume`, `/send` (text,
+  item keys, images), `/permission` (with `answers` for a question, `mode` for a plan), `/interrupt`, `/control` (mode,
+  model, effort), `/close`, and `GET /api/chat/list`. A request's body is at most 32 MB.
+  **Chat | Terminal** hands the same session (same id) from one to the other: the server ends the one running it and
+  `--resume`s it in the other, so it is never driven twice; a chat resumed this way (or from *Resume*) starts with
+  what was said before, read from Claude Code's transcript (`tm/transcript.py`, only read). The server keeps a chat's
+  messages for a page reload; a long tool output is kept cut at 20 000 characters.
+  `python3 tools/probe_chat_protocol.py` checks that the installed `claude` still speaks this protocol (it runs one
+  short session in a temp folder, on Haiku by default).
 - **Open in ▾ — Terminal, Claude Desktop, Cursor, Antigravity.** When any of those apps is installed (macOS), *Open in
   Terminal* becomes **Open in ▾**, a menu above the button. It opens the session in the same folder as Terminal would:
   - **Claude Desktop**: `claude://code/new?folder=…&q=…`, so it shows in Desktop's sidebar.
@@ -1044,6 +1101,9 @@ understood and wait for your go-ahead).
 - **Conversations stay with the item.** Every launch starts `claude` with a fresh `--session-id` (and a `--name` of
   `<id> · <title>`, so it is recognisable in `claude --resume`'s picker) and records it: on the item as `claude_sessions:
   [{id, at, cwd, instruction, model?, effort?}]`, or, for the top bar's terminal, in `<root>/.task-manager/claude-sessions.md`.
+  Changing a session's item (the dock's item chip, or **→** in a history) moves that entry from one to the other
+  (`POST /api/claude/associate {session_id, from_key, to_key}`, `to_key` null for the general list); the new place is
+  written before the old one is cleared, and a dock session that was never recorded gets its entry then.
   The card's **AI** tab (last tab of the side panel, after Details, Relations and Activity) lists them newest first with **Resume**,
   which opens Terminal again in the **same folder** with `claude --resume <id>` — the conversation continues where it was,
   terminal closed or not, because Claude Code keeps every session on disk, indexed by folder. **×** forgets the entry here;

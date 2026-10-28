@@ -4,6 +4,34 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **The dock is a chat.** A Claude session in the dock opens as a conversation: Claude's text as Markdown, each tool
+  call on one line that opens to its command, output or diff, and **permission requests as cards** (Allow, Allow for
+  this session, Deny) instead of typing in a terminal. The composer carries the permission mode, the model, the plan's
+  progress, the context and cost, and Stop. **Chat | Terminal** shows the same session either way, handing it over;
+  a resumed chat starts with what was said before.
+- The chat's composer is one box that grows up to a third of the dock. **`/`** offers the session's commands and
+  **`@`** the files of its folder (not people, as elsewhere), picked with the arrows and Enter; mode and model are
+  the app's own menus.
+- The chat's model menu names each model with its version (*Opus 5.5*, *Sonnet 5.5*, *Haiku 4.5*…), from the list
+  Claude itself gives; an **effort** menu sits next to it. **`#`** or the paperclip **attaches vault items** to a
+  message: Claude gets each one's facts and description, and the message shows them as chips.
+- The dock lists its sessions down its left side, each with a dot for what it is doing (needs you, working, your
+  turn, ended, ended with an error).
+- In the chat, **Claude's questions** show their options to click (or your own answer), and **its plan** shows as a
+  document to approve — accepting edits or not — or to send back with what to change. A **subagent** stays folded
+  under its call instead of filling the thread.
+- The chat takes **images**: paste them, drop them on the box or use its image button. Replies and messages have a
+  **copy** button, **↑** brings back your last message, thinking is folded, a compaction is noted, and the context shows
+  as a **percentage** of the model's window.
+- A chat that **needs you or finishes** while you look elsewhere says so: a toast, the tab's title and, from another
+  browser tab, a notification.
+- An item's card can be **expanded** to the whole content area, beside the sidebar and under the top bar, and back;
+  the next card opens as the last one was left.
+- The dock is **one layer for every session**, wherever it was opened, above the pages and above an open card, which
+  makes room for it.
+- A session is **about an item or none**, and the chip in the dock's head changes which (or **→** in a history): its
+  record moves to that item's AI tab or to the general History, and the session takes the item's name.
+
 - **Next week** and **Month** join the sidebar after Week. Next week is the Week view fixed on next week. Month is a
   board of this month by horizon: Today · Tomorrow · This week · Next week · Later this month, and what was carried
   over; drag a card onto a column to plan it there.

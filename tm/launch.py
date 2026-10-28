@@ -31,21 +31,25 @@ def claude_theme(home=None):
     return "dark"
 
 
-def session_updated(session_id, cwd, home=None):
-    """When a Claude Code conversation was last written: the time of its transcript,
-    <config>/projects/<cwd with every non-alphanumeric as ->/<session id>.jsonl (else that id in any project).
-    None when there is none: Claude never saved it (it ended before a message), so it cannot be resumed."""
+def transcript_path(session_id, cwd, home=None):
+    """A Claude Code conversation's transcript: <config>/projects/<cwd with every non-alphanumeric as ->/<id>.jsonl
+    (else that id in any project). None when there is none: Claude never saved it (it ended before a message)."""
     if not SESSION_RE.match(str(session_id or "")):
         return None
     home = home or os.path.expanduser("~")
     projects = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "projects")
     path = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", str(cwd or "")), f"{session_id}.jsonl")
-    if not os.path.isfile(path):
-        found = glob.glob(os.path.join(glob.escape(projects), "*", f"{session_id}.jsonl"))
-        if not found:
-            return None
-        path = found[0]
-    return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%dT%H:%M")
+    if os.path.isfile(path):
+        return path
+    found = glob.glob(os.path.join(glob.escape(projects), "*", f"{session_id}.jsonl"))
+    return found[0] if found else None
+
+
+def session_updated(session_id, cwd, home=None):
+    """When a Claude Code conversation was last written: the time of its transcript. None when there is none, so it
+    cannot be resumed."""
+    path = transcript_path(session_id, cwd, home)
+    return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%dT%H:%M") if path else None
 
 
 def claude_flags(model="", effort=""):

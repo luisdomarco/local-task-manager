@@ -13,6 +13,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from unittest import mock
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import server
@@ -58,6 +59,11 @@ class HttpTest(unittest.TestCase):
         status, out = self.request(path, body, header)
         self.assertEqual(status, 200, out)
         return out
+
+    def test_a_request_body_too_large_is_refused_unread(self):
+        with mock.patch.object(server, 'JSON_MAX', 64):
+            self.assertEqual(self.request('/api/item/create', {'type': 'note', 'subject': 'x' * 200, 'values': {}, 'body': ''})[0], 413)
+        self.assertEqual(self.request('/api/item/create', {'type': 'note', 'subject': 'Small', 'values': {}, 'body': ''})[0], 200)
 
     def test_create_with_the_payload_api_js_sends(self):
         # Mirrors api.create(type, subject, values, body) in static/js/api.js
@@ -277,6 +283,126 @@ class HttpTest(unittest.TestCase):
             self.assertEqual(self.request(f'/api/term/stream?id={tid}')[0], 404)
             self.assertEqual(self.request('/api/term/resume', {'key': task['id'], 'session_id': 'not-recorded'})[0], 404)
             self.assertEqual(self.request('/api/term/open', {'key': None, 'instruction': ''})[0], 400)  # nothing to send
+
+    def test_the_dock_runs_claude_as_a_chat_and_hands_it_to_the_terminal(self):
+        if sys.platform == 'win32' or not shutil.which('sh'):
+            self.skipTest('needs a pty and sh')
+        fake = os.path.join(os.path.dirname(__file__), 'fixtures', 'fake_claude.py')
+        log = os.path.join(self.root, 'stdin.ndjson')
+        self.addCleanup(server.CHATS.close_all)
+        self.addCleanup(server.TERMS.close_all)
+        task = self.call('/api/item/create', {'type': 'task', 'subject': 'Chat me'})
+        config = {'claude_command': f"'{sys.executable}' '{fake}'", 'claude_model': ''}
+        with mock.patch.dict(server.APP.config, config), mock.patch.dict(os.environ, {'FAKE_CLAUDE_LOG': log}):
+            out = self.call('/api/chat/open', {'key': task['id'], 'instruction': 'Hello chat', 'mode': 'plan'})
+            cid = out['chat']['id']
+            self.assertEqual(cid, out['session_id'])
+            self.assertEqual(out['chat']['label'], 'TSK-0001 · Chat me')
+            self.assertEqual([s['id'] for s in out['item']['fields']['claude_sessions']], [cid])  # recorded like the others
+            self.assertEqual(self.request('/api/chat/open', {'key': None, 'instruction': '', 'mode': 'yolo'})[0], 400)
+            listed = self.call('/api/chat/list')
+            self.assertEqual(listed['chats'][0]['id'], cid)
+            self.assertIn('acceptEdits', listed['modes'])
+            files = self.call(f'/api/chat/files?id={cid}')  # the composer's @: the files of the session's folder
+            self.assertEqual(files['truncated'], False)
+            self.assertTrue(files['files'] and all(not p.startswith('/') for p in files['files']))
+            with urlopen(Request(f'{self.base}/api/chat/stream?id={cid}'), timeout=10) as res:
+                events = self._sse(res, 'snapshot')
+                msgs = events[-1][1]['events']
+                self.assertIn('# TSK-0001 · Chat me', msgs[0]['text'])  # the prompt went in as the first message
+                while not any(m.get('type') == 'result' for m in msgs):
+                    msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                self.call('/api/chat/send', {'id': cid, 'text': 'tool now'})
+                msgs = [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                while not any(m.get('type') == 'control_request' for m in msgs):
+                    msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                req = next(m for m in msgs if m.get('type') == 'control_request')
+                self.call('/api/chat/permission', {'id': cid, 'request_id': req['request_id'], 'behavior': 'allow'})
+                self.assertEqual(self.request('/api/chat/permission', {'id': cid, 'request_id': req['request_id'], 'behavior': 'allow'})[0], 409)
+                self.assertEqual(self.call('/api/chat/control', {'id': cid, 'mode': 'acceptEdits'})['mode'], 'acceptEdits')
+                self.assertEqual(self.request('/api/chat/control', {'id': cid, 'model': 'gpt'})[0], 400)
+                self.assertEqual(self.call('/api/chat/control', {'id': cid, 'effort': 'low'})['effort'], 'low')
+                # A vault item attached: its context is built from its file, in the vault the page names.
+                self.call('/api/chat/send', {'id': cid, 'text': 'see this', 'items': [task['id']], 'vault': server.APP.config['default_vault']})
+                msgs = []
+                while not any(m.get('type') == 'tm_user' for m in msgs):
+                    msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                user = next(m for m in msgs if m.get('type') == 'tm_user')
+                self.assertEqual(user['items'], [{'id': task['id'], 'title': 'Chat me', 'type': 'task'}])
+                self.assertEqual(self.request('/api/chat/send', {'id': cid, 'text': 'x', 'items': ['TSK-9999'], 'vault': server.APP.config['default_vault']})[0], 404)
+                # An image: as blocks for claude, a thumbnail for the chat; then a question answered from its card.
+                png = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'\0' * 20).decode()
+                self.call('/api/chat/send', {'id': cid, 'text': 'look', 'images': [{'data': png, 'thumb': 'data:image/jpeg;base64,AA'}]})
+                self.assertEqual(self.request('/api/chat/send', {'id': cid, 'text': '', 'images': [{'data': 'eA=='}]})[0], 400)
+                self.call('/api/chat/send', {'id': cid, 'text': 'ask me'})
+                msgs = []
+                while not any(m.get('type') == 'control_request' for m in msgs):
+                    msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                self.assertEqual(next(m for m in msgs if m.get('type') == 'tm_user')['images'],
+                                 [{'media_type': 'image/png', 'thumb': 'data:image/jpeg;base64,AA'}])
+                req = next(m for m in msgs if m.get('type') == 'control_request')
+                body = {'id': cid, 'request_id': req['request_id'], 'behavior': 'allow'}
+                self.assertEqual(self.request('/api/chat/permission', body)[0], 400)  # a question needs its answers
+                self.call('/api/chat/permission', {**body, 'answers': {'Which color?': 'Red'}})
+                msgs = []
+                while not any(m.get('type') == 'tm_answer' for m in msgs):
+                    msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
+                self.assertEqual(next(m for m in msgs if m.get('type') == 'tm_answer')['answers'], {'Which color?': 'Red'})
+                # The terminal takes the same session over: the chat ends first (one driver at a time).
+                term = self.call('/api/term/resume', {'key': task['id'], 'session_id': cid, 'cols': 80, 'rows': 24})
+                self.assertEqual(term['term']['id'], cid)
+                self.assertEqual(self._sse(res, 'exit')[-1][0], 'exit')
+            self.assertEqual(self.call('/api/chat/list')['chats'], [])  # handed over: the session is a terminal now
+            self.assertEqual(self.request('/api/chat/send', {'id': cid, 'text': 'x'})[0], 404)
+            # And back: the chat resumes (the stand-in has no transcript, so it starts with no history).
+            back = self.call('/api/chat/resume', {'key': task['id'], 'session_id': cid})
+            self.assertTrue(back['chat']['alive'])
+            self.assertEqual(self.call('/api/term/list')['terms'], [])  # and the terminal handed it back
+            again = self.call('/api/chat/resume', {'key': task['id'], 'session_id': cid})  # already running: handed back
+            self.assertEqual(again['chat']['started'], back['chat']['started'])
+            self.assertIn('closed', self.call('/api/chat/close', {'id': cid}))
+            self.assertEqual(self.request('/api/chat/close', {'id': cid})[0], 404)
+            self.assertEqual(self.request(f'/api/chat/stream?id={cid}')[0], 404)
+            self.assertEqual(self.request('/api/chat/send', {'id': cid, 'text': 'x'}, header=False)[0], 403)  # CSRF guard
+        with open(log, encoding='utf-8') as f:
+            argv = json.loads(f.readline())['argv']
+        self.assertEqual(argv[argv.index('--permission-mode') + 1], 'plan')
+        self.assertIn('--session-id', argv)
+
+    def test_a_session_changes_the_item_it_is_about(self):
+        if sys.platform == 'win32':
+            self.skipTest('needs a pipe-driven child process')
+        fake = os.path.join(os.path.dirname(__file__), 'fixtures', 'fake_claude.py')
+        self.addCleanup(server.CHATS.close_all)
+        task = self.call('/api/item/create', {'type': 'task', 'subject': 'Move me here'})
+        self.call('/api/item/create', {'type': 'prompt', 'subject': 'P'})
+        vault = server.APP.config['default_vault']
+        with mock.patch.dict(server.APP.config, {'claude_command': f"'{sys.executable}' '{fake}'", 'claude_model': ''}):
+            chat = self.call('/api/chat/open', {'key': None, 'instruction': 'Tidy the vault', 'mode': 'default'})['chat']
+        cid = chat['id']
+        self.assertEqual((chat['key'], chat['vault']), (None, vault))  # the vault its record is in
+        sessions = lambda key: [s['id'] for s in (self.call(f'/api/item?key={quote(key)}')['fields'].get('claude_sessions') or [])]
+        listed = lambda: [s['id'] for s in self.call('/api/claude/sessions')['sessions']]
+        self.assertEqual(listed(), [cid])
+
+        out = self.call('/api/claude/associate', {'session_id': cid, 'from_key': None, 'to_key': task['key']})
+        self.assertEqual((out['session']['key'], out['session']['label']), (task['key'], 'TSK-0001 · Move me here'))
+        self.assertEqual((listed(), sessions(task['key'])), ([], [cid]))  # in the item's history now
+        self.assertEqual(server.CHATS.get(cid).label, 'TSK-0001 · Move me here')  # the dock's list reads it from here
+        out = self.call('/api/claude/associate', {'session_id': cid, 'from_key': task['key'], 'to_key': None})
+        self.assertEqual((out['session']['key'], out['session']['label']), (None, 'Tidy the vault'))
+        self.assertEqual((listed(), sessions(task['key'])), ([cid], []))
+        self.assertEqual(self.request('/api/claude/associate', {'session_id': cid, 'from_key': None, 'to_key': 'PRM-0001'})[0], 400)
+        server.CHATS.get(cid).vault = 'another-vault'
+        self.assertEqual(self.request('/api/claude/associate', {'session_id': cid, 'from_key': None, 'to_key': task['key']})[0], 409)
+        server.CHATS.close(cid)
+        # A history row's Move…: the dock does not run it, the record moves all the same.
+        self.call('/api/claude/associate', {'session_id': cid, 'from_key': None, 'to_key': task['key']})
+        self.assertEqual(sessions(task['key']), [cid])
+        self.assertEqual(self.request('/api/claude/associate', {'session_id': '0f1e2d3c-4b5a-4978-8a6b-00000000000f',
+                                                                'from_key': None, 'to_key': task['key']})[0], 404)
+        self.assertEqual(self.request('/api/claude/associate', {'session_id': cid, 'from_key': task['key'], 'to_key': None},
+                                      header=False)[0], 403)
 
     def test_the_dock_needs_the_command_on_the_path(self):
         with mock.patch.dict(server.APP.config, {'claude_command': 'no-such-claude-binary-xyz'}):

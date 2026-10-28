@@ -7,7 +7,8 @@ import { DETAIL_PAGE, LIST_PAGE, fixedColumns, paged } from './datatable.js';
 import { saveSort, savedSort } from './prefs.js';
 import { trapFocus } from './create.js';
 import { byType, claudeForget, claudeLaunch, state, toast } from './state.js';
-import { openClaudeHere, resumeClaudeHere, termIsLive } from './term.js';
+import { itemPicker } from './itempicker.js';
+import { moveClaudeSession, openClaudeHere, resumeClaudeHere, termIsLive } from './term.js';
 import { dropdown, h, icon, select, tabPanels } from './ui.js';
 import { withMic } from './dictation.js';
 
@@ -94,8 +95,8 @@ const instructionCell = (s) => h('span', {
 }, s.instruction || 'Read and plan');
 
 /** The recorded launches as a table whose columns sort (last updated first by default, remembered): what was asked,
- * when, where, Resume and Forget. `key` null is the global list. Forget goes through the state, so an open card
- * re-renders by itself; `onForget` is for the rest. */
+ * when, where, Resume, Move and Forget. `key` null is the global list. Move and Forget go through the state, so an
+ * open card re-renders by itself; `onForget` (after either) is for the rest. */
 export function sessionList(entries, { key = null, onForget = null, onResume = null, empty = 'No conversations yet.' } = {}) {
   const list = (entries || []).map((s, index) => ({ s, index }));
   if (!list.length) return h('p', { class: 'muted small cs-empty' }, empty);
@@ -131,7 +132,10 @@ export function sessionList(entries, { key = null, onForget = null, onResume = n
       forget.disabled = true;
       try { await claudeForget(key, index); onForget?.(); } catch { forget.disabled = false; } // toasted
     } }, icon('x', 14));
-    return h('td', { class: 'c-actions' }, h('div', { class: 'cs-actions' }, resume, external, forget));
+    // Move…: to another item's history, or to the general one (itempicker.js).
+    const move = h('button', { class: 'btn icon', title: 'Move to another item\'s history…', 'aria-haspopup': 'dialog',
+      onclick: () => itemPicker(move, key, async (it) => { await moveClaudeSession(s.id, key, it); onForget?.(); }) }, icon('arrow', 14));
+    return h('td', { class: 'c-actions' }, h('div', { class: 'cs-actions' }, resume, external, move, forget));
   };
   const render = () => {
     const col = cols.find((c) => c.key === sort.col) || cols[0];
@@ -194,7 +198,7 @@ function requestPane(item, close) {
   } }, icon('copy', 14), 'Copy prompt');
   // Open in ▾: Terminal, and Claude Desktop, Cursor, Antigravity when installed (a menu, above). Only Terminal: the plain button.
   const launch = h('button', { class: 'btn', disabled: true, 'aria-haspopup': 'menu' }, icon('external', 14), h('span', {}, 'Open in Terminal'));
-  const here = h('button', { class: 'btn primary', disabled: true, title: 'Open in a terminal inside the app' }, icon('terminal', 14), 'Open here');
+  const here = h('button', { class: 'btn primary', disabled: true, title: 'Open in the dock, inside the app: as a chat, or a terminal if that is the view last picked there' }, icon('terminal', 14), 'Open here');
 
   // The saved prompts that are active (not archived), A to Z. Picking one loads its text as the instruction.
   const saved = byType('prompt').sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));

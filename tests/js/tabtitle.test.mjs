@@ -9,6 +9,8 @@ describe('tab title', () => {
     assert.equal(tabTitle('', null), APP_NAME);
     assert.equal(tabTitle('  ', ''), APP_NAME);
     assert.equal(tabTitle('  Pricing\n revamp ', ''), 'Pricing revamp'); // one line, single spaces
+    assert.equal(tabTitle('Tasks', '', 'Fix login needs you'), '● Fix login needs you — Tasks'); // an alert from the dock, in front
+    assert.equal(tabTitle('', '', ' \n'), APP_NAME);
   });
 
   it('calls an item by its title, else its id, else its type', () => {

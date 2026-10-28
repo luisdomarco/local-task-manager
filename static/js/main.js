@@ -1,7 +1,7 @@
 // Entry point: hash router, sidebar (type links + counts + initiatives), keyboard shortcuts.
 import { addMenu } from './create.js';
 import { closePalette, openPalette, paletteIsOpen } from './palette.js';
-import { closeItem, hasUnsaved, isOpen, openItem, renderPanel } from './panel.js';
+import { closeItem, hasUnsaved, isExpanded, isOpen, openItem, renderPanel } from './panel.js';
 import { renderPinbar } from './pinbar.js';
 import { initSidebar, onSidebarMode, setSidebarMode, sidebarMode, syncSidebarMode, toggleSidebar } from './sidebar.js';
 import { initExplorer } from './explorer.js';
@@ -347,7 +347,11 @@ document.addEventListener('keydown', (e) => {
 
 const addBtn = document.getElementById('btn-quick');
 addBtn.addEventListener('click', () => addMenu(addBtn));
-window.addEventListener('hashchange', route);
+// An expanded card leaves the sidebar in reach: going to another view from it closes the card (its edits saved, as Esc).
+window.addEventListener('hashchange', async () => {
+  if (isOpen() && isExpanded()) await closeItem(); // unsaved and not saved: the card stays, over the new view
+  route();
+});
 window.addEventListener('beforeunload', (e) => {
   if (hasUnsaved() || filesUnsaved()) e.preventDefault();
 });

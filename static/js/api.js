@@ -82,8 +82,24 @@ export const api = {
   termInput: (id, data) => post('/api/term/input', { id, data }),
   termResize: (id, cols, rows) => post('/api/term/resize', { id, cols, rows }),
   termClose: (id) => post('/api/term/close', { id }),
+  // The dock's chats: claude -p in stream-json inside the server (its messages come on /api/chat/stream, an EventSource).
+  chatList: () => get('/api/chat/list'),
+  chatFiles: (id) => get(`/api/chat/files?id=${encodeURIComponent(id)}`),
+  chatOpen: (key, instruction, model, effort, cwd, mode) => post('/api/chat/open', { key, instruction, model, effort, cwd, mode }),
+  chatResume: (key, sessionId, mode) => post('/api/chat/resume', { key, session_id: sessionId, mode }),
+  // items: keys in this vault; images: [{ data: base64, thumb: data URL }]
+  chatSend: (id, text, items = [], images = []) => post('/api/chat/send', { id, text, items, images, vault: vaultId() }),
+  // behavior: 'allow' | 'deny'; always: allow the same again for the rest of this session.
+  // extra: { message } with a deny, { answers } for a question, { mode } for a plan approved
+  chatPermission: (id, requestId, behavior, always = false, extra = {}) => post('/api/chat/permission',
+    { id, request_id: requestId, behavior, always, ...extra }),
+  chatInterrupt: (id) => post('/api/chat/interrupt', { id }),
+  chatControl: (id, { mode, model, effort } = {}) => post('/api/chat/control', { id, mode, model, effort }),
+  chatClose: (id) => post('/api/chat/close', { id }),
   claudeResume: (key, sessionId, target = 'terminal') => post('/api/claude/resume', { key, session_id: sessionId, target }),
   claudeForget: (key, index) => post('/api/claude/forget', { key, index }),
+  // Moves a session's record to another item (toKey) or to the general history (null); a live one takes its name.
+  claudeAssociate: (sessionId, fromKey, toKey) => post('/api/claude/associate', { session_id: sessionId, from_key: fromKey, to_key: toKey }),
   // Versions of the system as zips (Settings → Export, tm/export.py); the download is a plain link to /api/exports/file.
   exports: () => get('/api/exports'),
   exportVersion: (note, kind) => post('/api/exports', { note, kind }), // kind: 'system' | 'agents' | 'vault'

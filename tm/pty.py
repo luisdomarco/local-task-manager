@@ -43,6 +43,8 @@ class Term:
         if not exe:
             raise StoreError(500, f'{argv[0]!r} was not found in the PATH of this server — set the full path in Settings → Command')
         self.id, self.cwd, self.label = term_id, cwd, label
+        self.key = None  # the item it is about, set by the server: what a switch to the chat resumes from
+        self.vault = None  # the vault its record is in, set by the server: where a change of item moves it
         self.cols, self.rows = cols, rows
         self.started = time.time()
         self.exit_code = None
@@ -153,7 +155,7 @@ class Term:
             self._subs.discard(q)
 
     def info(self):
-        return {'id': self.id, 'label': self.label, 'cwd': self.cwd, 'alive': self.alive, 'exit_code': self.exit_code,
+        return {'id': self.id, 'label': self.label, 'key': self.key, 'vault': self.vault, 'cwd': self.cwd, 'alive': self.alive, 'exit_code': self.exit_code,
                 'cols': self.cols, 'rows': self.rows, 'started': self.started}
 
 
@@ -180,6 +182,11 @@ class Terms:
         if not term:
             raise StoreError(404, 'no such terminal')
         return term
+
+    def live(self, term_id):
+        """The running terminal of that session, else None (never ran here, or ended)."""
+        term = self._by_id.get(str(term_id or ''))
+        return term if term and term.alive else None
 
     def list(self):
         return [t.info() for t in sorted(self._by_id.values(), key=lambda t: t.started)]
