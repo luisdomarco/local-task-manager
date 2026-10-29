@@ -15,6 +15,7 @@ import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
 import { itemHref, opener, pageHref } from './links.js';
+import { sourceOffset } from './clickmap.js';
 import { mdEditor } from './mdeditor.js';
 import { pref, saveSort, savedSort, setPref } from './prefs.js';
 import { attachmentsSection } from './attachments.js';
@@ -29,7 +30,7 @@ import { itemName, setCardTitle, setPageTitle } from './tabtitle.js';
 import { sumTime } from './worktime.js';
 import { kindChange, kindLabel, kindOf, kinded } from './relkinds.js';
 import {
-  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, progress, setStatus, updateLog,
+  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, editComment, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, progress, setStatus, updateLog,
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { openClaudeDialog, sessionList } from './claude.js';
@@ -810,8 +811,38 @@ function sideTabs(item, rerender, current, onPick) {
 }
 
 /**
+ * Drafts outlive the Activity tab: any save or refresh of the card rebuilds it, and a click elsewhere often sets one
+ * off. The new comment's text is kept per item, an open edit per item and comment (with the text it started from,
+ * so an edit whose comment changed meanwhile is dropped instead of shown on another one). Gone on a reload.
+ */
+const commentDrafts = new Map(); // item key → text of the comment being written
+const commentEdits = new Map(); // `${key}#${index}` → { was, text }
+
+/** A comment box: grows with its text, Enter sends, Shift+Enter or Alt+Enter breaks the line. */
+function commentBox(attrs, onEnter) {
+  const input = h('textarea', { rows: 1, class: 'comment-input', ...attrs });
+  const grow = () => {
+    input.style.height = 'auto';
+    const borders = input.offsetHeight - input.clientHeight; // height is border-box, scrollHeight is not
+    input.style.height = `${input.scrollHeight + borders}px`;
+    input.style.overflowY = input.scrollHeight > input.clientHeight ? 'auto' : 'hidden'; // scrollbar only at max height
+  };
+  input.addEventListener('input', grow);
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    if (e.shiftKey || e.altKey) { // browsers only break the line on Shift+Enter, so do it by hand
+      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+      grow();
+    } else onEnter();
+  });
+  queueMicrotask(grow); // a kept draft can be longer than one line
+  return { input, grow };
+}
+
+/**
  * Activity: what happened to the item (created, converted, closed) and your
- * comments, oldest first, with the composer at the bottom — Enter adds one.
+ * comments, oldest first, with the composer at the bottom — Enter adds one. ✎ edits a comment in place.
  */
 function activity(item, { heading = true } = {}) {
   const f = item.fields;
@@ -826,42 +857,72 @@ function activity(item, { heading = true } = {}) {
   ].filter(Boolean);
   const comments = (f.comments || []).map((c, index) => ({ ...c, index }));
   const entries = [...events.map((e) => ({ ...e, system: true })), ...comments].sort((a, b) => String(a.at).localeCompare(String(b.at)));
-  // A textarea so a comment can span lines: Enter adds it, Shift+Enter or Alt+Enter breaks the line.
-  const input = h('textarea', {
-    rows: 1, class: 'comment-input', placeholder: 'Write a comment…', title: 'Enter adds the comment · Shift+Enter or Alt+Enter starts a new line', 'aria-label': 'New comment', 'data-fk': 'comment',
-  });
-  const grow = () => {
-    input.style.height = 'auto';
-    const borders = input.offsetHeight - input.clientHeight; // height is border-box, scrollHeight is not
-    input.style.height = `${input.scrollHeight + borders}px`;
-    input.style.overflowY = input.scrollHeight > input.clientHeight ? 'auto' : 'hidden'; // scrollbar only at max height
-  };
+  const { input, grow } = commentBox({
+    placeholder: 'Write a comment…', title: 'Enter adds the comment · Shift+Enter or Alt+Enter starts a new line', 'aria-label': 'New comment', 'data-fk': 'comment',
+  }, () => add());
+  input.value = commentDrafts.get(item.key) || '';
+  input.addEventListener('input', () => { if (input.value) commentDrafts.set(item.key, input.value); else commentDrafts.delete(item.key); });
   const add = async () => {
     const text = input.value.trim();
     if (!text || !item.id) return;
-    try { await addComment(item.key, text); } catch { return; } // toasted
+    commentDrafts.delete(item.key); // before the save: the card re-renders while it is on its way
+    try { await addComment(item.key, text); } catch { // toasted; the text stays where it was
+      if (!commentDrafts.has(item.key)) commentDrafts.set(item.key, input.value);
+      return;
+    }
     input.value = '';
     grow();
   };
-  input.addEventListener('input', grow);
-  input.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing) return;
-    e.preventDefault();
-    if (e.shiftKey || e.altKey) { // browsers only break the line on Shift+Enter, so do it by hand
-      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
-      grow();
-    } else add();
-  });
-  queueMicrotask(grow); // a re-render can bring back a longer draft
+
+  const commentCard = (e) => {
+    const k = `${item.key}#${e.index}`;
+    const open = commentEdits.get(k);
+    if (open && open.was !== e.text) commentEdits.delete(k); // the comment changed under the edit (elsewhere, or a delete shifted it)
+    const editing = commentEdits.get(k);
+    const redraw = () => card.replaceWith(commentCard(e));
+    const head = h('header', {}, h('span', { class: 'activity-author' }, 'You'),
+      h('time', { class: 'muted small', datetime: e.at, title: e.edited ? `Edited ${when(e.edited)}` : null }, when(e.at)),
+      e.edited ? h('span', { class: 'muted small', title: `Edited ${when(e.edited)}` }, '· edited') : null,
+      editing ? null : h('button', { class: 'btn icon', title: 'Edit comment', onclick: () => {
+        commentEdits.set(k, { was: e.text, text: e.text });
+        redraw();
+        const ta = list.querySelector(`[data-fk="comment-${e.index}"]`);
+        ta?.focus();
+        ta?.setSelectionRange(ta.value.length, ta.value.length);
+      } }, icon('pencil', 13)),
+      h('button', { class: 'btn icon', title: 'Delete comment', onclick: () => { commentEdits.delete(k); deleteComment(item.key, e.index); } }, icon('x', 13)));
+    let card;
+    if (!editing) {
+      card = h('article', { class: 'activity-card' }, head, h('p', {}, ...withMentions(e.text)));
+      return card;
+    }
+    const cancel = () => { commentEdits.delete(k); redraw(); };
+    const save = async () => {
+      const text = box.input.value.trim();
+      if (!text) return;
+      if (text === e.text) { cancel(); return; }
+      commentEdits.delete(k); // before the save: the card re-renders with the new text while it is on its way
+      try { await editComment(item.key, e.index, text, e.text); } catch { commentEdits.set(k, editing); } // toasted; the edit stays open
+    };
+    const box = commentBox({
+      'aria-label': 'Edit comment', title: 'Enter saves · Esc cancels · Shift+Enter or Alt+Enter starts a new line', 'data-fk': `comment-${e.index}`,
+    }, save);
+    box.input.value = editing.text;
+    box.input.addEventListener('input', () => { editing.text = box.input.value; });
+    box.input.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); cancel(); } }); // not the card's Esc
+    card = h('article', { class: 'activity-card editing' }, head, box.input,
+      h('div', { class: 'activity-edit-actions' },
+        h('button', { class: 'btn small', onclick: cancel }, 'Cancel'),
+        h('button', { class: 'btn small primary', onclick: save }, 'Save')));
+    return card;
+  };
+
   const section = h('section', { class: 'panel-section activity' },
     heading ? h('h4', {}, icon('message', 14), 'Activity', comments.length ? h('span', { class: 'muted' }, ` · ${comments.length}`) : null) : null,
     h('div', { class: 'activity-list', role: 'log', 'aria-label': 'Activity' },
       entries.length ? entries.map((e) => (e.system
         ? h('div', { class: 'activity-event' }, h('span', {}, e.text), h('time', { class: 'muted small', datetime: e.at }, when(e.at)))
-        : h('article', { class: 'activity-card' },
-          h('header', {}, h('span', { class: 'activity-author' }, 'You'), h('time', { class: 'muted small', datetime: e.at }, when(e.at)),
-            h('button', { class: 'btn icon', title: 'Delete comment', onclick: () => deleteComment(item.key, e.index) }, icon('x', 13))),
-          h('p', {}, ...withMentions(e.text)))))
+        : commentCard(e)))
         : h('p', { class: 'muted small' }, 'No activity yet.')),
     h('div', { class: 'activity-compose' }, input,
       h('button', { class: 'btn small primary', title: 'Add comment', onclick: add }, icon('arrow', 14))));
@@ -902,6 +963,53 @@ function keepFocus(root, render) {
   try { if (sel && sel[0] !== null) target.setSelectionRange(...sel); } catch { /* not a text control */ }
 }
 
+
+/** The text node and offset under a point (each browser has its own call), or null. */
+function caretAtPoint(x, y) {
+  if (document.caretPositionFromPoint) {
+    const p = document.caretPositionFromPoint(x, y);
+    return p ? { node: p.offsetNode, offset: p.offset } : null;
+  }
+  const r = document.caretRangeFromPoint?.(x, y);
+  return r ? { node: r.startContainer, offset: r.startOffset } : null;
+}
+
+/** A click on rendered Markdown → { offset in its source, y of the click }, or null when it cannot be placed. */
+function clickInSource(rendered, source, e) {
+  const at = caretAtPoint(e.clientX, e.clientY);
+  if (!at || at.node.nodeType !== Node.TEXT_NODE || !rendered.contains(at.node)) return null;
+  const before = document.createRange();
+  before.setStart(rendered, 0);
+  before.setEnd(at.node, at.offset);
+  const ratio = before.toString().length / Math.max(1, rendered.textContent.length);
+  const offset = sourceOffset(source, at.node.textContent, at.offset, ratio);
+  return offset < 0 ? null : { offset, y: e.clientY };
+}
+
+/** Where the character at `pos` sits on screen, measured on the coloured copy of the text behind the textarea. */
+function caretRect(code, pos) {
+  if (!code) return null;
+  const walk = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+  for (let n = walk.nextNode(), seen = 0; n; n = walk.nextNode()) {
+    if (seen + n.length >= pos) {
+      const r = document.createRange();
+      r.setStart(n, pos - seen);
+      r.setEnd(n, Math.min(n.length, pos - seen + 1));
+      const rect = [...r.getClientRects()][0] || r.getBoundingClientRect();
+      return rect.height ? rect : null;
+    }
+    seen += n.length;
+  }
+  return null;
+}
+
+/** The nearest element around `el` that scrolls vertically. */
+function scrollerOf(el) {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (p.scrollHeight > p.clientHeight && /(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return null;
+}
 
 /**
  * A markdown text block: rendered in a bordered box that opens the editor on click (with
@@ -987,15 +1095,24 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
     render() {
       const text = draft ?? saved;
       stopOutside();
-      const startEdit = () => {
+      // `at` ({ offset, y }): opened by a click on the text — the caret goes where it was, and that line stays under
+      // the pointer. Without it (Edit, an empty block) the editor opens at the top.
+      const startEdit = (at = null) => {
         editing = true;
         blk.render();
         const ta = el.querySelector('textarea');
         if (!ta) return;
-        ta.setSelectionRange(0, 0); // the value was set after creation, so the caret would sit at the end and scroll there
+        const pos = at ? at.offset : 0; // the value was set after creation, so the caret would sit at the end and scroll there
+        ta.setSelectionRange(pos, pos);
         ta.focus({ preventScroll: true });
         ta.scrollTop = 0;
-        el.scrollIntoView({ block: 'nearest' });
+        if (!at) { el.scrollIntoView({ block: 'nearest' }); return; }
+        requestAnimationFrame(() => { // once the editor has its height
+          const line = caretRect(el.querySelector('.mde-hl code'), pos);
+          const box = line ? scrollerOf(ta) : null;
+          if (box) box.scrollTop += line.top - at.y;
+          else el.scrollIntoView({ block: 'nearest' });
+        });
       };
       // "Reload" takes what is on disk and drops the draft; "Keep mine" saves the draft over it.
       const notice = changed ? h('div', { class: 'body-conflict', role: 'alert' },
@@ -1019,7 +1136,7 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
             try { await navigator.clipboard.writeText(now); toast(`${cfg.label} copied`); } catch { toast(`Could not copy the ${cfg.label.toLowerCase()}`, true); }
           },
         }, icon('copy', 14)) : null,
-        !editing && text.trim() ? h('button', { class: 'btn small', onclick: startEdit }, icon('pencil', 13), 'Edit') : null,
+        !editing && text.trim() ? h('button', { class: 'btn small', onclick: () => startEdit() }, icon('pencil', 13), 'Edit') : null,
         h('button', { class: 'btn icon full-btn', title: 'Full screen', onmousedown: (e) => e.preventDefault(), onclick: () => setFull(true) }, icon('maximize', 14)));
       // Shown only in full screen (CSS): the item's title and the way back.
       const fullHead = h('div', { class: 'body-full-head' }, h('h2', {}, cfg.title || cfg.label),
@@ -1051,7 +1168,7 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
         // editor, back to the text as it reads. A save that needs a choice (changed on disk) keeps it open.
         outside = (e) => {
           if (!el.isConnected) { stopOutside(); return; }
-          if (el.contains(e.target) || el.classList.contains('full')) return;
+          if (el.contains(e.target) || el.classList.contains('full') || e.target.closest?.('.menu')) return; // a menu of its toolbar (colours)
           stopOutside();
           done();
         };
@@ -1061,7 +1178,7 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
           h('button', { class: 'btn small primary', onmousedown: keep, onclick: done }, 'Done')));
         return;
       } else if (!text.trim()) {
-        content = h('button', { class: 'body-empty', onclick: startEdit }, cfg.emptyText);
+        content = h('button', { class: 'body-empty', onclick: () => startEdit() }, cfg.emptyText);
       } else {
         content = h('div', { class: 'md' });
         // renderMarkdown() sanitizes with DOMPurify (and fails closed without it).
@@ -1084,7 +1201,7 @@ function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls
       // One click anywhere in the box opens the editor, unless it was a link, a checklist box, or the end of a text selection.
       wrap.addEventListener('click', (e) => {
         if (e.target.closest('input, a') || window.getSelection().toString()) return;
-        startEdit();
+        startEdit(clickInSource(content, text, e));
       });
       const more = h('button', { class: 'btn small ghost see-more', hidden: true, onclick: () => {
         expanded = !expanded;

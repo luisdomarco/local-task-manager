@@ -309,6 +309,27 @@ class StoreTest(unittest.TestCase):
         self.s.create('task', 'T')
         self.assertEqual(self.s.add_comment('TSK-0001', 'on a task')['fields']['comments'][0]['text'], 'on a task')
 
+    def test_editing_a_comment_keeps_its_place_and_time(self):
+        self.s.create('task', 'T')
+        self.s.add_comment('TSK-0001', 'first')
+        first = self.s.add_comment('TSK-0001', 'second')['fields']['comments'][0]
+        out = self.s.edit_comment('TSK-0001', 0, '  first, fixed  ', was='first')['fields']['comments']
+        self.assertEqual([c['text'] for c in out], ['first, fixed', 'second'])
+        self.assertEqual(out[0]['at'], first['at'])
+        self.assertTrue(out[0]['edited'])
+        self.assertNotIn('edited', out[1])
+        self.assertEqual(self.s.read('TSK-0001')['fields']['comments'][0]['edited'], out[0]['edited'])  # it is on disk
+        with self.assertRaises(StoreError) as e:
+            self.s.edit_comment('TSK-0001', 0, '   ')
+        self.assertEqual(e.exception.status, 400)
+        with self.assertRaises(StoreError) as e:
+            self.s.edit_comment('TSK-0001', 7, 'x')
+        self.assertEqual(e.exception.status, 404)
+        with self.assertRaises(StoreError) as e:  # the index now points at another comment
+            self.s.edit_comment('TSK-0001', 1, 'x', was='first')
+        self.assertEqual(e.exception.status, 409)
+        self.assertEqual(self.s.read('TSK-0001')['fields']['comments'][1]['text'], 'second')
+
     def test_delete_and_restore(self):
         it = self.s.create('task', 'Gone')
         out = self.s.delete('TSK-0001')

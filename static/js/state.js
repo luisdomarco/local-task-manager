@@ -199,6 +199,7 @@ export async function deleteItem(key) {
 export const convertItem = (key, type, values = {}) => mutate(() => api.convert(key, type, values));
 export const addComment = (key, text) => mutate(() => api.addComment(key, text));
 export const deleteComment = (key, index) => mutate(() => api.deleteComment(key, index));
+export const editComment = (key, index, text, was) => mutate(() => api.editComment(key, index, text, was));
 /** Open Terminal with claude on the item (or on a bare prompt, key null); the launch is recorded, so the state reloads. */
 export const claudeLaunch = (key, instruction, model, effort, cwd, target) => mutate(() => api.claudeLaunch(key, instruction, model, effort, cwd, target));
 export const claudeForget = (key, index) => mutate(() => api.claudeForget(key, index));

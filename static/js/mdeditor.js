@@ -3,13 +3,16 @@
 // file edited here and in Obsidian never gets rewritten behind your back.
 import { dictation } from './dictation.js';
 import { highlight as colour } from './highlight.js';
-import { h, icon, renderMarkdown } from './ui.js';
+import { HIGHLIGHTS, TEXT_COLOURS, colourRange } from './mdcolour.js';
+import { closeMenu, dropdown, h, icon, renderMarkdown } from './ui.js';
 
 const ACTIONS = [
   { key: 'heading', label: 'Heading', icon: 'heading', run: (ed) => ed.prefixLines('## ') },
   { key: 'bold', label: 'Bold', icon: 'bold', kbd: '⌘B', run: (ed) => ed.wrap('**', 'bold') },
   { key: 'italic', label: 'Italic', icon: 'italic', kbd: '⌘I', run: (ed) => ed.wrap('_', 'italic') },
   { key: 'strike', label: 'Strikethrough', icon: 'strike', run: (ed) => ed.wrap('~~', 'strike') },
+  { key: 'colour', label: 'Text colour', icon: 'textcolour', run: (ed, btn) => ed.palette(btn, 'text') },
+  { key: 'highlight', label: 'Highlight', icon: 'highlighter', run: (ed, btn) => ed.palette(btn, 'highlight') },
   '-',
   { key: 'ul', label: 'Bullet list', icon: 'list', run: (ed) => ed.prefixLines('- ') },
   { key: 'ol', label: 'Numbered list', icon: 'listnum', run: (ed) => ed.prefixLines('1. ', { numbered: true }) },
@@ -143,6 +146,36 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
         changed();
       } else api.wrap('`', 'code');
     },
+    /** The selection in a colour (mdcolour.js), or with it taken off (`colour` null). Only the part that changes is replaced. */
+    colour(kind, colour) {
+      const v = ta.value;
+      const r = colourRange(v, ta.selectionStart, ta.selectionEnd, kind, colour);
+      let a = 0;
+      while (a < v.length && a < r.value.length && v[a] === r.value[a]) a++;
+      let b = 0;
+      while (b < v.length - a && b < r.value.length - a && v[v.length - 1 - b] === r.value[r.value.length - 1 - b]) b++;
+      if (r.value !== v) ta.setRangeText(r.value.slice(a, r.value.length - b), a, v.length - b);
+      setSel(r.start, r.end);
+      if (r.value !== v) changed();
+    },
+    /** The colours to pick from under a toolbar button: swatches, None, and any colour from the system picker. */
+    palette(anchor, kind) {
+      const keep = (e) => e.preventDefault(); // the textarea keeps its selection and focus
+      const pickColour = (c) => { closeMenu(); api.colour(kind, c); };
+      const custom = h('input', { type: 'color', value: kind === 'text' ? '#d93025' : '#fff3a3', 'aria-label': 'Any colour' });
+      custom.addEventListener('input', () => api.colour(kind, kind === 'text' ? custom.value : `${custom.value}a6`)); // a highlight stays translucent
+      const grid = h('div', { class: 'mde-swatches', role: 'group', 'aria-label': kind === 'text' ? 'Text colour' : 'Highlight' },
+        (kind === 'text' ? TEXT_COLOURS : HIGHLIGHTS).map(([name, c]) => h('button', {
+          type: 'button', class: `mde-swatch ${kind}`, title: name, 'aria-label': name, style: `--swatch: ${c}`,
+          onmousedown: keep, onclick: () => pickColour(c),
+        }, kind === 'text' ? 'A' : '')));
+      dropdown(anchor, [
+        { heading: kind === 'text' ? 'Text colour' : 'Highlight' }, grid,
+        h('label', { class: 'mde-custom', onmousedown: (e) => { if (e.target !== custom) keep(e); } }, custom, 'Other colour…'),
+        '-',
+        { label: kind === 'text' ? 'No colour' : 'No highlight', icon: 'x', onSelect: () => api.colour(kind, null) },
+      ], { width: 212 });
+    },
   };
 
   let timer = null;
@@ -204,7 +237,7 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     ACTIONS.map((a) => (a === '-' ? h('span', { class: 'mde-sep' }) : h('button', {
       type: 'button', class: 'btn icon', title: a.kbd ? `${a.label} (${a.kbd})` : a.label,
       onmousedown: (e) => e.preventDefault(), // keep the textarea's selection
-      onclick: () => a.run(api),
+      onclick: (e) => a.run(api, e.currentTarget),
     }, icon(a.icon, 16)))),
     mic ? [h('span', { class: 'mde-sep' }), mic.el] : null,
     prev ? h('div', { class: 'seg mde-modes', role: 'group', 'aria-label': 'Layout' }, MODES.map(([m, text]) => h('button', {

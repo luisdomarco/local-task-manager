@@ -1294,6 +1294,7 @@ ROUTES = {
     ('POST', '/api/chat/close'): lambda s, q, b: CHATS.close(b.get('id')),
     ('POST', '/api/item/comment'): lambda s, q, b: s.add_comment(b.get('key'), b.get('text')),
     ('POST', '/api/item/comment/delete'): lambda s, q, b: s.delete_comment(b.get('key'), int(b.get('index', -1))),
+    ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), int(b.get('index', -1)), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
     ('GET', '/api/server'): lambda s, q, b: server_status(),

@@ -58,6 +58,12 @@ All notable changes to this project are written down here. Versions follow [Sema
   the **older versions** it still offers under their own heading.
 - On a phone (or any narrow dock) the sessions are a **menu in the head**, with a dot that turns amber when one needs
   you, and the chat's model and effort read in a few letters (*S 5.5 · Low*).
+- **Comments can be edited**: ✎ on a comment opens it in place (Enter or Save, Esc or Cancel), and an edited one says
+  so beside its time. **Fix:** a comment being written no longer vanishes when the card refreshes — after a click
+  elsewhere saves a field, say — or closes; it stays until you add it.
+- The description editor has **text colour** and **highlight**, each with a palette and the system's colour picker
+  (written as inline HTML that Obsidian also shows). A click on the description opens the editor **on the word you
+  clicked**, instead of at the top.
 
 ## [1.3.0] — 2026-10-21
 

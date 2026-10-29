@@ -241,7 +241,10 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
             text = str(c.get('text') or '').strip()
             if not text:
                 raise StoreError(400, 'a comment needs text')
-            comments.append({'at': str(c.get('at') or now_stamp()), 'text': text})
+            kept = {'at': str(c.get('at') or now_stamp()), 'text': text}
+            if c.get('edited'):
+                kept['edited'] = str(c['edited'])
+            comments.append(kept)
         values['comments'] = comments
     if 'claude_sessions' in values:
         values['claude_sessions'] = clean_claude_sessions(values['claude_sessions'])
@@ -1095,6 +1098,26 @@ class Store:
             if not 0 <= index < len(comments):
                 raise StoreError(404, 'comment not found')
             comments.pop(index)
+            return self.update(it['key'], {'comments': comments})
+
+    @writes
+    def edit_comment(self, key, index, text, was=None):
+        """New text for a comment, which keeps its place and its `at` and gains `edited`. `was`, when given, is the text
+        the client edited: an index another request has shifted (a delete in between) is a 409, not someone else's
+        comment. (Not `at`: it is to the minute, so two comments can share it.)"""
+        text = str(text or '').strip()
+        if not text:
+            raise StoreError(400, 'a comment needs text')
+        with self._lock:
+            it = self.find(key)
+            comments = [dict(c) if isinstance(c, dict) else {'text': c} for c in it['fields'].get('comments') or []]
+            if not 0 <= index < len(comments):
+                raise StoreError(404, 'comment not found')
+            if was is not None and str(comments[index].get('text')) != str(was).strip():
+                raise StoreError(409, 'the comments changed meanwhile: reload and try again')
+            if comments[index].get('text') == text:
+                return it
+            comments[index].update(text=text, edited=now_stamp())
             return self.update(it['key'], {'comments': comments})
 
     # ── Claude sessions: one entry per launch, on the item (or in the global file) ──

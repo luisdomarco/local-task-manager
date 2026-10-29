@@ -126,6 +126,15 @@ class RoundTripTest(TicketingBase):
         self.assertEqual(f['status_log'], [{'date': date.today().isoformat(), 'from': '1. Backlog', 'to': '4. InProgress', 'by': 'owner'}])
         self.assertEqual(fm.split(before)[1], fm.split(after)[1])  # the body untouched
 
+    def test_editing_a_comment_touches_only_comments(self):
+        sup = self.s.create('support', 'Algo', {'project': 'HB'})
+        self.s.add_comment(sup['id'], 'one')
+        before = read(self.root, sup['path'])
+        self.s.edit_comment(sup['id'], 0, 'one, edited')
+        after = read(self.root, sup['path'])
+        self.assertEqual(self.changed_keys(before, after), {'comments'})
+        self.assertEqual(self.s.read(sup['id'])['fields']['comments'][0]['text'], 'one, edited')
+
     def test_unknown_keys_comments_and_hand_written_lines_survive(self):
         sup = self.s.create('support', 'Algo', {'project': 'HB'})
         path = os.path.join(self.root, sup['path'])

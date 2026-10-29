@@ -1083,6 +1083,12 @@ html.side-collapsed { --content-left: 0px; }
 .mde:focus-within { border-color: var(--foreground); outline: 2px solid var(--focus); outline-offset: 1px; }
 .mde-bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: var(--well); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .mde-bar .btn.icon { width: 28px; height: 28px; }
+.mde-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 6px; }
+.mde-swatch { width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border); padding: 0; cursor: pointer; font-weight: 700; font-size: 13px; background: var(--card); color: var(--swatch); }
+.mde-swatch.highlight { background: var(--swatch); }
+.mde-swatch:hover, .mde-swatch:focus-visible { outline: 2px solid var(--foreground); outline-offset: 1px; }
+.mde-custom { display: flex; align-items: center; gap: 8px; padding: 4px 8px; font-size: var(--fs-sm); cursor: pointer; }
+.mde-custom input[type=color] { width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
 .mde-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .mde-modes { margin-left: auto; padding: 2px; }
 .mde-modes .btn { height: 26px; font-size: 12.5px; padding: 0 9px; }
@@ -1340,6 +1346,9 @@ html.side-collapsed { --content-left: 0px; }
 .activity-card header .btn.icon { width: 26px; height: 26px; margin-left: auto; }
 .activity-author { font-weight: 600; font-size: var(--fs-sm); }
 .activity-card p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); line-height: 1.5; }
+.activity-card header .btn.icon + .btn.icon { margin-left: 0; }
+.activity-card.editing textarea { width: 100%; min-height: var(--control-h); max-height: 240px; padding: 7px 10px; resize: none; font: inherit; font-size: var(--fs-sm); line-height: 1.5; overflow-y: hidden; }
+.activity-edit-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 .activity-compose { display: flex; gap: 6px; margin-top: 4px; align-items: flex-end; }
 .activity-compose input, .activity-compose textarea { flex: 1; min-width: 0; }
 .activity-compose textarea { height: var(--control-h); min-height: var(--control-h); max-height: 160px; padding: 7px 10px; resize: none; font: inherit; font-size: var(--fs-base); line-height: 16px; overflow-y: hidden; }

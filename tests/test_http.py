@@ -73,6 +73,15 @@ class HttpTest(unittest.TestCase):
         upd = self.call('/api/item/update', {'key': out['id'], 'values': {'labels': ['x']}, 'body': 'hi'})
         self.assertEqual((upd['fields']['labels'], upd['body']), (['x'], 'hi'))
 
+    def test_comments_through_the_api(self):
+        # Mirrors api.addComment / editComment / deleteComment in static/js/api.js
+        note = self.call('/api/item/create', {'type': 'note', 'subject': 'Talk', 'values': {}, 'body': ''})
+        c = self.call('/api/item/comment', {'key': note['id'], 'text': 'tpyo'})['fields']['comments'][0]
+        out = self.call('/api/item/comment/edit', {'key': note['id'], 'index': 0, 'text': 'typo', 'was': c['text']})
+        self.assertEqual(out['fields']['comments'][0]['text'], 'typo')
+        self.assertEqual(self.request('/api/item/comment/edit', {'key': note['id'], 'index': 0, 'text': ' '})[0], 400)
+        self.assertEqual(self.call('/api/item/comment/delete', {'key': note['id'], 'index': 0})['fields']['comments'], [])
+
     def test_pins_round_trip(self):
         # Mirrors api.pins() / api.savePins(items) in static/js/api.js
         self.assertEqual(self.call('/api/pins'), {'items': []})

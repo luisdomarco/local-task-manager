@@ -118,6 +118,7 @@ export const api = {
   convert: (key, type, values) => post('/api/item/convert', { key, type, values }),
   addComment: (key, text) => post('/api/item/comment', { key, text }),
   deleteComment: (key, index) => post('/api/item/comment/delete', { key, index }),
+  editComment: (key, index, text, was) => post('/api/item/comment/edit', { key, index, text, was }),
   assignIds: () => post('/api/assign-ids'),
   board: () => get('/api/board'),
   saveBoard: (lists) => post('/api/board', { lists }),
