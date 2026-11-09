@@ -4,7 +4,7 @@ id: 16                             # its number, drawn PLN-<n>
 aliases: []
 item: "[[INI-1 Checkout redesign]]"   # the initiative, story or support ticket this plan executes
 project: "[[00 Acme Web]]"
-written: 2026-11-08
+written: 2026-11-09
 base: "develop @ <sha>"                # the sha measured during diagnosis; what this builds on
 branch: ""                             # e.g. feature/INI-1-roll-out-the-one-page-checkout
 worktree: ""
@@ -13,8 +13,8 @@ verifier: ""                           # reviewer or judge; never the same hand 
 lane: normal                           # fast (S) · normal (M) · full (L); if it differs from size, say why
 url: ""
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # PLN-16 — Roll out the one-page checkout

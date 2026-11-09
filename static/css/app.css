@@ -5,6 +5,7 @@
    halo on fields. */
 :root {
   --board-col-w: 272px; /* every board's column (Board, a list as a board, Planning's): change it here */
+  --side-w: clamp(360px, 32vw, 500px); /* every right panel (an item's card, a page's, an agent's): one width, 500px on a wide screen */
   --background: #ffffff;
   --foreground: #09090b;
   --card: #ffffff;
@@ -161,6 +162,10 @@ body {
   font: var(--fs-base)/1.5 var(--font); -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01";
 }
 button, input, select, textarea { font: inherit; color: inherit; }
+/* An app, not a page: the arrow over its chrome, labels and text (the browser's I-beam over every word made the cursor
+   flicker as it crossed them); the I-beam only where text is typed. Text still selects as before. */
+body { cursor: default; }
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"]), textarea, [contenteditable]:not([contenteditable="false"])) { cursor: text; }
 ::selection { background: color-mix(in srgb, var(--foreground) 16%, transparent); }
 [hidden] { display: none !important; }
 .icon { flex: none; display: inline-block; vertical-align: -2px; }
@@ -402,7 +407,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 #view:has(> .page.two-panel) { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 18px 28px 18px; }
 .page.two-panel { flex: 1; min-height: 0; gap: 0; }
 .page.two-panel > .crumbs { margin-bottom: 10px; flex: none; }
-.page-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 20px; } /* 420: its six tabs fit in one row */
+.page-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); gap: 20px; } /* the right panel's width, as everywhere */
 .page-body.collapsed { grid-template-columns: minmax(0, 1fr) var(--side-strip); }
 /* Its own scroll: 24px between the content and the scrollbar, as on an item's card (.im-main); an initiative's, a project's, a PRD's page */
 .page-main { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 0 24px 40px 12px; margin-left: -12px; }
@@ -490,7 +495,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 #side-explorer, #side-agents { display: none; }
 .side-mode-explorer #sidebar > #side-explorer, .side-mode-agents #sidebar > #side-agents { display: flex; flex: 1 1 0; min-height: 160px; flex-direction: column; gap: 6px; }
 .side-mode-explorer #sidebar #nav, .side-mode-explorer #sidebar .side-section, .side-mode-explorer #sidebar .side-tools,
-.side-mode-agents #sidebar #nav, .side-mode-agents #sidebar .side-section, .side-mode-agents #sidebar .side-tools { display: none; }
+.side-mode-agents #sidebar #nav, .side-mode-agents #sidebar .side-section, .side-mode-agents #sidebar .side-tools,
+.side-mode-agents #sidebar #btn-quick { display: none; } /* Add item makes vault items: nothing to do with agents */
 /* Docs (views/docs.js): its panel on the left of the view, the doc on the right, and between them a grip that resizes
    the panel (resizer.js; its width in --docs-w), drawn as the sidebar's. A head per section — its title folds it, "+"
    starts a doc or a folder; dimmed while its Docs folder is not there. */
@@ -1082,7 +1088,7 @@ html.side-collapsed { --content-left: 0px; }
 .im-foot { display: flex; align-items: center; gap: 14px; flex: none; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--popover); }
 .im-foot .spacer { flex: 1; }
 .im-in { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
-.im-body { display: grid; grid-template-columns: minmax(0, 1fr) 500px; grid-template-rows: minmax(0, 1fr); } /* side column: 380px + 15% + 15% */
+.im-body { display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); grid-template-rows: minmax(0, 1fr); } /* the right panel's width, as everywhere */
 .im-body.solo { grid-template-columns: minmax(0, 1fr); }
 /* Folded: the side column is a strip with only its button (sideFold), to open it again */
 .im-body.collapsed { grid-template-columns: minmax(0, 1fr) var(--side-strip); }
@@ -1841,6 +1847,7 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-notice details summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--fs-sm); }
 .vault-rows { display: flex; flex-direction: column; gap: 10px; }
 .vault-row { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.vault-gone { margin: 0; line-height: 1.5; }
 .vault-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .vault-row-head .vault-name { flex: 0 1 200px; min-width: 140px; }
 .vault-row-head .vault-path { flex: 1 1 260px; min-width: 0; }
@@ -2990,9 +2997,10 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
   display: grid; place-items: center; font-size: 9.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
   background: var(--tone-accent); color: var(--background); box-shadow: 0 0 0 2px var(--muted); }
 .side-mode-badge.tone-warning { background: var(--tone-warning); }
+/* Favourites, on top of the Agents mode's folders: the Projects mode's section title (.side-title), never folding */
+.agents-favs { padding-top: 6px; }
+.agents-favs .side-title { padding-bottom: 4px; }
 .agents-head.dim .agents-count { font-style: italic; }
-.agents-empty { display: grid; gap: 10px; justify-items: start; padding: 6px 6px 4px; }
-.agents-empty p { margin: 0; line-height: 1.5; }
 .side-agents .tree-row .tree-name { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: -.01em; }
 .side-agents .tree-row.is-dir .tree-name { font-family: inherit; font-size: var(--fs-sm); letter-spacing: 0; }
 
@@ -3002,88 +3010,89 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-add-form .prop-rows { display: flex; flex-direction: column; gap: 6px; }
 .agents-add-form .prop-rows .field { grid-template-columns: 84px minmax(0, 1fr); }
 .agents-add-form p { margin: 0; line-height: 1.5; }
-.agents-add-form code, .agents-intro code, .agents-help code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+.agents-add-form code, .agents-help code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 1px 5px; border-radius: 4px; }
 .agents-add-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* #/runs */
 .agents-intro { max-width: 620px; line-height: 1.6; }
 .agents-intro p { margin: 0 0 8px; }
-.agents-group { margin-top: 22px; }
-.agents-group-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.agents-group-head h2 { margin: 0; font-size: var(--fs-h4); font-weight: 650; white-space: nowrap; }
-.agents-group-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-2xs); }
-.agents-rows { display: flex; flex-direction: column; }
-.agents-row { display: grid; grid-template-columns: 16px minmax(140px, 240px) minmax(0, 1fr) auto; align-items: center; column-gap: 10px;
-  min-height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); color: var(--foreground); text-decoration: none; font-size: var(--fs-sm); }
-.agents-row:hover { background: var(--muted); }
-.agents-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.agents-row > svg { color: var(--muted-foreground); }
-.agents-row-name { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agents-row-desc { color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agents-row-hint { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-2xs); color: var(--muted-foreground); }
-.agents-none { margin: 10px 10px 0; }
 
-/* #/runs: the Inbox — the runs by what they ask of you, each a session's card (.cs-item) with its status dot */
-.agents-inbox-bar { margin-bottom: 10px; flex-wrap: wrap; row-gap: 6px; }
-.agents-inbox-list { max-width: 920px; }
-.agents-inbox-group { margin-bottom: 20px; }
-.agents-inbox-group .agents-section-title { display: flex; align-items: baseline; gap: 8px; }
-.agents-inbox-group.group-needs_you .agents-section-title { color: var(--tone-warning); }
+/* #/runs/inbox: the Inbox — a list's table of runs (a view bar over it), or a board of them by status */
+.agents-inbox-bar { flex-wrap: wrap; row-gap: 6px; }
+.agents-inbox-table .grid tbody tr { cursor: pointer; }
+.agents-status-cell { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.agents-run-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agents-run-msg { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agents-inbox-table tr.unread .agents-run-msg { font-weight: 700; } /* ended, not seen yet: bold, as an unread mail */
+.agents-run-ask { color: var(--tone-warning); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.agents-run-tag { display: inline-flex; color: var(--muted-foreground); flex: none; }
+.agents-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.agents-row-end .agents-unread { margin: 0; }
+.agents-inbox-table tr:is(:hover, :focus-within) .agents-row-end .agents-unread { display: none; } /* its ⋯ takes the place */
+.agents-inbox-table .group-line .td-dot { margin-right: 2px; }
+/* On a phone, as a list's two lines (.list-main): its dot and what it ran …… when; under it its folder, in grey */
+@media (max-width: 640px) {
+  .agents-inbox-table .grid tbody tr:not(.group-head) > td.c-status .agents-status-cell { font-size: 0; gap: 0; } /* the dot alone */
+  .agents-inbox-table .grid tbody tr:not(.group-head) > td.c-run { display: block; grid-area: subject; min-width: 0; }
+  .agents-inbox-table .grid tbody tr:not(.group-head) > td.c-started { display: block; grid-area: when; font-size: var(--fs-xs); color: var(--muted-foreground); }
+  .agents-inbox-table .grid tbody tr:not(.group-head) > td.c-folder { display: block; grid-area: where; font-size: var(--fs-xs); color: var(--muted-foreground); }
+}
 .agents-inbox-row { cursor: pointer; }
 .agents-inbox-row:hover { background: var(--muted); }
 .agents-inbox-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .cs-item > .td-dot { margin-top: 6px; }
 .cs-item.unread .cs-item-title { font-weight: 700; }
 .cs-item:not(.unread) .cs-item-title.mono { font-weight: 500; }
+/* The Inbox as a board (List | Board): a column per status, sharing the page's width (no empty band at the right) */
+.agents-board { min-height: 0; }
+.agents-board .board-col { flex: 1 0 240px; }
+.agents-board .col-cards { list-style: none; margin: 0; }
+.agents-board .col-empty { margin: 2px 8px 6px; font-size: var(--fs-xs); color: var(--muted-foreground); }
+.agents-board .cs-item-meta { white-space: normal; }
 .agents-status-word { font-weight: 600; color: var(--foreground); }
 .agents-inbox-row .cs-item-title.mono { font-family: var(--mono); font-size: var(--fs-xs); }
 .agents-unread { width: 8px; height: 8px; border-radius: 50%; background: var(--tone-accent); flex: none; margin: 6px 4px 0 0; }
 .agents-inbox-row:hover .agents-unread { visibility: hidden; } /* its ⋯ takes the corner */
 
 /* #/runs/<folder>/<name> */
-.agents-page > * { max-width: 920px; } /* the page's column: its runs are in the side panel (.agents-side) */
-.agents-body { grid-template-columns: minmax(0, 1fr) 360px; }
-.agents-file { padding: 0; text-decoration: none; font-family: var(--mono); font-size: var(--fs-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.agents-file:hover { text-decoration: underline; }
-.agents-props .agents-file { font-size: var(--fs-xs); white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .agents-side .cs-item-title.mono { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; }
-.agents-page .view-head { margin-bottom: 6px; }
+.agents-page .view-head { margin-bottom: 0; }
+.agents-page > * { flex: none; } /* the column scrolls: its parts keep their height, never squeezed by a long tab */
 .agents-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.agents-title { font-family: var(--mono); letter-spacing: -.03em; overflow-wrap: anywhere; }
+.agents-title { overflow-wrap: anywhere; } /* an item page's title (view-head h1): the same type, not the monospace of its rows */
 /* Its head: where it lives, its name and its actions on one row (they wrap under it when short of room), what it does */
 .agents-crumbs { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; min-width: 0; }
 .agents-crumbs a { color: inherit; text-decoration: none; }
 .agents-crumbs a:hover { color: var(--foreground); text-decoration: underline; }
 .agents-crumb-sep { opacity: .5; }
-.agents-head-page .agents-title-row { justify-content: space-between; align-items: flex-start; row-gap: 10px; }
-.agents-head-page .agents-title { margin: 0; line-height: 1.25; }
-.agents-title-col { flex: 1 1 320px; min-width: 0; }
+.agents-head-page .agents-title-row { justify-content: space-between; align-items: center; row-gap: 10px; }
+.agents-head-page .agents-title { margin: 0; line-height: 1.25; flex: 1 1 280px; min-width: 0; }
 .agents-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.agents-actions .btn { height: 32px; }
-.agents-desc { margin: 6px 0 0; max-width: 760px; line-height: 1.55; color: var(--muted-foreground); }
+.agents-actions .btn, .agents-actions .select-btn { height: 32px; } /* one height on the row: Where (a small select) as tall as Run */
+.agents-head-page .agents-desc { margin: 14px 0 0; line-height: 1.55; color: var(--muted-foreground); } /* the page's width, under its head (over .view-head p) */
 .agents-openin { color: var(--muted-foreground); }
 .agents-run { gap: 6px; }
-/* How it has gone: five figures in a row of quiet cells, one card */
-.agents-stats { display: flex; flex-wrap: wrap; margin: 20px 0 4px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--card); }
-/* Each cell draws a line on its left and top; those of the first column and row fall outside the box, which clips them */
-.agents-stat { flex: 1 1 100px; display: flex; flex-direction: column; gap: 3px; padding: 12px 12px; min-width: 0;
-  box-shadow: -1px 0 0 var(--border), 0 -1px 0 var(--border); }
-.agents-stat-label { font-size: var(--fs-2xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
-.agents-stat-value { font-size: 1.05rem; font-weight: 650; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+/* How it has gone: its side panel's Overview, as an item's properties (prop-rows quiet) — the figure, then what it counts */
+.agents-ov-value { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0 10px; white-space: nowrap; }
+.agents-ov-value > strong { font-weight: 600; display: inline-flex; align-items: center; min-width: 0; }
+.agents-ov-value > .muted { font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .agents-stat-run { padding: 0; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; white-space: nowrap; }
 .agents-stat-run:hover { text-decoration: underline; }
-.agents-stat-sub { font-size: var(--fs-2xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Its tabs: Instructions (its prompt, as a document), what it works with as rows that unfold, Details */
-.agents-tabs { margin-top: 18px; }
-.agents-tabs > [role="tabpanel"]:not([hidden]) { display: block; padding-top: 14px; }
+.agents-tabs { margin-top: 6px; } /* 24px under the head with the column's gap (18) */
+.agents-tabs > .tabs-bar { padding: 0; } /* level with the head, as an item's tabs (.item-tabs) */
+.agents-tabs > [role="tabpanel"]:not([hidden]) { display: block; padding: 16px 0 24px; } /* its content as wide as the head */
 .agents-tabs .tab-btn { flex: none; max-width: none; } /* its tabs scroll sideways rather than cut their names */
 .agents-doc { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .agents-doc-head { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--border);
   font-size: var(--fs-2xs); color: var(--muted-foreground); }
-.agents-doc-head .mono { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.agents-doc-head .link-btn { margin-left: auto; flex: none; }
-.agents-doc .agents-prompt { padding: 6px 20px 14px; }
+.agents-doc-head .mono { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.agents-file-seg { flex: none; padding: 2px; }
+.agents-file-seg .btn { height: 26px; }
+/* Its body: Preview reads as a document, Source and Edit as the Explorer's (views/files.js) */
+.agents-file-body { padding: 10px 20px 16px; min-width: 0; }
+.agents-file-body > .agents-prompt > :first-child { margin-top: 0; }
+.agents-file-source { max-height: 70vh; overflow: auto; }
 .agents-prompt h1, .agents-prompt h2 { font-size: var(--fs-h4); margin: 1.2em 0 .4em; }
 .agents-prompt h3, .agents-prompt h4 { font-size: var(--fs-base); margin: 1em 0 .3em; }
 .agents-rel-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
@@ -3099,9 +3108,15 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-rel-name { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .agents-rel-via { font-family: var(--font); font-weight: 500; font-size: var(--fs-2xs); }
 .agents-rel-desc { font-size: var(--fs-xs); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.agents-rel-body { padding: 0 14px 14px 38px; }
-.agents-rel-path { margin: 0 0 6px; font-family: var(--mono); }
-.agents-rel-text { margin: 0; max-height: 420px; overflow: auto; font-family: var(--mono); font-size: var(--fs-2xs); white-space: pre-wrap; }
+/* its file under the row, flush with it: no frame of its own inside the list's, a line between them */
+.agents-rel-body > .agents-doc { border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; }
+.agents-rel-body .agents-doc-head { padding-left: 38px; border-bottom-style: dashed; }
+.agents-rel-body .agents-file-body { padding-left: 38px; }
+.agents-rel.open > .agents-rel-row { background: var(--muted); }
+/* unfolded: the row is its name; under it its path and Preview · Source · Edit, then what it is for, then the file */
+.agents-rel.open .agents-rel-desc { display: none; }
+.agents-file-summary { margin: 0; padding: 10px 20px 0; font-size: var(--fs-xs); line-height: 1.5; }
+.agents-rel-body .agents-file-summary { padding-left: 38px; }
 .agents-path { font-family: var(--mono); overflow-wrap: anywhere; }
 .agents-section-title { margin: 6px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: var(--fs-h4); font-weight: 650; }
 .agents-props { display: flex; flex-direction: column; gap: 2px; }
@@ -3111,13 +3126,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-value code { font-family: var(--mono); font-size: var(--fs-xs); }
 .agents-tools { display: flex; flex-wrap: wrap; gap: 4px; }
 .agents-tools .chip { font-family: var(--mono); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.agents-prompt { max-width: 760px; }
-@media (max-width: 760px) {
-  .agents-row { grid-template-columns: 16px minmax(0, 1fr); row-gap: 2px; padding: 8px 10px; }
-  .agents-row-desc { grid-column: 2; white-space: normal; }
-  .agents-row-hint { display: none; }
-  .agents-group-path { display: none; }
-}
 
 /* A run's detail, in its agent's side panel (views/runs.js runsPanel): back to the list, its status and message, what
    to do with it, its facts as quiet properties, and its Changes — each file a line that unfolds into its diff */
@@ -3155,33 +3163,39 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-fstatus.fs-D { color: var(--tone-error); }
 .agents-fpath { flex: 1; min-width: 0; font-family: var(--mono); font-size: var(--fs-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Scheduled runs (agentschedules.js): the Schedule dialog, and the list in an agent's Schedules tab and Settings → Agents */
-.agents-sched-form .prop-rows .field { grid-template-columns: 96px minmax(0, 1fr); align-items: center; }
+.agents-sched-form { gap: 18px; }
+/* The Schedule dialog: two groups (When, Run) under a small grey uppercase title, a line between them and none between
+   their rows; the rows a little in from the title, and every control as wide as the column, so all end on one edge */
+.agents-sched-group > h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted-foreground); }
+.agents-sched-note { font-size: var(--fs-2xs); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.agents-sched-group + .agents-sched-group { border-top: 1px solid var(--border); padding-top: 16px; }
+.agents-sched-form .prop-rows { gap: 4px; padding-left: 12px; }
+.agents-sched-form .prop-rows .field { grid-template-columns: 100px minmax(0, 1fr); min-height: 38px; }
+.agents-sched-form .prop-rows .field > .select-btn { width: 100%; }
+@media (max-width: 560px) { .agents-sched-form .prop-rows .field { grid-template-columns: 1fr; row-gap: 6px; padding: 4px 0; } }
 .agents-sched-inline { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.agents-sched-args { flex-wrap: nowrap; width: 100%; }
+.agents-sched-args { display: flex; flex-wrap: nowrap; }
 .agents-sched-args .input { flex: 1; min-width: 0; }
 .agents-sched-args code { font-family: var(--mono); font-size: var(--fs-xs); white-space: nowrap; }
 /* Its pickers and short fields at their own width, side by side (a .field's select fills the row elsewhere) */
-.agents-sched-form .agents-sched-inline > .select-btn { width: auto; flex: none; }
-.agents-sched-form .agents-sched-inline > .agents-sched-at { width: 120px; flex: none; }
-.agents-sched-form .agents-sched-inline > .agents-sched-hours { width: 72px; flex: none; }
-.agents-sched-form .field > .select-btn { width: auto; justify-self: start; min-width: 180px; }
+.agents-sched-form .agents-sched-at { width: 100%; }
+.agents-sched-form .agents-sched-inline > .agents-sched-hours { flex: 1; min-width: 0; }
+.agents-sched-form .field > .agents-sched-inline { display: flex; }
 .agents-sched-days { display: flex; flex-wrap: wrap; gap: 4px; }
 .agents-sched-day { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 7px; border: 1px solid var(--border); border-radius: 999px;
   font-size: var(--fs-xs); cursor: pointer; user-select: none; }
 .agents-sched-day:has(input:checked) { background: var(--accent); border-color: var(--input); }
 .agents-sched-day input { margin: 0; }
-.agents-sched-warn { display: flex; gap: 6px; align-items: flex-start; }
-.agents-sched-warn .icon { flex: none; margin-top: 2px; }
 .agents-sched.paused .cs-item-title { color: var(--muted-foreground); }
 .agents-sched-error { color: var(--tone-error); display: inline-flex; gap: 4px; align-items: center; }
 .agents-sched-all .cs-list { max-width: 720px; }
-@media (max-width: 560px) { .agents-sched-form .prop-rows .field { grid-template-columns: 1fr; gap: 4px; } }
 /* The sidebar's Home and Inbox, above the folders (agentspane.js) */
 .agents-nav { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 6px; }
 .agents-nav .agents-inbox { margin: 0; }
 
 /* #/runs: the Home (views/agentshome.js) — the week, what needs you, then two columns of cards (.cs-item) */
-.agents-home { max-width: 1080px; display: flex; flex-direction: column; gap: 18px; margin-top: 14px; }
+.agents-home { display: flex; flex-direction: column; gap: 18px; margin-top: 14px; }
 .agents-home-week { margin: 0 2px; }
 .agents-home .agents-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 0; border: 0; }
 .agents-home-alert { padding: 10px 12px 12px; border: 1px solid color-mix(in srgb, var(--tone-warning) 45%, var(--border)); border-radius: var(--radius);

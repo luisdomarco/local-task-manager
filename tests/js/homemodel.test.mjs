@@ -50,7 +50,7 @@ describe('homemodel', () => {
     const runs = [run('hello', 1, { cost: 0.25, ended_ts: NOW - H + 60_000 }), run('hello', 2, { outcome: 'error', ended_ts: NOW - 2 * H + 20_000 }),
       run('hello', 3, { live: true, busy: true, outcome: undefined }), run('hello', 24 * 40, { cost: 5 })];
     const s = agentStats(runs, NOW);
-    assert.deepEqual({ ...s, last: s.last.id }, { last: 'hello-1', runs: 3, done: 1, failed: 1, success: 0.5, avgMs: 40_000, cost: 0.25 });
-    assert.deepEqual(agentStats([], NOW), { last: null, runs: 0, done: 0, failed: 0, success: null, avgMs: null, cost: 0 });
+    assert.deepEqual({ ...s, last: s.last.id }, { last: 'hello-1', runs: 3, done: 1, failed: 1, success: 0.5, avgMs: 40_000, cost: 0.25, avgCost: 0.25 }); // the runs without a cost left out of its mean
+    assert.deepEqual(agentStats([], NOW), { last: null, runs: 0, done: 0, failed: 0, success: null, avgMs: null, cost: 0, avgCost: null });
   });
 });

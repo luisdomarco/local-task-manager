@@ -5,7 +5,8 @@ import shutil
 import tempfile
 import unittest
 
-from tm import agentlinks
+from tm import agentfiles, agentlinks
+from tm.store import StoreError
 
 
 def write(path, text):
@@ -44,13 +45,42 @@ class RelatedTest(unittest.TestCase):
         self.assertIsNone(agentlinks.related(self.dir, 'nope'))
         self.assertEqual(agentlinks.related(self.dir, 'help'), {'skills': [], 'agents': [], 'commands': [], 'files': []})
 
-    def test_only_a_related_file_is_read(self):
-        skill = agentlinks.read_related(self.dir, 'wor-build', '.claude/skills/ski-ledger/SKILL.md')
-        self.assertEqual((skill['description'], skill['body'].strip(), skill['markdown']), ('Keeps a ledger', 'Body', True))
-        self.assertEqual(agentlinks.read_related(self.dir, 'wor-build', 'notes.txt')['body'], 'notes')
+    def test_only_its_file_or_a_related_one_is_read_whole(self):
+        skill = agentfiles.read(self.dir, 'wor-build', '.claude/skills/ski-ledger/SKILL.md')
+        self.assertEqual((skill['text'], skill['body'].strip(), skill['markdown']),
+                         ('---\nname: ski-ledger\ndescription: Keeps a ledger\n---\nBody\n', 'Body', True))
+        self.assertEqual(agentfiles.read(self.dir, 'wor-build', 'notes.txt')['body'], 'notes')
+        own = agentfiles.read(self.dir, 'help')  # no path: the command's own file
+        self.assertEqual((own['path'], own['text']), ('.claude/commands/help.md', '---\ndescription: Help\n---\nHelp.\n'))
         for path in ('.claude/skills/ski-unused/SKILL.md', '../outside.md', '/etc/hosts', '.claude/commands/wor-build.md'):
-            self.assertIsNone(agentlinks.read_related(self.dir, 'wor-build', path), path)
+            self.assertIsNone(agentfiles.read(self.dir, 'wor-build', path), path)
+        self.assertIsNone(agentfiles.read(self.dir, 'nope'))
 
+    def test_a_save_goes_against_the_version_it_was_read_at(self):
+        path = '.claude/skills/ski-ledger/SKILL.md'
+        was = agentfiles.read(self.dir, 'wor-build', path)
+        now = agentfiles.save(self.dir, 'wor-build', path, was['text'].replace('Body', 'New body'), was['rev'])
+        self.assertEqual(now['body'].strip(), 'New body')
+        with self.assertRaises(StoreError) as cm:  # written meanwhile (an editor, an agent): never over it
+            agentfiles.save(self.dir, 'wor-build', path, 'mine', was['rev'])
+        self.assertEqual((cm.exception.status, cm.exception.extra['rev']), (409, now['rev']))
+        self.assertIsNone(agentfiles.save(self.dir, 'wor-build', '../outside.md', 'x', ''))  # only its own files
+        with open(os.path.join(os.path.dirname(self.dir), 'outside.md'), encoding='utf-8') as f:
+            self.assertEqual(f.read(), 'not its own')
+
+    def test_a_file_reached_through_a_link_is_written_where_it_lives(self):
+        system = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, system)
+        write(os.path.join(system, 'commands', 'go.md'), 'Go.\r\n')
+        app = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, app)
+        os.makedirs(os.path.join(app, '.claude'))
+        os.symlink(os.path.join(system, 'commands'), os.path.join(app, '.claude', 'commands'))
+        was = agentfiles.read(app, 'go')
+        agentfiles.save(app, 'go', '', 'Go on.\n', was['rev'])
+        self.assertTrue(os.path.islink(os.path.join(app, '.claude', 'commands')))  # the link stays a link
+        with open(os.path.join(system, 'commands', 'go.md'), 'rb') as f:
+            self.assertEqual(f.read(), b'Go on.\r\n')  # CRLF kept
 
 if __name__ == '__main__':
     unittest.main()

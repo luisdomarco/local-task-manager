@@ -1,8 +1,8 @@
 // The Agents section's middle (its sidebar is agentspane.js).
 // #/runs: the Home (views/agentshome.js) — the week, what needs you, runs now, up next, your agents, recent results.
-// #/runs/inbox: the Inbox — every run of every agent on this computer (agentactivity.js), grouped by what it asks of you:
-// Needs you, Running, Unread, Earlier; a search and filters by status, folder and where it came from.
-// #/runs/all: every agent folder and its agents, in rows.
+// #/runs/inbox: the Inbox — every run of every agent on this computer (agentactivity.js), as a list's table (a view
+// bar: Filter, Order, Group — by what it asks of you at first: Needs you, Running, Unread, Earlier —, Display, and a
+// board by status), its view inboxview.js's.
 // #/runs/<folder id>/<name>: one agent — its head (where it lives, its name as typed in Claude Code, what it does, and
 // Run · Schedule… · Open in ▾), how it has gone the last 30 days, and its tabs: its Instructions (its prompt), what it
 // works with — Skills, Subagents, Commands, Files of its folder (tm/agentlinks.py), each tab only when it has some — and
@@ -11,23 +11,30 @@
 // Cursor or Antigravity instead. On the right, as on an item's page, its Runs and Schedules (tm/agentruns.py).
 import { activity, markRead, onActivity, openRun, refreshActivity } from '../agentactivity.js';
 import { scheduleDialog, scheduleList } from '../agentschedules.js';
+import { agentFile } from '../agentfile.js';
 import { startAgent, startChoices } from '../agentstart.js';
 import { homePage } from './agentshome.js';
-import { agentDirs, onAgents, loadAgents, addFolderDialog } from '../agentspane.js';
+import { agentDirs, onAgents, loadAgents, addFolderDialog, isFavourite, toggleFavourite } from '../agentspane.js';
 import { agentHref, parseRunsParam, runMessage, runMeta, RUN_MODES, RUN_PLACES } from '../agentsmodel.js';
 import { api } from '../api.js';
 import { TARGET_ICON, claudeTargets, openInMenu, resumeClaude } from '../claude.js';
-import { DETAIL_PAGE, paged } from '../datatable.js';
+import { DETAIL_PAGE, LIST_PAGE, dataTable, paged } from '../datatable.js';
 import { agoLabel } from '../dates.js';
 import { sideFold } from '../itemform.js';
 import { pref, setPref } from '../prefs.js';
 import { diffBlock } from '../diffview.js';
 import { agentStats } from '../homemodel.js';
-import { costLabel, durationLabel, filterRuns, groupActivity, inboxCount, isUnread, RUN_SOURCES, RUN_STATUSES, runLabel, runStatus } from '../runmodel.js';
+import { INBOX_GROUPS, INBOX_ORDERS, INBOX_PROPS, filtersFromOld, groupName, groupRuns, groupTone, inboxFields, inboxGroupLabel, orderValue, runMs, sortRuns, sourceLabel } from '../inboxview.js';
+import { wantsNewTab } from '../links.js';
+import { costLabel, durationLabel, filterRuns, inboxCount, isUnread, RUN_STATUSES, runLabel, runStatus } from '../runmodel.js';
+import { closePopover, viewBar } from '../viewbar.js';
+import { applyOrder, reorderColumns } from '../colorder.js';
+import { dragsList, listDropZone } from '../kanban.js';
+import { columnOn, fresh, matches } from '../viewmodel.js';
 import { parseUnifiedDiff } from '../udiff.js';
-import { state, toast } from '../state.js';
+import { toast } from '../state.js';
 import { setAlertTitle, setPageTitle } from '../tabtitle.js';
-import { dropdown, emptyState, h, icon, pageEmpty, pageHead, renderMarkdown, searchBox, secondaryButton, select, tabPanels } from '../ui.js';
+import { dropdown, emptyState, h, icon, pageEmpty, pageHead, secondaryButton, select, tabPanels } from '../ui.js';
 
 const SIDE_KEY = 'tm.agentsSidePanel'; // its Runs panel folded or not: one choice for every agent
 
@@ -56,7 +63,7 @@ export function mount(root, param) {
       setPageTitle('Inbox');
       return;
     }
-    if (!name) { view?.stop(); view = null; root.replaceChildren(...overview(dirs)); setPageTitle('Agents'); return; }
+    if (!name) { location.replace('#/runs'); return; } // a folder alone (#/runs/all once): the Home
     const folder = dirs.find((d) => d.id === dir);
     const agent = folder?.commands.find((c) => c.name === name);
     if (!folder || !agent) {
@@ -80,88 +87,213 @@ export function mount(root, param) {
 function intro() {
   return [pageHead({ title: 'Agents', action: secondaryButton('Add folder', { ico: 'plus', onclick: () => addFolderDialog() }) }),
     h('div', { class: 'agents-intro' },
-      h('p', {}, 'Run your Claude Code agents from here instead of a terminal.'),
-      h('p', { class: 'muted' }, 'Add a folder (a repository, a system…): every command in its ', h('code', {}, '.claude/commands'),
-        ' is an agent. It runs in that folder, as a chat in the dock, where you answer its questions and permissions.'))];
+      h('p', {}, 'Run your Claude Code agents from here instead of a terminal.'))];
 }
 
-/** Home · Inbox · All agents: the pages of the section that are not an agent's, as a section's tab links; the Inbox's
+/** Home · Inbox: the pages of the section that are not an agent's, as a section's tab links; the Inbox's
  *  with what waits for you or ended unseen. */
 const sectionTabs = (on) => {
   const n = inboxCount(activity()?.counts);
   return h('nav', { class: 'tabs-bar section-tabs', 'aria-label': 'Agents' },
-    [['home', 'Home', 'home', '#/runs'], ['inbox', 'Inbox', 'inbox', '#/runs/inbox'], ['all', 'All agents', 'zap', '#/runs/all']].map(([key, text, ico, href]) => h('a', {
+    [['home', 'Home', 'home', '#/runs'], ['inbox', 'Inbox', 'inbox', '#/runs/inbox']].map(([key, text, ico, href]) => h('a', {
       class: `tab-btn ${key === on ? 'active' : ''}`, href, ...(key === on ? { 'aria-current': 'page' } : {}),
     }, icon(ico, 14), text, key === 'inbox' && n ? h('span', { class: 'tab-count' }, String(n)) : null)));
 };
 
 // ── #/runs/inbox: the Inbox ──────────────────────────────────────────────────
-const FILTERS = 'agents.inbox'; // { status, dir, source }: this browser's
-const STATUS_OPTIONS = [['', 'Any status'], ...Object.entries(RUN_STATUSES).map(([k, v]) => [k, v.label])];
-const SOURCE_OPTIONS = [['', 'Anywhere'], ...RUN_SOURCES];
+// A list's view (viewbar.js): Filter, Order, Group, Display and List | Board, kept in this browser (VIEW_KEY). Its fields,
+// groups and orders are inboxview.js's.
+const VIEW_KEY = 'agents.inbox.view';
+const OLD_FILTERS = 'agents.inbox'; // { status, dir, source }: the three selects before the view bar
+const OLD_LAYOUT = 'agents.inboxLayout';
+
+/** The Inbox's view: a list's, grouped by what each run asks of you and newest first at first. A browser that kept the
+ *  old selects starts with them as filters. */
+function inboxView() {
+  const saved = pref(VIEW_KEY, null);
+  const view = { ...fresh(), groupBy: 'attention', orderBy: 'started', orderDir: -1, ...(saved || {}) };
+  if (!saved) {
+    view.filters = filtersFromOld(pref(OLD_FILTERS, null));
+    view.layout = pref(OLD_LAYOUT, 'list') === 'board' ? 'board' : 'list';
+  }
+  view.filters = Array.isArray(view.filters) ? view.filters : [];
+  view.folded = Array.isArray(view.folded) ? view.folded : [];
+  return { view, save: () => setPref(VIEW_KEY, view) };
+}
 
 /** A run's status as the dock draws a session's: its dot and its word. */
 const statusDot = (r) => {
   const st = RUN_STATUSES[runStatus(r)];
   return h('span', { class: `td-dot tone-${st.tone}`, title: st.label, 'aria-hidden': 'true' });
 };
+const runHref = (r) => `${agentHref(r.dir, r.cmd)}?run=${encodeURIComponent(r.id)}`;
 
 function inboxPage(dirs) {
-  const saved = pref(FILTERS, {}) || {};
-  const f = { q: '', status: saved.status || '', dir: saved.dir || '', source: saved.source || '' };
-  const keep = () => setPref(FILTERS, { status: f.status, dir: f.dir, source: f.source });
+  const { view, save } = inboxView();
+  let q = '';
   const count = h('span', { class: 'muted view-count' });
   const list = h('div', { class: 'agents-inbox-list' });
-  const q = h('input', { type: 'search', placeholder: 'Search runs', 'aria-label': 'Search runs', oninput: () => { f.q = q.value; paint(true); } });
-  const pickOf = (options, key, label) => select(options, f[key], (v) => { f[key] = v || ''; keep(); paint(true); }, { class: 'small', 'aria-label': label, title: label });
-  const folderPick = () => pickOf([['', 'Every folder'], ...dirs.map((d) => [d.id, d.name])], 'dir', 'Folder');
-  let folderBox = h('span', { class: 'agents-folder-pick' }, folderPick());
   const readAll = h('button', { class: 'btn small ghost', type: 'button', title: 'Mark every run that ended as seen',
     onclick: () => markRead((activity()?.runs || []).filter(isUnread).map((r) => r.id)) }, icon('check', 13), 'Mark all read');
-  const bar = h('div', { class: 'view-bar agents-inbox-bar' }, searchBox(q), pickOf(STATUS_OPTIONS, 'status', 'Status'), folderBox,
-    pickOf(SOURCE_OPTIONS, 'source', 'Started from'), h('span', { class: 'spacer' }), readAll);
+  const ctx = () => ({ dirs });
+  const all = () => activity()?.runs || [];
+  const searched = () => filterRuns(all(), { q });
+  const order = () => view.orderBy || 'started';
+  const dir = () => view.orderDir || -1;
+  const isBoard = () => view.layout === 'board';
+  const vb = viewBar({
+    view, save, fields: () => inboxFields(ctx()), ctx, items: searched,
+    groups: INBOX_GROUPS.map(([k]) => k), groupLabel: inboxGroupLabel, emptyGroups: false, boardGroups: false,
+    orders: INBOX_ORDERS, order, dir,
+    onOrder: (k) => { view.orderBy = k || 'started'; if (!k) view.orderDir = -1; save(); paint(true); },
+    onDir: (d) => { view.orderDir = d; save(); paint(true); },
+    props: INBOX_PROPS,
+    layout: { current: () => (isBoard() ? 'board' : 'list'), pick: (l) => { view.layout = l; save(); vb.update(); paint(true); } },
+    placeholder: 'Search runs', onText: (text) => { q = text; paint(true); },
+    note: readAll,
+    // A board whose columns were moved: Display puts them back in the Inbox's order (Group, where a list's board has it, is not there)
+    displayRows: () => (isBoard() && view.colOrder?.status?.length ? [h('button', { type: 'button', class: 'menu-item',
+      onclick: () => { const { status: _, ...rest } = view.colOrder; view.colOrder = rest; save(); closePopover(); paint(true); } }, h('span', {}, 'Reset column order')),
+    h('div', { class: 'menu-sep' })] : []),
+    onReset: () => { view.groupBy = 'attention'; view.orderInGroups = null; view.folded = []; view.boardFold = {}; view.colOrder = {}; },
+    onChange: () => paint(true),
+  });
+  vb.bar.classList.add('agents-inbox-bar');
+
+  // ── the table's columns: the run (what it was sent) is always there; Display hides the others ──
+  const more = (r, compact = false) => {
+    const title = runMessage(r.cmd, r.args);
+    const btn = h('button', { class: `btn icon${compact ? ' row-action' : ''}`, type: 'button', title: 'More actions', 'aria-label': `More actions for ${title}`, 'aria-haspopup': 'menu',
+      onclick: (e) => { e.stopPropagation(); inboxMenu(btn, r); } }, icon('more', 14));
+    return btn;
+  };
+  const COLUMNS = [
+    { key: 'status', label: 'Status', get: (r) => orderValue('status', r), cell: (r) => h('span', { class: 'agents-status-cell' }, statusDot(r), RUN_STATUSES[runStatus(r)].label) },
+    {
+      key: 'run', label: 'Run', get: (r) => orderValue('run', r),
+      cell: (r) => h('span', { class: 'agents-run-cell', title: runLabel(r) },
+        h('span', { class: 'mono agents-run-msg' }, runMessage(r.cmd, r.args)),
+        runStatus(r) === 'needs_you' ? h('span', { class: 'agents-run-ask' }, runLabel(r)) : null,
+        r.worktree ? h('span', { class: 'agents-run-tag', title: `In a worktree, on ${r.branch || 'a branch of its own'}` }, icon('branch', 12)) : null),
+    },
+    { key: 'folder', label: 'Folder', get: (r) => orderValue('folder', r), cell: (r) => h('span', { title: r.cwd || '' }, r.dir_name || '') },
+    { key: 'source', label: 'Started from', get: (r) => orderValue('source', r), cell: (r) => sourceLabel(r) },
+    { key: 'time', label: 'Time', cls: 'num', get: (r) => orderValue('time', r), cell: (r) => durationLabel(runMs(r)) },
+    { key: 'cost', label: 'Cost', cls: 'num', get: (r) => orderValue('cost', r), cell: (r) => costLabel(r.cost) },
+    { key: 'started', label: 'Started', get: (r) => orderValue('started', r), cell: (r) => h('span', { title: when(r.at) }, agoLabel(r.at)) },
+    {
+      key: 'actions', label: '', blank: true, get: () => 0,
+      cell: (r) => h('span', { class: 'agents-row-end' }, isUnread(r) ? h('span', { class: 'agents-unread', title: 'Ended: not seen yet', 'aria-label': 'Not seen yet' }) : null,
+        h('span', { class: 'hover-reveal' }, more(r, true))),
+    },
+  ];
+  const WIDTHS = { status: 120, folder: 140, source: 116, time: 84, cost: 76, started: 104, actions: 60 };
+  const hideable = new Set(INBOX_PROPS.map(([k]) => k));
+
+  function table(runs) {
+    const cols = COLUMNS.filter((c) => !hideable.has(c.key) || columnOn(view.props, c.key));
+    const folded = new Set(view.folded);
+    const inGroups = view.groupBy && view.orderInGroups ? view.orderInGroups : order();
+    const group = view.groupBy ? {
+      list: groupRuns(sortRuns(runs, inGroups, dir()), view.groupBy, ctx()),
+      header: (key, rows) => {
+        const tone = groupTone(view.groupBy, key);
+        return [tone ? h('span', { class: `td-dot tone-${tone}`, 'aria-hidden': 'true' }) : null,
+          h('strong', {}, groupName(view.groupBy, key, ctx(), rows)), h('span', { class: 'group-count' }, String(rows.length))];
+      },
+      collapsed: folded,
+      onToggle: (k) => { view.folded = folded.has(k) ? view.folded.filter((x) => x !== k) : [...view.folded, k]; save(); paint(true); },
+    } : null;
+    return h('div', { class: 'list-main agents-inbox-table' }, dataTable({ // a list's table: 40px rows, its quiet head
+      columns: cols, rows: runs, sort: { col: order(), dir: dir() },
+      onSort: ({ col, dir: d }) => { view.orderBy = col; view.orderDir = d; save(); vb.update(); paint(true); },
+      onRow: (r) => openRun(r), rowHref: runHref, rowLabel: (r) => `${runMessage(r.cmd, r.args)}, ${RUN_STATUSES[runStatus(r)].label}`,
+      rowClass: (r) => `hover-host${isUnread(r) ? ' unread' : ''}`,
+      label: 'Runs', empty: 'No run matches.', group, paging: { key: 'agents.inbox', size: LIST_PAGE },
+      flex: { run: 260 }, widths: WIDTHS,
+    }));
+  }
 
   let drawn = '';
   function paint(force = false) {
     const data = activity();
-    const now = JSON.stringify([data, f]);
+    const now = JSON.stringify([data, q]);
     if (!force && now === drawn) return;
     drawn = now;
+    vb.update();
     if (!data) { list.replaceChildren(pageEmpty('Reading the runs…')); return; }
-    const all = data.runs || [];
-    readAll.hidden = !all.some(isUnread);
-    const runs = filterRuns(all, f);
-    count.textContent = all.length ? `${all.length} run${all.length === 1 ? '' : 's'}` : '';
-    if (!all.length) { list.replaceChildren(pageEmpty('No runs yet. Open an agent in the sidebar and Run it: its run shows here, and here is where it tells you when it needs you.')); return; }
-    if (!runs.length) { list.replaceChildren(pageEmpty('No run matches.')); return; }
-    list.replaceChildren(...groupActivity(runs).map((g) => {
-      const page = g.key === 'earlier' ? paged({ key: 'agents.inbox', rows: g.runs, size: DETAIL_PAGE * 2, onChange: () => paint(true) }) : { rows: g.runs, pager: null };
-      return h('section', { class: `agents-inbox-group group-${g.key}`, 'aria-label': g.label },
-        h('h2', { class: 'agents-section-title' }, g.label, h('span', { class: 'muted' }, String(g.runs.length))),
-        h('ul', { class: 'cs-list' }, page.rows.map(inboxRow)), page.pager);
-    }));
+    const runs = all();
+    readAll.hidden = !runs.some(isUnread);
+    count.textContent = runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : '';
+    if (!runs.length) { list.replaceChildren(pageEmpty('No runs yet. Open an agent in the sidebar and Run it: its run shows here, and here is where it tells you when it needs you.')); return; }
+    const fs = inboxFields(ctx());
+    const shown = searched().filter((r) => matches(r, view.filters, fs, ctx()));
+    if (!shown.length) { list.replaceChildren(pageEmpty('No run matches.')); return; }
+    list.replaceChildren(isBoard() ? board(sortRuns(shown, order(), dir())) : table(shown));
   }
-  function inboxRow(r) {
+  /** The board: a column per status, in the Inbox's order (what needs you first) until one is dragged by its head (or
+   *  moved with Shift+←/→): then in yours, kept with the view (view.colOrder.status, colorder.js), as a list's board;
+   *  an empty one folds to a strip, or shows or hides (Display → Empty columns). Started only when a run is. */
+  function board(runs) {
+    const by = new Map(Object.keys(RUN_STATUSES).map((k) => [k, []]));
+    for (const r of runs) by.get(runStatus(r))?.push(r);
+    const empties = view.emptyCols || 'fold';
+    const fold = view.boardFold || {};
+    const setFold = (k, f) => { view.boardFold = { ...fold, [k]: f }; save(); paint(true); };
+    const saved = view.colOrder?.status;
+    const keys = applyOrder([...by.keys()], saved).filter((k) => (k !== 'started' || by.get(k).length) && (by.get(k).length || empties !== 'hide'));
+    const move = (from, to) => { view.colOrder = { ...(view.colOrder || {}), status: reorderColumns(saved, keys, from, to) }; save(); paint(true); };
+    const tip = 'drag, or Shift+←/→, to move the column';
+    const handle = (el, k, idx) => {
+      dragsList(el, idx);
+      el.dataset.colHandle = '';
+      el.addEventListener('keydown', (e) => {
+        if (!e.shiftKey || e.target !== el || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        const to = idx + (e.key === 'ArrowLeft' ? -1 : 1);
+        if (to < 0 || to >= keys.length) return;
+        e.preventDefault();
+        move(idx, to);
+        requestAnimationFrame(() => list.querySelector(`.board-col[data-list="${k}"] [data-col-handle]`)?.focus()); // drawn again: back on it
+      });
+      return el;
+    };
+    const face = (k) => [h('span', { class: `td-dot tone-${RUN_STATUSES[k].tone}`, 'aria-hidden': 'true' }), RUN_STATUSES[k].label];
+    const el = h('div', { class: 'board vboard agents-board', role: 'list', 'aria-label': 'Runs by status' },
+      keys.map((k, idx) => {
+        const rs = by.get(k);
+        const attrs = { role: 'listitem', 'aria-label': `${RUN_STATUSES[k].label} column`, 'data-list': k };
+        if (fold[k] ?? (!rs.length && empties === 'fold')) {
+          return h('section', { class: 'board-col folded', ...attrs },
+            handle(h('button', { class: 'fold-strip', type: 'button', title: `Open ${RUN_STATUSES[k].label} — ${tip}`, onclick: () => setFold(k, false) },
+              h('span', { class: 'strip-name' }, ...face(k)), h('span', { class: 'strip-count' }, String(rs.length))), k, idx));
+        }
+        return h('section', { class: 'board-col', ...attrs },
+          handle(h('header', { class: 'list-head vb-col-head', tabindex: '0', title: `${RUN_STATUSES[k].label} — ${tip}` },
+            h('span', { class: 'group-title' }, ...face(k)), h('span', { class: 'count' }, String(rs.length))), k, idx),
+          rs.length ? h('ul', { class: 'col-cards cs-list' }, rs.map(inboxCard)) : h('p', { class: 'col-empty' }, 'None'));
+      }));
+    listDropZone(el, move);
+    return el;
+  }
+  function inboxCard(r) {
     const title = runMessage(r.cmd, r.args);
     const unread = isUnread(r);
-    const more = h('button', { class: 'btn icon', title: 'More actions', 'aria-label': `More actions for ${title}`, 'aria-haspopup': 'menu',
-      onclick: (e) => { e.stopPropagation(); inboxMenu(more, r); } }, icon('more', 14));
     const open = () => openRun(r);
     return h('li', { class: `cs-item surface-card hover-host agents-inbox-row${unread ? ' unread' : ''}`, tabindex: '0', role: 'button',
       title: [title, `${r.dir_name || ''} · started ${when(r.at)}`, r.live && ['needs_you', 'working'].includes(runStatus(r)) ? 'Opens in the dock' : 'Shows what it did and changed'].join('\n'),
-      onclick: open, onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } },
+      ...hrefOpen(runHref(r), open), onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } },
     statusDot(r),
     h('div', { class: 'cs-item-text' },
       h('span', { class: 'cs-item-title mono' }, title),
-      h('span', { class: 'cs-item-meta muted' }, h('strong', { class: 'agents-status-word' }, RUN_STATUSES[runStatus(r)].label), ' · ', runLabel(r),
+      h('span', { class: 'cs-item-meta muted' }, runLabel(r),
         r.dir_name ? [' · ', h('span', { class: 'nowrap' }, r.dir_name)] : null, ' · ', h('span', { class: 'nowrap' }, agoLabel(r.at)),
         r.source === 'schedule' ? [' · ', h('span', { class: 'nowrap' }, icon('clock', 11), ' Scheduled')] : null)),
     unread ? h('span', { class: 'agents-unread', title: 'Ended: not seen yet', 'aria-label': 'Not seen yet' }) : null,
-    h('div', { class: 'cs-item-actions hover-reveal' }, more));
+    h('div', { class: 'cs-item-actions hover-reveal' }, more(r)));
   }
   function inboxMenu(anchor, r) {
     dropdown(anchor, [
-      { label: 'Show its detail', icon: 'panel', onSelect: () => { location.hash = `${agentHref(r.dir, r.cmd)}?run=${encodeURIComponent(r.id)}`; } },
+      { label: 'Show its detail', icon: 'panel', onSelect: () => { location.hash = runHref(r); } },
       { label: 'Go to its agent', icon: 'slash', onSelect: () => { location.hash = agentHref(r.dir, r.cmd); } },
       isUnread(r) ? { label: 'Mark as read', icon: 'check', onSelect: () => markRead([r.id]) } : null,
       { label: 'Copy session id', icon: 'copy', onSelect: () => navigator.clipboard.writeText(r.id).then(() => toast('Session id copied'), () => toast('Could not copy', true)) },
@@ -177,39 +309,17 @@ function inboxPage(dirs) {
   refreshActivity();
   return {
     sig: '~inbox',
-    nodes: [pageHead({ title: 'Inbox', count, action: secondaryButton('Add folder', { ico: 'plus', onclick: () => addFolderDialog() }) }), sectionTabs('inbox'), bar, list],
+    nodes: [pageHead({ title: 'Inbox', count, action: secondaryButton('Add folder', { ico: 'plus', onclick: () => addFolderDialog() }) }), sectionTabs('inbox'), vb.bar, vb.chips, list],
     stop: off,
-    refresh(next) {
-      dirs = next;
-      const fresh = h('span', { class: 'agents-folder-pick' }, folderPick());
-      folderBox.replaceWith(fresh);
-      folderBox = fresh;
-      paint(true);
-    },
+    refresh(next) { dirs = next; paint(true); },
   };
 }
 
-// ── #/runs/all: the folders and their agents ─────────────────────────────────
-function overview(dirs) {
-  const total = dirs.reduce((n, d) => n + d.commands.length, 0);
-  const add = secondaryButton('Add folder', { ico: 'plus', onclick: () => addFolderDialog() });
-  return [
-    pageHead({ title: 'Agents', count: h('span', { class: 'muted view-count' }, String(total)), action: add }), sectionTabs('all'),
-    ...dirs.map((d) => h('section', { class: 'agents-group' },
-      h('div', { class: 'agents-group-head' },
-        h('h2', {}, d.name), h('span', { class: 'muted small agents-group-path', title: d.path }, d.path),
-        h('span', { class: 'spacer' }), h('span', { class: 'muted small' }, d.exists ? `${d.commands.length}` : 'not found')),
-      d.commands.length ? h('div', { class: 'agents-rows', role: 'list' }, d.commands.map((c) => agentRow(d, c)))
-        : h('p', { class: 'muted small agents-none' }, d.exists ? 'No commands in its .claude/commands.' : 'This folder is not there any more: remove it in Settings → Agents.'))),
-  ];
-}
-
-function agentRow(d, c) {
-  return h('a', { class: 'agents-row', role: 'listitem', href: agentHref(d.id, c.name), title: c.argument_hint ? `/${c.name} ${c.argument_hint}` : `/${c.name}` },
-    icon('slash', 15), h('span', { class: 'agents-row-name' }, `/${c.name}`),
-    h('span', { class: 'agents-row-desc' }, c.description || h('span', { class: 'muted' }, 'No description')),
-    c.argument_hint ? h('code', { class: 'agents-row-hint' }, c.argument_hint) : null);
-}
+/** links.js opener for a card that is not an item: a click opens it, ⌘/Ctrl or the middle button `href` in a new tab. */
+const hrefOpen = (href, open) => {
+  const go = (e) => { if (wantsNewTab(e)) { e.preventDefault(); e.stopPropagation(); window.open(href, '_blank', 'noopener'); } else open(); };
+  return { onclick: go, onauxclick: (e) => { if (e.button === 1) go(e); }, onmousedown: (e) => { if (e.button === 1) e.preventDefault(); } };
+};
 
 // ── #/runs/<folder>/<name>: one agent ────────────────────────────────────────
 const TAB_KEY = 'agents.tab'; // the agent page's tab last shown: one choice for every agent
@@ -221,13 +331,11 @@ const RELATED = [ // its tabs of what it works with (tm/agentlinks.py), shown on
 ];
 
 function agentPage(folder, agent, openRunId = '') {
-  const editor = state.config.editor_app || 'Cursor';
-  const openFile = () => api.agentOpenFile(folder.id, agent.name).catch((e) => toast(e.message, true));
   let where = folder.git && pref('agents.where', 'here') === 'worktree' ? 'worktree' : 'here';
 
   // ── the head: where it lives, its name, what it does, and what to do with it ──
   const crumbs = h('nav', { class: 'agents-crumbs muted small', 'aria-label': 'Where it lives' },
-    icon('folder', 13), h('a', { href: '#/runs/all', title: folder.path }, folder.name),
+    icon('folder', 13), h('span', { title: folder.path }, folder.name),
     ...(agent.ns ? agent.ns.split(':').flatMap((n) => [h('span', { class: 'agents-crumb-sep', 'aria-hidden': 'true' }, '/'), h('span', {}, n)]) : []));
   const title = h('h1', { class: 'agents-title' }, `/${agent.name}`);
   const desc = h('p', { class: 'agents-desc' });
@@ -248,11 +356,19 @@ function agentPage(folder, agent, openRunId = '') {
   icon('external', 14), targets.length > 1 ? 'Open in ▾' : `Open in ${targets[0].label}`);
   const more = h('button', { class: 'btn icon', type: 'button', title: 'More', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
     onclick: () => dropdown(more, [
-      { label: `Open its file in ${editor}`, icon: 'pencil', onSelect: openFile },
       { label: 'Copy the command', icon: 'copy', onSelect: () => navigator.clipboard.writeText(`/${agent.name}`).then(() => toast(`/${agent.name} copied`), () => toast('Could not copy', true)) },
       { label: 'Show its folder in Finder', icon: 'folderopen', onSelect: () => api.agentReveal(folder.id).catch((e) => toast(e.message, true)) },
     ], { align: 'end' }) }, icon('more', 16));
-  const actions = h('div', { class: 'agents-actions' }, wherePick, runBtn, scheduleBtn, openIn, more);
+  // The Favourites star, as an initiative's page has (panel.js sidebarButton): filled while it is one
+  const star = h('button', { class: 'btn icon toggle fav', type: 'button', onclick: () => { toggleFavourite(folder.id, agent.name); paintStar(); } }, icon('star', 16));
+  const paintStar = () => {
+    const on = isFavourite(folder.id, agent.name);
+    star.classList.toggle('on', on);
+    star.setAttribute('aria-pressed', String(on));
+    star.title = on ? 'In Favourites — click to remove' : 'Not in Favourites — click to add';
+  };
+  paintStar();
+  const actions = h('div', { class: 'agents-actions' }, star, runBtn, wherePick, scheduleBtn, openIn, more);
 
   let running = false;
   async function run() {
@@ -282,11 +398,12 @@ function agentPage(folder, agent, openRunId = '') {
     } catch (e) { toast(e.message, true); } finally { openIn.disabled = false; }
   }
 
-  // ── its numbers: how it has gone lately (homemodel.js agentStats), from its runs once the panel has them ──
+  // ── its numbers: how it has gone lately (homemodel.js agentStats), from its runs once the panel has them. Its side
+  // panel's Overview, as an item's properties: a name, then the figure and what it counts ──
   let stats = agentStats([]);
-  const statsBox = h('div', { class: 'agents-stats', role: 'list', 'aria-label': 'How it has gone, the last 30 days' });
-  const stat = (label, value, sub = null, tip = '') => h('div', { class: 'agents-stat', role: 'listitem', title: tip },
-    h('span', { class: 'agents-stat-label' }, label), h('span', { class: 'agents-stat-value' }, value), sub ? h('span', { class: 'agents-stat-sub muted' }, sub) : null);
+  const statsBox = h('div', { class: 'fields prop-rows quiet agents-overview', role: 'list', 'aria-label': 'How it has gone, the last 30 days' });
+  const stat = (label, value, sub = null, tip = '') => h('div', { class: 'field', role: 'listitem', title: tip },
+    h('span', {}, label), h('div', { class: 'agents-ov-value' }, h('strong', {}, value), sub ? h('span', { class: 'muted' }, sub) : null));
   function paintStats(list) {
     stats = agentStats(list || []);
     const l = stats.last;
@@ -295,23 +412,26 @@ function agentPage(folder, agent, openRunId = '') {
       stat('Last run', l ? h('button', { class: 'link-btn agents-stat-run', type: 'button', onclick: () => runs.show(l.id), title: 'Its detail' },
         statusDot(l), RUN_STATUSES[st].label) : 'Never',
       l ? agoLabel(l.at) : 'not yet'),
-      stat('Runs', String(stats.runs), 'in 30 days'),
+      stat('Runs', String(stats.runs), 'in the last 30 days'),
       stat('Success', stats.success == null ? '—' : `${Math.round(stats.success * 100)}%`,
         stats.done + stats.failed ? `${stats.done} done · ${stats.failed} failed` : 'none ended', 'Of the runs that ended done or failed'),
-      stat('Usual time', stats.avgMs == null ? '—' : durationLabel(stats.avgMs), 'per run', 'The mean time of the runs that ended'),
-      stat('Cost', stats.cost >= 0.01 ? costLabel(stats.cost) : stats.cost ? '<$0.01' : '—', 'in 30 days'));
+      stat('Usual time', stats.avgMs == null ? '—' : durationLabel(stats.avgMs), stats.avgMs == null ? null : 'per run', 'The mean time of the runs that ended'),
+      stat('Cost', stats.cost >= 0.01 ? costLabel(stats.cost) : stats.cost ? '<$0.01' : '—', 'in the last 30 days'),
+      stat('Cost per run', stats.avgCost == null ? '—' : costLabel(stats.avgCost) || '$0.00', stats.avgCost == null ? null : 'on average',
+        'The mean cost of the runs that say one (a run in Terminal does not)'));
   }
   paintStats([]);
 
   // ── its tabs: its instructions, what it works with (only the kinds it has), and its details ──
-  const prompt = h('div', { class: 'md agents-prompt' }, h('p', { class: 'muted' }, 'Reading…'));
-  const instructions = () => h('section', { class: 'agents-doc' },
-    h('div', { class: 'agents-doc-head' }, icon('text', 13), h('span', { class: 'mono' }, agent.file),
-      h('button', { class: 'link-btn small', type: 'button', title: `${folder.path}/${agent.file}`, onclick: openFile }, `Open in ${editor}`)),
-    prompt);
-  const loadPrompt = (a) => api.agentCommand(folder.id, a.name).then((r) => {
-    prompt.innerHTML = r.command.body.trim() ? renderMarkdown(r.command.body) : '<p class="muted">Empty.</p>'; // sanitized by renderMarkdown (DOMPurify)
-  }, (e) => { prompt.replaceChildren(h('p', { class: 'muted' }, e.message)); });
+  // Its files as cards (agentfile.js: Preview · Source · Edit), each built once and kept across the tabs' redraws, so
+  // an edit under way survives a refresh of the page. Its own file saved: the list is read again (its description,
+  // arguments… may have changed).
+  const cards = new Map(); // path ('' its own) → card
+  const openRows = new Set(); // the rows unfolded: they stay so when the tabs are drawn again
+  const card = (path, summary = '') => {
+    if (!cards.has(path)) cards.set(path, agentFile({ dir: folder.id, cmd: agent.name, path, summary, onSaved: () => { if (!path) loadAgents(); loadRelated(); } }));
+    return cards.get(path).el;
+  };
 
   const details = (a) => h('div', { class: 'fields prop-rows quiet agents-props' },
     prop('Arguments', a.argument_hint ? h('code', {}, a.argument_hint) : h('span', { class: 'muted' }, 'None')),
@@ -319,29 +439,21 @@ function agentPage(folder, agent, openRunId = '') {
       : h('span', { class: 'muted' }, 'None: it asks for each one')),
     prop('Model', a.model || h('span', { class: 'muted' }, 'The one it is run with')),
     prop('Started by', a.disable_model_invocation ? 'You only' : 'You, or Claude when it fits'),
-    prop('File', h('button', { class: 'link-btn mono small agents-file', type: 'button', title: `Open in ${editor}`, onclick: openFile }, a.file)),
+    prop('File', h('span', { class: 'mono small agents-path', title: `${folder.path}/${a.file}` }, a.file)),
     prop('Folder', h('span', { class: 'mono small agents-path', title: folder.path }, folder.path)));
 
-  const opened = new Map(); // path → its body, read once
   function relatedList(kind, items) {
     const [, , ico] = RELATED.find(([k]) => k === kind);
     return h('ul', { class: 'agents-rel-list', role: 'list' }, items.map((it) => {
       const body = h('div', { class: 'agents-rel-body', hidden: true });
       const toggle = h('button', { class: 'agents-rel-row', type: 'button', 'aria-expanded': 'false', title: it.path,
-        onclick: async () => {
+        onclick: () => {
           if (kind === 'commands') { location.hash = agentHref(folder.id, it.name); return; }
           const open = toggle.getAttribute('aria-expanded') !== 'true';
           toggle.setAttribute('aria-expanded', String(open));
           body.hidden = !open;
-          if (!open || opened.has(it.path)) return;
-          body.replaceChildren(h('p', { class: 'muted small' }, 'Reading…'));
-          try {
-            const f = await api.agentRelatedFile(folder.id, agent.name, it.path);
-            opened.set(it.path, f);
-            body.replaceChildren(h('p', { class: 'muted small mono agents-rel-path' }, it.path), f.markdown
-              ? Object.assign(h('div', { class: 'md agents-prompt' }), { innerHTML: renderMarkdown(f.body || '') }) // sanitized (DOMPurify)
-              : h('pre', { class: 'agents-rel-text' }, f.body));
-          } catch (e) { body.replaceChildren(h('p', { class: 'muted small' }, e.message)); }
+          li.classList.toggle('open', open);
+          if (open) { openRows.add(it.path); if (!body.firstChild) body.append(card(it.path, it.description)); } else openRows.delete(it.path);
         } },
       h('span', { class: 'agents-rel-ico' }, icon(ico, 14)),
       h('span', { class: 'agents-rel-text-col' },
@@ -349,14 +461,16 @@ function agentPage(folder, agent, openRunId = '') {
           it.via ? h('span', { class: 'chip agents-rel-via', title: `Named by ${it.via}, not by its own instructions` }, `via ${it.via}`) : null),
         it.description ? h('span', { class: 'agents-rel-desc muted' }, it.description) : null),
       icon(kind === 'commands' ? 'right' : 'down', 13));
-      return h('li', { class: 'agents-rel' }, toggle, body);
+      const li = h('li', { class: 'agents-rel' }, toggle, body);
+      if (openRows.has(it.path)) { toggle.setAttribute('aria-expanded', 'true'); body.hidden = false; li.classList.add('open'); body.append(card(it.path, it.description)); }
+      return li;
     }));
   }
 
   const tabsBox = h('div', { class: 'agents-tabs' });
   let related = null;
   function paintTabs(a) {
-    const tabs = [{ key: 'instructions', label: 'Instructions', content: instructions() }];
+    const tabs = [{ key: 'instructions', label: 'Instructions', content: card('') }];
     for (const [kind, label] of RELATED) {
       const items = related?.[kind] || [];
       if (items.length) tabs.push({ key: kind, label, count: items.length, content: relatedList(kind, items) });
@@ -370,15 +484,14 @@ function agentPage(folder, agent, openRunId = '') {
   let current = agent;
   paintHead(agent);
   paintTabs(agent);
-  loadPrompt(agent);
   loadRelated();
 
   const head = h('header', { class: 'view-head agents-head-page' }, crumbs,
-    h('div', { class: 'agents-title-row' }, h('div', { class: 'agents-title-col' }, title, desc), actions));
+    h('div', { class: 'agents-title-row' }, title, actions), desc);
   const main = h('div', { class: 'page-main agents-page', onkeydown: (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); run(); } } },
-    head, statsBox, tabsBox);
+    head, tabsBox);
   // On the right, as on an item's page (panel.js pageLayout): its runs, in a panel that folds away.
-  const runs = runsPanel(folder, agent, (args) => startAgent(folder, agent.name, { args, where }), openRunId, (sch) => scheduleIt(sch), paintStats);
+  const runs = runsPanel(folder, agent, (args) => startAgent(folder, agent.name, { args, where }), openRunId, (sch) => scheduleIt(sch), paintStats, statsBox);
   const columns = h('div', { class: 'page-body agents-body' });
   columns.append(main, h('aside', { class: 'page-side im-side tabbed agents-side' }, sideFold(columns, SIDE_KEY), ...runs.nodes));
   if (openRunId) columns.classList.remove('collapsed'); // a run asked for by the address: its detail in sight, the panel's fold left as it was
@@ -391,7 +504,6 @@ function agentPage(folder, agent, openRunId = '') {
       current = a;
       folder = f;
       paintHead(a);
-      loadPrompt(a);
       loadRelated();
       paintTabs(a);
     },
@@ -430,6 +542,7 @@ function askArgs(agent, value) {
 
 // ── Its Runs: the side panel ─────────────────────────────────────────────────
 const when = (at) => String(at || '').replace('T', ' ');
+const SIDE_TAB_KEY = 'agents.sideTab'; // the side panel's tab last picked: Overview, Runs or Schedules
 const FILE_STATUS = { M: 'Changed', A: 'New', D: 'Deleted', T: 'Type changed' };
 
 /** The runs of one agent, newest first, as an item's AI tab lists its conversations (claude.js sessionList, on a card):
@@ -438,13 +551,19 @@ const FILE_STATUS = { M: 'Changed', A: 'New', D: 'Deleted', T: 'Type changed' };
  *  composer, Copy the session id, Forget). A row opens the run's detail in its place: its facts, its actions, and its
  *  Changes — the files of its folder that differ from when it started, each with its diff (tm/runchanges.py).
  *  `useArgs(args)` runs it again with those arguments (in the dock, unsent); `onRuns(list)` hears each list it reads; `openId` is the run to show first (the address's ?run=, from the Inbox). */
-function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {}, onRuns = () => {}) {
+function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {}, onRuns = () => {}, overview = null) {
   const box = h('div', { class: 'agents-runs' });
   const schedBox = h('div', { class: 'agents-runs agents-sched-box' });
   let list = null;      // the runs, once the server answers
   let updated = null;   // { session id → last written | null }
   let detail = openId || null; // the run shown in detail, or null for the list
-  const [bar, ...panels] = tabPanels([{ key: 'runs', label: 'Runs', content: box }, { key: 'schedules', label: 'Schedules', content: schedBox }], 'runs');
+  // Overview first (how it has gone: the page's figures), then its Runs and Schedules; a run asked for by the address
+  // opens on Runs. Which one was last picked is this browser's, for every agent.
+  const [bar, ...panels] = tabPanels([
+    ...(overview ? [{ key: 'overview', label: 'Overview', content: overview }] : []),
+    { key: 'runs', label: 'Runs', content: box }, { key: 'schedules', label: 'Schedules', content: schedBox },
+  ], openId ? 'runs' : pref(SIDE_TAB_KEY, 'overview'), (k) => setPref(SIDE_TAB_KEY, k));
+  const toTab = (key) => { if (bar.querySelector(`[data-tab="${key}"]`)?.getAttribute('aria-selected') !== 'true') bar.querySelector(`[data-tab="${key}"]`)?.click(); };
   const setCount = (n, tab = 'runs') => {
     const btn = bar.querySelector(`[data-tab="${tab}"]`);
     btn.querySelector('.tab-count')?.remove();
@@ -515,6 +634,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
 
   /** Shows run `id` in detail (null: back to the list); its result is seen, so it is read. */
   function show(id) {
+    if (id) toTab('runs');
     detail = id;
     drawn = '';
     paint();
@@ -710,7 +830,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
     const now = JSON.stringify((a.runs || []).filter((r) => r.dir === folder.id && r.cmd === agent.name));
     if (now !== mine) { mine = now; load(); loadSchedules(); } // a scheduled one started: its schedule moved on
   });
-  const showSchedules = () => { loadSchedules(); bar.querySelector('[data-tab="schedules"]')?.click(); };
+  const showSchedules = () => { loadSchedules(); toTab('schedules'); };
   return { nodes: [bar, ...panels], load, showSchedules, show, showing: () => Boolean(detail), stop: () => { off(); stamp += 1; schedStamp += 1; } };
 }
 

@@ -4,14 +4,14 @@ id: 2                             # its number, drawn SUP-<n>
 aliases: []
 name: "invoice-email-arrives-empty"
 project: "[[00 Acme Web]]"
-status_ticket: "1. Backlog"
-status_log: []
+status_ticket: "4. InProgress"
+status_log: [{"date": "2026-11-09", "from": "1. Backlog", "to": "2. ToDo", "by": "owner"}, {"date": "2026-11-09", "from": "2. ToDo", "to": "4. InProgress", "by": "owner"}]
 area: ""
 level: C2                              # C1 · C2 · C3 — goes up, never down (only the owner lowers it)
 level_base: C2                         # level at birth; it can rise at most one above it in total
 level_reason: ""                       # which row of the level table applies, and the modifier if any
-due_from: 2026-11-08
-due: 2026-11-15                        # due_from + project's support_due_days[level]; recomputed if it rises
+due_from: 2026-11-09
+due: 2026-11-16                        # due_from + project's support_due_days[level]; recomputed if it rises
 origin: customer                       # manual · user · judge · auditor · gate · ci · monitor · curation
 signature: ""                          # <origin>|…  same signature → occurrences + 1, no new ticket
 occurrences: 1
@@ -32,8 +32,8 @@ branch: ""
 changelog_ref: ""
 url: ""
 tags: ["billing"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # SUP-2 — Invoice email arrives empty
@@ -51,7 +51,7 @@ What was observed, in one paragraph. What should have happened instead.
 
 One entry per occurrence, appended (never rewritten). Each with date, source and proof.
 
-- 2026-11-08 — 
+- 2026-11-09 — 
 
 ## Level
 

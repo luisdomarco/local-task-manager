@@ -11,8 +11,8 @@ status_error: open                     # open · mitigated · resolved
 area: ""
 url: ""
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # ERR-18 — Coupon applied twice

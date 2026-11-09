@@ -56,6 +56,7 @@ function valueFace(field, v) {
   if (field.kind === 'item' && v.type) return [typeIcon(v.type, 14), h('span', { class: 'vb-name' }, v.label)];
   if (field.kind === 'project' && v.value) return [typeIcon('project', 14), h('span', { class: 'vb-name' }, v.label)];
   if (field.kind === 'label' && v.value) return [icon('tag', 13), h('span', { class: 'vb-name' }, v.label)];
+  if (v.tone) return [h('span', { class: `td-dot tone-${v.tone}`, 'aria-hidden': 'true' }), h('span', { class: 'vb-name' }, v.label)]; // a run's status (inboxview.js)
   return [h('span', { class: 'vb-name' }, v.label)];
 }
 
@@ -86,6 +87,7 @@ function valueFace(field, v) {
  *   lead                       nodes right after Filter (Work log's date range)
  *   displayRows()              nodes on top of Display, the page's own settings (the Week board's days)
  *   onReset()                  what Display → Reset to default also puts back (the page's own settings)
+ *   boardGroups                false: no Group on a board (the Inbox's, whose columns are always its statuses)
  *   onChange()                 redraw the page
  * Returns { bar, chips, search, update() } — `update` redraws the chips and the button labels.
  */
@@ -294,7 +296,10 @@ export function viewBar(opts) {
     paintChips();
     paintLayout();
     if (orderBtn) orderBtn.replaceChildren(...[h('span', { class: 'muted' }, 'Order:'), orderLabel(), unordered() ? null : icon((opts.dir?.() ?? 1) > 0 ? 'up' : 'down', 12)].filter(Boolean));
-    if (groupBtn) groupBtn.replaceChildren(h('span', { class: 'muted' }, 'Group:'), labelOf(view.groupBy), icon('down', 12));
+    if (groupBtn) {
+      groupBtn.replaceChildren(h('span', { class: 'muted' }, 'Group:'), labelOf(view.groupBy), icon('down', 12));
+      groupBtn.hidden = opts.boardGroups === false && isBoard();
+    }
   }
   update();
   return { bar, chips, search, update };

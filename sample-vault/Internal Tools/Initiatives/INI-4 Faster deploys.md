@@ -4,15 +4,15 @@ id: 4                             # its number, drawn INI-<n>, assigned by the c
 aliases: []                            # its ids from before short ids: [ACME-INI-001]
 name: "faster-deploys"
 project: "[[00 Internal Tools]]"
-status_ticket: "1. Backlog"            # only via tickets_move
-status_log: []                         # [{date, from, to, by}] — written by the capability
+status_ticket: "4. InProgress"         # only via tickets_move
+status_log: [{"date": "2026-11-09", "from": "1. Backlog", "to": "2. ToDo", "by": "owner"}, {"date": "2026-11-09", "from": "2. ToDo", "to": "4. InProgress", "by": "rule"}] # [{date, from, to, by}] — written by the capability
 priority: P2                           # P0 · P1 · P2 · P3
 size: M                                # S · M · L
 regime: standard                       # standard (reviewer) · critical (judge with sealed oracle); goes up, never down
 area: ""                               # one of the project's `areas`
 objective: ""                          # the observable end state that allows this initiative to close
-premise: unverified                    # unverified · verified · reframed · refuted
-premise_verified: ""                   # "<date> @ <sha>; what was measured"
+premise: verified                      # unverified · verified · reframed · refuted
+premise_verified: "2026-11-06 @ 4f2a9c1; a deploy takes 47 minutes, 31 of them waiting on tests (CI timings, last 20 runs)" # "<date> @ <sha>; what was measured"
 prd: ""                                # "[[PRD-<n> …]]" (product, optional)
 plan: ""                               # "[[PLN-<n> …]]" — the approach, when it needs one; each story may have its own
 origin: ""                             # "[[SUP-<n> …]]" if promoted
@@ -22,13 +22,13 @@ related_errors: []
 related_learnings: []
 on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
-goal: "[[GOL-28 Ship in minutes, not hours]]"
-goal_order: 2
 url: ""
 tags: ["infra"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 sidebar: false
+goal: "[[GOL-28 Ship in minutes, not hours]]"
+goal_order: 2
 ---
 
 # INI-4 — Faster deploys

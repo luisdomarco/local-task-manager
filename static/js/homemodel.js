@@ -78,11 +78,13 @@ export function weekLine({ runs, done, failed, cost }) {
 
 /** One agent's runs (newest first) summed up for its page: { last (its newest run or null), runs, done, failed,
  *  success (done of those that ended done or failed, 0–1, or null with none), avgMs (the mean time of those that ended
- *  with both stamps, or null), cost } over the last `days` days — `last` whenever it ran. */
+ *  with both stamps, or null), cost, avgCost (the mean cost of those that say one — a run in Terminal does not —, or
+ *  null) } over the last `days` days — `last` whenever it ran. */
 export function agentStats(runs, now = Date.now(), days = 30) {
   const since = now - days * DAY;
-  const out = { last: (runs || [])[0] || null, runs: 0, done: 0, failed: 0, success: null, avgMs: null, cost: 0 };
+  const out = { last: (runs || [])[0] || null, runs: 0, done: 0, failed: 0, success: null, avgMs: null, cost: 0, avgCost: null };
   let took = 0;
+  let priced = 0;
   let timed = 0;
   for (const r of runs || []) {
     if (startedAt(r) < since) continue;
@@ -90,10 +92,11 @@ export function agentStats(runs, now = Date.now(), days = 30) {
     const st = runStatus(r);
     if (st === 'done') out.done += 1;
     if (st === 'failed') out.failed += 1;
-    if (typeof r.cost === 'number') out.cost += r.cost;
+    if (typeof r.cost === 'number') { out.cost += r.cost; priced += 1; }
     if (r.ended_ts && r.started_ts && r.ended_ts >= r.started_ts) { took += r.ended_ts - r.started_ts; timed += 1; }
   }
   if (out.done + out.failed) out.success = out.done / (out.done + out.failed);
   if (timed) out.avgMs = Math.round(took / timed);
+  if (priced) out.avgCost = out.cost / priced;
   return out;
 }

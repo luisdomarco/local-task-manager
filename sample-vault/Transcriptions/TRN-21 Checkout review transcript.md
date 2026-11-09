@@ -6,8 +6,8 @@ project: "[[00 Acme Web]]"             # "[[00 <Project>]]", optional
 related_to: "[[MTG-20 Checkout review]]" # "[[MTG-<n> …]]" the meeting it transcribes
 url: ""
 tags: ["checkout"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # Checkout review transcript

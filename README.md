@@ -2,70 +2,150 @@
 
 # Local Task Manager
 
-### Your tasks, projects and notes in plain Markdown — planned, searchable and private, on your own machine.
+### Your tasks, your docs and your Claude Code agents — in one local workspace, on plain Markdown you own.
 
 [![tests](https://github.com/luisdomarco/local-task-manager/actions/workflows/tests.yml/badge.svg)](https://github.com/luisdomarco/local-task-manager/actions/workflows/tests.yml)
 ![license: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776ab)
 ![dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen)
+![Claude Code: built in](https://img.shields.io/badge/Claude%20Code-built%20in-d97757)
 
-<img src="docs/images/initiative.png" alt="An initiative's page: its description, tasks and meetings, and its properties on the side" width="900">
+<img src="docs/images/hero.png" alt="The Agents home: a run that needs you, what runs next, your agents and their latest results, with a Claude session working on a story in the dock below" width="900">
 
-**No account · no database · no cloud.** Just folders of `.md` files you already own,<br>
-with a fast app on top and Claude Code one click away.
+**Plan the work. Hand it to an agent. Review what it did.** All in the same place,<br>
+on Markdown files in folders you choose — no account, no database, no cloud.
 
-[Quick start](#quick-start) · [User guide](docs/user-guide.md) · [Install it with Claude](docs/install-with-claude.md)
+[Quick start](#quick-start) · [Agents](#agents-built-in) · [Plan and track](#plan-and-track) · [User guide](docs/user-guide.md) · [Install it with Claude](docs/install-with-claude.md)
 
 </div>
 
 ## Why Local Task Manager
 
-| 📁 **Yours, in plain files** | ⚡ **Built for the day** | 🤖 **Claude Code inside** |
+| 🤖 **Agents where the work is** | 📁 **Yours, in plain files** | 🧭 **Plan like a team** |
 |---|---|---|
-| Every task, note and meeting is a Markdown file in a folder you choose. Open it in Obsidian, an editor or git; the app follows. | Capture in one line, plan today and the week, and see every project's progress at a glance. | Start a Claude session on any item: it gets the item as its prompt, and you can resume it later. |
-| 🔒 **Private by design** | 🧩 **Two ways to organise** | 🪶 **Nothing to install** |
-| It runs on `127.0.0.1`. Nothing leaves your machine unless you ask it to. | One folder per kind of item, or projects as folders with tickets, PRDs, plans and records. | Python's standard library and plain JavaScript: no `pip`, no `npm`, no build step. |
+| Launch Claude Code on any task, or ask it anything from anywhere. Every session is kept with its work, to resume, review or reopen in another app. | Every task, note, meeting and doc is a Markdown file in a folder you choose. Open it in Obsidian, an editor or git: the app follows. | Boards, lists with filters and groups, day / week / month planning, goals on a canvas and a graph of how it all connects. |
+| 🔒 **Private by design** | 🧩 **Structure that scales** | 🪶 **Nothing to install** |
+| It listens on `127.0.0.1` and runs Claude Code with *your* login. Nothing leaves your machine unless you send it. | Projects as folders, with initiatives, stories, specs, support, hotfixes and records — and the rules that keep them honest. | Python's standard library and plain JavaScript: no `pip`, no `npm`, no build step. Clone it and run it. |
 
-## A tour
+## Agents, built in
 
-### Plan your day, not your tool
+Your Claude Code commands, skills and subagents become **agents you can run, watch and schedule** — next to the
+tickets they work on. Point the app at any folder with a `.claude/` and its commands show up, ready to run.
 
-Planning shows the day, the week or the month: what is planned, what came over from before and what can happen any
-day, as a list or a board.
+### Launch an agent from any task
 
-<img src="docs/images/planning.png" alt="The Planning view, this week" width="860">
+**Work on it with Claude** starts a session with the item as its prompt: its fields, its description, its parent and
+what it relates to. The session runs in the dock at the bottom of the page — a full chat with Claude Code, where you
+answer its questions, approve or deny each tool it wants to use, attach any other item with `#`, a file with `@` or a
+command with `/`, and switch model, effort and permission mode as you go.
 
-### Everything about a ticket, in one card
+<img src="docs/images/agents-from-a-task.png" alt="A Claude session started from a story, asking which way to go, with every session of the dock listed on the left" width="860">
 
-Its status on top, a Markdown description with a live preview, and its tasks, notes and meetings; on the side its
-properties, activity, relations and the time logged.
+### …or ask anything, from anywhere
 
-<img src="docs/images/card.png" alt="A story's card" width="860">
+The Claude button in the top bar takes any prompt — or one of your saved prompts — in the folder, model and effort
+you pick, with a preview of exactly what will be sent. Run it here, in the dock, or **Open in** Terminal, Claude
+Desktop, Cursor or Antigravity.
+
+<img src="docs/images/agents-any-prompt.png" alt="The Claude dialog: folder, model, effort, a saved prompt, the prompt and what will be sent" width="860">
+
+### Every session, kept with its work
+
+An item's **AI Agents** tab is its history with Claude: each session, what was asked, when it last moved and where it
+ran. Resume one in a click, star the main one, move it to another item — and **Add existing session** brings in one
+you started outside the app, in a terminal or an editor, so nothing gets lost. The top bar's **History** does the
+same for sessions that belong to no item.
+
+<img src="docs/images/agents-item-tab.png" alt="A story's AI Agents tab: its Claude sessions, Work on it with Claude and Add existing session" width="860">
+
+### One inbox for every run
+
+Runs started here, from a terminal or by a schedule all land in the **Inbox**: what needs you first, what is still
+running, what finished since you last looked. It is a full table — filter by status, agent, folder or where it
+started, sort by any column, group by attention, status, agent, folder or day, or switch to a board. Each run shows
+its time and cost, and opens with its transcript and the files it changed, diff by diff.
+
+<img src="docs/images/agents-inbox.png" alt="The agents Inbox as a table, grouped by Needs you, Unread and Earlier" width="860">
+
+### Agents as first-class pages
+
+Each agent has its own page: its instructions with a live preview and an editor, the skills and subagents it uses,
+and its figures — runs in the last 30 days, success rate, usual time, cost and cost per run. **Run** it here or in a
+fresh **git worktree** so it never touches your checkout, **Schedule** it in plain words (*every weekday at 9:00*),
+or open it in another app.
+
+<img src="docs/images/agents-agent-page.png" alt="An agent's page: its instructions, Run, Schedule and Open in, and its figures in the side panel" width="860">
+
+The **Agents home** (top of this page) puts it together: the runs that need your OK, what is running now, what runs
+next, your most-used agents and the latest results with their cost.
+
+## Plan and track
+
+### Boards
+
+Any list becomes a board: a column per whatever it groups by — status, priority, project, initiative, plan or goal —
+cards you drag between them, columns you reorder and fold.
+
+<img src="docs/images/board.png" alt="The stories as a board, a column per status" width="860">
+
+### Lists with filters, groups and saved views
+
+Filter by any field with chips, order by any column, group by initiative, project, status, priority, plan or goal,
+pick the columns to show — and save the result as a view of its own.
+
+<img src="docs/images/list.png" alt="The stories grouped by initiative, filtered by priority" width="860">
+
+### Planning: the day, the week, the month
+
+What is planned, what came over from before and what can happen any day, with meetings in their slot — as a list, a
+board or a free board you arrange yourself.
+
+<img src="docs/images/planning.png" alt="The Planning view, this week, with today's meetings and tasks" width="860">
+
+### Goals, as a board or a canvas
+
+Goals gather the projects, initiatives, stories and tasks that move them. See them as a board, or lay them out on a
+**canvas** — an Excalidraw whiteboard where goals are live cards next to your notes, shapes and arrows, saved in the
+vault in the format Obsidian's Excalidraw plugin reads.
+
+<img src="docs/images/goals.png" alt="The Goals board: a column per goal with the work that moves it" width="860">
+
+<img src="docs/images/canvas.png" alt="A goals canvas: three goals as live cards, sticky notes and a release they lead to" width="860">
+
+### The graph of your work
+
+Every item and doc as a node, every link between them as an edge — coloured by type, filtered by project, grouped by
+your own queries, like Obsidian's graph.
+
+<img src="docs/images/graph.png" alt="The graph of the sample vault, coloured by type" width="860">
+
+### Everything about an item, on one page
+
+Its status on top, a Markdown description with a live preview, its stories, tasks, notes and meetings; on the side its
+properties, activity, AI sessions, relations and the time logged.
+
+<img src="docs/images/initiative.png" alt="An initiative's page: its goal, objective and premise, its tasks and meetings, and its properties" width="860">
+
+<img src="docs/images/card.png" alt="A task's card with its checklist" width="860">
+
+### Docs next to the work
+
+Specs, guides and decisions live in the same vault as the tasks they explain: browse them as a tree, read them with
+their outline, edit them in place or open them in your editor.
+
+<img src="docs/images/docs.png" alt="The Docs view: a project's architecture overview" width="860">
 
 ### Find anything in a keystroke
 
 ⌘K searches every item by id, title or text, jumps to any view and creates new things.
 
-<img src="docs/images/search.png" alt="The ⌘K search" width="860">
+<img src="docs/images/search.png" alt="The ⌘K search for checkout" width="860">
 
-### Steer by goals
+### And the rest
 
-Goals gather the work that moves them, as a list, a board or a canvas you draw on.
-
-<img src="docs/images/goals.png" alt="The Goals board" width="860">
-
-### Organise by project, like a ticket system
-
-A Projects vault keeps each project in its own folder: initiatives and their stories, the specs of what the system
-does today, support tickets, hotfixes, PRDs, plans, analyses, errors and learnings, each with its own fields and rules.
-
-<img src="docs/images/projects.png" alt="Every item of a Projects vault in one list" width="860">
-
-### Docs next to the work
-
-Specs, guides and decisions live in the same vault as the tasks they explain, as trees you can browse and edit.
-
-<img src="docs/images/docs.png" alt="The Docs view" width="860">
+Today and Inbox for capture, meetings with their transcripts, contacts and groups to notify, labels, a work log with
+the time spent, activities from email and Slack, a trash with undo, several vaults one switch away, light and dark themes,
+an `AGENTS.md` and a command-line tool (`tools/vault.py`) so any agent can read and write the vault the way the app does.
 
 ## Quick start
 
@@ -74,7 +154,10 @@ git clone https://github.com/luisdomarco/local-task-manager.git local-task-manag
 python3 tools/serve_sample.py                  # → http://127.0.0.1:3101, on a copy of the sample vault
 ```
 
-That is all it needs: Python 3.9 or newer, which comes with the Mac's Command Line Tools (`xcode-select --install`).
+That opens the sample vault — a small product team's real week: three projects, goals, stories and tasks in every
+status, meetings, docs and agents' prompts — on a throwaway copy, so try anything. That is all it needs: Python 3.9 or
+newer, which comes with the Mac's Command Line Tools (`xcode-select --install`). For the agents, add a folder with a
+`.claude/commands/` in **Settings → Agents**; Claude Code must be installed and logged in.
 To set it up as a Mac app with your first
 vault, paste the prompt in [`docs/install-with-claude.md`](docs/install-with-claude.md) into Claude Code. How to use it
 day to day: [the user guide](docs/user-guide.md), also inside the app under **Settings → Documentation**.
@@ -155,6 +238,9 @@ temp dir, whose path they print.
    relative to this app's folder; it must exist; on a Mac, *Choose…* beside it picks it in a Finder dialog) and its **structure**, **Projects**. *Initiatives (legacy)* and
    *Tasks (legacy)* are there only to open a folder that already is one of their vaults: on an empty folder the save
    is refused. Optionally untick the item types you will not use, and tick *Default* for the one that opens first.
+   A vault whose folder is later moved or deleted outside the app stays in the list with *Folder not found*: give it
+   its new place or remove it — meanwhile the rest of Settings (an agent folder, Claude, the kinds of work) still
+   saves. Only a new vault, a new folder or the default vault must exist.
 3. **Save settings.** This writes `config.json` (git-ignored; the first save keeps a copy of the old one in
    `backups/`).
 4. **Switch to it** with the vault selector at the foot of the sidebar. A new vault opens in the **Explorer** (the
@@ -186,7 +272,7 @@ Every field is optional.
 | `claude_paths`, `claude_cwd`, `claude_path_names` | The saved folders Claude may start in (a closed list: the browser picks one, never types one), the default among them (`""` = this app's folder) and a display name for each. | Settings → Claude |
 | `claude_model`, `claude_effort` | Default model and effort for a launch (`""` = Claude's own default). | Settings → Claude |
 | `terminal` | `Terminal` or `iTerm`, for *Open in Terminal*. | Settings → Claude |
-| `agent_dirs`, `agent_dir_names` | The agent folders of the sidebar's Agents mode (absolute, existing; a closed list, apart from `claude_paths`: the page names a folder by its id, never by its path) and the name the sidebar shows for each. | Settings → Agents, or *+ Add folder* in the sidebar |
+| `agent_dirs`, `agent_dir_names` | The agent folders of the sidebar's Agents mode (absolute, existing; a closed list, apart from `claude_paths`: the page names a folder by its id, never by its path) and the name the sidebar shows for each. | Settings → Agents, or **+** in the sidebar's Agents mode |
 | `sync` | Settings for commands of your own that sync the vault with outside systems (your email, which calendar…). The app itself never reads it. See [Your own commands, skills and agents](#your-own-commands-skills-and-agents). | by hand, or by those commands |
 
 Secrets never go in `config.json`: a token for an external system goes in `.env` (copy
@@ -508,7 +594,8 @@ tools/                  vault.py (a vault from the shell, for agents), serve_sam
                         migrate_statuses.py, migrate_structures.py (an Initiatives or Tasks vault → Projects), make_icons.py, and the scripts behind the project's own commands
 .claude/                commands/ and resources/ (the project's commands), launch.json (preview servers)
 plans/                  design notes of features in progress
-sample-vault/           the bundled Projects example: a project of each kind and every type (tools/seed_sample_vault.py
+sample-vault/           the bundled Projects example: a team's week — a project of each kind, every type, goals, work in
+                        every status, meetings, docs (tools/seed_sample_vault.py
 sample-vault-legacy/    the legacy Initiatives example, every type it has: its tests and migrate_structures.py read it
                         rebuilds both with fresh dates; tests/test_samples.py keeps them complete)
 ```
@@ -823,7 +910,7 @@ was left. Going to another view from the sidebar closes an expanded card (saving
 
 #### Sidebar modes
 
-The sidebar shows one of **three modes**, the three buttons at its foot, under the vault selector and left of the theme switch (`⌘⇧E` goes round them):
+The sidebar shows one of **three modes**, the three buttons at its foot, under the vault selector and left of the theme switch (`⌘⇧E` goes round them). *Add item* sits on top in Project and Explorer; Agents has no vault items to make, so it goes there.
 
 - **Project** — first **Favourites**, right under *Add item*: the initiatives starred on their page (the ☆ in the
   page's header; a new one is not until you star it), each with its progress ring, in the order you drag them
@@ -1542,7 +1629,7 @@ Ideas, each one command:
 `views/runs.js`, `views/agentshome.js`; the server's `list_agents`, `run_agent` and `launch_agent`, `tm/commands.py`, `tm/agentruns.py`).
 
 - **An agent folder is any folder**: a repository, a system, outside every vault. Add one with **+** in the mode's bar
-  (or *+ Add folder* while there is none): its absolute path (typed, or on a Mac picked with *Choose…* in a Finder
+  (also *Add folder* on the Home): its absolute path (typed, or on a Mac picked with *Choose…* in a Finder
   dialog) and, if you like, the name the sidebar shows for it. They
   are listed in **Settings → Agents** (`agent_dirs`), where they are renamed and removed; removing one leaves its files
   as they are. A folder that is gone stays listed, dimmed (*not found*), until you remove it.
@@ -1551,27 +1638,36 @@ Ideas, each one command:
   `dev` folder in the tree. A `.claude/commands` that is a link (an app linking the commands of the system that builds
   it) is followed, as Claude Code follows it.
 - **The tree**: a section per folder, its title folds it and its count is how many agents it shows; ⋯ shows it in
-  Finder, shows its hidden agents, or opens Settings. *Filter agents…* finds them by name or description. An agent's ⋯
-  (or a right-click) **pins** it to a *Pinned* section on top, **hides** it, opens its file in the editor of Settings,
-  or copies its command. Pinned, hidden, folded and open are this browser's.
+  Finder, shows its hidden agents, or opens Settings. *Filter agents…* finds them by name or description. **Favourites**,
+  under Home and Inbox, holds the agents you starred (☆ on an agent's page, or *Add to Favourites* in its ⋯), as the
+  Projects mode's Favourites hold initiatives; with none starred it is not there. An agent's ⋯ (or a right-click) also **hides** it, opens its file in the
+  editor of Settings, or copies its command. Favourites, hidden, folded and open are this browser's.
 - **`#/runs` is the Home**, the section's front page: what needs you and what happened, on one screen (two columns,
   one on a phone). On top, the last 7 days in one line (*23 runs · 20 done · 2 failed · $4.10*). Then, only while there is one, an amber box of the runs that **need you** (three at
   most, *Open the Inbox →* for the rest); **Running now**, each with how long it has run and *Stop* while its turn goes on; **Up next**, the
-  schedules that fire next (five at most) with *Run now*; **Your agents** — the pinned ones, then the most run in the
-  last 30 days (six in all, every pinned one even past six), each with how its last run went; ▷ runs it (in the dock), a
+  schedules that fire next (five at most) with *Run now*; **Your agents** — your favourites, then the most run in the
+  last 30 days (six in all, every favourite even past six), each with how its last run went; ▷ runs it (in the dock), a
   click opens its page —; and **Recent results**, the runs that ended last, a click opening each where the
-  Inbox would. The tabs on top of every page of the section: **Home**, **Inbox** (with its count) and **All agents**.
-- **`#/runs/inbox` is the Inbox**: every run of every agent on this computer, grouped by what it asks of you — *Needs you*
-  (waiting for a permission, a question or a plan), *Running*, *Unread* (ended, its result not seen yet) and *Earlier*
-  (paged). A row is the run's status dot, what it sent (`/dev:start STY-12`), its status and how it went (*Needs your OK
-  to run Bash*, *Done in 3m 10s · $0.42*, *Failed after 41s*), its folder, when, and *Scheduled* when a schedule
-  started it. How a run ended: *Stopped* when you cut it short (Stop, or closed mid-turn), else as its last turn went —
+  Inbox would. The tabs on top of every page of the section: **Home** and **Inbox** (with its count); the agents themselves are in
+  the sidebar.
+- **`#/runs/inbox` is the Inbox**: every run of every agent on this computer, as a list's table, with a list's bar —
+  search, **Filter** (Status, Folder, Agent, Started from — *In the app*, *Terminal*, *Scheduled* —, Seen, Where — its
+  folder or a worktree —, as chips), **Order** (Started, newest first, at first; Status, Agent, Folder, Started from,
+  Time, Cost — a column's head sorts by it too), **Group** (by what it asks of you at first — *Needs you* (waiting for a
+  permission, a question or a plan), *Running*, *Unread* (ended, its result not seen yet), *Earlier* —; or by Status,
+  Folder, Agent, Day, Started from; None; a group's head folds it), **Display** (hide Status, Folder, Started from,
+  Time, Cost or Started) and **List · Board**; all of it kept by this browser, the filters you had in the Inbox's old
+  selects included. A row is its status (dot and word), what it sent (`/dev:start STY-12`, in bold while unread; what a
+  run that needs you waits for, in amber, after it; a branch icon when it ran in a worktree), its folder, where it was
+  started, how long it took, its cost and when it started, 20 to a page as a list's. How a run ended: *Stopped* when you cut it short (Stop, or closed mid-turn), else as its last turn went —
   *Done* once a turn finished (even if its process then ends with an error code), *Failed* if it erred; one that never
-  finished a turn is *Failed* if its process crashed and *Stopped* otherwise, never *Done*. A search and filters by
-  status, folder and where it came from (*In the app*, *Terminal*, *Scheduled*),
-  kept by this browser, and **Mark all read**. A row opens the run where it is useful: in the dock while it waits for
-  you or works, its detail on its agent's page once it ended (which marks it read). Its ⋯: show its detail, go to its
-  agent, mark it read, copy its session id, forget it. The **All agents** tab lists every folder's agents as rows.
+  finished a turn is *Failed* if its process crashed and *Stopped* otherwise, never *Done*. **Mark all read** at the
+  bar's right. The board has a column per status (Needs you, Working, Done, Failed, Stopped), the runs as cards in the
+  Order picked; an empty column folds to a strip (Display → *Empty columns*: show, fold or hide). Drag a column by its
+  head (or Shift+←/→ on it) to move it; the order stays with the view, and Display → *Reset column order* puts it back.
+  A row opens the run where it is useful: in the dock while it waits for
+  you or works, its detail on its agent's page once it ended (which marks it read); ⌘/Ctrl-click opens that detail in a
+  new tab. Its ⋯: show its detail, go to its agent, mark it read, copy its session id, forget it.
 - **The sidebar tells what needs you**: a **Home** row and an **Inbox** row on top, the Inbox with its count (needs you + unread; amber while one
   needs you) and a dot while one runs, and on each agent's row a dot when one of its runs needs you, runs, or is
   unread. The Agents mode's button carries the same count. A run that starts waiting for you, or ends, is told — a
@@ -1579,19 +1675,24 @@ Ideas, each one command:
   dock shows it (the dock tells about its own chats). The page looks every 5 s while one runs, every minute otherwise
   (`GET /api/agents/activity`).
 - **An agent's page** (`#/runs/<folder>/<name>`): where it lives (its folder, and its namespace: `Demo repo / qa`), its
-  name as typed, its description, and at the right **Run**, **Schedule…**, **Open in ▾** and ⋯ (open its file in the
-  editor of Settings, copy the command, show its folder in Finder), with *Where* before Run in a git repository. Under
-  them, how it has gone the last 30 days, in one row of figures: its **last run** (its status, and when; a click shows its
-  detail), **runs**, **success** (done of those that ended done or failed), its **usual time** and its **cost**. Then
-  its tabs, and on the right its **Runs** and **Schedules**.
-- **Its tabs**: **Instructions** — its prompt, as the document it is, its file at the top (*Open in …*) —, then one
+  name as typed, then **☆** (Favourites), **Run**, *Where* in a git repository, **Schedule…**, **Open in ▾** and ⋯ (copy
+  the command, show its folder in Finder), and its description under them, the page's width. Then its tabs, and on
+  the right **Overview**, **Runs** and **Schedules** (the one last picked shows; a run asked for by the address opens
+  on Runs). **Overview** is how it has gone the last 30 days, a figure a row: its **last run** (its status, and when; a
+  click shows its detail in Runs), **runs**, **success** (done of those that ended done or failed), its **usual time**,
+  its **cost** and its **cost per run** (the mean of the runs that say one: a run in Terminal does not).
+- **Its tabs**: **Instructions** — its file, read as the Explorer reads one (**Preview · Source · Edit**) —, then one
   tab for each kind of thing it works with, only when it has some: **Skills**, **Subagents**, **Commands** and **Files**
   — and **Details** (its arguments, the tools it allows itself, its model, whether Claude may start it itself, its file
   and folder). What it works with is not declared anywhere, so it is read from its folder (`tm/agentlinks.py`): the
   skills (`.claude/skills/<name>/SKILL.md`), subagents (`.claude/agents/**/*.md`) and commands of that folder whose name
   its prompt says as a whole word (a command as `/name`), and what those skills and subagents name in turn, one step
   further — marked *via* the one that names it. A file is a path in its prompt (`docs/guide.md`) that is a file of the
-  folder. A row unfolds into the file (a command's opens its page); only what is listed is ever read.
+  folder. A row unfolds into the file — its name, then its path with the same Preview · Source · Edit, then what it is
+  for, then the file — (a command's opens its page); only what is
+  listed is ever read or written. **Edit** saves as you type, against the version it read: a file changed meanwhile
+  on disk (an editor, an agent) is never written over — it asks *Reload* or *Keep mine*. Preview or Source is
+  remembered; a file reached through a linked `.claude/commands` is written where it lives.
 - **Run opens it in the dock, not sent**: a chat in the agent's own folder (so Claude loads that folder's commands,
   settings and `CLAUDE.md`), with `/<name> ` written in the dock's composer and the caret after it. Its arguments, mode,
   model and effort are settled there — the dock's composer is the only one —, and it starts with what the agent last ran
@@ -1626,8 +1727,8 @@ Ideas, each one command:
   some days, every few hours), *At* (this Mac's time), the arguments and the choices it runs with, filled from its
   last run. A scheduled run is a run like any other: in the app (whether the page is open or not), unread when it
   ends, told by the Inbox; its chat ends once its turn is over unless the dock has it open (*Open in dock* resumes it).
-  Nobody is there to answer it, so what it asks waits in *Needs you* — the dialog says so unless the mode is Plan or
-  Auto or the command allows its tools itself. One whose time comes while the app is off or the Mac asleep runs once
+  Nobody is there to answer it, so what it asks waits in *Needs you* (Plan, Auto or a command that allows its tools
+  itself runs without asking). The dialog is two groups of rows, *When* and *Run*. One whose time comes while the app is off or the Mac asleep runs once
   when it is back, within 12 hours; later than that it is marked missed. One whose last run is still going is skipped.
   The installed app (`tools/install_app.py`) has a second LaunchAgent, `com.taskmanager.app.wake`, that runs
   `tools/agents_wake.py` every 5 minutes: it wakes the app only when a schedule is due, so the app stays off

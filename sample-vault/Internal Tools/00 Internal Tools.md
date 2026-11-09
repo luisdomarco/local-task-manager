@@ -13,12 +13,17 @@ execution_mode: parallel               # serial (one InProgress at a time, all t
 support_due_days: {C1: 0, C2: 7, C3: 30}
 premise_max_age_days: 14               # gate Backlog→ToDo fails if premise_verified is older
 related_initiatives: []                # the personal Initiative note(s): "[[⭐ Project Acme Web]]"
-goal: "[[GOL-28 Ship in minutes, not hours]]"
-goal_order: 1
 url: ""                                # repo URL
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
+goal: "[[GOL-28 Ship in minutes, not hours]]"
+goal_order: 1
+status_project: InProgress
+status_log: [{"date": "2026-11-09", "from": "", "to": "InProgress", "by": "owner"}]
+priority: P2
+start: 2026-10-10
+due: 2027-02-07
 ---
 
 # Internal Tools

@@ -15,8 +15,13 @@ premise_max_age_days: 14               # gate Backlog→ToDo fails if premise_ve
 related_initiatives: []                # the personal Initiative note(s): "[[⭐ Project Acme Web]]"
 url: ""                                # repo URL
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
+status_project: InProgress
+status_log: [{"date": "2026-11-09", "from": "", "to": "InProgress", "by": "owner"}]
+priority: P1
+start: 2026-09-10
+due: 2027-03-09
 ---
 
 # Acme Web

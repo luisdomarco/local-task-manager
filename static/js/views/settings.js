@@ -155,6 +155,8 @@ function vaultsEditor(c, edit) {
   const fresh = c.default_structure || 'ticketing';
   const labelOf = (k) => (c.structures || {})[k] || k;
   const saved = new Set((c.vaults || []).map((v) => v.id)); // a new row gets its id on save, before the server says yes
+  // A saved vault whose folder is gone (server.py public_config), while its folder field still says where it was.
+  const gone = (v) => (c.vaults || []).some((x) => x.id === v.id && x.missing && x.path === v.path);
   const render = () => box.replaceChildren(
     ...edit.vaults.map((v, i) => {
       // No autocomplete on either: a browser's suggestion must never fill one vault's field with another's.
@@ -211,6 +213,8 @@ function vaultsEditor(c, edit) {
         h('div', { class: 'vault-row-head' }, name, path,
           folderButton(path, { prompt: `Choose the folder of ${v.name || 'the vault'}` }), structure, isDefault, ...remove),
         v.id === vaultId() ? h('span', { class: 'muted small' }, 'Shown in this page.') : null,
+        gone(v) ? h('p', { class: 'muted small vault-gone' }, h('strong', {}, 'Folder not found. '),
+          'It was moved or deleted outside the app: give its new place, or remove the vault. The rest of Settings still saves.') : null,
         saved.has(v.id) && legacy.has(v.structure) ? legacyNote(labelOf(v.structure), labelOf(fresh)) : null,
         v.id === vaultId() ? vaultWarnings(state.vaultCheck?.warnings) : null,
         v.id === vaultId() ? agentsToggle() : null,

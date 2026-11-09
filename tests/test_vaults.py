@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import threading
 import unittest
@@ -118,6 +119,25 @@ class ConfigTest(VaultsBase):
             self.assertEqual(cm.exception.status, 400)
         with open(self.cfg, 'rb') as f:
             self.assertEqual(f.read(), before)  # nothing saved by a refused change
+
+    def test_a_vault_whose_folder_is_gone_does_not_block_saving_the_rest(self):
+        app = self.two_vaults()
+        shutil.rmtree(self.b)  # moved or deleted outside the app
+        self.assertEqual([(v['id'], v['missing']) for v in app.public_config()['vaults']], [('a', False), ('b', True)])
+        vaults = app.public_config()['vaults']  # Settings sends back what it was given, `missing` and all
+        app.set_config({'vaults': vaults, 'default_vault': 'a', 'work_kinds': ['Coding']})  # an unrelated change saves
+        self.assertEqual(app.config['work_kinds'], ['Coding'])
+        self.assertEqual([(v['id'], v['path']) for v in app.config['vaults']], [('a', self.a), ('b', self.b)])  # kept as it was
+        self.assertNotIn('missing', json.dumps(app.config))  # said to the page, never written
+        gone = os.path.join(self.tmp, 'gone')
+        for what, more in (('a new vault', {'name': 'New', 'path': gone}), ('a vault moved to nowhere', {'id': 'b', 'name': 'B', 'path': gone})):
+            with self.subTest(what), self.assertRaises(server.StoreError) as cm:
+                app.set_config({'vaults': [vaults[0], more], 'default_vault': 'a'})
+            self.assertIn('not a directory', str(cm.exception))
+        with self.assertRaises(server.StoreError):  # the default must be there: the page opens it
+            app.set_config({'vaults': vaults, 'default_vault': 'b'})
+        app.set_config({'vaults': vaults[:1], 'default_vault': 'a'})  # removing it saves too
+        self.assertEqual([v['id'] for v in app.config['vaults']], ['a'])
 
     def test_removing_a_vault_touches_none_of_its_files(self):
         app = self.two_vaults()

@@ -4,25 +4,25 @@ id: 14                             # its number, drawn HFX-<n>
 aliases: []
 name: "restore-the-invoice-template"
 project: "[[00 Acme Web]]"
-status_ticket: "2. ToDo"               # hotfixes are born in ToDo: there is no backlog for the urgent
-status_log: []
+status_ticket: "6. Done"               # hotfixes are born in ToDo: there is no backlog for the urgent
+status_log: [{"date": "2026-11-09", "from": "2. ToDo", "to": "4. InProgress", "by": "owner"}, {"date": "2026-11-09", "from": "4. InProgress", "to": "5. Review", "by": "owner"}, {"date": "2026-11-09", "from": "5. Review", "to": "6. Done", "by": "owner"}]
 severity: high                         # critical · high · medium
 affected: ""                           # who/what is impacted in production, and since when
 origin: "[[SUP-2 Invoice email arrives empty]]" # "[[SUP-<n> …]]" or "direct" for a C1 with no prior ticket
 base_branch: main
 branch: ""                             # hotfix/HFX-14-restore-the-invoice-template
-rollback_plan: ""                      # REQUIRED before 2→4: one line here, detail in the body
+rollback_plan: "Revert the release tag; the previous template is kept for 30 days." # REQUIRED before 2→4: one line here, detail in the body
 observation_window: 24h                # time in 5. Review before it can close
 spec_impact: []                        # living specs whose behavior changed, or ["none"]
-postmortem: ""                         # "[[ERR-<n> …]]" — required to reach 6. Done
+postmortem: "[[ERR-18 Coupon applied twice]]" # "[[ERR-<n> …]]" — required to reach 6. Done
 cherry_picked_to_develop: ""           # sha
 owner_review: ""                       # "<date>; owner" — approval after the fact
 changelog_ref: ""
 url: ""
 tags: ["billing"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
-priority: P2
+creation_date: 2026-11-09
+updated_date: 2026-11-09
+priority: P0
 ---
 
 # HFX-14 — Restore the invoice template
@@ -60,7 +60,7 @@ The exact steps to undo it (revert sha, redeploy, data restore if any), and who 
 Dated log: branch, merge to `main` (sha), deploy, observation, rollback if it happened, cherry-pick to
 `develop` (sha).
 
-- 2026-11-08 — 
+- 2026-11-09 — 
 
 ## Post-mortem
 

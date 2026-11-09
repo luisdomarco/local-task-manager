@@ -23,7 +23,10 @@ same pattern for the same thing everywhere.
    name on the left; an empty place always says so in one line.
 6. **No dashboards inside items.** No progress bars or score cards on initiative pages; a sentence says how things go
    (Today's day line, `dayline.js`).
-7. **Every width, both themes.** 375 / 820 / 1000 / 1303 px, light and dark, no horizontal scroll of the page.
+7. **An app's cursor.** The arrow everywhere (`body { cursor: default }`), the hand on what is clicked (`.btn`, rows,
+   links), the I-beam only in a field, a textarea or an editor — never over a label or a heading, where it flickered as
+   the mouse crossed the words.
+8. **Every width, both themes.** 375 / 820 / 1000 / 1303 px, light and dark, no horizontal scroll of the page.
 
 ## 2. Tokens (`app.css` `:root`, redefined for dark)
 
@@ -35,7 +38,7 @@ same pattern for the same thing everywhere.
 | Focus | `--focus` (2px ring on buttons/links), `--field-ring` + `--field-halo` (fields) | Never remove a focus style without replacing it. |
 | Meaning | `--destructive`; `--st-*-bg/-fg` and `--st-dot` per status; `--pr-icon-1/2/3`, `--pr-1-bg`; `--t-<type>` | Status/priority colours come from `statusCss()` / `.s-*` / `.pr-*` classes, never hard-coded. |
 | Type | `--fs-base` 13.5 · `--fs-sm` 13 · `--fs-xs` 12.5 · `--fs-2xs` 12 · `--fs-h4` 14 · `--fs-title` 22 | No other font sizes. Weights: 400, 500 (labels), 600–650 (headings). |
-| Size | `--control-h` 32 · `--control-h-sm` 28 · `--row-h` 48 · `--radius` 8 · `--radius-sm` 6 | Controls ≥ 32px (28 for `.small` in dense rows); 38px for form fields. |
+| Size | `--control-h` 32 · `--control-h-sm` 28 · `--row-h` 48 · `--radius` 8 · `--radius-sm` 6 · `--side-w` (every right panel: an item's card, a page's, an agent's — `clamp(360px, 32vw, 500px)`) | Controls ≥ 32px (28 for `.small` in dense rows); 38px for form fields. |
 
 Contrast floor: text ≥ 4.5:1, control borders and focus ≥ 3:1. A new colour goes in `:root` **and** both dark blocks
 (`@media (prefers-color-scheme: dark)` and `[data-theme="dark"]`).
@@ -402,31 +405,46 @@ icon, the title in monospace, one muted meta line with the status word first, an
 the right (Stop, Run now, ▷ Run — which opens it in the dock, as on its page). **What needs you is the one box with a tint**
 (`.agents-home-alert`, the warning tone), and only while there is something in it — an empty Home is calm. The week is
 a muted line, not a row of figures. In the sidebar, Home and Inbox are two rows on top
-(`.agents-nav`), lit as the Explorer's views are.
+(`.agents-nav`), lit as the Explorer's views are — there with no folder yet too, and nothing else: no text, **+** in the bar adds one.
 
-In the middle, **`#/runs/inbox` is the Inbox** (`.section-tabs` Home · Inbox · All agents, a `view-bar` of search and selects,
-then groups — Needs you · Running · Unread · Earlier — of `.cs-item` cards, `.agents-inbox-row`): a status dot
-(`.td-dot.tone-*`, the tones of `runmodel.js RUN_STATUSES`), what it sent in monospace, and one muted meta line with the
-status word first. **The status is a dot and a word, never a filled chip**: amber needs you, blue works, green done, red
+In the middle, **`#/runs/inbox` is the Inbox**, a list as the type lists are: `.section-tabs` Home · Inbox, then the
+list's own `viewBar` (Filter chips, Order, Group, Display, List · Board; *Mark all read* as its `note`) over a
+`dataTable` in `.list-main` (40px rows, its quiet head, a list's phone layout: the dot and what it ran …… when, the
+folder under them), paged as a list (`LIST_PAGE`). Rows that are not items use `dataTable`'s `rowLabel` and `rowHref`
+(⌘-click opens the run's detail in a new tab). Its view's fields, groups, orders and columns are a pure module,
+`inboxview.js` (as `worklogview.js` is the Work log's); a Filter value with a `tone` draws the status dot. The status
+column is a dot (`.td-dot.tone-*`, the tones of `runmodel.js RUN_STATUSES`) and its word, what it sent is monospace
+(700 while unread, the ask in the warning tone after it when it needs you), the unread dot and a 24px ⋯ (`row-action`)
+share the last column. Group's heads carry the dot of a status or attention group. The board is the app's
+(`.board.vboard`) with a column per status, always (`boardGroups: false` hides Group on it; `.agents-board`: columns
+share the page's width, `flex: 1 0 240px`, a dot and the status's name and count in each head, an empty one a
+`.fold-strip`; each head or strip moves its column as a list's board does — `kanban.js dragsList`/`listDropZone`,
+`colorder.js`, kept in `view.colOrder.status`, *Reset column order* in Display) and `.cs-item` cards (`.agents-inbox-row`). Neither the Inbox nor the Home has a max
+width: they take the column, as every page of the section. **The status is a dot and a word, never a filled chip**: amber needs you, blue works, green done, red
 failed, grey stopped; the same dot marks an agent's row in the sidebar and the Inbox row's count turns amber while one
-needs you. *All agents* is rows, not cards (`.agents-row`: icon · name in monospace · description, muted · argument
-hint, monospace and muted), a thin line under each folder's head.
+needs you. The agents themselves are listed in the sidebar only, under **Favourites** (`.agents-favs`: the Projects
+mode's `.side-title`, never folding, not there while none is starred) and then a section per folder.
 
-**An agent's page** is a head, a row of figures and tabs. **The head** (`.agents-head-page`): crumbs (`.agents-crumbs`:
-folder icon, the folder as a link to *All agents*, its namespace after a `/`, muted and small), then a row of the name
-(the `h1`, in monospace) with the description under it as muted text (`.agents-title-col`), and at its right the
-actions (`.agents-actions`, 32px high, wrapping under the name when short of room): *Where* as a small `select`,
-**Run** primary, **Schedule…** secondary, **Open in ▾** ghost and ⋯. **There is no composer on the page**: Run opens
-the dock's chat with the command written, and that composer is the only one. **The figures** (`.agents-stats`): one
-bordered card of five cells in a row that wraps (`flex: 1 1 100px`), a line between cells drawn by each cell's own left
-and top shadow and clipped at the card's edge; each cell an uppercase muted label, a figure (1.05rem, 650) and a muted
-line under it. **The tabs** (`tabPanels`, `.agents-tabs`, as wide as their names and scrolling sideways, never cut):
-*Instructions* is the prompt as a document (`.agents-doc`: a bordered card, a muted head with the file in monospace and
-*Open in …* at its right, the Markdown under it with its headings brought down to h4 size); *Skills*, *Subagents*,
+**An agent's page** is a head and tabs, its figures in the side panel. **The head** (`.agents-head-page`): crumbs (`.agents-crumbs`:
+folder icon and name, its namespace after a `/`, muted and small), then a row of the name (the `h1`, as an item
+type's title: `--fs-title`, 700, not monospace) and at its right the actions (`.agents-actions`, all 32px high — the small *Where* select too —, wrapping
+under the name when short of room): the Favourites star (`.btn.fav`, as an initiative's), **Run** primary, *Where* as a
+small `select`, **Schedule…** secondary, **Open in ▾** ghost and ⋯; under the row, the description, muted, the page's
+whole width, 14px below it; 24px under it the tabs, their bar and their content level with the head (no inset of their
+own, as `.item-tabs`) (the page's parts never shrink: `.agents-page > * { flex: none }`). The page has no max width: it takes the column. **There is no composer on the page**: Run opens
+the dock's chat with the command written, and that composer is the only one. **The figures** are the side panel's
+first tab, **Overview** (`.agents-overview`): property rows (`prop-rows quiet`, as an item's Properties), each its name,
+then the figure (600) and what it counts, muted and smaller (`.agents-ov-value`) — never a scorecard. **The tabs** (`tabPanels`, `.agents-tabs`, as wide as their names and scrolling sideways, never cut):
+*Instructions* is its file as a card (`agentfile.js`, `.agents-doc`: a bordered card, a muted head with the file in
+monospace and the Explorer's **Preview · Source · Edit** `.seg` at its right — Source and Edit only for a file that is
+not Markdown —, the Markdown under it with its headings brought down to h4 size; Source is `.files-source`, Edit the
+Explorer's `mdEditor`). **Every Markdown file of an agent reads this one way**; *Skills*, *Subagents*,
 *Commands* and *Files* only when there is something in them, each a bordered list (`.agents-rel-list`) of rows that
 unfold — icon, name in monospace with a *via …* chip when it came through another, its description clamped to two
-lines, a chevron that turns —; *Details* the property rows. It is laid out as an item's page is (`.page.two-panel` >
-`.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that `sideFold` folds; 360px wide here,
+lines, a chevron that turns — into the same file card, flush with the row (no frame of its own, a line above, indented
+to the name): unfolded, the row is its name, the card's head its path and Preview · Source · Edit, then its description
+(`.agents-file-summary`, muted), then the file; *Details* the property rows. It is laid out as an item's page is (`.page.two-panel` >
+`.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that `sideFold` folds; as wide as every right panel,
 `.agents-body`): the side panel's tabs are **Runs** and **Schedules**, drawn as an item's AI tab draws its
 conversations (`.cs-list` of `.cs-item` cards, the arrow and ⋯ on hover).
 
@@ -439,8 +457,11 @@ list that polls redraws only when what it shows changed, so a hovered row or an 
 **A schedule is a `.cs-item` too**: its rule in words as the title (`tm/schedules.py label`, never worked out in the
 page), *Next tomorrow 9:00 (in 19 h) · last ran today 14:27* as the meta, a green / grey / red dot for on / paused /
 could not start, ▷ Run now and ⋯ on hover. **The Schedule dialog** is the Add-folder dialog's frame (`.agents-modal`):
-property rows whose pickers keep their own width side by side (`.agents-sched-inline`), the days as toggle pills
-(`.agents-sched-day`), and a muted warning with the `alert` icon when nobody would be there to answer a permission.
+two groups, **When** and **Run**, each under a small grey uppercase title (`.agents-sched-group > h4`), their rows as
+Settings' (a 100px label, 38px high, 12px in from the title; stacked on a phone), a line between the two groups and
+none between rows: one choice a row — Repeats, At, Days or Every, Arguments, Mode, Model, Effort, Where —, **every
+control the column's width**, so all end on one edge (*this Mac's time* beside the When title, not after the field),
+the days as toggle pills (`.agents-sched-day`). No notes in it: what a scheduled run does is in README.
 
 ### Resizing a panel
 

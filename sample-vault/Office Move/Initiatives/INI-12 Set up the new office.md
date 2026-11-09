@@ -4,8 +4,8 @@ id: 12                             # its number, drawn INI-<n>, assigned by the 
 aliases: []                            # its ids from before short ids: [ACME-INI-001]
 name: "set-up-the-new-office"
 project: "[[00 Office Move]]"
-status_ticket: "1. Backlog"            # only via tickets_move
-status_log: []                         # [{date, from, to, by}] — written by the capability
+status_ticket: "4. InProgress"         # only via tickets_move
+status_log: [{"date": "2026-11-09", "from": "1. Backlog", "to": "2. ToDo", "by": "owner"}, {"date": "2026-11-09", "from": "2. ToDo", "to": "4. InProgress", "by": "owner"}] # [{date, from, to, by}] — written by the capability
 priority: P2                           # P0 · P1 · P2 · P3
 size: M                                # S · M · L
 regime: standard                       # standard (reviewer) · critical (judge with sealed oracle); goes up, never down
@@ -24,9 +24,10 @@ on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
 url: ""
 tags: ["infra"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 sidebar: false
+due: 2026-12-24
 ---
 
 # INI-12 — Set up the new office

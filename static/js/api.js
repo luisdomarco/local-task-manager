@@ -117,7 +117,9 @@ export const api = {
   // Run on an agent's page: its chat in the dock, nothing sent (server.py open_agent_chat) → { chat, draft, … }
   agentOpen: (dir, cmd, args, mode, model, effort, where = 'here') => post('/api/agents/open', { dir, cmd, args, mode, model, effort, where }),
   agentRelated: (dir, cmd) => get(`/api/agents/related?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
-  agentRelatedFile: (dir, cmd, path) => get(`/api/agents/related/file?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}&path=${encodeURIComponent(path)}`),
+  // Its own file (no path) or one it works with, whole, and Edit's save of it against the version read (tm/agentfiles.py).
+  agentFile: (dir, cmd, path = '') => get(`/api/agents/file?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}&path=${encodeURIComponent(path)}`),
+  agentFileSave: (dir, cmd, path, text, rev) => post('/api/agents/file', { dir, cmd, path, text, rev }),
   // Open in ▾ of an agent's page: Terminal (recorded) or Claude Desktop, Cursor, Antigravity (server.py launch_agent).
   agentLaunch: (dir, cmd, args, mode, model, effort, target, where = 'here') => post('/api/agents/launch', { dir, cmd, args, mode, model, effort, target, where }),
   // Its Runs panel: the runs on record (this computer's list, tm/agentruns.py), newest first; resumed like any session.

@@ -4,26 +4,26 @@ id: 5                             # its number, drawn STY-<n>
 name: "address-shipping-and-payment-on-one-page"
 project: "[[00 Acme Web]]"
 initiative: "[[INI-1 Checkout redesign]]" # "[[INI-<n> …]]" it delivers a part of
-status_ticket: "1. Backlog"
-status_log: []                         # [{date, from, to, by}]
-priority: P2                           # P0 · P1 · P2 · P3
+status_ticket: "4. InProgress"
+status_log: [{"date": "2026-11-09", "from": "1. Backlog", "to": "2. ToDo", "by": "owner"}, {"date": "2026-11-09", "from": "2. ToDo", "to": "4. InProgress", "by": "owner"}] # [{date, from, to, by}]
+priority: P1                           # P0 · P1 · P2 · P3
 size: M                                # S · M · L — an L is two stories
-spec_impact: ""                        # the specs it changes ("[[SPEC-<n> …]]"), or "none: <why>"
+spec_impact: "checkout: one page instead of four steps" # the specs it changes ("[[SPEC-<n> …]]"), or "none: <why>"
 origin: ""                             # "[[SUP-<n> …]]" or "[[TSK-<n> …]]" it came from
 plan: ""                               # "[[PLN-<n> …]]" when it needs one
 depends_on: []
 on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
-executor: ""                           # claude · codex · owner
-branch: ""                             # feat/<id>-<slug> · fix/<id>-<slug>
+executor: claude                       # claude · codex · owner
+branch: feat/one-page-checkout         # feat/<id>-<slug> · fix/<id>-<slug>
 baseline: ""                           # the sha it started from
 changelog_ref: ""                      # the version it shipped in
-goal: "[[GOL-27 Launch the new checkout]]"
-goal_order: 2
 url: ""                                # its pull request
 tags: ["checkout"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
+goal: "[[GOL-27 Launch the new checkout]]"
+goal_order: 2
 ---
 
 # STY-5 — Address, shipping and payment on one page
@@ -86,7 +86,7 @@ The system SHALL …
 
 Dated log from the first commit: what each commit did (sha), every departure from the tasks and why.
 
-- 2026-11-08 — 
+- 2026-11-09 — 
 
 ## Verification
 

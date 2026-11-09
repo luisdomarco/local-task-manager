@@ -28,7 +28,7 @@ export function scheduleDialog({ folder, agent, preset = {}, existing = null, on
     where: folder.git && src.where === 'worktree' ? 'worktree' : 'here' };
 
   const repeat = select(REPEATS, f.every, (x) => { f.every = x || 'day'; paint(); }, { class: 'small', 'aria-label': 'Repeats' });
-  const at = h('input', { type: 'time', class: 'input small agents-sched-at', value: f.at, required: true, 'aria-label': 'At',
+  const at = h('input', { type: 'time', class: 'input small agents-sched-at', value: f.at, required: true, 'aria-label': 'At (this Mac\'s time)',
     oninput: () => { f.at = at.value; } });
   const hours = h('input', { type: 'number', class: 'input small agents-sched-hours', min: 1, max: 24, step: 1, value: f.hours, 'aria-label': 'Every how many hours',
     oninput: () => { f.hours = hours.value; } });
@@ -46,16 +46,12 @@ export function scheduleDialog({ folder, agent, preset = {}, existing = null, on
   const effort = pick(CLAUDE_EFFORTS.map(([val, l]) => [val, val ? l : 'Default effort', 'flame']), v.effort, (x) => { v.effort = x; }, 'Effort');
   const where = folder.git ? pick(RUN_PLACES, v.where, (x) => { v.where = x || 'here'; }, 'Where') : null;
 
-  const daysRow = h('div', { class: 'field' }, h('span', {}, 'Days'), days);
-  const hoursRow = h('label', { class: 'field' }, h('span', {}, 'Every'), h('span', { class: 'agents-sched-inline' }, hours, ' hours, from the time above'));
-  // Nobody is there when it runs: what it asks waits in the Inbox. Said while the mode is one that asks.
-  const warn = h('p', { class: 'muted small agents-sched-warn' }, icon('alert', 13),
-    h('span', {}, 'Nobody is there to answer when it runs: each permission it asks for waits in the Inbox (Needs you) until you do. ',
-      h('strong', {}, 'Plan'), ', ', h('strong', {}, 'Auto'), ' or a command with allowed-tools runs without asking.'));
+  const row = (label, control, tag = 'label') => h(tag, { class: 'field' }, h('span', {}, label), control);
+  const daysRow = row('Days', days, 'div');
+  const hoursRow = row('Every', h('span', { class: 'agents-sched-inline' }, hours, h('span', { class: 'muted small' }, 'hours, from the time above')));
   function paint() {
     daysRow.hidden = f.every !== 'week';
     hoursRow.hidden = f.every !== 'hours';
-    warn.hidden = !(v.mode === 'default' || v.mode === 'acceptEdits') || agent.allowed_tools.length > 0;
   }
   paint();
 
@@ -72,14 +68,19 @@ export function scheduleDialog({ folder, agent, preset = {}, existing = null, on
       onSaved(out.schedule);
     } catch (err) { toast(err.message, true); save.disabled = false; }
   } },
-  h('div', { class: 'fields prop-rows' },
-    h('div', { class: 'field' }, h('span', {}, 'Repeats'), repeat),
-    h('label', { class: 'field' }, h('span', {}, 'At'), h('span', { class: 'agents-sched-inline' }, at, h('span', { class: 'muted small' }, 'this Mac\'s time'))),
-    daysRow, hoursRow,
-    h('label', { class: 'field' }, h('span', {}, 'Arguments'), h('span', { class: 'agents-sched-inline agents-sched-args' }, h('code', {}, `/${agent.name}`), args)),
-    h('div', { class: 'field' }, h('span', {}, 'Runs with'), h('span', { class: 'agents-sched-inline' }, mode, model, effort, where))),
-  warn,
-  h('p', { class: 'muted small' }, 'It runs in the app, as Run does, whether the app is open or not (the installed app is woken for it). One that comes due while the Mac is off or asleep runs once when it is back, within 12 hours; later than that it is skipped.'),
+  // Two groups of rows, as Settings: when it fires, and how it runs — one choice a row, each its own width.
+  h('section', { class: 'agents-sched-group' }, h('h4', {}, 'When', h('span', { class: 'agents-sched-note' }, 'this Mac\'s time')),
+    h('div', { class: 'fields prop-rows' },
+      row('Repeats', repeat, 'div'),
+      row('At', at),
+      daysRow, hoursRow)),
+  h('section', { class: 'agents-sched-group' }, h('h4', {}, 'Run'),
+    h('div', { class: 'fields prop-rows' },
+      row('Arguments', h('span', { class: 'agents-sched-inline agents-sched-args' }, h('code', {}, `/${agent.name}`), args)),
+      row('Mode', mode, 'div'),
+      row('Model', model, 'div'),
+      row('Effort', effort, 'div'),
+      where ? row('Where', where, 'div') : null)),
   h('div', { class: 'agents-add-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), save));
   modal.className = 'agents-modal';
   modal.setAttribute('aria-label', `Schedule /${agent.name}`);

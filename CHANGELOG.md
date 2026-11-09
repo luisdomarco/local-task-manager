@@ -2,8 +2,56 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.4.0] — 2026-11-09
 
+**Highlights.** **Agents**: your Claude Code commands become agents you run, watch and schedule — a home, an Inbox of
+every run, a page per agent with its figures, runs in a worktree, schedules that wake the app. **Projects** is the
+structure a new vault gets, with short ids and **Goals** (a list, a board and a canvas). Every list has the same view
+bar — filters, order, groups, columns, boards and saved views — and the vault has an Obsidian-like **Graph** and
+**Docs**. A sample vault that looks like a team's week, and a README that shows it all.
+
+- **A README that shows the app.** New screenshots of every main screen, in light: the agents (from a task, any
+  prompt, an item's sessions, the Inbox, an agent's page, the home), boards, lists, planning, goals and their canvas,
+  the graph, docs and search.
+- **A sample vault that looks like a real week.** `tools/seed_sample_vault.py` now adds goals, a team of six, work in
+  every status, priority and size, today's and this week's plan, meetings, richer docs, agents and prompts and a week
+  of logged time — every status reached through the same rules a person's moves go through. The first items keep
+  their ids (STY-5, INI-1…).
+- **The Inbox is a table.** As a type's list: search, **Filter** (status, folder, agent, where it was started, seen,
+  worktree), **Order** (or a column's head), **Group** (what it asks of you, status, folder, agent, day, where it was
+  started; each group folds), **Display** (hide columns) and pages of 20; the board keeps a column per status, an
+  empty one folded, and its columns move (drag a head, or Shift+←/→). The view is kept by this browser, the old status, folder and source filters included.
+- **An agent's figures in its side panel.** Its last run, runs, success, usual time and cost — and now its **cost per
+  run** — are the right panel's first tab, **Overview**, one per row as an item's properties; the page under its head is
+  its tabs alone, their content level with the title. *Where* is as tall as Run, and an empty **Favourites** is not
+  shown in the sidebar.
+- **The Inbox as a board.** *List · Board* in the Inbox's bar: the board has a column per status — Needs you,
+  Working, Done, Failed, Stopped — each with its runs as cards. The Inbox and the Agents Home take the whole width.
+- **An agent's page, tidier.** Its figures are one slim row and stay in sight however long its instructions are (they
+  could vanish); the description has as much room above as below; the actions read ☆ · Run · folder · Schedule… ·
+  Open in. An unfolded skill or subagent shows its name, then its path with Preview · Source · Edit, then what it is
+  for, then the file. The Schedule dialog's rows sit in from their titles, with a line only between *When* and *Run*,
+  and every field ends on the same edge.
+- **One width for every right panel.** An item's card, an initiative's, project's or PRD's page and an agent's page
+  show their right panel at the same width: 500px on a wide screen, narrowing alike on a smaller one (it was 500, 420
+  and 360).
+- **An agent's files read and edit as the Explorer's.** On an agent's page, its Instructions and every skill,
+  subagent and file it works with (unfold its row) show with **Preview · Source · Edit**: Edit saves as you type, and a
+  file changed on disk meanwhile is never written over — it asks. The page takes the whole width; the title looks as
+  an item's does, the description sits under the buttons at full width, and *Open in Cursor* is gone from it.
+- **Favourites in the Agents mode.** Star an agent (☆ on its page, or *Add to Favourites* in its ⋯) and it is listed
+  under **Favourites**, on top of the sidebar's folders, as initiatives are in the Projects mode. What was pinned is
+  there already. The *All agents* tab and the Home's *All agents →* are gone: the sidebar lists them.
+- **A tidier Schedule dialog.** Its fields are two groups, *When* and *Run*, one choice a row, as Settings lays them
+  out; the notes about permissions and a sleeping Mac are gone from it.
+- **A vault gone no longer blocks Settings.** A vault whose folder was moved or deleted outside the app made every save
+  of Settings fail with *not a directory* — even adding an agent folder. It now stays in Settings → Vaults with *Folder
+  not found* (give its new place, or remove it) and the rest saves; a new vault, a new folder or the default vault
+  must still exist.
+- **A calmer sidebar and cursor.** The Agents mode always shows Home and Inbox, also before any folder is added (no
+  text and no button any more: **+** in its bar adds one), and has no *Add item*, which makes vault items. The cursor
+  is the arrow over labels and headings, the I-beam only where you type: it no longer flickers as the mouse crosses
+  the words. With no folder yet, the Agents page says what it is for in one line, beside *Add folder*.
 - **Choose a folder instead of typing it.** On a Mac, every field that asks for a folder — a vault's in Settings →
   Vaults, *Add a folder* in Settings → Claude and Settings → Agents, and the Agents mode's *Add folder* — has
   **Choose…** beside it: a Finder dialog opens at the folder the field names (or your home folder) and the one you pick

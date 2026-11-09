@@ -119,23 +119,3 @@ def related(folder, name):
     known = {i['path'] for k in ('skills', 'agents', 'commands') for i in out[k]} | {found['file']}
     out['files'] = _files(folder, found['body'], known)
     return out
-
-
-def read_related(folder, name, path):
-    """One file of what command `name` works with, for its tab: {path, name, description, body, fields}. Only a path
-    related() lists — never any path the request names. None otherwise."""
-    rel = related(folder, name)
-    if not rel or not any(i['path'] == path for k in KINDS for i in rel[k]):
-        return None
-    full = os.path.join(os.path.realpath(folder), path)
-    if not full.endswith(TEXT_EXT):
-        return None
-    if full.endswith(('.md', '.markdown')):
-        fields, body = _fields(full)
-        fields = fields or {}
-        return {'path': path, 'description': _one_line(fields.get('description')), 'body': body, 'markdown': True}
-    try:
-        text = commands._read_text(full)
-    except OSError:
-        return None
-    return {'path': path, 'description': '', 'body': text, 'markdown': False}

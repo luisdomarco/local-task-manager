@@ -4,14 +4,14 @@ id: 3                             # its number, drawn SUP-<n>
 aliases: []
 name: "nightly-backup-took-3-hours"
 project: "[[00 Internal Tools]]"
-status_ticket: "1. Backlog"
-status_log: []
+status_ticket: "2. ToDo"
+status_log: [{"date": "2026-11-09", "from": "1. Backlog", "to": "2. ToDo", "by": "owner"}]
 area: ""
 level: C1                              # C1 · C2 · C3 — goes up, never down (only the owner lowers it)
 level_base: C1                         # level at birth; it can rise at most one above it in total
 level_reason: ""                       # which row of the level table applies, and the modifier if any
-due_from: 2026-11-08
-due: 2026-11-08                        # due_from + project's support_due_days[level]; recomputed if it rises
+due_from: 2026-11-09
+due: 2026-11-09                        # due_from + project's support_due_days[level]; recomputed if it rises
 origin: manual                         # manual · user · judge · auditor · gate · ci · monitor · curation
 signature: ""                          # <origin>|…  same signature → occurrences + 1, no new ticket
 occurrences: 1
@@ -32,8 +32,8 @@ branch: ""
 changelog_ref: ""
 url: ""
 tags: ["infra"]
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # SUP-3 — Nightly backup took 3 hours
@@ -49,7 +49,7 @@ What was observed, in one paragraph. What should have happened instead.
 
 One entry per occurrence, appended (never rewritten). Each with date, source and proof.
 
-- 2026-11-08 — 
+- 2026-11-09 — 
 
 ## Level
 

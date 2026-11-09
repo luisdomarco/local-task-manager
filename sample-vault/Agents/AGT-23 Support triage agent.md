@@ -13,8 +13,8 @@ tools: ""                              # the tools and MCP servers it uses
 related_to: ""                         # "[[INI-<n> …]]" it is part of, if any
 url: ""
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # AGT-23 — Support triage agent

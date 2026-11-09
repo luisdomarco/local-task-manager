@@ -9,8 +9,8 @@ impact: 3                              # 1–5
 applies_to: project                    # project · all-projects — the second ones are candidates for the Knowledge base
 url: ""
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # LRN-19 — Flags before big UI changes

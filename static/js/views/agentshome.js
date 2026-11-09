@@ -1,5 +1,5 @@
 // #/runs: the Agents section's Home — where it is, at a glance. From the top: the week in one line, what needs you
-// (only when something does: the Inbox has them all), and two columns — Running now and Up next, Your agents (pinned, then the
+// (only when something does: the Inbox has them all), and two columns — Running now and Up next, Your agents (favourites, then the
 // most run lately) and Recent results — under one line for the week. Everything comes from what the page already reads
 // (agentactivity.js, the agent folders, the schedules); the choices are in homemodel.js (tested). views/runs.js mounts
 // it and hands it the section's tabs.
@@ -95,13 +95,13 @@ export function homePage(dirs, { sectionTabs }) {
       const key = agentKey(a.dir, a.command.name);
       const st = a.last ? runStatus(a.last) : null;
       return card({
-        lead: h('span', { class: 'agents-home-ico' }, icon(a.pinned ? 'pin' : 'slash', 14)), title: `/${a.command.name}`,
+        lead: h('span', { class: 'agents-home-ico' }, icon(a.pinned ? 'star' : 'slash', 14)), title: `/${a.command.name}`,
         open: () => { location.hash = agentHref(a.dir, a.command.name); }, tip: a.command.description || '',
         meta: [a.dirName, ' · ', st ? [dot(st), ' ', `${RUN_STATUSES[st].label} ${agoLabel(a.last.at)}`] : 'Never run',
           a.count ? ` · ${a.count} run${a.count === 1 ? '' : 's'} in 30 days` : ''],
         actions: [iconBtn('play', 'Run: opens it in the dock, its command written', () => use(key))],
       });
-    }), 'Pin an agent (its ⋯ in the sidebar) or run one: it shows here.'), h('a', { class: 'agents-home-more', href: '#/runs/all' }, 'All agents →')));
+    }), 'Star an agent on its page, or run one: it shows here.')));
 
     const done = recentResults(runs);
     resultsBox.replaceChildren(section('Recent results', 0, list(done.map((r) => {

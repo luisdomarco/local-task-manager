@@ -10,8 +10,8 @@ author: ""
 supersedes: ""                         # an analysis is immutable; a change of mind is a new one that supersedes it
 url: ""
 tags: []
-creation_date: 2026-11-08
-updated_date: 2026-11-08
+creation_date: 2026-11-09
+updated_date: 2026-11-09
 ---
 
 # ANL-17 — Why carts are abandoned

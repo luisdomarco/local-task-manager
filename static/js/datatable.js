@@ -8,7 +8,7 @@ import { EXTERNAL_REF, PRIORITIES, PRIORITY_RANK, defaultOf, isDone, isOverdue, 
 import { pref, setPref } from './prefs.js';
 import { planControl, planKey, planValues } from './itemform.js';
 import { noMonth, progressOf, setStatus, state, updateItem } from './state.js';
-import { itemHref, opener } from './links.js';
+import { itemHref, opener, wantsNewTab } from './links.js';
 import { cssKey, h, icon, labelChip, select, typeIcon } from './ui.js';
 import { planText } from './viewmodel.js';
 
@@ -119,8 +119,9 @@ export function pagedBox(build) {
  * `paging` (optional) shows the rows a page at a time: { key, at?, size } as in paged(). The table
  * then turns its own pages, without its caller re-rendering it.
  * `doneLast` puts the closed rows after the open ones, each in the sort; `flex` and `widths` as in fixedColumns.
+ * Rows that are not items (the Inbox's runs) say what they are with `rowLabel(row)` and open in a new tab at `rowHref(row)`.
  */
-export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {} }) {
+export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {}, rowLabel = null, rowHref = null }) {
   const col = columns.find((c) => c.key === sort.col) || columns[0];
   const sorted = rows.slice().sort((a, b) => {
     const x = col.get(a); const y = col.get(b);
@@ -131,8 +132,8 @@ export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing
   // Rows are focusable and open on Enter / Space, like the click.
   const row = (i) => h('tr', {
     class: rowClass ? rowClass(i) : (isDone(i) ? 'done' : ''), tabindex: '0', 'data-key': i.key || null, // the item the one-key shortcuts act on (itemkeys.js)
-    'aria-label': `${refOf(i) || ''} ${i.title ?? i.subject ?? ''}`.trim(),
-    ...opener(i, onRow), // ⌘/Ctrl or middle click: in a new tab
+    'aria-label': rowLabel ? rowLabel(i) : `${refOf(i) || ''} ${i.title ?? i.subject ?? ''}`.trim(),
+    ...(rowHref ? hrefOpener(rowHref(i), () => onRow(i)) : opener(i, onRow)), // ⌘/Ctrl or middle click: in a new tab
     onkeydown: (e) => {
       if (e.target !== e.currentTarget) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRow(i); }
@@ -161,6 +162,12 @@ export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing
     return [table(page), page.pager];
   });
 }
+
+/** links.js opener's handlers for a row that is not an item: a click opens it, ⌘/Ctrl or the middle button `href` in a new tab. */
+const hrefOpener = (href, open) => {
+  const go = (e) => { if (wantsNewTab(e)) { e.preventDefault(); e.stopPropagation(); window.open(href, '_blank', 'noopener'); } else open(); };
+  return { onclick: go, onauxclick: (e) => { if (e.button === 1) go(e); }, onmousedown: (e) => { if (e.button === 1) e.preventDefault(); } };
+};
 
 /** The rows by group, groups in their order: [[key, rows], …]. */
 function groupsOf(sorted, group) {

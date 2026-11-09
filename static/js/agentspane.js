@@ -1,8 +1,8 @@
 // The sidebar's Agents mode: the commands of the agent folders of Settings → Agents (server.py list_agents,
 // tm/commands.py), as a tree — a section per folder (its public name; folded from its title), a folder per namespace
-// (`dev/` holds /dev:start), the agents pinned above them all — drawn by treePane in its read-only shape (nothing is
+// (`dev/` holds /dev:start), under Favourites (the agents starred, as the Projects mode's) — drawn by treePane in its read-only shape (nothing is
 // dragged or renamed: the files are the folders' own). An agent opens its page in the middle (#/runs/<folder>/<name>,
-// views/runs.js), where it is run. Pinned and hidden agents, folded and open folders are this browser's (prefs.js): the
+// views/runs.js), where it is run. Favourite and hidden agents, folded and open folders are this browser's (prefs.js): the
 // folders are the same in every vault, so these are too. "+ Add folder" adds one to the list Settings edits.
 import { activity, initActivity, onActivity } from './agentactivity.js';
 import { api } from './api.js';
@@ -31,7 +31,14 @@ export function onAgents(fn) {
   return () => listeners.delete(fn);
 }
 
-const PINNED = '~pinned'; // the pinned section's id: never a folder's (those are 8 hex digits)
+const FAVS = '~pinned'; // the Favourites section's id: never a folder's (those are 8 hex digits)
+const FAV_KEY = 'agents.pinned'; // its pref keeps the name it had when they were "pinned"
+/** Whether an agent is a favourite; a star toggles it (the sidebar's ⋯, its page's head). */
+export const isFavourite = (dir, name) => (pref(FAV_KEY, []) || []).includes(agentKey(dir, name));
+export function toggleFavourite(dir, name) {
+  setPref(FAV_KEY, toggled(pref(FAV_KEY, []), agentKey(dir, name)));
+  rebuild();
+}
 const hidden = () => new Set(pref('agents.hidden', []));
 const folded = () => new Set(pref('agents.folded', []));
 const showingHidden = () => new Set(pref('agents.showHidden', []));
@@ -62,22 +69,22 @@ function rebuild() {
   pane.render();
 }
 
-/** The pinned agents, as a folder of their own: their rows keep their own paths, so the one shown lights up in both. */
-function pinnedNode() {
-  const children = pinnedAgents(dirs, pref('agents.pinned', [])).map((a) => ({
+/** The favourite agents, as a folder of their own: their rows keep their own paths, so the one shown lights up in both. */
+function favsNode() {
+  const children = pinnedAgents(dirs, pref(FAV_KEY, [])).map((a) => ({
     name: a.name, path: agentPath(a.dir, a.name), kind: 'file', agent: { ...a, pinned: true }, search: `/${a.name} ${a.description || ''}`,
   }));
   return children.length ? { name: '', path: '', kind: 'dir', children } : null;
 }
 
 function sections(t) {
-  if (!dirs?.length) return [{ id: 'none', path: '', head: emptyHead(), node: null }];
-  const pins = pinnedNode();
+  if (!dirs?.length) return [{ id: '~inbox', path: '', head: inboxRow(), node: null }]; // no folder yet: + on top adds one
+  const favs = favsNode();
   const fold = folded();
   marks = agentMarks(activity()?.runs);
   return [
     { id: '~inbox', path: '', head: inboxRow(), node: null },
-    ...(pins ? [{ id: PINNED, path: '', head: head({ id: PINNED, name: 'Pinned', exists: true, pinned: true }, pins.children.length), node: fold.has(PINNED) ? null : pins }] : []),
+    ...(favs ? [{ id: FAVS, path: '', head: favsHead(), node: favs }] : []), // none: no section
     ...dirs.map((d) => ({ id: d.id, path: d.id, head: head(d, folderCounts(d, hidden()).shown), node: fold.has(d.id) ? null : findNode(t, d.id) })),
   ];
 }
@@ -87,13 +94,17 @@ function head(d, count) {
   const isFolded = folded().has(d.id);
   const gone = !d.exists;
   return h('div', { class: `docs-head agents-head ${gone ? 'dim' : ''}`, 'data-agents': d.id },
-    h('button', { class: 'docs-title', 'aria-expanded': String(!isFolded), title: d.pinned ? 'The agents you pinned' : gone ? `${d.path}\nThis folder is not there any more` : d.path,
+    h('button', { class: 'docs-title', 'aria-expanded': String(!isFolded), title: gone ? `${d.path}\nThis folder is not there any more` : d.path,
       onclick: () => { setPref('agents.folded', toggled(pref('agents.folded', []), d.id)); rebuild(); } },
-    icon(isFolded ? 'right' : 'down', 12), d.pinned ? icon('pin', 12) : null, h('span', {}, d.name),
+    icon(isFolded ? 'right' : 'down', 12), h('span', {}, d.name),
     h('span', { class: 'agents-count' }, gone ? 'not found' : String(count))),
-    d.pinned ? null : h('button', { class: 'btn icon docs-add', title: `${d.name}: actions`, 'aria-label': `Actions on ${d.name}`, 'aria-haspopup': 'menu',
+    h('button', { class: 'btn icon docs-add', title: `${d.name}: actions`, 'aria-label': `Actions on ${d.name}`, 'aria-haspopup': 'menu',
       onclick: (e) => folderMenu(e.currentTarget, d) }, icon('more', 14)));
 }
+
+/** Favourites' title, as the Projects mode's section (index.html #side-favs): it never folds, and shows only once an
+ *  agent is starred. */
+const favsHead = () => h('div', { class: 'agents-favs' }, h('div', { class: 'side-title' }, 'Favourites'));
 
 let marks = {}; // agentKey → 'needs_you' | 'working' | 'unread' (runmodel.js agentMarks), as the tree was last drawn
 const MARK_TIP = { needs_you: 'A run waits for you', working: 'Running', unread: 'A run ended: not seen yet' };
@@ -112,13 +123,6 @@ function inboxRow() {
       n ? `${counts.needs_you || 0} waiting for you · ${counts.unread || 0} ended, not seen yet` : 'Every run of your agents',
       counts.running ? h('span', { class: 'td-dot tone-accent', title: `${counts.running} running`, 'aria-label': `${counts.running} running` }) : null,
       n ? h('span', { class: `agents-inbox-count${counts.needs_you ? ' warn' : ''}` }, String(n)) : null));
-}
-
-/** No folder yet: what the section is for, and the way to add the first one. */
-function emptyHead() {
-  return h('div', { class: 'agents-empty' },
-    h('p', { class: 'muted small' }, 'No agent folders yet. Add a folder whose .claude/commands holds your agents: each command is one.'),
-    h('button', { class: 'btn secondary agents-add', type: 'button', onclick: () => addFolderDialog() }, icon('plus', 14), 'Add folder'));
 }
 
 function folderMenu(anchor, d) {
@@ -140,10 +144,10 @@ function agentMenu(node) {
   const a = agentOf(node);
   if (!a) return [];
   const key = agentKey(a.dir, a.name);
-  const isPinned = (pref('agents.pinned', []) || []).includes(key);
+  const fav = isFavourite(a.dir, a.name);
   return [
     { label: 'Open', icon: 'play', onSelect: () => { location.hash = agentHref(a.dir, a.name); } },
-    { label: isPinned ? 'Unpin' : 'Pin to the top', icon: 'pin', onSelect: () => { setPref('agents.pinned', toggled(pref('agents.pinned', []), key)); rebuild(); } },
+    { label: fav ? 'Remove from Favourites' : 'Add to Favourites', icon: 'star', onSelect: () => toggleFavourite(a.dir, a.name) },
     { label: a.hidden ? 'Show it again' : 'Hide', icon: 'eye', onSelect: () => {
       setPref('agents.hidden', toggled(pref('agents.hidden', []), key));
       rebuild();

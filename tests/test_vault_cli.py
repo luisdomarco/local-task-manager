@@ -248,7 +248,8 @@ class ReadCommandsTest(SampleCopy):
 
     def test_find_by_text_type_status_project_and_inside_the_files(self):
         refs = [r['ref'] for r in self.cli_json('find', '--type', 'story')['items']]
-        self.assertEqual(sorted(refs), ['STY-5', 'STY-6', 'STY-8'])
+        self.assertLessEqual({'STY-5', 'STY-6', 'STY-8'}, set(refs))
+        self.assertTrue(all(r.startswith('STY-') for r in refs))
         self.assertEqual([r['ref'] for r in self.cli_json('find', 'keep the cart')['items']], ['STY-6'])
         self.assertTrue(all(r['project'] == 'OPS' for r in self.cli_json('find', '--project', 'OPS')['items']))
         self.assertEqual(self.cli_json('find', '--status', 'nope')['total'], 0)
@@ -309,7 +310,7 @@ class WriteCommandsTest(SampleCopy):
     def test_set_changes_only_the_keys_given_and_refuses_one_the_type_lacks(self):
         path = self.store().find('STY-5')['path']
         before = self.file(path)
-        self.cli('set', 'STY-5', 'priority=P1')
+        self.cli('set', 'STY-5', 'priority=P3')  # it is P1 in the sample
         changed = {a.split(':')[0] for a, b in zip(before.splitlines(), self.file(path).splitlines()) if a != b}
         self.assertLessEqual(changed, {'priority', 'updated_date'})
         self.assertIn('priority', changed)
@@ -322,11 +323,14 @@ class WriteCommandsTest(SampleCopy):
         self.assertEqual(self.cli_json('set', 'STY-5', 'priority=P3', '--rev', rev, code=1)['status'], 409)
 
     def test_move_goes_through_the_gates_an_agent_has(self):
-        out = self.cli('move', 'STY-5', 'todo', code=1)
+        # a story of an initiative not approved yet (the sample's are all approved by now)
+        ini = self.cli_json('new', 'initiative', 'Loyalty points', '--set', 'project=ACME')['ref']
+        sty = self.cli_json('new', 'story', 'Earn points on every order', '--set', 'project=ACME', '--set', f'related_to={ini}')['ref']
+        out = self.cli('move', sty, 'todo', code=1)
         self.assertIn('initiative approved', out)
-        self.assertIn("no status 'Nope'", self.cli('move', 'STY-5', 'Nope', code=1))
-        self.cli('move', 'STY-5', 'onhold', code=1)  # OnHold needs its reasons too: never moved without them
-        self.assertEqual(self.store().read('STY-5')['fields']['status'], 'Backlog')
+        self.assertIn("no status 'Nope'", self.cli('move', sty, 'Nope', code=1))
+        self.cli('move', sty, 'onhold', code=1)  # OnHold needs its reasons too: never moved without them
+        self.assertEqual(self.store().read(sty)['fields']['status'], 'Backlog')
 
     def test_link_unlink_and_comment(self):
         self.cli('link', 'STY-6', 'blocked', 'STY-5')

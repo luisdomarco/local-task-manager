@@ -28,7 +28,7 @@ import errno
 import queue
 import signal
 
-from tm import agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules
+from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
@@ -175,10 +175,13 @@ def _slug(text):
     return out or 'vault'
 
 
-def clean_vaults(vaults, default_vault):
+def clean_vaults(vaults, default_vault, saved=None):
     """The vault list from Settings, checked: ids kept (a new vault gets one from its name, once, and it never
     changes), a name, an existing folder that is not / nor the home folder, a known structure, and no vault
-    inside another (the outer one would read the inner one's files as its own). → (vaults, default_vault)."""
+    inside another (the outer one would read the inner one's files as its own). → (vaults, default_vault).
+    `saved` (vault id → its resolved folder, as saved now): a vault kept at that folder may have lost it — moved or
+    deleted outside the app — and still be saved: only a new vault, or a new folder, must exist. Otherwise a vault gone
+    would refuse every save of Settings, even one about something else (an agent folder)."""
     if not isinstance(vaults, list) or not vaults:
         raise StoreError(400, 'there must be at least one vault')
     given = {str(v.get('id') or '') for v in vaults if isinstance(v, dict)}
@@ -207,7 +210,7 @@ def clean_vaults(vaults, default_vault):
         if not path:
             raise StoreError(400, f'the vault "{name}" needs a folder')
         real = resolve_root(path)
-        if not os.path.isdir(real):
+        if not os.path.isdir(real) and (saved or {}).get(vid) != real:
             raise StoreError(400, f'not a directory: {real}')
         if real in (os.path.realpath(os.sep), os.path.realpath(os.path.expanduser('~'))):
             raise StoreError(400, f'a vault cannot be the whole disk or the home folder: {real}')
@@ -355,7 +358,8 @@ class App:
         saved = {v['id']: v['structure'] for v in self.config['vaults']}
         cfg['vaults'] = [{**v, 'structure': v.get('structure') or saved.get(v.get('id'))} if isinstance(v, dict) else v
                          for v in cfg['vaults']]
-        cfg['vaults'], cfg['default_vault'] = clean_vaults(cfg['vaults'], cfg.get('default_vault'))
+        cfg['vaults'], cfg['default_vault'] = clean_vaults(cfg['vaults'], cfg.get('default_vault'),
+                                                           {v['id']: resolve_root(v['path']) for v in self.config['vaults']})
         self._refuse_other_shapes(cfg['vaults'])
         default = next(v for v in cfg['vaults'] if v['id'] == cfg['default_vault'])
         cfg['root'], cfg['folders'] = default['path'], default['folders']
@@ -441,7 +445,10 @@ class App:
             atomic_write(backup_path(f'{os.path.basename(CONFIG_PATH)}.bak-{stamp}'), text)
 
     def public_config(self):
-        return {**self.config, 'root_resolved': self.store.root, 'structures': {k: v['label'] for k, v in STRUCTURES.items()},
+        return {**self.config, 'root_resolved': self.store.root,
+                # each vault, and whether its folder is gone (Settings → Vaults says so; it can still be saved, or removed)
+                'vaults': [{**v, 'missing': not os.path.isdir(resolve_root(v['path']))} for v in self.config['vaults']],
+                'structures': {k: v['label'] for k, v in STRUCTURES.items()},
                 # the ones only an existing vault keeps (Settings offers a new vault the default one)
                 'legacy_structures': list(LEGACY_STRUCTURES), 'default_structure': DEFAULT_STRUCTURE,
                 # what each structure lets a vault turn on and off (Settings → Vaults)
@@ -1283,12 +1290,21 @@ def agent_related(dir_id, name):
     return found
 
 
-def agent_related_file(dir_id, name, path):
-    """One of those, read for its tab: only a path agent_related lists."""
+def agent_file(dir_id, name, path=''):
+    """An agent's own file (no `path`) or one it works with, whole, for Source and Edit on its page (tm/agentfiles.py)."""
     folder = agent_dir(dir_id)
-    found = agentlinks.read_related(folder['path'], name, str(path or ''))
+    found = agentfiles.read(folder['path'], name, str(path or ''))
     if found is None:
-        raise StoreError(404, f'/{name} does not work with {path}')
+        raise StoreError(404, f'/{name} has no file {path}' if path else f'{folder["name"]} has no command /{name}')
+    return found
+
+
+def agent_file_save(dir_id, name, path, text, rev):
+    """Edit's save of one of those: refused (409) when it changed on disk since it was read at `rev`."""
+    folder = agent_dir(dir_id)
+    found = agentfiles.save(folder['path'], name, str(path or ''), text, str(rev or ''))
+    if found is None:
+        raise StoreError(404, f'/{name} has no file {path}' if path else f'{folder["name"]} has no command /{name}')
     return found
 
 
@@ -2079,7 +2095,8 @@ ROUTES = {
     ('POST', '/api/agents/run'): lambda s, q, b: run_agent(s, b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
                                                            b.get('model'), b.get('effort'), b.get('where') or 'here'),
     ('GET', '/api/agents/related'): lambda s, q, b: agent_related(q.get('dir'), q.get('cmd')),
-    ('GET', '/api/agents/related/file'): lambda s, q, b: agent_related_file(q.get('dir'), q.get('cmd'), q.get('path')),
+    ('GET', '/api/agents/file'): lambda s, q, b: agent_file(q.get('dir'), q.get('cmd'), q.get('path')),
+    ('POST', '/api/agents/file'): lambda s, q, b: agent_file_save(b.get('dir'), b.get('cmd'), b.get('path'), b.get('text'), b.get('rev')),
     ('POST', '/api/agents/open'): lambda s, q, b: open_agent_chat(s, b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
                                                                   b.get('model'), b.get('effort'), b.get('where') or 'here'),
     ('POST', '/api/agents/launch'): lambda s, q, b: launch_agent(b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
@@ -2110,7 +2127,7 @@ GLOBAL_ROUTES = {
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
     ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('POST', '/api/folder/pick'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
-    ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('GET', '/api/agents/related'), ('GET', '/api/agents/related/file'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
+    ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('GET', '/api/agents/related'), ('GET', '/api/agents/file'), ('POST', '/api/agents/file'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
     ('POST', '/api/agents/launch'), ('GET', '/api/agents/runs'), ('POST', '/api/agents/runs/forget'),
     ('GET', '/api/agents/activity'), ('POST', '/api/agents/runs/read'), ('GET', '/api/agents/runs/changes'), ('GET', '/api/agents/runs/diff'),
     ('POST', '/api/agents/runs/worktree/remove'), ('GET', '/api/agents/schedules'), ('POST', '/api/agents/schedules'),
