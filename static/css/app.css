@@ -1797,6 +1797,10 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 3px 7px; border-radius: 4px; flex: 0 1 auto; }
 .cp-add { display: flex; gap: 8px; margin-top: 4px; }
 .cp-add input { flex: 1; }
+/* A folder field's Choose… (folderpick.js): beside its input, never squeezed into two lines. */
+.folder-pick { flex: none; white-space: nowrap; }
+.folder-field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.folder-field input { flex: 1; min-width: 0; }
 .claude-instruction { width: 100%; resize: vertical; min-height: 56px; }
 /* A structure's own fields on an item card (TypeDef.props) and in its lists */
 /* A field that cannot be edited (a project's kind, a key, what the app sets): drawn as a field, greyed, never focused. */

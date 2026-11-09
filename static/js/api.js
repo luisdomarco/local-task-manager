@@ -77,6 +77,8 @@ export const api = {
   itemHistory: (key) => get(`/api/item/history?key=${encodeURIComponent(key)}`),
   // A vault file or folder handed to the editor of Settings (Cursor by default) to edit there.
   openInEditor: (path) => post('/api/files/open-in-editor', { path }),
+  // macOS's folder dialog, opened by the server, starting at `start`. → { path } or { cancelled: true } (folderpick.js)
+  pickFolder: (start, prompt) => post('/api/folder/pick', { start, prompt }),
   // The app this Mac opens a vault file with, and whether it will here (server.py opener_policy). → { app, ok, why? }
   opener: (path) => get(`/api/files/opener?path=${encodeURIComponent(path)}`),
   // A vault file opened in that app. → { opened, app }

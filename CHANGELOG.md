@@ -4,6 +4,10 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Choose a folder instead of typing it.** On a Mac, every field that asks for a folder — a vault's in Settings →
+  Vaults, *Add a folder* in Settings → Claude and Settings → Agents, and the Agents mode's *Add folder* — has
+  **Choose…** beside it: a Finder dialog opens at the folder the field names (or your home folder) and the one you pick
+  goes into the field. Typing the path still works.
 - **A board's columns move.** On any list shown as a board (Projects, Initiatives, Stories, Tasks…, and the Board
   page), drag a column by its header — or a folded one by its strip — to put it elsewhere, or focus its header and
   press Shift+←/→. The order is kept with the board's view and for each grouping on its own (Status, Priority,

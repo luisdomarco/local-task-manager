@@ -450,6 +450,7 @@ class App:
                 'priorities': PRIORITIES, 'parent_types': PARENT_TYPES, 'activity_sources': ACTIVITY_SOURCES,
                 'editors': list(EDITORS),  # what Settings offers for the Explorer's "Open in <editor>"
                 'claude_targets': open_targets(),  # where a Claude session can open: Open in ▾ (claude.js)
+                'can_pick_folder': sys.platform == 'darwin',  # a folder field's Choose… (folderpick.js)
                 'claude_theme': claude_theme()}  # the embedded terminal takes Claude Code's own theme
 
 
@@ -757,6 +758,52 @@ def open_in_editor(store, path):
     except subprocess.CalledProcessError:
         raise StoreError(400, f'{app} could not open it: is it installed? Pick another editor in Settings → General.') from None
     return {'opened': rel, 'app': app}
+
+
+# ── a folder chosen in macOS's own dialog (Settings → Vaults, Claude and Agents folders; the Agents "Add folder") ──
+# A page cannot learn a folder's absolute path (a browser's folder picker gives names, never where they are), so the
+# server opens the dialog itself and answers the path. The prompt and the starting folder go in as argv, never
+# inside the script; app.activate() brings the dialog in front of the browser.
+_PICK_FOLDER_JXA = """function run(argv) {
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  app.activate();
+  const opts = {withPrompt: argv[0]};
+  if (argv[1]) opts.defaultLocation = Path(argv[1]);
+  try { return app.chooseFolder(opts).toString(); }
+  catch (e) { if (e.errorNumber === -128) return ''; throw e; }
+}"""
+PICK_FOLDER_TIMEOUT = 600  # s: a dialog left open this long is given up (answered as cancelled)
+_pick_folder_lock = threading.Lock()  # one dialog at a time: a second click while one is open is refused
+
+
+def pick_folder(start='', prompt=''):
+    """macOS's folder dialog, starting at `start` (or its nearest existing parent, else the home folder):
+    {path} of the folder chosen, or {cancelled: True}. Only on macOS (`can_pick_folder` in the config)."""
+    if sys.platform != 'darwin':
+        raise StoreError(501, 'choosing a folder needs macOS: type its path instead')
+    home = os.path.expanduser('~')
+    where = os.path.expanduser(str(start or '').strip())
+    while where and not os.path.isdir(where):
+        parent = os.path.dirname(where)
+        where = '' if parent == where else parent
+    if not where or not os.path.isabs(where):
+        where = home
+    prompt = ' '.join(str(prompt or '').split())[:120] or 'Choose a folder'
+    if not _pick_folder_lock.acquire(blocking=False):
+        raise StoreError(409, 'a folder dialog is already open: look for it behind this window')
+    try:
+        out = subprocess.run(['osascript', '-l', 'JavaScript', '-e', _PICK_FOLDER_JXA, prompt, where],
+                             capture_output=True, text=True, timeout=PICK_FOLDER_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return {'cancelled': True}
+    finally:
+        _pick_folder_lock.release()
+    if out.returncode != 0:
+        raise StoreError(500, f'the folder dialog failed: {out.stderr.strip() or out.returncode}')
+    path = out.stdout.strip()
+    path = path.rstrip('/') or path  # "/" stays "/"
+    return {'path': path} if path else {'cancelled': True}
 
 
 def open_local(path):
@@ -1642,6 +1689,7 @@ ROUTES = {
     ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), int(b.get('index', -1)), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
+    ('POST', '/api/folder/pick'): lambda s, q, b: pick_folder(b.get('start'), b.get('prompt')),
     ('GET', '/api/server'): lambda s, q, b: server_status(),
     ('POST', '/api/server/stop'): lambda s, q, b: stop_server(),
     ('GET', '/api/exports'): lambda s, q, b: exports_listing(),
@@ -1669,7 +1717,7 @@ GLOBAL_ROUTES = {
     ('GET', '/api/term/list'), ('POST', '/api/term/input'), ('POST', '/api/term/resize'), ('POST', '/api/term/close'),
     ('GET', '/api/chat/list'), ('GET', '/api/chat/files'), ('POST', '/api/chat/send'), ('POST', '/api/chat/permission'),
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
-    ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
+    ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('POST', '/api/folder/pick'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
     ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
     ('POST', '/api/agents/launch'), ('GET', '/api/agents/runs'), ('POST', '/api/agents/runs/forget'),

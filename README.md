@@ -152,7 +152,7 @@ temp dir, whose path they print.
 1. **Make the folder** (`mkdir ~/Documents/my-vault`). An empty folder starts a **Projects** vault; a folder
    already full of notes must already have the structure's shape (see [5](#5-vault-structures)).
 2. **Settings → Vaults → Add vault** (Settings is at the foot of the sidebar): a name, the folder (absolute, `~/…`, or
-   relative to this app's folder; it must exist) and its **structure**, **Projects**. *Initiatives (legacy)* and
+   relative to this app's folder; it must exist; on a Mac, *Choose…* beside it picks it in a Finder dialog) and its **structure**, **Projects**. *Initiatives (legacy)* and
    *Tasks (legacy)* are there only to open a folder that already is one of their vaults: on an empty folder the save
    is refused. Optionally untick the item types you will not use, and tick *Default* for the one that opens first.
 3. **Save settings.** This writes `config.json` (git-ignored; the first save keeps a copy of the old one in
@@ -1538,7 +1538,8 @@ Ideas, each one command:
 `views/runs.js`; the server's `list_agents`, `run_agent` and `launch_agent`, `tm/commands.py`, `tm/agentruns.py`).
 
 - **An agent folder is any folder**: a repository, a system, outside every vault. Add one with **+** in the mode's bar
-  (or *+ Add folder* while there is none): its absolute path and, if you like, the name the sidebar shows for it. They
+  (or *+ Add folder* while there is none): its absolute path (typed, or on a Mac picked with *Choose…* in a Finder
+  dialog) and, if you like, the name the sidebar shows for it. They
   are listed in **Settings → Agents** (`agent_dirs`), where they are renamed and removed; removing one leaves its files
   as they are. A folder that is gone stays listed, dimmed (*not found*), until you remove it.
 - **Every command in its `.claude/commands` is an agent** — nothing to register: write the `.md` and it is there

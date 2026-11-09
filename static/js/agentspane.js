@@ -8,6 +8,7 @@ import { api } from './api.js';
 import { agentEntries, agentHref, agentKey, agentPath, agentPathOfHash, folderCounts, pinnedAgents, runMessage, toggled } from './agentsmodel.js';
 import { trapFocus } from './create.js';
 import { buildTree, findNode } from './filetree.js';
+import { folderButton } from './folderpick.js';
 import { pref, setPref } from './prefs.js';
 import { onSidebarMode, sidebarMode } from './sidebar.js';
 import { onChange, saveConfig, state, toast } from './state.js';
@@ -184,9 +185,10 @@ export function addFolderDialog() {
     } catch { add.disabled = false; /* toasted by the state: "not a directory: …" */ }
   } },
   h('div', { class: 'fields prop-rows' },
-    h('label', { class: 'field' }, h('span', {}, 'Folder'), path),
+    h('label', { class: 'field' }, h('span', {}, 'Folder'),
+      h('span', { class: 'folder-field' }, path, folderButton(path, { prompt: 'Choose a folder whose .claude/commands holds agents' }))),
     h('label', { class: 'field' }, h('span', {}, 'Name'), name)),
-  h('p', { class: 'muted small' }, 'Its absolute path. Every command in its ', h('code', {}, '.claude/commands'), ' (a link there is followed) is an agent you can run from here, in that folder.'),
+  h('p', { class: 'muted small' }, state.config.can_pick_folder ? 'Its absolute path, typed or chosen. Every command in its ' : 'Its absolute path. Every command in its ', h('code', {}, '.claude/commands'), ' (a link there is followed) is an agent you can run from here, in that folder.'),
   h('div', { class: 'agents-add-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), add));
   modal.className = 'agents-modal';
   modal.setAttribute('aria-label', 'Add an agent folder');

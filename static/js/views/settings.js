@@ -6,6 +6,7 @@
 // Claude are one config form: Save, at the foot of any of them, saves all three.
 import { api } from '../api.js';
 import { fixedColumns } from '../datatable.js';
+import { folderButton } from '../folderpick.js';
 import { pref, setPref } from '../prefs.js';
 import { warningGroups } from '../housekeeping.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
@@ -205,7 +206,8 @@ function vaultsEditor(c, edit) {
             h('input', { type: 'text', value: v.folders?.[t] || def, oninput: (e) => { v.folders = { ...v.folders, [t]: e.target.value.trim() }; } })))))
         : null;
       return h('div', { class: 'vault-row' },
-        h('div', { class: 'vault-row-head' }, name, path, structure, isDefault, ...remove),
+        h('div', { class: 'vault-row-head' }, name, path,
+          folderButton(path, { prompt: `Choose the folder of ${v.name || 'the vault'}` }), structure, isDefault, ...remove),
         v.id === vaultId() ? h('span', { class: 'muted small' }, 'Shown in this page.') : null,
         saved.has(v.id) && legacy.has(v.structure) ? legacyNote(labelOf(v.structure), labelOf(fresh)) : null,
         v.id === vaultId() ? vaultWarnings(state.vaultCheck?.warnings) : null,
@@ -268,7 +270,8 @@ export function mount(root, param) {
         ...paths.map((p, i) => h('div', { class: 'cp-row' }, radio(p, 'Default'), nameInput(p, p),
           h('code', { class: 'cp-path', title: p }, p),
           h('button', { class: 'btn icon row-action', title: `Remove ${p}`, onclick: () => { paths.splice(i, 1); delete names[p]; if (defaultPath === p) defaultPath = ''; renderPaths(); } }, icon('x', 14)))),
-        h('div', { class: 'cp-add' }, addInput, h('button', { class: 'btn small ghost', onclick: addPath }, icon('plus', 13), 'Add')));
+        h('div', { class: 'cp-add' }, addInput, folderButton(addInput, { prompt: 'Choose a folder Claude can start in', onPick: addPath }),
+          h('button', { class: 'btn small ghost', onclick: addPath }, icon('plus', 13), 'Add')));
       renderPaths();
       // Agent folders (the sidebar's Agents mode): their own list, each with the name the sidebar shows for it.
       const agentPaths = [...(c.agent_dirs || [])];
@@ -291,7 +294,8 @@ export function mount(root, param) {
             title: 'What the sidebar shows for this folder (empty: its last part)', oninput: (e) => { agentNames[p] = e.target.value; } }),
           h('code', { class: 'cp-path', title: p }, p),
           h('button', { class: 'btn icon row-action', title: `Remove ${p} (its files stay as they are)`, onclick: () => { agentPaths.splice(i, 1); delete agentNames[p]; renderAgentPaths(); } }, icon('x', 14)))),
-        h('div', { class: 'cp-add' }, agentInput, h('button', { class: 'btn small ghost', onclick: addAgentPath }, icon('plus', 13), 'Add')));
+        h('div', { class: 'cp-add' }, agentInput, folderButton(agentInput, { prompt: 'Choose a folder whose .claude/commands holds agents', onPick: addAgentPath }),
+          h('button', { class: 'btn small ghost', onclick: addAgentPath }, icon('plus', 13), 'Add')));
       renderAgentPaths();
       const claudeCmd = h('input', { type: 'text', class: 'wide', value: c.claude_command || 'claude', placeholder: 'claude' });
       let terminal = c.terminal || 'Terminal';

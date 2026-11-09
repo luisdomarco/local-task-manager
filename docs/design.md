@@ -320,6 +320,9 @@ Properties · Activity · AI Agents · Relations · Time, last.
   the item page's groups; a vault's, a saved folder's and an export's
   row actions (×, download, Show in Finder) show on hover (`.row-action`). Its head is `pageHead`; a tab's name fits
   whole (*Statuses*).
+- A folder field (a vault's folder, Settings' *Add a folder* rows, the Agents' *Add folder*) gets **Choose…** beside it
+  (`folderButton(input, {prompt, onPick})`, `folderpick.js`): macOS's folder dialog, opened by the server, writes the
+  path into the field as if typed. Not on a Mac, it is not there and the field is typed as before.
 - Settings: form tabs at `max-width: 860px`, sections one under another divided by a line, each setting a row
   (`setRow(label, control, help)` in `views/settings.js`), the save bar sticky at the foot (`.settings-save`).
 
