@@ -177,9 +177,10 @@ class AgentRoutesTest(AgentsBase):
             chat.send.assert_called_once_with('/dev:status   STY-7\n', [], [])
             chat.rename.assert_called_once_with('/dev:status STY-7')
             server.chat_send(session_id, 'and then?')  # later messages are the chat's own
-        runs = server.agent_runs(self.id, 'dev:status')['runs']
-        self.assertEqual([(r['id'], r['args'], r['mode'], r['model'], r['source']) for r in runs], [(session_id, 'STY-7', 'plan', 'sonnet', 'here')])
-        self.assertEqual(server.open_agent_chat(self.app.store, self.id, 'dev:status', 'X  1', '', '', '')['draft'], '/dev:status X 1')
+            runs = server.agent_runs(self.id, 'dev:status')['runs']
+            self.assertEqual([(r['id'], r['args'], r['mode'], r['model'], r['source']) for r in runs], [(session_id, 'STY-7', 'plan', 'sonnet', 'here')])
+            # Its arguments written in, spaces folded (still the fake chat: a real claude is not on every machine's PATH).
+            self.assertEqual(server.open_agent_chat(self.app.store, self.id, 'dev:status', 'X  1', '', '', '')['draft'], '/dev:status X 1')
         self.assertEqual([server.draft_args('dev:status', t) for t in ('/dev:status', ' /dev:status  a  b ', '/dev:statusx', 'hi /dev:status')],
                          ['', 'a b', None, None])
 
