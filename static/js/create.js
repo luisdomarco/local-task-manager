@@ -9,7 +9,7 @@ import {
   aimFields, blocksOf, breakBlocks, itemFields, kindOfBinding, modalFrame, modalTitle, parentControl, planValues, propField, quietBlanks, settingsBody, statusSelect,
 } from './itemform.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, kindDefaultTypes, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
+  EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, kindDefaultTypes, leavesProject, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
 } from './rules.js';
 import { mdBlock } from './mdblock.js';
 import { openQuickModal } from './quickadd.js';
@@ -202,6 +202,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
         const before = kindOfBinding(binding)?.id;
         form[key] = value;
         recheck();
+        if (key === 'related_to') folderEl.textContent = whereText();
         if (key === 'project') {
           folderEl.textContent = whereText();
           // The types offered follow the project (its kind and its Types): one it does not hold goes back to a task.
@@ -245,8 +246,10 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     const whereText = () => {
       const projectDir = state.items.find((i) => i.type === 'project' && i.fields.project_key === form.project)?.path?.split('/')[0];
       // A Ticketing project is a folder of its own (its type has none); a Tasks one is a file in projects/.
+      // A ticket in no project (or a sub-document of an item in none) lands in its type's folder at the vault's top.
+      const atTop = !projectDir && (leavesProject(form.type) || !!form.related_to);
       const folder = form.type === 'project' && !tdef.folder ? `${form.subject.trim() || '<name>'}`
-        : scoped ? `${projectDir || '<project>'}/${tdef.folder}` : (vaultFolders[form.type] || tdef.folder || form.type);
+        : scoped ? (atTop ? tdef.folder : `${projectDir || '<project>'}/${tdef.folder}`) : (vaultFolders[form.type] || tdef.folder || form.type);
       return `Will be saved as a new file in ${folder}/`;
     };
     const folderEl = h('span', {}, whereText());

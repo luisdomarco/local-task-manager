@@ -27,6 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, 'templates')
 STATUS_RE = re.compile(r'^\s*\d+\.\s*(.+?)\s*$')
 DATE_PREFIX_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (.+)$')
+# A template's link to its project's note, in its body (a plan's "[[00 {{project}}#Rules for agents…]]").
+NO_PROJECT_LINK_RE = re.compile(r'\[\[00 \{\{project\}\}[^\]]*\]\]')
 # What a file name cannot hold (on macOS, in Obsidian's links, or anywhere): replaced by a space.
 UNSAFE_RE = re.compile(r'[\\/:*?"<>|#^\[\]]+')
 # Keys whose meaning the app gives under another name; never passed through as they are.
@@ -296,12 +298,15 @@ class TicketingCodec:
         return f'{ref(t, item_id)} {safe_title(subject)}.md'
 
     def folder_of(self, t, project, r, subject=None):
-        """Where a new item of type `t` goes, relative to the vault."""
+        """Where a new item of type `t` goes, relative to the vault: a ticket of `project`, in that project's folder of
+        its type; one in no project (`project` None), in the folder of its type at the vault's top (Initiatives/)."""
         spec = SPEC[t]
         if spec['scope'] == 'root':
             return spec['folder']
         if spec['scope'] == 'note':
             return safe_title(subject)
+        if not project:
+            return spec['folder']
         p = r.projects.get(project)
         return f"{p['dir']}/{spec['folder']}" if p else None
 
@@ -325,7 +330,13 @@ class TicketingCodec:
                      'item_ref': parent_ref or '', 'item_title': parent['title'] if parent else ''}
         if t == 'project':  # its note's title is its own name (there is no project yet to take it from)
             variables['project'] = subject
-        text = self.template(t, variables)
+        if SPEC[t]['scope'] == 'project' and not p:
+            # A ticket in no project: its file names none (`project: ""`), and a line of its body that would link to its
+            # project's note (a plan's rules for agents) says it has none.
+            values = {**values, 'project': None}
+            text = NO_PROJECT_LINK_RE.sub('(none: it is in no project)', self.template(t, {**variables, 'project': '{{project}}'}))
+        else:
+            text = self.template(t, variables)
         if item_id and NUMBER_RE.match(str(item_id)):  # a short id is stored as the number it is: `id: 482`
             text = fm.patch(text, {'id': int(item_id)})
         raw = fm.parse(fm.split(text)[0])

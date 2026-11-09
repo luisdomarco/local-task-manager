@@ -144,10 +144,16 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(types['project']['children'][-2:], ['note', 'meeting'])  # its Overview: Tasks · Notes · Meetings
         self.assertEqual((types['story']['parent_label'], types['prd']['parent_label']), ('Initiative', 'Initiative'))
         self.assertEqual((types['hotfix']['parent_label'], types['error']['parent_label']), ('Support', 'Parent'))
-        # What always hangs from another item is not listed nor added on a project's page: it is its parent's.
-        needs = get('ticketing').public()['needs_parent']
-        self.assertEqual(sorted(needs), ['hotfix', 'plan', 'prd', 'story'])
+        # What always hangs from another item (a plan) is not listed nor added on a project's page: it is its item's. The
+        # rest is, whatever it hangs from (a story under an initiative, or under none).
+        public = get('ticketing').public()
+        needs = public['needs_parent']
+        self.assertEqual(needs, ['plan'])
         self.assertEqual([c for c in types['project']['children'] if c in needs], [])
+        self.assertTrue({'story', 'hotfix', 'prd'} <= set(types['project']['children']))
+        # The tickets that may be in no project: all of a project's folders but its sub-documents.
+        self.assertEqual(public['leaves_project'], ['initiative', 'story', 'spec', 'support', 'hotfix', 'prd'])
+        self.assertEqual(sorted(set(public['project_scoped']) - set(public['leaves_project'])), ['analysis', 'error', 'learning', 'plan'])
 
     def test_ticketing_sidebar_has_its_sections_and_every_list_a_place(self):
         # The sidebar: Projects · Initiatives · Tasks | Notes, then one link per section, a tab per type (static/js/sections.js).

@@ -6,7 +6,8 @@
 // A view, as saved per list (prefs.js `list.<type>`):
 //   { v: 2, filters: [{ field, op: 'is' | 'isnot', values: [...] }], groupBy, orderInGroups, showEmpty,
 //     closed: 'none' | 'week' | 'all', orderBy, props: { <column or card property>: false }, folded: [group keys],
-//     layout: 'list' | 'board' }
+//     layout: 'list' | 'board', and on a board: boardSort, boardFold: { <column key>: folded }, emptyCols,
+//     colOrder: { <groupBy>: [column keys, as dragged] } (colorder.js) }
 import { dayLabel, isoWeek, lateBy, monthLabel, monthOf, shiftWeek, thisWeek, today } from './dates.js';
 import { GROUPS, NONE, PLAN_BUCKETS, ancestorsOf, projectOf } from './grouping.js';
 import { byGoalRank } from './goals.js';

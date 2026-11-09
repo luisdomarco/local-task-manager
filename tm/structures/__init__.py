@@ -166,7 +166,7 @@ class Structure:
                                props=tuple(q for q in map(prop, t.props) if q.get('kind') not in ('link', 'links') or q['types']))
                  for name, t in self.types.items() if name not in off}
         extras = {**self.extras, 'disabled_types': sorted(off)}
-        for key in ('project_scoped', 'optional_types', 'needs_parent'):
+        for key in ('project_scoped', 'optional_types', 'needs_parent', 'leaves_project'):
             if key in extras:
                 extras[key] = [t for t in extras[key] if t not in off]
         if 'sections' in extras:  # a type turned off is no tab; a section with none left is no link
@@ -282,7 +282,8 @@ class Structure:
         return m.group(2) if m else None
 
     def prefix_for(self, type_name, project=None):
-        """The prefix of a new id of that type: its own, or `<project key>-<its own>` for a type that lives in a project."""
+        """The prefix of a new id of that type: its own, or `<project key>-<its own>` for a type that lives in a project
+        (a ticket in no project: its own, `INI`)."""
         t = self.types[type_name]
         return f'{project}-{t.prefix}' if project and type_name in self.extras.get('project_scoped', ()) else t.prefix
 

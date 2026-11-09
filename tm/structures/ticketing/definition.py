@@ -4,6 +4,8 @@
     ├── 00 Index Tickets.md            (optional)
     ├── Tasks/ Notes/ Meetings/ Inbox/ Activities/ Work log/      ← the app's own types, outside projects
     ├── Docs/                          ← documents with no project, never items (optional, TSK-039)
+    ├── Initiatives/ Stories/ Specs/ Support/ Hotfixes/ PRDs/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
+    │                                  ← tickets in no project, each in its type's folder (optional: made with the first)
     └── <Project>/
         ├── 00 <Project>.md            ← fileClass: Ticket Project (project_key, enabled_types, support_due_days…)
         ├── Initiatives/ Support/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
@@ -53,8 +55,9 @@ WORKLOG_FOLDER = 'Work log'
 DOCS_FOLDER = 'Docs'
 INDEX_NOTE = '00 Index Tickets.md'
 
-# How each type's file maps to an item. scope: 'project' (in a project's folder), 'root' (outside projects) or
-# 'note' (the project note itself). title: how the file is named ('id': "<REF> <Title>", 'note': "00 <Project>");
+# How each type's file maps to an item. scope: 'project' (in a project's folder — or, for one in no project, in the
+# folder of the same name at the vault's top: PROJECT_ROOT_FOLDERS), 'root' (outside projects) or 'note' (the project
+# note itself). title: how the file is named ('id': "<REF> <Title>", 'note': "00 <Project>");
 # legacy_title: how a file of that type from before it had ids is named, read when it has none ('plan': "<REF of its
 # item> Plan", 'date': "<date> <Title>"). parent: the field that is its `related_to`.
 # links / multi_links: fields that hold one wikilink / a list of them (shown to the app as item keys).
@@ -269,12 +272,24 @@ LATER = frozenset({key for title, _, keys in DELIVERY_GROUPS if title in LATER_G
                   | {'premise', 'premise_verified', 'disposition', 'resolution', 'fixed_by', 'postmortem', 'superseded_by'})
 PROPS = {name: tuple({**p, 'later': True} if p['key'] in LATER else p for p in props) for name, props in PROPS.items()}
 
-# The types that always hang from another item, never from their project alone: a story and a PRD from an initiative,
-# a hotfix from a support ticket, a plan from what it executes. They are created under it (their Parent is required)
-# and listed there, not on their project's page.
-NEEDS_PARENT = ('story', 'hotfix', 'prd', 'plan')
+# The types that always hang from another item, never from their project alone: a plan, from what it executes. It is
+# created under it (its Parent is required), listed there, not on its project's page, and moved, never let go.
+NEEDS_PARENT = ('plan',)
+# The sub-documents of an item (its plan, analyses, errors, learnings): they never choose nor drop their project on
+# their own. Their project is their item's, and when their item moves (to another project, or to none) they go with it.
+SUB_DOCUMENTS = ('plan', 'analysis', 'error', 'learning')
+# The tickets that may be in no project, and change or drop theirs (with short ids: a long one carries its project's
+# key): every type of a project's folders but the sub-documents. One in no project lives in its type's folder at the
+# vault's top (PROJECT_ROOT_FOLDERS), as a task lives in Tasks/.
+LEAVES_PROJECT = tuple(t for t, s in SPEC.items() if s['scope'] == 'project' and t not in SUB_DOCUMENTS)
+# Where a ticket in no project lives: its type's own folder, at the vault's top (Initiatives/, Records/Errors/…). Each
+# is optional, made with its first file; a sub-document of an item in no project is there too. PROJECT_ROOT_TOPS: the
+# top folders they make, never a project's name (store._create_project) nor a project's for Docs.
+PROJECT_ROOT_FOLDERS = {t: s['folder'] for t, s in SPEC.items() if s['scope'] == 'project'}
+PROJECT_ROOT_TOPS = frozenset(f.split('/')[0] for f in PROJECT_ROOT_FOLDERS.values())
 # The types that open as a page of their own, and the tables of what hangs from each there, in order.
-# Tasks come first on a project's and an initiative's page, in every structure.
+# Tasks come first on a project's and an initiative's page, in every structure. A project's lists what lives in it,
+# whatever it hangs from (a story under an initiative, or under none), but a plan: that is its item's.
 PAGES = {
     'project': tuple(t for t in ('task', 'initiative', 'story', 'spec', 'support', 'hotfix', 'prd', 'plan', 'analysis', 'error',
                                  'learning', 'note', 'meeting') if t not in NEEDS_PARENT),
@@ -447,9 +462,13 @@ def build(codec, checker):
         codec=codec, checker=checker, required=('project',), statuses_locked=True,
         kinds=dict(KINDS), kind_key='project_kind',
         docs_folder=DOCS_FOLDER, docs_in_projects=True,
-        docs_not_projects=frozenset({*ROOT_FOLDERS.values(), *OPTIONAL_ROOT_FOLDERS.values(), WORKLOG_FOLDER, ATTACHMENTS_DIR}),
+        docs_not_projects=frozenset({*ROOT_FOLDERS.values(), *OPTIONAL_ROOT_FOLDERS.values(), *PROJECT_ROOT_TOPS, WORKLOG_FOLDER,
+                                     ATTACHMENTS_DIR}),
         extras={'levels': list(LEVELS), 'project_scoped': [t for t, s in SPEC.items() if s['scope'] == 'project'],
                 'needs_parent': list(NEEDS_PARENT),
+                # The tickets that may be in no project and change or drop theirs (with short ids); the other types of a
+                # project's folders (the sub-documents) follow their item's.
+                'leaves_project': list(LEAVES_PROJECT),
                 'sections': [dict(sec, types=list(sec['types'])) for sec in NAV_SECTIONS],
                 # The types a project may leave out (its note's enabled_types): a system project has no hotfixes nor PRDs.
                 'optional_types': [t for t, s in SPEC.items() if s['optional']],

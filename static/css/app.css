@@ -2603,6 +2603,8 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vboard .list-head { min-height: 38px; padding: 2px 2px 4px 8px; margin-bottom: 2px; gap: 6px; }
 .vboard .list-head .list-name { font-size: var(--fs-sm); font-weight: 600; }
 .vboard .vb-col-head { cursor: default; }
+.vboard .vb-col-head[draggable="true"] { cursor: grab; } /* a column that moves (boardview.js `movable`) */
+.vboard .vb-col-head[draggable="true"]:active { cursor: grabbing; }
 .vboard .vb-col-head .group-title { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; font-size: var(--fs-sm); font-weight: 600; }
 .vboard .vb-col-head .group-title .chip { font-size: var(--fs-sm); font-weight: 600; }
 .vboard .list-head .count { color: var(--muted-foreground); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }

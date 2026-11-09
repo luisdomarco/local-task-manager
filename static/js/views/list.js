@@ -21,7 +21,7 @@ import { nextGoalOrder } from '../goals.js';
 import { cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
 import { addList, boardOf, editLists, listHead } from '../boardview.js';
-import { moveList } from '../kanban.js';
+import { applyOrder, reorderColumns } from '../colorder.js';
 import { idMatches, idTip, refOf, shownId } from '../shownid.js';
 
 // How a type's open and closed items are called (the subtitle: "3 open · 2 closed").
@@ -179,6 +179,10 @@ export function listView(type, { page = null } = {}) {
       const picked = new Set();
       const bulkBar = h('div', { class: 'bulk-bar', role: 'toolbar', 'aria-label': 'Selected rows', hidden: true });
       const board = () => view.layout === 'board' && groups.length > 0;
+      // Grouped by status, a task's board is board.md's lists, which keep their order there; any other board's columns
+      // keep the order they are dragged to with the view (view.colOrder, per grouping).
+      const boardBy = () => view.groupBy || groups[0];
+      const boardLists = () => boardBy() === 'status' && type === 'task' && state.board?.lists?.length > 0;
       // A board's cards have an order of their own (Order on a board): Manual, the default, is where they were dropped
       // (`order`, one per item whatever the board groups by), else one of the list's columns.
       const boardSort = () => view.boardSort || { col: 'manual', dir: 1 };
@@ -246,6 +250,11 @@ export function listView(type, { page = null } = {}) {
         },
         props: columns.map((c) => [c.key, c.label]),
         cardProps: cardProps(types),
+        columnOrder: {
+          on: () => board() && !boardLists(),
+          custom: () => (view.colOrder?.[boardBy()] || []).length > 0,
+          reset: () => { const { [boardBy()]: _, ...rest } = view.colOrder || {}; change({ colOrder: rest }); },
+        },
         // Kept with what draws it: the view, the rows' order, and on the Board which type it shows.
         saveAs: (name) => {
           save(); saveSort(sortKey, sort);
@@ -404,9 +413,11 @@ export function listView(type, { page = null } = {}) {
       };
       /** The board of these rows: a column per group of what the view groups by (a task's by status: its board.md
        *  lists). A closed column, and an empty one (Display → Empty columns: fold), starts folded; the user's fold or
-       *  unfold of a column is kept with the view. */
+       *  unfold of a column is kept with the view. The columns go in the group's order (grouping.js) until one is
+       *  dragged: then in the user's, kept with the view per grouping (view.colOrder[by], colorder.js) — Order sorts
+       *  only the cards inside each column, never the columns. */
       const paintBoard = (rows, items, fs, ctx) => {
-        const by = view.groupBy || groups[0];
+        const by = boardBy();
         const fold = view.boardFold || {};
         const empties = view.emptyCols || 'fold';
         const onFold = (k, f) => change({ boardFold: { ...fold, [k]: f } });
@@ -414,7 +425,7 @@ export function listView(type, { page = null } = {}) {
         const cols = [];
         let after = null;
         let onReorder = null;
-        if (by === 'status' && type === 'task' && state.board?.lists?.length) {
+        if (boardLists()) {
           const placed = new Map(state.board.lists.map((l) => [l.id, []]));
           const orphans = [];
           for (const t of rows) { const l = listOf(t); (l ? placed.get(l.id) : orphans).push(t); }
@@ -422,6 +433,7 @@ export function listView(type, { page = null } = {}) {
             cols.push({ key: NONE, label: 'No list', items: orphans.sort(cardSort()), folded: fold[NONE] ?? false, cls: 'no-list',
               face: [h('span', { class: 'group-name muted', title: 'No list maps to their status — add one for it' }, 'No list')] });
           }
+          const shownLists = []; // the lists drawn, in board.md's order: a drag moves the column among them
           state.board.lists.forEach((l, idx) => {
             const its = placed.get(l.id).sort(cardSort());
             const closed = isClosedStatus(l.status);
@@ -430,26 +442,35 @@ export function listView(type, { page = null } = {}) {
             const open = closed ? its.length : its.filter((t) => !isDone(t)).length;
             const name = l.name === l.status ? statusLabel(l.name) : l.name;
             cols.push({
-              key: l.id, label: name, items: its, cls: `s-${cssKey(l.status)}`, attrs: { 'data-list': l.id },
+              key: l.id, label: name, items: its, cls: `s-${cssKey(l.status)}`, attrs: { 'data-list': l.id }, movable: true,
               face: [h('span', { class: 'status-dot' }), h('span', { class: 'group-name' }, name)],
-              head: listHead(l, idx, open, total),
+              head: listHead(l, idx, open, total, shownLists.push(l.id) - 1),
               // a list sets its status: dropped in another list, the task takes that list (and so its status)
               drop: (k, index) => dropCard(k, index, its, { field: 'list', values: { list: l.id }, move: (item, order) => moveToList(item, l, order) }),
               quick: { type: 'task', values: { list: l.id, ...quickValues(null, NONE) } }, folded: folded(l.id, closed, !its.length),
             });
           });
           after = addList();
-          onReorder = (from, to) => editLists((ls) => moveList(ls, from, to));
+          // board.md keeps the order: the lists drawn as moved, a hidden one (Empty columns: Hide) after the one it followed.
+          onReorder = (from, to) => {
+            const ids = reorderColumns(state.board.lists.map((l) => l.id), shownLists, from, to);
+            editLists((ls) => ls.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)));
+          };
         } else {
           const keys = empties === 'hide' ? [] : emptyKeys(by, fs, ctx, items);
-          for (const g of groupItems(rows, by, { byId: state.byId, projectName, sort: cardSort(), showEmpty: empties !== 'hide', keys })) {
+          const grouped = groupItems(rows, by, { byId: state.byId, projectName, sort: cardSort(), showEmpty: empties !== 'hide', keys });
+          const saved = view.colOrder?.[by];
+          const byKey = new Map(grouped.map((g) => [g.key, g]));
+          const shown = applyOrder(grouped.map((g) => g.key), saved);
+          for (const g of shown.map((k) => byKey.get(k))) {
             const closed = by === 'status' && isClosedStatus(g.key);
             cols.push({
-              key: g.key, label: groupName(by, g.key), face: groupFace(by, g.key), items: g.items,
+              key: g.key, label: groupName(by, g.key), face: groupFace(by, g.key), items: g.items, movable: true,
               cls: by === 'status' ? `s-${cssKey(g.key)}` : '', drop: dropFor(by, g.key, g.items),
               quick: many ? null : { type, values: quickValues(by, g.key) }, folded: folded(g.key, closed, !g.items.length),
             });
           }
+          onReorder = (from, to) => change({ colOrder: { ...(view.colOrder || {}), [by]: reorderColumns(saved, shown, from, to) } });
         }
         tableBox.replaceChildren(boardOf({ columns: cols, onFold, onOpen: openItem, projectName, after, onReorder, shows: (k) => (k === 'status' && view.groupBy === 'status' ? false : cardShows(view, k)) })); // its column says its status
       };

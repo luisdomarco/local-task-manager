@@ -77,6 +77,8 @@ function valueFace(field, v) {
  *   layout                     { current() → 'list' | 'board', pick(l), options?, isBoard? }: the List | Board switch
  *                              (`options` [[key, label, icon]] for others: Calendar | Board, List | Board | Free board;
  *                              `isBoard()` when a layout other than 'board' is a board too); none: no switch
+ *   columnOrder                { on(), custom(), reset() }: a board whose columns move (views/list.js) — Group then says
+ *                              how, or (once moved, for this grouping) offers Reset column order; none: neither
  *   search                     false: no search box (Today, whose day is short)
  *   closedModes, closedDefault [[key, label]] for Display → Show closed, when the page's are not None / Last week / All,
  *                              and the one Reset puts back
@@ -238,6 +240,10 @@ export function viewBar(opts) {
         orders.length && !isBoard() ? h('div', { class: 'vb-row' }, h('span', {}, 'Order in groups'),
           select([[null, 'As the list'], ...orders], view.orderInGroups, (k) => change({ orderInGroups: k }), { class: 'small', 'aria-label': 'Order in groups', search: false })) : null,
         isBoard() || opts.emptyGroups === false ? null : h('div', { class: 'vb-row' }, h('span', {}, 'Show empty groups'), toggle(!!view.showEmpty, (on) => change({ showEmpty: on }), 'Show empty groups')),
+        // A board's columns, in the order they were dragged to for this grouping: back to the group's own.
+        isBoard() && opts.columnOrder?.on() ? (opts.columnOrder.custom()
+          ? h('button', { type: 'button', class: 'menu-item', onclick: () => { opts.columnOrder.reset(); repaint(); } }, h('span', {}, 'Reset column order'))
+          : h('p', { class: 'vb-hint' }, 'Drag a column by its header to move it.')) : null,
       ] : []),
     ].filter(Boolean));
   }

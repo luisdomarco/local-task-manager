@@ -106,12 +106,14 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
 - **Relations / Docs**: built of the Panel kit (below): `stackGroup`s of `rowList`s, quiet pickers, a secondary button
   to add one more. **Parent** opens Relations: one group for where the item lives (`project` and `related_to` in the
   file), the chain as rows — its parent and on up, closed by its project (`in`) — the first with ✎ (`itemPicker` over
-  `parentChoices`) and its ×; a ticket's project row has ✎ *Move to another project* (with a short id) and its ×. **Both
-  are always there**: one that cannot act — the × of what must hang from an item (`needs_parent`: story, PRD, plan,
-  hotfix) or of a ticket's project, a ✎ with nothing else to pick — is drawn faint (`.row-action.is-off`, panel.js
-  `off`) and a click says why in the toast (*An initiative is always in a project: ✎ moves it to another.*); while it hangs from
-  no item, a picker offering only what may be its parent (rules.js `parentChoices`: projects for a type that moves
-  between them, never for a `needs_parent` one). **A link is shown once**: set, it is a row — its name opens it, ✎ and
+  `parentChoices`) and its ×. Where its project can change (rules.js `projectFree`: a task, a note…, and a ticket of
+  `leaves_project` — initiative, story, spec, support, hotfix, PRD — with a short id) the project row's ✎ is that same
+  picker and its × takes it out of every project; a sub-document hanging from no item has ✎ *Move to another project*.
+  **Both are always there**: one that cannot act — the × of what must hang from an item (`needs_parent`: a plan), the ✎
+  and × of a ticket's project with a long id, the × of a sub-document's project, a ✎ with nothing else to pick — is
+  drawn faint (`.row-action.is-off`, panel.js `off`) and a click says why in the toast (*Its id (ACME-INI-001) carries
+  its project: it moves once its vault has short ids…*); while it hangs from no item, a picker offering only what may be
+  its parent (rules.js `parentChoices`: projects for a type whose project can change, never for a `needs_parent` one). **A link is shown once**: set, it is a row — its name opens it, ✎ and
   × on hover —, never a filled picker beside its row; an empty picker names what it picks in grey (*Pick a parent…*); the row
   that adds a relation has a
   primary *Add*, faded until an item is picked (`btn small primary`).
@@ -149,7 +151,12 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   belongs, then priority (its bars and its name, `priorityChip`) · planned (what Display → Show on cards leaves on: ID and labels start off, `CARD_OFF`), no
   framed chips. Dropping a card sets the field the board groups by
   (Planned and Label have none); its place in the column is kept with **Order → Manual**, the default (`order`, every
-  type has it). Grouped by status, a task's board keeps board.md's lists (name, WIP, ⋯).
+  type has it). Grouped by status, a task's board keeps board.md's lists (name, WIP, ⋯). **Columns move** on every list's
+  board: a column's head (and a folded one's strip) drags it (`kanban.js` `dragsList` + `listDropZone`: the list MIME
+  type, so a card's drag and a column's never mix; the 4px `.list-marker` shows where it lands) and Shift+←/→ on the
+  focused head moves it one place, as a pinned chip does. The order is the view's, per grouping (`view.colOrder`,
+  `colorder.js`), never Order's; Group says *Drag a column by its header to move it*, and once one moved, offers
+  *Reset column order*. A board of columns that move is `boardOf({ onReorder })` with `movable` columns.
 - **On a phone (≤ 640px)**: a row is two lines — dot, subject and when (Planned, else Due, else Date) on the first, the
   id · initiative or project in grey on the second; the top bar takes the list's title and its Add as "+", the pins
   giving way; the view bar and the applied filters slide sideways as 40px chips; the top bar's buttons are 44px.

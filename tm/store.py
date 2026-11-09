@@ -984,24 +984,29 @@ class Store:
                 return self._create_project(subject, given or {}, r, body, values)
             project = values.get('project') or None
             scoped = item_type in self.structure.extras.get('project_scoped', ())
+            # A ticket may be in no project (its type's folder at the vault's top); a sub-document (a plan, an analysis…)
+            # is in its item's, none included, or, hanging from nothing, in one it is given.
+            leaves = item_type in self.structure.extras.get('leaves_project', ())
             parent = None
             if values.get('related_to'):
                 self._check_relation({'id': None, 'type': item_type}, values['related_to'])
                 parent = self.find(values['related_to'])
-                if scoped and not project:
-                    project = parent['fields'].get('project')
+                if scoped and (not project or not leaves):
+                    project = parent['fields'].get('project') or None
             if values.get('relations'):
                 self._check_relations({'id': None}, values['relations'])
             if project and project not in r.projects:
                 raise StoreError(400, f'unknown project: {project}')
-            if scoped and not project:
+            if scoped and not project and not leaves and not parent:
                 known = ', '.join(sorted(r.projects)) or 'none yet: create one first'
-                raise StoreError(400, f'a {tdef.label.lower()} lives in a project: choose one ({known})')
-            if scoped:
+                raise StoreError(400, f'a {tdef.label.lower()} lives in its item\'s project, or in one: choose either ({known})')
+            if scoped and project:
                 self._check_project_has(item_type, project, r)
+            elif scoped:
+                self._check_root_home(item_type, r)
             if item_type in self.structure.extras.get('needs_parent', ()) and not parent:
                 raise StoreError(400, f'a {tdef.label.lower()} hangs from {self._parents_text(item_type)}: choose it in Parent')
-            values = {**values, 'project': project} if project else values
+            values = {**values, 'project': project} if project or scoped else values
             dup = self._rule('duplicate_of', item_type, values, self.items())
             if dup:  # the same problem again (an open support ticket with this signature): one more occurrence
                 return self.read(self._rule('add_occurrence', dup, body, r, now_stamp()))
@@ -1051,7 +1056,14 @@ class Store:
         vals.pop('project_kind', None)
         self._remember_labels(vals.get('labels'))
         rel, text = codec.new_file('project', name, vals, body, r, None, stamp)
-        folder = self.abs(os.path.dirname(rel))
+        top = os.path.dirname(rel)
+        # A top folder of the structure's own (Tasks/, Docs/, or where the tickets in no project live: Initiatives/…) is
+        # never a project's: refused whether it is there yet or not, in any case (a Mac's disk does not tell them apart).
+        own = {*self.structure.docs_not_projects, self.structure.docs_folder}
+        if top.casefold() in {f.casefold() for f in own}:
+            raise StoreError(400, f'"{top}" is one of the vault\'s own folders (the tickets in no project and the app\'s '
+                                  'own types are kept in them): give the project another name')
+        folder = self.abs(top)
         if os.path.lexists(folder):
             raise StoreError(409, f'already exists: {os.path.dirname(rel)}')
         text = fm.patch(text, {'project_key': key, 'project_kind': kind})
@@ -1108,6 +1120,14 @@ class Store:
         if item_type in kind.optional:
             raise StoreError(400, f'project {project} has {plural} turned off: turn them on in its settings (Types) first')
         raise StoreError(400, f'project {project} is of kind {kind.id}, which has no {plural}')
+
+    def _check_root_home(self, item_type, r):
+        """A ticket in no project lives in its type's folder at the vault's top (Initiatives/): never inside a project
+        from before that rule whose folder has that name (a 409 that says which)."""
+        top = self.structure.codec.folder_of(item_type, None, r).split('/')[0]
+        if top in r.project_by_dir:
+            raise StoreError(409, f'"{top}" is the folder of project {r.project_by_dir[top]}: a '
+                                  f'{self.structure.types[item_type].label.lower()} in no project cannot be kept there')
 
     def _rule(self, name, *args):
         """Run one of the structure's own rules (its codec's hook `name`), if it has it; a rule that says no is a 400."""
@@ -1190,28 +1210,38 @@ class Store:
         return key
 
     def _project_move_plan(self, it, to, r):
-        """A ticket going to project `to`: the files that move, [(from, to)] relative to the vault, the ticket first,
-        then what hangs from it (`related_to`, all the way down) in its project's own folders — an initiative takes
-        its stories, plans and analyses. Only with short ids (a long id carries its project's key), only into a project
-        that holds each type, and never over a file already there. Nothing is moved here."""
-        if not to:
-            raise StoreError(400, 'a ticket is always in a project: pick the one it moves to')
+        """A ticket going to project `to` (None: to no project): the files that move, [(from, to)] relative to the
+        vault, the ticket first, then what hangs from it (`related_to`, all the way down) in its current home — its
+        project's own folders, or the vault's top folders of its types when it is in none — : an initiative takes its
+        stories, plans and analyses. A ticket in no project lives in its type's folder at the vault's top (Initiatives/).
+        Only a type that may leave its project (LEAVES_PROJECT: a sub-document's follows its item's), only with short ids
+        (a long id carries its project's key), only into a project that holds each type, and never over a file already
+        there. Nothing is moved here."""
+        label = self.structure.types[it['type']].label.lower()
+        if it['type'] not in self.structure.extras.get('leaves_project', ()):
+            if not to:
+                raise StoreError(400, f'a {label} is in the project of the item it hangs from, or in one: pick another project')
+            if it['fields'].get('related_to'):
+                raise StoreError(400, f'a {label} is in the project of the item it hangs from: move that item, and it goes with it')
         if not self.structure.is_number(it['fields'].get('id') or it.get('id') or ''):
-            raise StoreError(400, 'a ticket with a long id cannot move to another project: its id carries the project '
-                                  'key (docs/migrate-short-ids.md moves the vault to short ids)')
+            raise StoreError(400, f'a ticket with a long id cannot move to {"another project" if to else "no project"}: its id '
+                                  'carries the project key (docs/migrate-short-ids.md moves the vault to short ids)')
         scoped = set(self.structure.extras.get('project_scoped', ()))
         items, _ = self.scan()
         under = {}
         for x in items:
             under.setdefault(x['fields'].get('related_to'), []).append(x)
-        home = it['fields'].get('project')
+        home = it['fields'].get('project') or None
         plan, todo, seen = [], [it], set()
         while todo:
             x = todo.pop(0)
-            if x['key'] in seen or x['type'] not in scoped or x['fields'].get('project') != home:
+            if x['key'] in seen or x['type'] not in scoped or (x['fields'].get('project') or None) != home:
                 continue
             seen.add(x['key'])
-            self._check_project_has(x['type'], to, r)
+            if to:
+                self._check_project_has(x['type'], to, r)
+            else:
+                self._check_root_home(x['type'], r)
             dst = f"{self.structure.codec.folder_of(x['type'], to, r)}/{os.path.basename(x['path'])}"
             if os.path.lexists(self.abs(dst)):
                 raise StoreError(409, f'another file already has that name: {dst}')
@@ -1337,7 +1367,7 @@ class Store:
             if 'related_to' in values and values['related_to']:
                 self._check_relation(it, values['related_to'])
             elif 'related_to' in values and it['fields'].get('related_to') and it['type'] in self.structure.extras.get('needs_parent', ()):
-                # One that always hangs from another item (a story, a plan…) moves to another, never to none.
+                # One that always hangs from another item (a plan) moves to another, never to none.
                 raise StoreError(400, f"a {self.structure.types[it['type']].label.lower()} hangs from "
                                       f"{self._parents_text(it['type'])}: pick another one instead of none")
             if values.get('relations'):

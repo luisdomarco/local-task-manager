@@ -4,6 +4,20 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A board's columns move.** On any list shown as a board (Projects, Initiatives, Stories, Tasks…, and the Board
+  page), drag a column by its header — or a folded one by its strip — to put it elsewhere, or focus its header and
+  press Shift+←/→. The order is kept with the board's view and for each grouping on its own (Status, Priority,
+  Project…); **Order** only sorts the cards inside each column, never the columns. New columns come after the ones you
+  placed; *Group → Reset column order* goes back to the usual order. Dragging cards works as before.
+- **A ticket may be in no project, and change or drop its parent.** An initiative, a story, a spec, a support ticket,
+  a hotfix or a PRD can be created with no project and no parent, and, with short ids, its Parent (Relations) changes
+  either: ✎ offers the projects and what it may hang from in any project or none (picking an item brings that item's
+  project along), × on its item lets go of it and keeps its project, × on its project takes it out of every project —
+  each with Undo. A ticket in no project lives in its type's folder at the top of the vault (`Initiatives/`,
+  `Stories/`, `Records/Errors/`…, made with the first), with what hangs from it moved along; its id has no project key
+  (`INI-001` in a vault with long ids). A plan still always hangs from an item, and a plan, analysis, error or learning
+  follows its item's project. Long ids still cannot move (docs/migrate-short-ids.md). No project can be named after
+  one of these folders.
 - **Agents: run your Claude Code commands from the app.** A third sidebar mode (⌘⇧E goes round Project, Explorer and
   Agents) lists the commands in the `.claude/commands` of any folder you add — a repository, a system, outside every
   vault — by folder and namespace, with a filter, pinned agents on top and hidden ones out of the way. Each agent has a

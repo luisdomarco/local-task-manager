@@ -69,7 +69,8 @@ def render(info, app_dir, python='python3'):
              '  tell the owner what is missing.',
              '- A refusal (exit 1) says why on stderr. Nothing is half written.']
     if info['projects'] and any(p['folder'] for p in info['projects']):
-        lines += ['', '## Projects', '', 'Each project is a folder; its items live in it.', '',
+        lines += ['', '## Projects', '', 'Each project is a folder; its items live in it. A ticket in no project lives in its type\'s '
+                  'folder at the top of the vault (see Item types).', '',
                   '| Key | Name | Folder |', '|---|---|---|']
         lines += [f"| {_cell(p['key'])} | {_cell(p['name'])} | `{_cell(p['folder'])}` |" for p in info['projects']]
     elif info['projects']:
@@ -78,10 +79,12 @@ def render(info, app_dir, python='python3'):
     lines += ['', '## Item types', '',
               '| Type | Ref | Folder | Statuses (closed in bold) | Parent | Link fields |', '|---|---|---|---|---|---|']
     for t in types:
-        folder = f"<project>/{t['folder']}" if t['name'] in scoped and t['folder'] else t['folder'] or '—'
+        # A ticket's folder is in its project's, or, in no project, the one of the same name at the vault's top.
+        folder = (f"`<project>/{_cell(t['folder'])}` (no project: `{_cell(t['folder'])}`)" if t['name'] in scoped and t['folder']
+                  else f"`{_cell(t['folder'] or '—')}`")
         statuses = ', '.join(f'**{s}**' if s in t['closed'] else s for s in t['statuses']) or '—'
         links = ', '.join(f"`{k}`" + (f" → {'/'.join(v)}" if v else '') for k, v in t['links']) or '—'
-        lines.append(f"| `{t['name']}` {_cell(t['label'])} | {_cell(t['example'] or '—')} | `{_cell(folder)}` | {statuses} | "
+        lines.append(f"| `{t['name']}` {_cell(t['label'])} | {_cell(t['example'] or '—')} | {folder} | {statuses} | "
                      f"{_cell(', '.join(t['parents']) or '—')} | {links} |")
     if rk.get('kinds'):
         kept = rk.get('fields') or {}

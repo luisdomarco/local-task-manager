@@ -75,9 +75,10 @@ class LayoutTest(TicketingBase):
         self.assertEqual(sup['path'], 'Internal Tools/Support/HB-SUP-001 El gate falla.md')
         self.assertEqual(task['path'], 'Tasks/TSK-001 Revisar.md')
         self.assertEqual(task['fields']['project'], 'HB')
-        with self.assertRaises(StoreError):  # a ticket lives in a project
-            self.s.create('support', 'Sin proyecto', {})
-        self.assertTrue(self.s.check()['ok'])
+        loose = self.s.create('support', 'Sin proyecto', {})  # in no project: its type's folder at the top, its bare prefix
+        self.assertEqual((loose['id'], loose['path'], loose['fields']['project']), ('SUP-001', 'Support/SUP-001 Sin proyecto.md', None))
+        self.assertIn('\nproject: ""', read(self.root, loose['path']))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
 
     def test_a_new_ticket_is_its_template_filled_in(self):
         sup = self.s.create('support', 'Algo se rompe', {'project': 'HB', 'level': 'C1', 'origin': 'ci'}, body='Se rompe al crear.')
@@ -414,22 +415,27 @@ class StoryTest(TicketingBase):
     def status(self, key):
         return self.s.read(key)['fields']['status']
 
-    def test_what_always_hangs_from_an_item_is_made_under_it_and_moved_never_let_go(self):
+    def test_a_plan_is_made_under_its_item_and_moved_never_let_go_the_rest_may_hang_from_nothing(self):
         ini, (story,) = self.ready_initiative()
         sup = self.s.create('support', 'Broken', {'project': 'ECD'})
-        for kind, parents in (('story', 'an initiative'), ('prd', 'an initiative'), ('hotfix', 'a support'),
-                              ('plan', 'an initiative, a story or a support')):
-            with self.assertRaises(StoreError) as cm:
-                self.s.create(kind, 'Loose', {'project': 'ECD'})
-            self.assertEqual(cm.exception.status, 400, kind)
-            self.assertIn(f'hangs from {parents}', str(cm.exception))
+        with self.assertRaises(StoreError) as cm:
+            self.s.create('plan', 'Loose', {'project': 'ECD'})
+        self.assertEqual(cm.exception.status, 400)
+        self.assertIn('hangs from an initiative, a story or a support', str(cm.exception))
+        for kind in ('story', 'prd', 'hotfix'):  # in their project, hanging from nothing
+            loose = self.s.create(kind, 'Loose', {'project': 'ECD'})
+            self.assertEqual((loose['fields']['project'], loose['fields']['related_to']), ('ECD', None), kind)
         fix = self.s.create('hotfix', 'Patch', {'project': 'ECD', 'related_to': sup['id']})
-        for key in (story['id'], fix['id']):
-            with self.assertRaises(StoreError) as cm:
-                self.s.update(key, {'related_to': None})
-            self.assertIn('pick another one instead of none', str(cm.exception))
+        plan = self.s.create('plan', 'Steps', {'related_to': story['id']})
+        for key in (story['id'], fix['id']):  # let go of what it hangs from: it stays in its project
+            now = self.s.update(key, {'related_to': None})
+            self.assertEqual((now['fields']['related_to'], now['fields']['project']), (None, 'ECD'))
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(plan['key'], {'related_to': None})
+        self.assertIn('pick another one instead of none', str(cm.exception))
         other = self.s.create('initiative', 'Payments', {'project': 'ECD'})
         self.assertEqual(self.s.update(story['id'], {'related_to': other['id']})['fields']['related_to'], other['id'])
+        self.assertTrue(self.s.check()['ok'], self.s.check())
 
     def test_a_story_is_a_file_of_its_project_linked_to_its_initiative(self):
         ini, (story,) = self.ready_initiative()
@@ -454,9 +460,10 @@ class StoryTest(TicketingBase):
         self.assertIn('a written acceptance scenario', str(cm.exception))  # "- **WHEN** …" is the template's, not one written
         self.s.update(story['id'], {}, body=READY_BODY)
         self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
-        with self.assertRaises(StoreError) as cm:  # a story is made under its initiative, never loose
-            self.s.create('story', 'Loose', {'project': 'ECD', **READY}, READY_BODY)
-        self.assertIn('hangs from an initiative', str(cm.exception))
+        loose = self.s.create('story', 'Loose', {'project': 'ECD', **READY}, READY_BODY)  # made with no initiative…
+        with self.assertRaises(StoreError) as cm:  # …it is ready only once it has one
+            self.s.update(loose['id'], {'status': 'ToDo'})
+        self.assertIn('only with its initiative', str(cm.exception))
 
     def test_the_initiative_follows_its_stories(self):
         ini, (a, b) = self.ready_initiative(stories=2)
@@ -509,15 +516,16 @@ class StoryTest(TicketingBase):
               '---\nfileClass: Ticket PRD\nid: "ECD-PRD-001"\nproject: "[[00 Acme Web]]"\nstatus_ticket: "1. Backlog"\n'
               'umbrella: "[[ECD-INI-001 Checkout]]"\n---\n\n# Old\n')
         self.assertEqual(self.s.read('ECD-PRD-001')['fields']['related_to'], ini['id'])
-        with self.assertRaises(StoreError) as cm:  # a PRD always hangs from an initiative: moved, never let go
-            self.s.update('ECD-PRD-001', {'related_to': None})
-        self.assertIn('pick another one instead of none', str(cm.exception))
         other = self.s.create('initiative', 'Payments', {'project': 'ECD'})
         self.s.update('ECD-PRD-001', {'related_to': other['id']})
         raw = fm.parse(fm.split(read(self.root, 'Acme Web/PRDs/ECD-PRD-001 Old.md'))[0])
         self.assertEqual(raw['umbrella'], '')
         self.assertIn(other['id'], raw['initiative'])
         self.assertEqual(self.s.read('ECD-PRD-001')['fields']['related_to'], other['id'])
+        loose = self.s.update('ECD-PRD-001', {'related_to': None})  # let go: in its project, hanging from nothing
+        self.assertEqual((loose['fields']['related_to'], loose['fields']['project'], loose['path']),
+                         (None, 'ECD', 'Acme Web/PRDs/ECD-PRD-001 Old.md'))
+        self.assertEqual(fm.parse(fm.split(read(self.root, loose['path']))[0])['initiative'], '')
 
 
 VALID_SPEC = ('## Purpose\n\nPay.\n\n## Requirements\n\n### Requirement: Cart is kept\nThe system SHALL keep the cart.\n\n'

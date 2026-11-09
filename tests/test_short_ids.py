@@ -181,8 +181,20 @@ class ConvertTest(ShortIdsBase):
 
 
 class ProjectMoveTest(ShortIdsBase):
-    """With short ids a ticket can change project: its file moves to that project's folder, and what hangs from it in
-    its project goes with it. A long id carries its project's key, so there it is still refused."""
+    """With short ids a ticket can change project, or be in none: its file moves to that project's folder (or to its
+    type's folder at the vault's top), and what hangs from it in its current home goes with it. A long id carries its
+    project's key, so there it is still refused."""
+
+    def long_id_vault(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for d in [*ROOT_FOLDERS.values(), WORKLOG_FOLDER]:
+            os.makedirs(os.path.join(tmp.name, d))
+        write(tmp.name, '.task-manager/ids.json', '{}\n')
+        s = Store(tmp.name, structure='ticketing', enforce_structure=True)
+        s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'})
+        s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'})
+        return s
 
     def test_an_initiative_moves_with_its_stories_and_plans(self):
         ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
@@ -200,26 +212,102 @@ class ProjectMoveTest(ShortIdsBase):
         self.assertEqual(self.s.read(task['key'])['path'], task['path'])  # a task is the vault's own: it stays
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
-    def test_never_into_a_project_without_its_type_nor_out_of_every_project(self):
+    def test_out_of_every_project_to_the_root_and_back_with_what_hangs_from_it(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        plan = self.s.create('plan', 'Ship it', {'related_to': sty['id']})
+        err = self.s.create('error', 'It broke', {'related_to': ini['id']})
+        out = self.s.update(ini['key'], {'project': None})
+        self.assertEqual((out['path'], out['fields']['project']), ('Initiatives/INI-1 Checkout.md', None))
+        self.assertIn('\nproject: ""', read(self.root, out['path']))
+        for it, path in ((sty, 'Stories/STY-2 One page.md'), (plan, 'Plans/PLN-3 Ship it.md'), (err, 'Records/Errors/ERR-4 It broke.md')):
+            now = self.s.read(it['key'])
+            self.assertEqual((now['path'], now['fields']['project']), (path, None))
+            self.assertIn('\nproject: ""', read(self.root, path))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+        back = self.s.update(ini['key'], {'project': 'OPS'})  # and from no project into one, its tree along
+        self.assertEqual(back['path'], 'Internal Tools/Initiatives/INI-1 Checkout.md')
+        self.assertEqual(self.s.read(plan['key'])['path'], 'Internal Tools/Plans/PLN-3 Ship it.md')
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_never_into_a_project_without_its_type(self):
         sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': self.s.create('initiative', 'Checkout', {'project': 'ACME'})['id']})
         self.s.create('project', 'Office', {'project_key': 'OFF', 'project_kind': 'simple'})
-        for to in ('OFF', None):  # a simple project has no stories; a ticket is always in one
-            with self.assertRaises(StoreError):
-                self.s.update(sty['key'], {'project': to})
+        with self.assertRaises(StoreError):  # a simple project has no stories
+            self.s.update(sty['key'], {'project': 'OFF'})
         self.assertEqual(self.s.read(sty['key'])['path'], sty['path'])
 
-    def test_a_long_id_cannot_move(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        for d in [*ROOT_FOLDERS.values(), WORKLOG_FOLDER]:
-            os.makedirs(os.path.join(tmp.name, d))
-        write(tmp.name, '.task-manager/ids.json', '{}\n')
-        s = Store(tmp.name, structure='ticketing', enforce_structure=True)
-        s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'})
-        s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'})
-        ini = s.create('initiative', 'Checkout', {'project': 'ACME'})
+    def test_a_story_changes_its_initiative_across_projects_or_lets_go_and_keeps_its_own(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        other = self.s.create('initiative', 'Deploys', {'project': 'OPS'})
+        loose = self.s.create('initiative', 'Someday', {})
+        sty = self.s.create('story', 'One page', {'related_to': ini['id']})
+        self.assertEqual(sty['fields']['project'], 'ACME')  # made under its initiative: in its project
+        now = self.s.update(sty['key'], {'related_to': other['id'], 'project': 'OPS'})  # as the page sends it
+        self.assertEqual((now['path'], now['fields']['related_to']), ('Internal Tools/Stories/STY-4 One page.md', other['id']))
+        now = self.s.update(sty['key'], {'related_to': loose['id'], 'project': None})
+        self.assertEqual((now['path'], now['fields']['project']), ('Stories/STY-4 One page.md', None))
+        now = self.s.update(sty['key'], {'related_to': None})  # let go: it stays where it is
+        self.assertEqual((now['path'], now['fields']['related_to'], now['fields']['project']), ('Stories/STY-4 One page.md', None, None))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_a_ticket_is_made_in_no_project_and_a_sub_document_follows_its_item(self):
+        ini = self.s.create('initiative', 'Someday', {})
+        sup = self.s.create('support', 'Odd thing', {})
+        self.assertEqual([(i['path'], i['fields']['project']) for i in (ini, sup)],
+                         [('Initiatives/INI-1 Someday.md', None), ('Support/SUP-2 Odd thing.md', None)])
+        anl = self.s.create('analysis', 'Why', {'related_to': ini['id'], 'project': 'ACME'})  # its item's, not the one it is given
+        lrn = self.s.create('learning', 'Lesson', {'related_to': sup['id']})
+        self.assertEqual([(i['path'], i['fields']['project']) for i in (anl, lrn)],
+                         [('Analyses/ANL-3 Why.md', None), ('Records/Learnings/LRN-4 Lesson.md', None)])
+        for d in ('Initiatives', 'Support', 'Analyses', 'Records/Learnings'):  # each folder made with its first file
+            self.assertTrue(os.path.isdir(os.path.join(self.root, d)), d)
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_a_sub_document_never_chooses_nor_drops_its_project_on_its_own(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        plan = self.s.create('plan', 'Ship it', {'related_to': ini['id']})
+        anl = self.s.create('analysis', 'Why', {'project': 'ACME'})  # in a project, hanging from nothing
+        for key, to in ((plan['key'], 'OPS'), (plan['key'], None), (anl['key'], None)):
+            with self.assertRaises(StoreError) as cm:
+                self.s.update(key, {'project': to})
+            self.assertEqual(cm.exception.status, 400)
+        self.assertEqual(self.s.update(anl['key'], {'project': 'OPS'})['path'], 'Internal Tools/Analyses/ANL-3 Why.md')
+        with self.assertRaises(StoreError):  # a plan still needs its item
+            self.s.create('plan', 'Loose', {})
         with self.assertRaises(StoreError):
-            s.update(ini['key'], {'project': 'OPS'})
+            self.s.create('analysis', 'Loose', {})  # nothing to follow, and no project given
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_a_long_id_cannot_move_nor_leave_but_a_new_one_may_be_in_no_project(self):
+        s = self.long_id_vault()
+        ini = s.create('initiative', 'Checkout', {'project': 'ACME'})
+        for to in ('OPS', None):
+            with self.assertRaises(StoreError) as cm:
+                s.update(ini['key'], {'project': to})
+            self.assertIn('docs/migrate-short-ids.md', str(cm.exception))
+        loose = s.create('initiative', 'Someday', {})
+        sty = s.create('story', 'Later', {'related_to': loose['id']})
+        self.assertEqual([(i['id'], i['path']) for i in (loose, sty)],
+                         [('INI-001', 'Initiatives/INI-001 Someday.md'), ('STY-001', 'Stories/STY-001 Later.md')])
+        self.assertTrue(s.check()['ok'], s.check())
+
+    def test_no_project_is_named_as_a_folder_of_the_vault_s_own(self):
+        for name in ('Initiatives', 'records', 'Tasks', 'Docs'):
+            with self.assertRaises(StoreError) as cm:
+                self.s.create('project', name, {'project_key': 'XY', 'project_kind': 'product'})
+            self.assertEqual(cm.exception.status, 400, name)
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Initiatives')))
+
+    def test_a_project_from_before_named_as_a_root_folder_keeps_its_tickets_out_of_it(self):
+        write(self.root, 'Support/00 Support.md', '---\nfileClass: Ticket Project\nproject_key: SP\nproject_kind: simple\n---\n')
+        for sub in self.s.structure.codec.project_folders('simple'):
+            os.makedirs(os.path.join(self.root, 'Support', sub), exist_ok=True)
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+        with self.assertRaises(StoreError) as cm:
+            self.s.create('support', 'Loose', {})
+        self.assertEqual(cm.exception.status, 409)
+        self.assertIn('project SP', str(cm.exception))
 
 
 class CheckTest(ShortIdsBase):
@@ -230,6 +318,18 @@ class CheckTest(ShortIdsBase):
         kinds = {(f['kind'], f['path']) for f in self.s.check()['blocking']}
         self.assertIn(('bad_name', 'Tasks/7 Wrong name.md'), kinds)
         self.assertIn(('duplicate_id', 'Tasks/TSK-8 Two.md'), kinds)
+
+    def test_the_root_folders_of_a_project_s_types_are_known_and_hold_only_their_type(self):
+        write(self.root, 'Initiatives/INI-7 Loose.md', '---\nfileClass: Ticket Initiative\nid: 7\nstatus_ticket: "1. Backlog"\n---\n')
+        write(self.root, 'Records/Errors/ERR-8 Loose.md', '---\nfileClass: Ticket Error\nid: 8\n---\n')
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+        write(self.root, 'Initiatives/STY-9 Wrong.md', '---\nfileClass: Ticket Story\nid: 9\nstatus_ticket: "1. Backlog"\n---\n')
+        write(self.root, 'Stories/ACME-STY-010 Keyed.md', '---\nfileClass: Ticket Story\nid: "ACME-STY-010"\nstatus_ticket: "1. Backlog"\n---\n')
+        write(self.root, 'Elsewhere/x.md', 'x\n')
+        kinds = {(f['kind'], f['path']) for f in self.s.check()['blocking']}
+        self.assertIn(('wrong_folder', 'Initiatives/STY-9 Wrong.md'), kinds)
+        self.assertIn(('bad_id', 'Stories/ACME-STY-010 Keyed.md'), kinds)  # in no project: no project's key
+        self.assertIn(('unexpected_folder', 'Elsewhere'), kinds)  # nothing else relaxes
 
     def test_zero_padded_is_not_a_number(self):
         write(self.root, 'Tasks/TSK-07 Padded.md', '---\nfileClass: Ticket Task\nid: "07"\nstatus_ticket: "1. Backlog"\n---\n')

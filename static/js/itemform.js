@@ -26,7 +26,7 @@
 // | 'YYYY-MM-DD' | 'YYYY-Www' | null.
 import { dateInput, pickDate } from './datepicker.js';
 import { isoWeek, monthLabel, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
-import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, kindFor, movesProject, needsParent, parentChoices, parentLabel, parentPick, parentValue, projectHas, propsIn, askedOnCreate, propsOf, statusesOf, tabOf } from './rules.js';
+import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, kindFor, needsParent, parentChoices, parentLabel, parentPick, parentValue, projectFree, projectHas, propsIn, askedOnCreate, propsOf, statusesOf, tabOf } from './rules.js';
 import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
@@ -368,13 +368,14 @@ export function relatedControl(b, { types = PARENT_TYPES[b.type], label = relate
 
 /**
  * Its Parent: one field for where it lives — its project and what it hangs from (`project` and `related_to` in the
- * file, rules.js parentChoices / parentPick). It offers only what may be its parent: the projects where it chooses
- * one (a task, a note…, or a ticket being created), never to one that always hangs from an item (a plan, a story…);
- * then the items its type may hang from. Picking an item brings that item's project where it can change.
+ * file, rules.js parentChoices / parentPick). It offers only what may be its parent: the projects where its project
+ * can change (a task, a note…, a ticket being created: none is required, but a plan's item), never to one that always
+ * hangs from an item (a plan); then the items its type may hang from. Picking an item brings that item's project where
+ * it can change.
  */
 export function parentControl(b, { empty = null } = {}) {
   const fields = { related_to: b.get('related_to') || null, project: b.get('project') || null };
-  const free = movesProject(b.type) || (b.creating && hasField(b.type, 'project'));
+  const free = projectFree(b.type, { creating: !!b.creating });
   const current = free ? parentValue(fields) : fields.related_to;
   const choices = parentChoices(b.type, { project: fields.project, exclude: b.exclude || new Set(), current: fields.related_to, creating: !!b.creating }, state.all);
   const label = parentLabel(b.type).toLowerCase();
@@ -390,8 +391,9 @@ export function parentControl(b, { empty = null } = {}) {
 
 /**
  * Where a Ticketing item lives: its project. A ticket (a type that lives in a project) lives in its project's folder
- * and its id carries the key, so it is chosen once, on creation, and read-only after; a task, a note, a meeting or an
- * activity may have none, and change it.
+ * (in none: its type's folder at the vault's top): here it is chosen on creation and read-only after — it changes in
+ * its Relations tab's Parent, with its short id (panel.js); a task, a note, a meeting or an activity may have none, and
+ * change it.
  */
 export function projectControl(b) {
   const scoped = (STRUCTURE.project_scoped || []).includes(b.type);

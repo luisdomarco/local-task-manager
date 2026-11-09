@@ -23,7 +23,7 @@ import { shownKinds } from './kindgroups.js';
 import { groupLinks, linkIcon, shortUrl } from './linkgroups.js';
 import { quickAddBar } from './quickadd.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, kindFor, matchesWhere, movesProject, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectHas, projectOf, propsIn, statusesOf,
+  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, isShortId, kindFor, leavesProject, matchesWhere, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectFree, projectHas, projectOf, propsIn, statusesOf,
 } from './rules.js';
 import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
@@ -355,21 +355,25 @@ function relationsSection(item, rerender) {
 
   // Its Parent, first: where it lives, one field for its project and what it hangs from (`project`, `related_to`). Set,
   // the chain as rows — what it hangs from and on up, closed by its project (`in`) —; the first row changes it (✎) and,
-  // where it may hang from nothing, lets it go (×). A ticket's project changes too where its id is a short one: the
-  // file moves to that project's folder, with what hangs from it there (store._project_move_plan). While it hangs from
-  // nothing, the picker (itemform.js parentControl): only what may be its parent.
+  // where it may hang from nothing, lets it go (×). A ticket that may leave its project (rules.js leavesProject) with a
+  // short id changes it as a task does — to another project, to none, or to what an item of any project brings —: the
+  // file moves to that project's folder (none: its type's folder at the vault's top), with what hangs from it there
+  // (store._project_move_plan). A sub-document's follows its item. While it hangs from nothing, the picker: only what
+  // may be its parent.
   let parentGroup = null;
   const withProject = hasProject(item.type);
   if (withProject || PARENT_TYPES[item.type].length) {
-    const free = movesProject(item.type);
+    const free = projectFree(item.type, { id: item.id });
     const what = refOf(item) || item.title;
     const setParent = (v) => {
-      const now = parentPick(item.type, v, state.all, { related_to: f.related_to || null, project: f.project || null });
+      const now = parentPick(item.type, v, state.all, { related_to: f.related_to || null, project: f.project || null }, { id: item.id });
       if (!Object.keys(now).length) return;
+      // Undo writes back what it had: its parent and its project, as they were (the store moves the file back).
       const was = Object.fromEntries(Object.keys(now).map((k) => [k, f[k] || null]));
       const named = (k) => refOf(state.byId.get(k)) || k; // the item it hangs from, as drawn (INI-482)
+      const where = 'project' in now ? (now.project ? `, in ${now.project}` : ', in no project') : '';
       relink(() => updateItem(item.key, now), () => updateItem(item.key, was),
-        now.related_to ? `${what} now hangs from ${named(now.related_to)}` : now.project ? `${what} is now in ${now.project}`
+        now.related_to ? `${what} now hangs from ${named(now.related_to)}${where}` : now.project ? `${what} is now in ${now.project}`
           : 'related_to' in now ? `${what} no longer hangs from ${named(f.related_to)}` : `${what} is in no project now`);
     };
     const project = withProject ? projectOf(item, state.all) || f.project || null : null;
@@ -378,7 +382,7 @@ function relationsSection(item, rerender) {
     const exclude = item.id ? descendants(item.id) : new Set();
     const asItem = (c) => (c.type === 'project' ? state.items.find((i) => i.type === 'project' && i.fields.project_key === c.value.slice('project:'.length))
       : state.byId.get(c.value));
-    const pickable = parentChoices(item.type, { project: f.project || null, exclude, current: f.related_to || null }, state.all)
+    const pickable = parentChoices(item.type, { project: f.project || null, exclude, current: f.related_to || null, id: item.id }, state.all)
       .filter((c) => c.value !== f.related_to && c.value !== `project:${f.project}`)
       .map((c) => [c, asItem(c)]).filter(([, it]) => it);
     const valueOf = new Map(pickable.map(([c, it]) => [it, c.value]));
@@ -386,21 +390,25 @@ function relationsSection(item, rerender) {
     const aKind = `${/^[aeiou]/.test(kind) ? 'An' : 'A'} ${kind}`; // "An initiative"
     const toParent = changer(`Change ${parentLabel(item.type).toLowerCase()}`, pickable.map(([, it]) => it), (it) => setParent(valueOf.get(it)),
       `Nothing else can be its ${parentLabel(item.type).toLowerCase()} now.`);
-    // A ticket (its folder is its project's) moves to another project that holds its type; only with a short id.
-    const movable = !free && project && !ups.length && /^\d+$/.test(String(item.id || ''));
+    // A sub-document hanging from no item (an analysis of its project alone) moves to another project that holds its
+    // type, never to none; a ticket with a long id does neither (its id carries its project's key).
+    const longId = !free && leavesProject(item.type);
+    const movable = !free && !longId && project && !ups.length && isShortId(item.id);
     const others = movable ? state.items.filter((p) => p.type === 'project' && p.fields.project_key && p.fields.project_key !== f.project
       && !isDone(p) && projectHas(p, item.type)) : [];
+    const carried = `Its id (${what}) carries its project: it moves once its vault has short ids (docs/migrate-short-ids.md).`;
     const toProject = changer('Move to another project', others, (p) => {
       const key = p.fields.project_key;
       relink(() => updateItem(item.key, { project: key }), () => updateItem(item.key, { project: f.project }), `${what} is now in ${key}`);
-    }, movable ? `No other open project holds ${kind}s.` : `Its id (${what}) carries its project: move it after its vault has short ids.`);
+    }, movable ? `No other open project holds ${kind}s.` : longId ? carried
+      : `Its id (${what}) carries its project: move it after its vault has short ids.`);
     const rows = [
       ...ups.map((p, i) => row(p, { depth: i, lead: i ? 'in' : null,
         menu: i ? null : [toParent, needsParent(item.type) ? off('x', `Unlink from ${refOf(p) || p}`, `${aKind} always hangs from one: ✎ picks another.`)
           : letGo(`Unlink from ${refOf(p) || p}`)] })),
       ...(project ? [row(project, { depth: ups.length, lead: ups.length ? 'in' : null,
         menu: ups.length ? null : [free ? toParent : toProject, free ? letGo(`Take it out of ${f.project}`)
-          : off('x', `Take it out of ${f.project}`, `${aKind} is always in a project: ✎ moves it to another.`)] })] : []),
+          : off('x', `Take it out of ${f.project}`, longId ? carried : `${aKind} is in its item's project, or in one: ✎ moves it to another.`)] })] : []),
     ];
     const pick = !rows.length && pickable.length
       ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, 'Pick a parent…'],

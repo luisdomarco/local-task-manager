@@ -9,6 +9,10 @@ folder of another type; an id that is missing, malformed, of another project or 
 file not named `<ID> <Title>.md`; an iCloud placeholder. Only missing folders can be created by the app. A
 project's Stories/ and Specs/ may be missing: each is made with the project's first story or spec.
 
+A ticket in no project lives in its type's folder at the top of the vault (`Initiatives/`, `Records/Errors/`…:
+definition.PROJECT_ROOT_FOLDERS), each optional, made with its first file; its id is a number, or from before short
+ids its type's bare prefix (`INI-001`), never a project's.
+
 `Docs/` — at the top and inside a project — holds documents, never items (TSK-039): it is never missing, never
 unexpected, and nothing in it is checked, except a ticket put there by hand, which is a warning (the app does not see it).
 """
@@ -20,7 +24,8 @@ from ...attachments import DIR as ATTACHMENTS_DIR
 from ..check import IGNORED_FILES, PLACEHOLDER_RE, ROOT_GUIDES, _finding, _result, _read_fields
 from ..kinds import DEFAULT_KIND, KINDS, PROJECT_FOLDER_TYPES, kind_of
 from .. import NUMBER_RE
-from .definition import DOCS_FOLDER, ID_RE, INDEX_NOTE, OPTIONAL_ROOT_FOLDERS, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, WORKLOG_FOLDER, BY_FILE_CLASS
+from .definition import (DOCS_FOLDER, ID_RE, INDEX_NOTE, OPTIONAL_ROOT_FOLDERS, PROJECT_KEY_RE, PROJECT_ROOT_TOPS, ROOT_FOLDERS, SPEC,
+                         WORKLOG_FOLDER, BY_FILE_CLASS)
 
 SKIP_DIRS = {'node_modules', '__pycache__', ATTACHMENTS_DIR}  # Attachments/: files, never items (tm/attachments.py)
 
@@ -114,6 +119,8 @@ def check(root, load=None):
                 blocking.append(_finding('unreadable', f'{name}/00 {name}.md', f'Cannot be read: {e}'))
                 continue
         if not fields or str(fields.get('fileClass') or '').strip() != 'Ticket Project':
+            if name in PROJECT_ROOT_TOPS:  # Initiatives/, Records/…: the tickets in no project, known when there
+                continue
             blocking.append(_finding('unexpected_folder', name,
                                      f'Neither a folder of this structure nor a project (a project has "00 {name}.md" with fileClass: Ticket Project).'))
             continue
@@ -187,9 +194,12 @@ def check(root, load=None):
                     blocking.append(_finding('wrong_folder', rel, f'A {t} belongs in "{home}".'))
                     continue
                 prefix = spec['code']
+            elif top not in projects and rel_dir == spec['folder']:  # a ticket in no project: its type's folder at the top
+                prefix = spec['code']
             else:
                 if top not in projects or rel_dir != f"{top}/{spec['folder']}":
-                    blocking.append(_finding('wrong_folder', rel, f"A {t} belongs in a project's \"{spec['folder']}\" folder."))
+                    blocking.append(_finding('wrong_folder', rel, f"A {t} belongs in a project's \"{spec['folder']}\" folder, "
+                                                                  f"or in \"{spec['folder']}\" at the top when it is in no project."))
                     continue
                 prefix = f"{projects[top]}-{spec['code']}"
             # Its id: a number (a short id, one counter per vault: `id: 482`, the file `STY-482 <Title>.md`) or, in a vault

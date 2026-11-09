@@ -26,28 +26,39 @@ export function startRename(nameEl, current, onCommit) {
 
 /**
  * The header of a column: drag handle for reordering, name (double-click renames),
- * count and a ⋯ button. `menu(anchor, nameEl)` opens the column's menu.
+ * count and a ⋯ button. `menu(anchor, nameEl)` opens the column's menu. `dragIdx`: the column's place among the
+ * board's `.board-col[data-list]` when that is not `idx` (a board that hides some of its lists).
  */
-export function listHeader({ list, idx, count, countTitle = null, cls = '', before = null, menu, onRename, label = null }) {
+export function listHeader({ list, idx, dragIdx = idx, count, countTitle = null, cls = '', before = null, menu, onRename, label = null }) {
   const name = h('h2', { class: 'list-name', title: `${list.name} — double-click to rename` }, label ?? list.name);
   name.addEventListener('dblclick', () => startRename(name, list.name, onRename));
   const more = h('button', { class: 'btn icon', title: `${list.name} list actions`, 'aria-haspopup': 'menu' }, icon('more', 16));
   more.addEventListener('click', (e) => { e.stopPropagation(); menu(more, name); });
   // The header is the drag handle that reorders lists (keyboard: ⋯ → Move left/right).
-  const head = h('header', { class: `list-head ${cls}`, draggable: 'true', title: 'Drag to reorder the list' },
+  const head = h('header', { class: `list-head ${cls}`, title: 'Drag to reorder the list' },
     before, name,
     h('span', { class: 'count', title: countTitle || `${count} cards` }, count),
     more);
-  head.addEventListener('dragstart', (e) => {
-    if (e.target !== head) return;
+  return dragsList(head, dragIdx);
+}
+
+/**
+ * Makes `handle` (a column's header, or a folded column's strip) drag its column, the `idx`-th of the board's
+ * `.board-col[data-list]`, for listDropZone. Only a drag that starts on the handle itself moves the column: a card's
+ * own drag never does. Returns the handle.
+ */
+export function dragsList(handle, idx) {
+  handle.setAttribute('draggable', 'true');
+  handle.addEventListener('dragstart', (e) => {
+    if (e.target !== handle) return;
     e.dataTransfer.setData(LIST_MIME, String(idx));
     e.dataTransfer.effectAllowed = 'move';
-    const col = head.closest('.board-col');
+    const col = handle.closest('.board-col');
     e.dataTransfer.setDragImage(col, 20, 20);
     requestAnimationFrame(() => col.classList.add('dragging'));
   });
-  head.addEventListener('dragend', () => head.closest('.board-col')?.classList.remove('dragging'));
-  return head;
+  handle.addEventListener('dragend', () => handle.closest('.board-col')?.classList.remove('dragging'));
+  return handle;
 }
 
 /** Menu entries to move a list left/right, for a ⋯ menu. */
@@ -69,7 +80,8 @@ export function listDropZone(board, onReorder) {
     e.preventDefault();
     const { cols, index } = slot(e);
     const ref = cols[index] || board.querySelector('.board-col.add-list');
-    if (ref && marker.nextSibling !== ref) board.insertBefore(marker, ref);
+    if (ref) { if (marker.nextSibling !== ref) board.insertBefore(marker, ref); }
+    else if (board.lastElementChild !== marker) board.append(marker); // no "Add another list": after the last column
   });
   board.addEventListener('dragleave', (e) => { if (!board.contains(e.relatedTarget)) marker.remove(); });
   board.addEventListener('drop', (e) => {

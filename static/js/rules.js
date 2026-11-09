@@ -218,17 +218,29 @@ export function missingOnCreate(type, form, items) {
     return out;
   }
   const parent = form.related_to ? items.find((i) => i.id === form.related_to) : null;
-  // Its Parent (one field for its project and what it hangs from): a ticket lives in a project's folder, its own or the
-  // one of what it hangs from; a story, a PRD, a hotfix, a plan always hang from an item (needsParent).
-  if ((scoped(type) && !form.project && !parent?.fields?.project) || (needsParent(type) && !parent)) out.push(['parent', null]);
+  // Its Parent (one field for its project and what it hangs from): a ticket may be in no project (leavesProject); a
+  // sub-document (an analysis, an error…) is in its item's project, none included, or in one it is given; a plan always
+  // hangs from an item (needsParent).
+  if ((scoped(type) && !leavesProject(type) && !form.project && !parent) || (needsParent(type) && !parent)) out.push(['parent', null]);
   return out;
 }
 
-/** Whether an item of this type chooses its project (a task, a note, a meeting…) rather than living in one for good
- *  (a ticket: its folder and its id carry the key). */
+/** Whether an item of this type chooses its project (a task, a note, a meeting…) rather than living in a project's
+ *  folder (a ticket: see leavesProject). */
 export const movesProject = (type) => hasField(type, 'project') && !scoped(type);
-/** Whether a type always hangs from another item, never from its project alone (a story, a PRD, a hotfix, a plan:
- *  STRUCTURE.needs_parent): its Parent never offers a project, is required on creation, and is changed, never let go. */
+/** Whether a ticket of this type may be in no project, and change or drop its own (STRUCTURE.leaves_project: an
+ *  initiative, a story, a spec, a support ticket, a hotfix, a PRD). Its sub-documents (a plan, an analysis, an error, a
+ *  learning) never do on their own: their project is their item's. */
+export const leavesProject = (type) => (STRUCTURE.leaves_project || []).includes(type);
+/** Whether an id is a short one (`482`, drawn INI-482): a long one (ACME-INI-001) carries its project's key. */
+export const isShortId = (id) => /^\d+$/.test(String(id ?? ''));
+/** Whether an item's project can change now (its Parent offers projects and none, and an item of any project brings
+ *  its own): a task's, a note's…; a ticket's that may leave its project, when its id is short (`id`; a long one carries
+ *  its project's key: docs/migrate-short-ids.md); any one's while it is being created (`creating`). */
+export const projectFree = (type, { id = null, creating = false } = {}) => movesProject(type)
+  || (creating && hasField(type, 'project')) || (leavesProject(type) && isShortId(id));
+/** Whether a type always hangs from another item, never from its project alone (a plan: STRUCTURE.needs_parent): its
+ *  Parent never offers a project, is required on creation, and is changed, never let go. */
 export const needsParent = (type) => (STRUCTURE.needs_parent || []).includes(type);
 /** An item's Parent as one value: the item it hangs from (its id), else, where it has one, its project as `project:KEY`. */
 export const PROJECT_PICK = 'project:';
@@ -241,32 +253,39 @@ export const parentLabel = (type) => {
 };
 /**
  * The options of an item's Parent (one field for its project and what it hangs from: `related_to` and `project` in the
- * file): the projects, where it chooses its project (or is being created: a ticket is created in one), then the items it
- * may hang from — for a ticket, only those of its project; never one of its own descendants (`exclude`), nor a closed or
- * archived one unless it is the `current` parent. → [{ value, label, type }]
+ * file): the projects, where its project can change (projectFree: a task, a note…, a ticket with a short id `id`, or
+ * one being created), then the items it may hang from — of any project or none where its project can change, else only
+ * those of its own (`project`: a sub-document, a ticket with a long id); never one of its own descendants (`exclude`),
+ * nor a closed or archived one unless it is the `current` parent. → [{ value, label, type }]
  */
-export function parentChoices(type, { project = null, exclude = new Set(), current = null, creating = false } = {}, items) {
-  const free = movesProject(type) || (creating && hasField(type, 'project'));
-  const projects = free && !needsParent(type) ? items.filter((i) => i.type === 'project' && i.fields.project_key)
+export function parentChoices(type, { project = null, exclude = new Set(), current = null, creating = false, id = null } = {}, items) {
+  const free = projectFree(type, { id, creating });
+  // A ticket goes only to a project that holds its type (a story, no simple project), or to none.
+  const holds = (p) => !scoped(type) || projectHas(p, type);
+  const projects = free && !needsParent(type) ? items.filter((i) => i.type === 'project' && i.fields.project_key && holds(i))
     .map((p) => ({ value: PROJECT_PICK + p.fields.project_key, label: `${p.fields.project_key} · ${p.title}`, type: 'project' })) : [];
   const types = PARENT_TYPES[type] || [];
-  const fixed = scoped(type) && !creating ? project : null; // a ticket hangs only from what is in its own project
-  const parents = items.filter((i) => i.id && types.includes(i.type) && !exclude.has(i.id) && (!fixed || i.fields.project === fixed)
+  const fixed = scoped(type) && !free; // it hangs only from what is in its own project (none included)
+  const home = (key) => !key || !scoped(type) || items.some((p) => p.type === 'project' && p.fields.project_key === key && holds(p));
+  const parents = items.filter((i) => i.id && types.includes(i.type) && !exclude.has(i.id)
+      && (fixed ? (i.fields.project || null) === (project || null) : home(i.fields.project))
       && ((!isDone(i) && i.fields.archived !== true) || i.id === current))
     .map((i) => ({ value: i.id, label: `${refOf(i)} · ${i.title}`, type: i.type }));
   return [...projects, ...parents];
 }
 /**
  * What picking `value` in the Parent field writes, given its `fields` now: a project hangs it from that project alone;
- * an item hangs it from that item, and brings the item's project where its project can change; none lets go of what
- * it hangs from (an item first, then, where it can, its project).
+ * an item hangs it from that item, and, where its project can change (projectFree), brings the item's project along —
+ * none included, where that item's type has one; none lets go of what it hangs from (an item first, keeping its
+ * project; then, where it can, its project).
  */
-export function parentPick(type, value, items, fields = {}, { creating = false } = {}) {
-  const free = movesProject(type) || (creating && hasField(type, 'project'));
+export function parentPick(type, value, items, fields = {}, { creating = false, id = null } = {}) {
+  const free = projectFree(type, { id, creating });
   if (!value) return fields.related_to && !needsParent(type) ? { related_to: null } : free && !fields.related_to && fields.project ? { project: null } : {};
   if (value.startsWith(PROJECT_PICK)) return { related_to: null, project: value.slice(PROJECT_PICK.length) };
-  const project = free ? items.find((i) => i.id === value)?.fields?.project || null : null;
-  return { related_to: value, ...(project && project !== fields.project ? { project } : {}) };
+  const parent = free ? items.find((i) => i.id === value) : null;
+  const project = parent && hasField(parent.type, 'project') ? parent.fields?.project || null : undefined;
+  return { related_to: value, ...(project !== undefined && project !== (fields.project || null) ? { project } : {}) };
 }
 
 /** Whether a type can be linked to others at all (parent, child, related): it carries `relations`. */
