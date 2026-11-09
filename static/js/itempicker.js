@@ -4,7 +4,8 @@
 import { matchItems } from './composer.js';
 import { hasField, isDone } from './rules.js';
 import { state } from './state.js';
-import { h, icon, typeIcon } from './ui.js';
+import { h, icon, sideSized, typeIcon } from './ui.js';
+import { refOf } from './shownid.js';
 
 let open = null;
 
@@ -17,21 +18,24 @@ export function closeItemPicker() {
 }
 
 /** The name a session shows for its item: "TSK-0001 · title". */
-export const itemName = (it) => `${it.id || it.type} · ${it.title}`;
+export const itemName = (it) => `${refOf(it) || it.type} · ${it.title}`;
 
 /**
  * Open under (or above) `anchor`. `current` is the key the session is about now (null: none); `onPick(item | null)`
  * runs with the item chosen, or null for no item. Only items of a type that keeps Claude sessions are offered.
+ * Another use says what it offers: `keeps` (which items), `first` (what it lists before anything is typed), `none`
+ * (the "no item" row's words; null: no such row) and `label` (what the popover is for).
  */
-export function itemPicker(anchor, current, onPick) {
+export function itemPicker(anchor, current, onPick, {
+  keeps = (it) => hasField(it.type, 'claude_sessions'), first = null, none = 'No item (general history)', label = 'The item this session is about',
+} = {}) {
   if (open?.anchor === anchor) { closeItemPicker(); return; }
   closeItemPicker();
-  const keeps = (it) => hasField(it.type, 'claude_sessions');
   const now = current ? state.items.find((it) => it.key === current) : null;
   const input = h('input', { type: 'search', class: 'ip-search', placeholder: 'Find an item by id or title', 'aria-label': 'Find an item',
     autocomplete: 'off', spellcheck: 'false' });
   const list = h('div', { class: 'ip-list', role: 'listbox', 'aria-label': 'Items' });
-  const el = h('div', { class: 'menu ip', role: 'dialog', 'aria-label': 'The item this session is about' }, input, list);
+  const el = h('div', { class: 'menu ip', role: 'dialog', 'aria-label': label }, input, list);
   let rows = [];
   let at = 0;
 
@@ -45,15 +49,15 @@ export function itemPicker(anchor, current, onPick) {
     const on = it ? it.key === current : !current;
     const b = h('button', { type: 'button', class: 'menu-item ip-row', role: 'option', 'aria-selected': String(on), onclick: () => pick(it) },
       it ? typeIcon(it.type, 14) : icon('clock', 14),
-      h('span', { class: 'ip-text' }, it ? h('span', {}, h('b', {}, it.id || it.type), ` ${it.title}`) : 'No item (general history)'),
+      h('span', { class: 'ip-text' }, it ? h('span', {}, h('b', {}, refOf(it) || it.type), ` ${it.title}`) : none),
       on ? icon('check', 14) : null);
     b.addEventListener('mousemove', () => mark(rows.findIndex((r) => r.el === b)));
     return { el: b, it };
   };
   const paint = () => {
     const q = input.value.trim();
-    const found = q ? matchItems(state.items.filter(keeps), q, { isClosed: isDone }) : (now ? [now] : []);
-    rows = [...found.map(row), row(null)];
+    const found = q ? matchItems(state.items.filter(keeps), q, { isClosed: isDone }) : first ? first() : (now ? [now] : []);
+    rows = [...found.map(row), ...(none ? [row(null)] : [])];
     list.replaceChildren(...rows.map((r) => r.el), ...(q && !found.length ? [h('div', { class: 'menu-empty' }, 'No item matches')] : []));
     mark(0);
   };
@@ -67,7 +71,7 @@ export function itemPicker(anchor, current, onPick) {
   });
   paint();
 
-  document.body.append(el);
+  document.body.append(sideSized(el, anchor));
   const r = anchor.getBoundingClientRect();
   const w = el.offsetWidth;
   el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;

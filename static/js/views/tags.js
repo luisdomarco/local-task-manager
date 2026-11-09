@@ -12,7 +12,7 @@ import {
 import { trapFocus } from '../create.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { saveSort, savedSort } from '../prefs.js';
-import { GROUP_ICON, emptyState, h, icon, labelChip, personChip, tagInput } from '../ui.js';
+import { GROUP_ICON, h, icon, labelChip, pageCount, pageEmpty, pageHead, personChip, rowAction, searchBox, select, tagInput } from '../ui.js';
 
 /**
  * The control of one of cfg.fields, holding `value`: `kind` text (the default), textarea (several lines), select
@@ -24,12 +24,14 @@ function fieldInput(f, value) {
     const el = tagInput(names, (list) => { names = list; }, { kind: 'person', suggest: allPeople, placeholder: f.placeholder || '' });
     return { el, get: () => names };
   }
+  if (f.kind === 'select') { // the app's select, as on every form
+    const el = select(f.options, value || f.options[0][0], () => {}, { class: 'small', 'aria-label': f.label, search: false });
+    return { el, get: () => el.value };
+  }
   const el = f.kind === 'textarea'
     ? h('textarea', { rows: 3, placeholder: f.placeholder || '', 'aria-label': f.label })
-    : f.kind === 'select'
-      ? h('select', { 'aria-label': f.label }, f.options.map(([v, text]) => h('option', { value: v, selected: v === value }, text)))
-      : h('input', { type: 'text', placeholder: f.placeholder || '', 'aria-label': f.label, autocomplete: 'off' });
-  if (f.kind !== 'select') el.value = value || '';
+    : h('input', { type: 'text', placeholder: f.placeholder || '', 'aria-label': f.label, autocomplete: 'off' });
+  el.value = value || '';
   return { el, get: () => el.value.trim() };
 }
 const same = (a, b) => (Array.isArray(a) || Array.isArray(b) ? (a || []).join('\n') === (b || []).join('\n') : (a || '') === (b || ''));
@@ -95,7 +97,8 @@ function openAddModal(cfg) {
  * cfg.fields: what the edit row edits besides the name, [{ key, label, value(row), placeholder, kind, options, initial }] (fieldInput);
  * cfg.save(row, { name, ...fields }) saves them (without it, cfg.rename(old, new) renames).
  * cfg.convert: { label, title, icon, run(row) } — one more button in the edit row (People: make it a group).
- * cfg.tabs(): a row of tabs under the title (Contacts: People · Groups).
+ * cfg.tabs(): a row of tabs under the title (Contacts: People · Groups), which carry the counts: the head has none then.
+ * Without tabs the head's count is N plural.
  */
 function tagScreen(cfg) {
   const extra = cfg.extra || [];
@@ -111,13 +114,13 @@ function tagScreen(cfg) {
       // Like every list: the title and a count, the Add button on the right, the filter in the toolbar below.
       const filter = h('input', { type: 'search', placeholder: cfg.filterPlaceholder || `Filter ${cfg.plural}…`, 'aria-label': `Filter ${cfg.plural}`, 'data-filter': '' });
       filter.addEventListener('input', () => { search = filter.value.trim().toLowerCase(); api.update(); });
-      const subtitle = h('p', { class: 'muted' });
+      const subtitle = cfg.tabs ? null : pageCount();
       const add = h('button', { class: 'btn primary', onclick: () => openAddModal(cfg) }, icon('plus', 16), `Add ${cfg.singular}`);
       const table = h('div', { class: 'tag-table' });
       root.replaceChildren(
-        h('header', { class: 'view-head row' }, h('div', {}, h('h1', {}, cfg.title), subtitle), h('span', { class: 'spacer' }), add),
-        cfg.tabs ? cfg.tabs() : null,
-        h('div', { class: 'toolbar list-toolbar' }, filter, h('span', { class: 'spacer' })),
+        pageHead({ title: cfg.title, count: subtitle, action: add }),
+        ...(cfg.tabs ? [cfg.tabs()] : []), // replaceChildren would write a null as the text "null"
+        h('div', { class: 'view-bar' }, searchBox(filter), h('span', { class: 'spacer' })),
         table);
 
       const th = (col, label) => h('th', { scope: 'col', class: sort.col === col ? 'sorted' : '', 'aria-sort': sort.col === col ? (sort.dir > 0 ? 'ascending' : 'descending') : null },
@@ -178,21 +181,21 @@ function tagScreen(cfg) {
         }
         const edit = () => { open = { name: r.name, mode: 'edit' }; api.update(); };
         return h('tr', {
-          tabindex: '0', title: cfg.fields ? 'Click to edit' : 'Click to rename', 'aria-label': `${r.name}, used by ${r.count || 0}`, onclick: edit,
+          class: 'hover-host', tabindex: '0', title: cfg.fields ? 'Click to edit' : 'Click to rename', 'aria-label': `${r.name}, used by ${r.count || 0}`, onclick: edit,
           onkeydown: (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); edit(); } },
         },
         h('td', { class: 'c-name' }, cfg.chip(r.name)),
         extra.map((c) => h('td', { class: `c-${c.key}`, title: c.text(r) || null }, c.cell(r))),
         h('td', { class: 'num c-count', title: cfg.breakdown(r) || null }, r.count || h('span', { class: 'muted' }, '0')),
-        h('td', { class: 'c-actions' },
-          h('button', { class: 'btn icon', title: `${cfg.fields ? 'Edit' : 'Rename'} ${r.name}`, 'aria-label': `${cfg.fields ? 'Edit' : 'Rename'} ${r.name}`, onclick: (e) => { e.stopPropagation(); edit(); } }, icon('pencil', 15)),
-          h('button', { class: 'btn icon', title: `Delete ${r.name}`, 'aria-label': `Delete ${r.name}`, onclick: (e) => { e.stopPropagation(); open = { name: r.name, mode: 'delete' }; api.update(); } }, icon('trash', 15))));
+        h('td', { class: 'c-actions' }, // on hover, as a list row's
+          rowAction('pencil', `${cfg.fields ? 'Edit' : 'Rename'} ${r.name}`, (e) => { e.stopPropagation(); edit(); }),
+          rowAction('trash', `Delete ${r.name}`, (e) => { e.stopPropagation(); open = { name: r.name, mode: 'delete' }; api.update(); })));
       };
 
       const api = {
         update() {
           const total = cfg.rows().length;
-          subtitle.textContent = `${total} ${total === 1 ? cfg.singular : cfg.plural}`;
+          if (subtitle) subtitle.textContent = `${total} ${total === 1 ? cfg.singular : cfg.plural}`;
           const byCol = extra.find((c) => c.key === sort.col);
           const matching = cfg.rows()
             .filter((r) => !search || [r.name, ...extra.map((c) => c.text(r))].join(' ').toLowerCase().includes(search))
@@ -205,7 +208,7 @@ function tagScreen(cfg) {
             ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed tag-grid', style: FIXED.style, 'aria-label': cfg.title }, FIXED.colgroup.cloneNode(true),
               h('thead', {}, h('tr', {}, th('name', cfg.nameLabel || cfg.singular[0].toUpperCase() + cfg.singular.slice(1)), extra.map((c) => th(c.key, c.label)), th('count', 'Items'), h('th', { scope: 'col', class: 'c-actions' }, h('span', { class: 'sr-only' }, 'Actions')))),
               h('tbody', {}, rows.length ? rows.map(rowView) : h('tr', {}, h('td', { colspan: span, class: 'empty' }, `No ${cfg.plural} match.`)))))
-            : emptyState(cfg.empty), page.pager].filter(Boolean));
+            : pageEmpty(cfg.empty), page.pager].filter(Boolean));
         },
       };
       return api;
@@ -213,7 +216,7 @@ function tagScreen(cfg) {
   };
 }
 
-const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export const labels = tagScreen({
   title: 'Labels', singular: 'label', plural: 'labels', addPlaceholder: 'New label…',
@@ -225,12 +228,11 @@ export const labels = tagScreen({
   breakdown: (r) => Object.entries(r.types || {}).map(([t, n]) => plural(n, t)).join(' · '),
 });
 
-// Contacts: People and Groups (TSK-050), two tabs of one section.
-const contactTabs = (on) => () => h('div', { class: 'tabs-bar contacts-tabs', role: 'tablist', 'aria-label': 'Contacts' },
-  [['people', 'People', '#/contacts', state.people.length], ['groups', 'Groups', '#/contacts/groups', state.groups.length]].map(([key, text, href, n]) => h('button', {
-    type: 'button', class: 'tab-btn', role: 'tab', 'aria-selected': String(key === on), tabindex: key === on ? '0' : '-1',
-    onclick: () => { if (key !== on) location.hash = href; },
-  }, text, n ? h('span', { class: 'tab-count' }, n) : null)));
+// Contacts: People and Groups (TSK-050), two tabs of one section: links, as a sidebar section's (sections.js sectionHead).
+const contactTabs = (on) => () => h('nav', { class: 'tabs-bar section-tabs', 'aria-label': 'Contacts' },
+  [['people', 'People', 'user', '#/contacts', state.people.length], ['groups', 'Groups', 'users', '#/contacts/groups', state.groups.length]].map(([key, text, ico, href, n]) => h('a', {
+    class: `tab-btn ${key === on ? 'active' : ''}`, href, ...(key === on ? { 'aria-current': 'page' } : {}),
+  }, icon(ico, 14), text, h('span', { class: 'tab-count' }, n || ''))));
 
 const dash = () => h('span', { class: 'muted' }, '—');
 /** Free text in a cell: its first line, the whole of it on hover (the cell's title). */

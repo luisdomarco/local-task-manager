@@ -19,7 +19,7 @@ import zipfile
 from datetime import datetime
 
 # Top-level entries that go in (files, or folders taken whole minus EXCLUDE_DIRS), for either kind.
-INCLUDE = ('server.py', 'tm', 'static', 'docs', 'tests', 'tools', 'plans', 'sample-vault', 'sample-vault-ticketing', '.claude', 'CLAUDE.md',
+INCLUDE = ('server.py', 'tm', 'static', 'docs', 'tests', 'tools', 'plans', 'sample-vault', 'sample-vault-legacy', '.claude', 'CLAUDE.md',
            'README.md', 'LICENSE', 'CHANGELOG.md', 'package.json', 'config.example.json', '.env.example', '.gitignore')
 KINDS = ('system', 'agents', 'vault')
 # Every name starts with its kind; before that, `task-manager-<kind>-…` (still listed)
@@ -30,7 +30,7 @@ def kind_of(rel):
     """Which zip a whitelisted file goes in: .claude/ and any CLAUDE.md are the agents, the rest the system."""
     return 'agents' if rel == '.claude' or rel.startswith('.claude/') or rel.split('/')[-1] == 'CLAUDE.md' else 'system'
 # Folders skipped wherever they appear (relative to the app; a bare name matches at any depth).
-EXCLUDE_DIRS = ('__pycache__', '.git', 'node_modules', 'sample-vault/.task-manager', 'sample-vault-ticketing/.task-manager',
+EXCLUDE_DIRS = ('__pycache__', '.git', 'node_modules', 'sample-vault/.task-manager', 'sample-vault-legacy/.task-manager',
                 '.claude/worktrees')
 EXCLUDE_FILES = ('.DS_Store',)
 # Files skipped by their path: Claude Code's permissions on this machine (settings.json, shared, still goes).

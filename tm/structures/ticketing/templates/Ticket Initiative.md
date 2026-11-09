@@ -1,7 +1,7 @@
 ---
 fileClass: Ticket Initiative
-id: "{{id}}"                           # KEY-INI-NNN, assigned by the capability
-aliases: []                            # legacy id after migration: [INI-396]
+id: "{{id}}"                           # its number, drawn INI-<n>, assigned by the capability
+aliases: []                            # its ids from before short ids: [ACME-INI-001]
 name: "{{slug}}"
 project: "[[00 {{project}}]]"
 status_ticket: "1. Backlog"            # only via tickets_move
@@ -13,9 +13,9 @@ area: ""                               # one of the project's `areas`
 objective: ""                          # the observable end state that allows this initiative to close
 premise: unverified                    # unverified · verified · reframed · refuted
 premise_verified: ""                   # "<date> @ <sha>; what was measured"
-prd: ""                                # "[[KEY-PRD-NNN …]]" (product, optional)
-plan: ""                               # "[[{{id}} Plan]]" — the approach, when it needs one; each story may have its own
-origin: ""                             # "[[KEY-SUP-NNN …]]" if promoted
+prd: ""                                # "[[PRD-<n> …]]" (product, optional)
+plan: ""                               # "[[PLN-<n> …]]" — the approach, when it needs one; each story may have its own
+origin: ""                             # "[[SUP-<n> …]]" if promoted
 depends_on: []
 related_analyses: []
 related_errors: []
@@ -28,7 +28,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 > [!owner] Frozen at 2. ToDo
 > The agent may draft these sections; the owner approves them. After approval nobody edits them. A replan
@@ -79,7 +79,7 @@ Legend: ✅ confirmed · 🟡 partial · 🔴 refuted · ⚪ unverifiable (say w
 
 ## Stories
 
-What gets delivered, one story each, in order (`KEY-STY-NNN`, linked by their `initiative:`). The initiative
+What gets delivered, one story each, in order (`STY-<n>`, linked by their `initiative:`). The initiative
 starts with the first story and closes with the last.
 
 ## Workflow follow-up

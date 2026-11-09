@@ -8,7 +8,7 @@ labels: bug
 
 **What you expected**
 
-**Steps to reproduce** (on the sample vaults if you can: `python3 tools/serve_sample.py --ticketing`)
+**Steps to reproduce** (on the sample vault if you can: `python3 tools/serve_sample.py`)
 
 1.
 2.

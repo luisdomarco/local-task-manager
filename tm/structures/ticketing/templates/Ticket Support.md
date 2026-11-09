@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Support
-id: "{{id}}"                           # KEY-SUP-NNN
+id: "{{id}}"                           # its number, drawn SUP-<n>
 aliases: []
 name: "{{slug}}"
 project: "[[00 {{project}}]]"
@@ -17,8 +17,8 @@ signature: ""                          # <origin>|…  same signature → occurr
 occurrences: 1
 disposition: pending                   # pending · fix · discard · owner
 resolution: ""                         # fixed_in_place · promoted · escalated · discarded
-promoted_to: ""                        # "[[KEY-INI-NNN …]]"
-escalated_to: ""                       # "[[KEY-HFX-NNN …]]"
+promoted_to: ""                        # "[[INI-<n> …]]"
+escalated_to: ""                       # "[[HFX-<n> …]]"
 discard_reason: ""
 should_have_caught: ""                 # the check that should have caught it, or "none"
 caused_by: []                          # confirmed at triage
@@ -36,7 +36,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 > [!agent] A support ticket is an intake, not a piece of work: it is investigated and ends **fixed in
 > place**, **promoted** to an initiative, **escalated** to a hotfix, or **discarded**.

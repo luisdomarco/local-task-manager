@@ -34,7 +34,7 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": [
         "tools/serve_sample.py",
-        "--ticketing"
+        "--legacy"
       ],
       "env": {
         "TM_PORT": "3103"

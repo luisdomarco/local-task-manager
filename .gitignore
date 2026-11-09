@@ -11,22 +11,23 @@ __pycache__/
 .DS_Store
 # The sample vaults are versioned with their people, groups, labels and ids (tools/seed_sample_vault.py), but not what the
 # app writes into them while you try it
+sample-vault-legacy/.task-manager/*
+!sample-vault-legacy/.task-manager/people.md
+!sample-vault-legacy/.task-manager/labels.md
+!sample-vault-legacy/.task-manager/groups.md
+!sample-vault-legacy/.task-manager/ids.json
 sample-vault/.task-manager/*
 !sample-vault/.task-manager/people.md
 !sample-vault/.task-manager/labels.md
 !sample-vault/.task-manager/groups.md
 !sample-vault/.task-manager/ids.json
-sample-vault-ticketing/.task-manager/*
-!sample-vault-ticketing/.task-manager/people.md
-!sample-vault-ticketing/.task-manager/labels.md
-!sample-vault-ticketing/.task-manager/groups.md
-!sample-vault-ticketing/.task-manager/ids.json
 # Your real tasks when config.json points here — personal data, never versioned
 vault/
 # A Ticketing vault kept next to the app (Settings → Vaults can point anywhere else)
 tickets-vault/
 # More vaults kept next to the app (vault-work/, vault-projects-and-tickets/…): personal data, never versioned
 vault-*/
+vault-*
 # What the app and its tools set aside before overwriting (config.json.bak-*, <vault>.backup-*): server.py backup_path
 backups/
 # Where those backups went before backups/ existed

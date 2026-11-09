@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Spec
-id: "{{id}}"                           # KEY-SPEC-NNN
+id: "{{id}}"                           # its number, drawn SPEC-<n>
 name: "{{slug}}"
 project: "[[00 {{project}}]]"
 status_spec: draft                     # draft · active (its requirements valid) · retired
@@ -14,7 +14,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 > [!agent] What the system does today, in production. It changes when a story's Spec delta is merged into it
 > as the story ships, and then `synced_sha` is that commit. What is about to change is in the open stories.

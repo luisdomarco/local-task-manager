@@ -1,8 +1,9 @@
 // "Group by" for the list tables: what key a row falls under, and in what order the groups go.
 // Pure: no DOM, no state (the item lookup is passed in), so the rules are testable on their own.
 // The group headers are drawn by the list view (views/list.js).
-import { addDays, isoWeek, monthOf, shiftWeek, today, weekMonth } from './dates.js';
+import { isoWeek, monthOf, shiftWeek, today, weekMonth } from './dates.js';
 import { PRIORITY_RANK, anyStatusRank, isDone } from './rules.js';
+import { byGoalRank } from './goals.js';
 
 export const NONE = ''; // the group of rows that have no value: "No initiative", "Unplanned"…
 
@@ -29,7 +30,7 @@ export const projectOf = (item) => item.fields.project || NONE;
 
 // The "Planned" groups, in the order they show.
 export const PLAN_BUCKETS = [
-  ['overdue', 'Overdue'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'],
+  ['overdue', 'Overdue'], ['today', 'Today'], ['week', 'This week'],
   ['nextweek', 'Next week'], ['month', 'Later this month'], ['later', 'Later'], ['past', 'Planned before'], [NONE, 'Unplanned'],
 ];
 
@@ -53,7 +54,6 @@ export function planBucket(item, now = today()) {
   if (day) {
     if (day < now) return past;
     if (day === now) return 'today';
-    if (day === addDays(now, 1)) return 'tomorrow';
     const w = isoWeek(day);
     return w === current ? 'week' : w === next ? 'nextweek' : after(monthOf(day));
   }
@@ -84,6 +84,14 @@ export const GROUPS = {
     by: (item, byId) => (item.type === 'initiative' ? topInitiativeOf(item, byId) : initiativeOf(item, byId)),
     // By title, the rows with no initiative last.
     order: (a, b, byId) => byName((k) => byId.get(k)?.title || k)(a, b),
+    lead: (key, item) => item.id === key,
+  },
+  // Projects: the goal an item names (goals.js); a goal heads its own group, as an initiative does.
+  goal: {
+    label: 'Goal',
+    by: (item) => (item.type === 'goal' ? item.id : item.fields.goal || NONE),
+    // As the Goals view orders them (priority, then their own order), the rows with no goal last.
+    order: (a, b, byId) => (a === NONE ? 1 : b === NONE ? -1 : byGoalRank(byId.get(a) || { title: a, fields: {} }, byId.get(b) || { title: b, fields: {} })),
     lead: (key, item) => item.id === key,
   },
   project: {

@@ -230,6 +230,11 @@ class Chat:
         self._subs = set()
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()
+        # The order events are put in, kept and live alike (_emit). While a write of ours is in flight (_say), every
+        # other event — claude's reply above all — waits in _held, so our own event always comes before what follows it.
+        self._order = threading.Lock()
+        self._writing = 0
+        self._held = []
         self._seq = 0
         try:
             self._proc = subprocess.Popen([exe, *argv[1:]], cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -272,10 +277,7 @@ class Chat:
         self.busy = False
         self.pending.clear()
         self._emit({'type': 'tm_exit', 'exit_code': self.exit_code, 'stderr': '\n'.join(self._stderr)})
-        with self._lock:
-            subs = list(self._subs)
-        for q in subs:
-            q.put(None)  # the sentinel: nothing more will come
+        self._emit(None, keep=False)  # the sentinel: nothing more will come (in order, so after tm_exit)
 
     def _answered(self, response):
         """claude's answer to one of our control requests: the models it offers (`initialize`), a change of model or
@@ -354,13 +356,54 @@ class Chat:
         self._proc.stderr.close()
 
     def _emit(self, msg, keep=True):
+        """An event, kept (`keep`) and put to every listener — or, while a write of ours is in flight, held until its
+        own event has been put (_say). None is the end, for listeners only."""
+        with self._order:
+            if self._writing:
+                self._held.append((msg, keep))
+            else:
+                self._put(msg, keep)
+
+    def _put(self, msg, keep):
+        """With self._order held: the queues are unbounded, so a put never waits."""
         with self._lock:
-            if keep:
+            if keep and msg is not None:
                 self._events.append(msg)
-            self.activity = time.time()
+            if msg is not None:
+                self.activity = time.time()
             subs = list(self._subs)
         for q in subs:
             q.put(msg)
+
+    def _say(self, obj, *events, then=None, live=()):
+        """Writes `obj` to claude, then runs `then` (the state the write changes) and puts our `events` (kept) and `live`
+        ones (passed on only), as one step: whatever claude answers meanwhile — the reader
+        never stops reading — is held and put after them, so the kept history (what a reloaded page gets) has the user's
+        message before claude's reply and a permission answered before the turn goes on. The write itself holds no
+        lock of ours: a write blocked on a full pipe must not stop the reading. If the write fails, `then` is not run,
+        none of the events is put and the StoreError goes up; what was held is put as it came.
+        Only the events are held: a control_response is acted on (_answered) as soon as it is read, maybe before `then`
+        has run. State that such an answer reads is set before the write instead (set_model, set_effort)."""
+        with self._order:
+            self._writing += 1
+        written = False
+        try:
+            self._write(obj)
+            written = True
+        finally:
+            with self._order:
+                self._writing -= 1
+                if written:
+                    if then:
+                        then()
+                    for event in events:
+                        self._put(event, True)
+                    for event in live:
+                        self._put(event, False)
+                if not self._writing:
+                    held, self._held = self._held, []
+                    for msg, keep in held:
+                        self._put(msg, keep)
 
     # ── into claude ──────────────────────────────────────────────────────────
     @property
@@ -378,17 +421,19 @@ class Chat:
             except (OSError, ValueError) as e:
                 raise StoreError(409, f'this chat is not taking input: {e}')
 
-    def _control(self, request, **ctx):
+    def _control(self, request, events=(), then=None, live=(), **ctx):
+        """A control request of ours, written with _say: `events`, `then` and `live` as there."""
         with self._write_lock:
             self._seq += 1
             rid = f'tm_{self._seq}'
         self._asked[rid] = (request['subtype'], ctx)
-        self._write({'type': 'control_request', 'request_id': rid, 'request': request})
+        self._say({'type': 'control_request', 'request_id': rid, 'request': request}, *events, then=then, live=live)
 
     def send(self, text, items=(), images=()):
         """A message from the user, with the vault items attached to it ([{id, title, type, context}]: claude gets each
         one's context after the text, inside <attached-items>; the chat shows them as chips) and its images (see
-        image_blocks). Kept as our own event (claude does not echo it), then sent: of an image, only its thumbnail."""
+        image_blocks). Kept as our own event (claude does not echo it), before claude's reply: of an image, only its
+        thumbnail. Not kept if it could not be sent (the StoreError goes up)."""
         text = str(text or '').strip()
         items = list(items or [])
         blocks, kept = image_blocks(images)
@@ -397,15 +442,19 @@ class Chat:
         content = with_items(text, items)
         if blocks:
             content = ([{'type': 'text', 'text': content}] if content else []) + blocks
-        self._write({'type': 'user', 'session_id': self.id, 'parent_tool_use_id': None,
-                     'message': {'role': 'user', 'content': content}})
-        self.busy = True
         event = {'type': 'tm_user', 'text': text}
         if items:
             event['items'] = [{k: it.get(k) or '' for k in ('id', 'title', 'type')} for it in items]
         if kept:
             event['images'] = kept
-        self._emit(event)
+        # Busy before the write: the turn's `result` may be read before _say returns, and it must not be undone.
+        was, self.busy = self.busy, True
+        try:
+            self._say({'type': 'user', 'session_id': self.id, 'parent_tool_use_id': None,
+                       'message': {'role': 'user', 'content': content}}, event)
+        except StoreError:
+            self.busy = was  # not sent: no new turn, and no tm_user in the chat
+            raise
 
     def answer(self, request_id, behavior, always=False, message='', answers=None, mode=''):
         """A permission request answered from its card: allow (once, or `always` for the rest of this session) or deny.
@@ -413,7 +462,8 @@ class Chat:
         Two tools have a card of their own: AskUserQuestion is allowed with the user's `answers` ({question: answer},
         one per question it asked), and ExitPlanMode — the plan approved — with the `mode` to go on in: Ask before
         edits unless another is named, never a looser one by default. Denying a plan with a message keeps Claude
-        planning, with that message."""
+        planning, with that message. The answer is put before claude goes on (_say); if it cannot be written, nothing
+        changes: the request stays pending, no tm_answer is put, the mode is not switched."""
         req = self.pending.get(request_id)
         if not req:
             raise StoreError(409, 'that request was already answered, or the turn ended')
@@ -433,8 +483,6 @@ class Chat:
                 raise StoreError(400, f"after a plan, the mode is one of {', '.join(m for m in CHAT_MODES if m != 'plan')}")
             response = {'behavior': 'allow', 'updatedInput': req.get('input') or {},
                         'updatedPermissions': [{'type': 'setMode', 'mode': mode, 'destination': 'session'}]}
-            self.mode = mode
-            self._emit({'type': 'tm_mode', 'mode': mode})
             event['mode'] = mode
         elif behavior == 'allow':
             response = {'behavior': 'allow', 'updatedInput': req.get('input') or {}}
@@ -450,18 +498,31 @@ class Chat:
                 event['message'] = message
         else:
             raise StoreError(400, 'behavior must be allow or deny')
-        self._write({'type': 'control_response',
-                     'response': {'subtype': 'success', 'request_id': request_id, 'response': response}})
-        self.pending.pop(request_id, None)
-        self._emit({'type': 'tm_answer', 'request_id': request_id, 'behavior': behavior, 'always': bool(always), **event})
+        events = [{'type': 'tm_mode', 'mode': event['mode']}] if 'mode' in event else []
+        events.append({'type': 'tm_answer', 'request_id': request_id, 'behavior': behavior, 'always': bool(always), **event})
+
+        def answered():
+            self.pending.pop(request_id, None)
+            if 'mode' in event:
+                self.mode = event['mode']
+
+        self._say({'type': 'control_response',
+                   'response': {'subtype': 'success', 'request_id': request_id, 'response': response}},
+                  *events, then=answered)
         return {'ok': True}
 
     def interrupt(self):
-        """Stops the turn running now; the session goes on. Unanswered requests are dropped with it."""
-        self._control({'subtype': 'interrupt'})
-        for rid in list(self.pending):
-            self.pending.pop(rid, None)
-            self._emit({'type': 'tm_answer', 'request_id': rid, 'behavior': 'interrupted'})
+        """Stops the turn running now; the session goes on. Unanswered requests are dropped with it, each marked
+        interrupted before claude's interrupted result (_say). The ones dropped are those pending when it is asked: a
+        request claude makes meanwhile is held until then, so it is not marked answered before its card is shown."""
+        rids = list(self.pending)
+
+        def dropped():
+            for rid in rids:
+                self.pending.pop(rid, None)
+
+        self._control({'subtype': 'interrupt'}, then=dropped,
+                      events=[{'type': 'tm_answer', 'request_id': rid, 'behavior': 'interrupted'} for rid in rids])
         return {'ok': True}
 
     def set_mode(self, mode):
@@ -475,27 +536,37 @@ class Chat:
     def set_model(self, model):
         """One of the models claude listed (any of CLAUDE_MODELS until it has). Once claude has switched, the session's
         effort is set on the new model (effort_for), then what it applies is read back and the change said in the
-        chat; if claude refuses, the model it had comes back (_answered)."""
+        chat; if claude refuses, the model it had comes back (_answered).
+        The model is set before the write, as `busy` is in send: claude's answer may be read before the write returns,
+        and what _answered does with it (the effort for the new model, or the old model back) needs it set already."""
         if self.models and model not in {m['value'] for m in self.models}:
             raise StoreError(400, f"model must be one of {', '.join(m['value'] for m in self.models)}")
-        self._control({'subtype': 'set_model', 'model': model}, was=self.model)
-        self.model = model
-        self._emit({'type': 'tm_model', 'model': model})
+        was, self.model = self.model, model
+        try:
+            self._control({'subtype': 'set_model', 'model': model}, events=[{'type': 'tm_model', 'model': model}], was=was)
+        except StoreError:
+            self.model = was  # not sent: nothing changed
+            raise
         return {'model': model}
 
     def set_effort(self, effort):
         """How hard the model thinks, for the rest of this session: a flag setting of claude's own (in memory, never a
         settings file), within what the current model supports. It holds across a change of model (set_model). What
-        claude applies is read back once it has taken it."""
+        claude applies is read back once it has taken it. Set before the write, as the model is (set_model): what claude
+        then says it applies — the same, or the one it had if it refused — must not be overwritten after."""
         current = self.current_model()
         allowed = current['efforts'] if current else CLAUDE_EFFORTS
         if not allowed:
             raise StoreError(400, f"{current['label']} takes no effort level")
         if effort not in allowed:
             raise StoreError(400, f"effort must be one of {', '.join(allowed)}")
-        self._control({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': effort}}, changed=True)
-        self.effort = effort
-        self._emit({'type': 'tm_effort', 'effort': effort}, keep=False)
+        was, self.effort = self.effort, effort
+        try:
+            self._control({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': effort}},
+                          live=[{'type': 'tm_effort', 'effort': effort}], changed=True)
+        except StoreError:
+            self.effort = was
+            raise
         return {'effort': effort}
 
     def current_model(self):

@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from tm import chat as tchat
 from tm.store import StoreError
@@ -33,8 +34,41 @@ def until(q, pred, timeout=10):
     raise AssertionError(f'not found within {timeout}s; got {[m.get("type") for m in got]}')
 
 
+def until_all(q, *preds, timeout=10):
+    """Messages from the queue until each of `preds` has matched one, whatever their order. (Our own events come before
+    claude's reply to them — test_our_own_event_comes_before_claudes_reply checks that — but the other tests do not
+    lean on it.)"""
+    got, left, deadline = [], list(preds), time.time() + timeout
+    while left and time.time() < deadline:
+        try:
+            msg = q.get(timeout=0.2)
+        except queue.Empty:
+            continue
+        if msg is None:
+            break
+        got.append(msg)
+        left = [p for p in left if not p(msg)]
+    if left:
+        raise AssertionError(f'not all found within {timeout}s; got {[m.get("type") for m in got]}')
+    return got
+
+
 def is_result(m):
     return m.get('type') == 'result'
+
+
+def is_answer(m):
+    return m.get('type') == 'tm_answer'
+
+
+def first(got, type_):
+    """The first message of a type."""
+    return next(m for m in got if m.get('type') == type_)
+
+
+def last_text(got):
+    """The text of claude's last answer."""
+    return [m for m in got if m.get('type') == 'assistant'][-1]['message']['content'][0]['text']
 
 
 PNG = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'\0' * 40).decode()
@@ -57,6 +91,17 @@ class ChatTest(unittest.TestCase):
         """What the chat wrote to claude's stdin (after the argv line)."""
         with open(self.log, encoding='utf-8') as f:
             return [json.loads(line) for line in f][1:]
+
+    def requests_until(self, *want, timeout=10):
+        """The control requests sent to claude, once every one in `want` is among them. What we write reaches the
+        stand-in's log when it reads it, a moment later; wait for those requests, not for a count, since claude is also
+        asked things of its own at the start (initialize, settings, context usage)."""
+        deadline = time.time() + timeout
+        while True:
+            reqs = [m['request'] for m in self.sent() if m.get('type') == 'control_request']
+            if all(w in reqs for w in want) or time.time() > deadline:
+                return reqs
+            time.sleep(0.02)
 
     def answered(self):
         """The last answer to a permission request the chat sent to claude."""
@@ -88,9 +133,9 @@ class ChatTest(unittest.TestCase):
         req = until(q, lambda m: m.get('type') == 'control_request')[-1]
         self.assertEqual(chat.info()['pending'], 1)
         chat.answer(req['request_id'], 'allow', always=True)
-        got = until(q, is_result)
-        self.assertEqual(got[0], {'type': 'tm_answer', 'request_id': 'perm-1', 'behavior': 'allow', 'always': True})
-        self.assertEqual(got[1]['message']['content'][0]['content'], 'ran')
+        got = until_all(q, is_result, is_answer)
+        self.assertEqual(first(got, 'tm_answer'), {'type': 'tm_answer', 'request_id': 'perm-1', 'behavior': 'allow', 'always': True})
+        self.assertEqual(first(got, 'user')['message']['content'][0]['content'], 'ran')
         response = self.answered()
         self.assertEqual(response['updatedInput'], {'command': 'touch x.txt'})
         self.assertEqual(response['updatedPermissions'], [{'type': 'addRules', 'rules': [{'toolName': 'Bash', 'ruleContent': 'touch x.txt'}],
@@ -100,6 +145,49 @@ class ChatTest(unittest.TestCase):
             chat.answer('perm-1', 'allow')
         self.assertEqual(cm.exception.status, 409)
 
+    def test_our_own_event_comes_before_claudes_reply(self):
+        """claude may answer before our write to it has returned, and its reply is read meanwhile: here the window is
+        widened (a pause after each line of ours, in which the stand-in answers). Our tm_user still comes before the turn
+        it starts and our tm_answer before the tool runs, in what is kept and in what is passed on live."""
+        write = tchat.Chat._write
+
+        def slow(chat, obj):
+            write(chat, obj)
+            if obj.get('type') in ('user', 'control_response'):
+                time.sleep(0.4)
+
+        with mock.patch.object(tchat.Chat, '_write', slow):
+            chat = self.open()
+            _, q = chat.subscribe()
+            chat.send('tool please')
+            live = until(q, lambda m: m.get('type') == 'control_request')
+            chat.answer(live[-1]['request_id'], 'allow')
+            live += until_all(q, is_result, is_answer)
+        snapshot, _ = chat.subscribe()
+        for got in (snapshot, live):
+            types = [m['type'] for m in got]
+            self.assertLess(types.index('tm_user'), types.index('system'), types)  # before the turn's init
+            self.assertLess(types.index('tm_user'), types.index('control_request'), types)
+            self.assertLess(types.index('tm_answer'), types.index('user'), types)  # before the tool's result
+        self.assertEqual(snapshot[0]['type'], 'tm_user')
+
+    def test_an_answer_that_cannot_be_written_changes_nothing(self):
+        chat = self.open(prompt='tool please')
+        _, q = chat.subscribe()
+        req = until(q, lambda m: m.get('type') == 'control_request')[-1]
+        with mock.patch.object(tchat.Chat, '_write', side_effect=StoreError(409, 'this chat is not taking input')):
+            with self.assertRaises(StoreError):
+                chat.answer(req['request_id'], 'allow')
+            with self.assertRaises(StoreError):
+                chat.send('again')
+        self.assertEqual(chat.info()['pending'], 1)  # still to answer
+        self.assertTrue(chat.info()['busy'])  # the first turn's, still running
+        snapshot, _ = chat.subscribe()
+        self.assertNotIn('tm_answer', [m['type'] for m in snapshot])
+        self.assertEqual([m for m in snapshot if m['type'] == 'tm_user'], [{'type': 'tm_user', 'text': 'tool please'}])
+        chat.answer(req['request_id'], 'allow')  # and it can be answered once the write goes through
+        until_all(q, is_result, is_answer)
+
     def test_deny_sends_the_reason(self):
         chat = self.open(prompt='tool please')
         _, q = chat.subscribe()
@@ -107,8 +195,8 @@ class ChatTest(unittest.TestCase):
         with self.assertRaises(StoreError):
             chat.answer(req['request_id'], 'maybe')
         chat.answer(req['request_id'], 'deny', message='not now')
-        got = until(q, is_result)
-        self.assertEqual(got[1]['message']['content'][0], {'type': 'tool_result', 'tool_use_id': 'toolu_1', 'content': 'not now', 'is_error': True})
+        got = until_all(q, is_result, is_answer)
+        self.assertEqual(first(got, 'user')['message']['content'][0],{'type': 'tool_result', 'tool_use_id': 'toolu_1', 'content': 'not now', 'is_error': True})
         self.assertEqual(self.answered(), {'behavior': 'deny', 'message': 'not now'})
 
     def test_interrupt_ends_the_turn(self):
@@ -120,6 +208,30 @@ class ChatTest(unittest.TestCase):
         got = until(q, is_result)
         self.assertEqual(got[-1]['subtype'], 'error_during_execution')
         self.assertFalse(chat.info()['busy'])
+
+    def test_an_interrupt_marks_its_requests_before_claude_ends_the_turn(self):
+        """As test_our_own_event_comes_before_claudes_reply, for an interrupt with a permission card open: the card is
+        marked interrupted before claude's interrupted result, kept and live; and it is no longer pending."""
+        write = tchat.Chat._write
+
+        def slow(chat, obj):
+            write(chat, obj)
+            if (obj.get('request') or {}).get('subtype') == 'interrupt':
+                time.sleep(0.4)
+
+        chat = self.open(prompt='tool please')
+        _, q = chat.subscribe()
+        live = until(q, lambda m: m.get('type') == 'control_request')
+        with mock.patch.object(tchat.Chat, '_write', slow):
+            chat.interrupt()
+            live += until_all(q, is_result, is_answer)
+        snapshot, _ = chat.subscribe()
+        for got in (snapshot, live):
+            types = [m['type'] for m in got]
+            self.assertLess(types.index('tm_answer'), types.index('result'), types)
+        self.assertEqual(first(snapshot, 'tm_answer'), {'type': 'tm_answer', 'request_id': 'perm-1', 'behavior': 'interrupted'})
+        self.assertEqual(first(snapshot, 'result')['subtype'], 'error_during_execution')
+        self.assertEqual(chat.info()['pending'], 0)
 
     def test_mode_and_model_are_control_requests(self):
         chat = self.open(prompt='hi', mode='plan')
@@ -134,13 +246,10 @@ class ChatTest(unittest.TestCase):
             chat.set_mode('bypassPermissions')  # not on the list
         with self.assertRaises(StoreError):
             chat.set_model('sonnet')  # not among the models this claude listed
-        for _ in range(100):  # what we wrote reaches the stand-in's log when it reads it, a moment later
-            reqs = [m['request'] for m in self.sent() if m.get('type') == 'control_request']
-            if len(reqs) >= 3:
-                break
-            time.sleep(0.02)
-        self.assertIn({'subtype': 'set_permission_mode', 'mode': 'acceptEdits'}, reqs)
-        self.assertIn({'subtype': 'set_model', 'model': 'opus'}, reqs)
+        mode, model = {'subtype': 'set_permission_mode', 'mode': 'acceptEdits'}, {'subtype': 'set_model', 'model': 'opus'}
+        reqs = self.requests_until(mode, model)
+        self.assertIn(mode, reqs)
+        self.assertIn(model, reqs)
 
     def test_the_models_claude_lists_and_the_effort_it_applies(self):
         chat = self.open(prompt='hi')
@@ -160,12 +269,8 @@ class ChatTest(unittest.TestCase):
         chat.set_model('claude-haiku-1-0')
         with self.assertRaises(StoreError):
             chat.set_effort('low')  # Haiku 1.0 takes no effort level
-        for _ in range(100):
-            reqs = [m['request'] for m in self.sent() if m.get('type') == 'control_request']
-            if {'subtype': 'apply_flag_settings', 'settings': {'effortLevel': 'low'}} in reqs:
-                break
-            time.sleep(0.02)
-        self.assertIn({'subtype': 'apply_flag_settings', 'settings': {'effortLevel': 'low'}}, reqs)  # in memory, no settings file
+        effort = {'subtype': 'apply_flag_settings', 'settings': {'effortLevel': 'low'}}
+        self.assertIn(effort, self.requests_until(effort))  # in memory, no settings file
 
     def test_the_effort_holds_across_a_change_of_model(self):
         chat = self.open(prompt='hi')
@@ -210,6 +315,39 @@ class ChatTest(unittest.TestCase):
         self.assertEqual(chat.info()['model'], 'opus')
         self.assertEqual(settled, [('opus', 'high')])  # nothing recorded for the refused one
 
+    def test_claudes_answer_to_a_change_finds_the_change_made(self):
+        """claude may answer a set_model or an apply_flag_settings before our write of it has returned, and the reader
+        acts on that answer at once (seen on CI under load): here the window is widened, a pause after each such line
+        of ours, in which the stand-in answers. The answer still finds the new model — the session's effort goes on
+        with it, not claude's default for the model — a refused one still ends on the model it had, and our own events
+        come before what claude's answer leads to."""
+        write = tchat.Chat._write
+
+        def slow(chat, obj):
+            write(chat, obj)
+            if (obj.get('request') or {}).get('subtype') in ('set_model', 'apply_flag_settings'):
+                time.sleep(0.4)
+
+        chat = self.open(prompt='hi')
+        settled = []
+        chat.on_settings = lambda model, effort: settled.append((model, effort))
+        _, q = chat.subscribe()
+        until(q, lambda m: m.get('type') == 'tm_effort')
+        with mock.patch.object(tchat.Chat, '_write', slow):
+            chat.set_model('claude-sonnet-8-1')
+            got = until(q, lambda m: m.get('type') == 'tm_settings')
+            self.assertEqual(got[-1], {'type': 'tm_settings', 'model': 'claude-sonnet-8-1', 'effort': 'high'})
+            types = [m['type'] for m in got]
+            self.assertLess(types.index('tm_model'), types.index('tm_settings'), types)
+            chat.set_effort('max')
+            got = until(q, lambda m: m.get('type') == 'tm_settings')
+            self.assertEqual([m['effort'] for m in got if m['type'] == 'tm_effort'], ['max', 'max'])  # ours, then claude's
+            chat.set_model('claude-gone-0-1')  # refused: back to the one it had
+            got = until(q, lambda m: m.get('type') == 'tm_notice')
+            self.assertEqual([m['model'] for m in got if m.get('type') == 'tm_model'], ['claude-gone-0-1', 'claude-sonnet-8-1'])
+        self.assertEqual((chat.info()['model'], chat.info()['effort']), ('claude-sonnet-8-1', 'max'))
+        self.assertEqual(settled, [('claude-sonnet-8-1', 'high'), ('claude-sonnet-8-1', 'max')])
+
     def test_effort_for_a_model(self):
         self.assertEqual(tchat.effort_for('xhigh', ['low', 'medium', 'high', 'max']), 'high')
         self.assertEqual(tchat.effort_for('low', ['medium', 'high']), 'medium')  # none below: its lowest
@@ -242,13 +380,13 @@ class ChatTest(unittest.TestCase):
             with self.assertRaises(StoreError, msg=bad):
                 chat.answer(rid, 'allow', answers=bad)
         chat.answer(rid, 'allow', answers={'Which color?': ' Blue '})
-        got = until(q, is_result)
-        self.assertEqual(got[0], {'type': 'tm_answer', 'request_id': rid, 'behavior': 'allow', 'always': False,
+        got = until_all(q, is_result, is_answer)
+        self.assertEqual(first(got, 'tm_answer'), {'type': 'tm_answer', 'request_id': rid, 'behavior': 'allow', 'always': False,
                                   'answers': {'Which color?': 'Blue'}})
         response = self.answered()
         self.assertEqual(response['updatedInput']['answers'], {'Which color?': 'Blue'})
         self.assertEqual(len(response['updatedInput']['questions']), 1)  # the input as it was, plus the answers
-        self.assertEqual(got[-2]['message']['content'][0]['text'], 'you chose Blue')
+        self.assertEqual(last_text(got), 'you chose Blue')
 
     def test_a_plan_approved_goes_on_in_the_mode_chosen_or_asks_before_edits(self):
         chat = self.open(prompt='plan it', mode='plan')
@@ -258,9 +396,9 @@ class ChatTest(unittest.TestCase):
         with self.assertRaises(StoreError):
             chat.answer(req['request_id'], 'allow', mode='plan')  # not back into plan
         chat.answer(req['request_id'], 'allow', mode='acceptEdits')
-        got = until(q, is_result)
-        self.assertEqual(got[0], {'type': 'tm_mode', 'mode': 'acceptEdits'})
-        self.assertEqual(got[1]['mode'], 'acceptEdits')
+        got = until_all(q, is_result, is_answer)
+        self.assertEqual(got[0], {'type': 'tm_mode', 'mode': 'acceptEdits'})  # put before the line to claude: first
+        self.assertEqual(first(got, 'tm_answer')['mode'], 'acceptEdits')
         self.assertEqual(self.answered()['updatedPermissions'],
                          [{'type': 'setMode', 'mode': 'acceptEdits', 'destination': 'session'}])
         self.assertEqual(chat.info()['mode'], 'acceptEdits')
@@ -278,9 +416,9 @@ class ChatTest(unittest.TestCase):
         _, q = chat.subscribe()
         req = until(q, lambda m: m.get('type') == 'control_request')[-1]
         chat.answer(req['request_id'], 'deny', message='use b.txt')
-        got = until(q, is_result)
-        self.assertEqual(got[0]['message'], 'use b.txt')
-        self.assertEqual(got[-2]['message']['content'][0]['text'], 'planning: use b.txt')
+        got = until_all(q, is_result, is_answer)
+        self.assertEqual(first(got, 'tm_answer')['message'], 'use b.txt')
+        self.assertEqual(last_text(got), 'planning: use b.txt')
         self.assertEqual(chat.info()['mode'], 'plan')
 
     def test_a_subagent_keeps_its_parent_and_its_partial_text_is_dropped(self):
@@ -296,10 +434,10 @@ class ChatTest(unittest.TestCase):
         _, q = chat.subscribe()
         thumb = 'data:image/jpeg;base64,AAAA'
         chat.send('what is this', images=[{'data': PNG, 'thumb': thumb}, {'data': PNG, 'thumb': 'javascript:x'}])
-        got = until(q, is_result)
-        self.assertEqual(got[0], {'type': 'tm_user', 'text': 'what is this',
-                                  'images': [{'media_type': 'image/png', 'thumb': thumb}, {'media_type': 'image/png'}]})
-        self.assertEqual(got[-2]['message']['content'][0]['text'], 'images: 2')
+        got = until_all(q, is_result, lambda m: m.get('type') == 'tm_user')
+        self.assertEqual(first(got, 'tm_user'), {'type': 'tm_user', 'text': 'what is this',
+                                                 'images': [{'media_type': 'image/png', 'thumb': thumb}, {'media_type': 'image/png'}]})
+        self.assertEqual(last_text(got), 'images: 2')
         content = [m for m in self.sent() if m.get('type') == 'user'][-1]['message']['content']
         self.assertEqual(content[0], {'type': 'text', 'text': 'what is this'})
         self.assertEqual(content[1]['source'], {'type': 'base64', 'media_type': 'image/png', 'data': PNG})
@@ -331,7 +469,7 @@ class ChatTest(unittest.TestCase):
         chat = self.open(prompt='long output')
         _, q = chat.subscribe()
         got = until(q, is_result)
-        text = got[-2]['message']['content'][0]['content']
+        text = first(got, 'user')['message']['content'][0]['content']  # the tool's output (our tm_user may sit anywhere)
         self.assertLess(len(text), tchat.TEXT_MAX + 100)
         self.assertIn('more characters', text)
 

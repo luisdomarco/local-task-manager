@@ -1,14 +1,14 @@
 // Every item has an address, so anything that opens an item can open it in a new browser tab
 // instead: ⌘/Ctrl-click or a middle click. The types with a page (rules.js hasPage: an initiative; in Ticketing a
 // project and a PRD too) have it at #/<type>/<id or project key>; the rest open as their card over their own list
-// (#/item/ID, see main.js route). Only rules.js imported: ui.js and datatable.js use this.
+// (#/item/<its ref: TSK-482>, see main.js route). Only rules.js imported: ui.js and datatable.js use this.
 import { hasPage, pageRef } from './rules.js';
 
 /** The address of an item's page, or null for one that opens as a card. */
 export const pageHref = (item) => (hasPage(item) ? `#/${item.type}/${encodeURIComponent(pageRef(item))}` : null);
 
 /** The in-app address of an item. */
-export const itemHref = (item) => pageHref(item) || `#/item/${encodeURIComponent(item.id || item.key)}`;
+export const itemHref = (item) => pageHref(item) || `#/item/${encodeURIComponent(item.ref || item.id || item.key)}`;
 
 /** ⌘/Ctrl-click or the middle button: the user asks for a new tab. */
 export const wantsNewTab = (e) => !!e && (e.metaKey || e.ctrlKey || e.button === 1);

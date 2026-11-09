@@ -1,11 +1,15 @@
 // DOM helpers and shared components. Everything is built with createElement:
 // titles come from files on disk, so nothing user-provided goes through innerHTML
 // except rendered markdown, which is sanitized with DOMPurify.
-import { addDays, dayLabel, monthLabel, relDay, today } from './dates.js';
-import { LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isLate, isOverdue, onStructure, statusTree } from './rules.js';
+import { relDay } from './dates.js';
+import { EXTERNAL_REF, LABEL_MODES, PLANNABLE, PRIORITY_RANK, isDone, isOverdue, onStructure, statusTree } from './rules.js';
 import { fitChips } from './chipfit.js';
+import { tabLabel } from './tablabel.js';
+import { pref, setPref } from './prefs.js';
 import { opener } from './links.js';
 import { allLabels, state, setCompleted } from './state.js';
+import { refOf, shownId } from './shownid.js';
+import { CARD_OFF, planText } from './viewmodel.js';
 
 // Links come from files anyone may have written: only these schemes become an href.
 // In-app routes (#/initiative/INI-0001) are safe too: they are what the sidebar and breadcrumbs link to.
@@ -67,6 +71,7 @@ const ICONS = {
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
   note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M16 13H8M16 17H8M10 9H8"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  goal: '<path d="M12 13V2l8 4-8 4"/><path d="M20.561 10.222a9 9 0 1 1-12.55-5.29"/><path d="M8.002 9.997a5 5 0 1 0 8.9 2.02"/>',
   task: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 12 2 2 4-4"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   textcolour: '<path d="m6 15 6-12 6 12"/><path d="M8.5 10h7"/>',
@@ -101,6 +106,7 @@ const ICONS = {
   back: '<path d="m12 19-7-7 7-7M19 12H5"/>',
   panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   // attachments (attachments.js)
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
@@ -121,6 +127,10 @@ const ICONS = {
   foldertree: '<path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/>',
   folderopen: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
   image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  sliders: '<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  canvas: '<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>', // a whiteboard (canvas/)
+  graph: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98"/>',
   grip: '<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>',
 };
 
@@ -157,17 +167,17 @@ export const groupNamed = (name) => (state.groups || []).find((g) => g.name.toLo
 /** Its icon: how the group is reached. */
 export const GROUP_ICON = { email: 'mail', slack: 'message', other: 'users' };
 /** A contact by name: a person (the people icon; on hover, the name Calendar gives them and their emails), or a group
- *  (its channel's icon; on hover, its address and members). */
+ *  (its channel's icon; on hover, its address and members). Tinted as a label is, one hue per name (labelHue). */
 export const personChip = (name, extra = null) => {
   const g = groupNamed(name);
   if (g) {
     const about = [`${name} (group)`, g.address, g.members.length ? `Members: ${g.members.join(', ')}` : null].filter(Boolean);
-    return h('span', { class: 'chip person group', title: about.join('\n') }, icon(GROUP_ICON[g.channel] || 'users', 12), name, extra);
+    return h('span', { class: 'chip person group', style: `--h:${labelHue(name.toLowerCase())}`, title: about.join('\n') }, icon(GROUP_ICON[g.channel] || 'users', 12), name, extra);
   }
   const p = state.people.find((x) => x.name.toLowerCase() === String(name).toLowerCase());
   const about = [name, p?.calendar_name && p.calendar_name !== name ? `Calendar: ${p.calendar_name}` : null, ...(p?.emails || []),
     p?.redmine ? `Redmine: ${p.redmine}` : null, p?.slack ? `Slack: ${p.slack}` : null].filter(Boolean);
-  return h('span', { class: 'chip person', title: about.join('\n') }, icon('users', 12), name, extra);
+  return h('span', { class: 'chip person', style: `--h:${labelHue(name.toLowerCase())}`, title: about.join('\n') }, icon('users', 12), name, extra);
 };
 
 /**
@@ -455,29 +465,32 @@ export function withMentions(text) {
  * attrs: class, aria-label, data-fk… as on any element, plus `search: true | false` to
  * force the search field on or off (default: on from 11 options), and `clearable: true` for an × beside
  * the button that empties it (shown only while something is picked; the returned element is then a
- * wrapper with the same `.value`).
+ * wrapper with the same `.value`), and `face: [icon, text]` for a menu button: it always reads that, whatever is
+ * picked (Docs' "+ Link a doc or folder": pick one and it is linked, the button stays as it was), and
+ * `menuWidth: (btn) => px` for a list wider than the button (that one's: the panel's width).
  */
 export function select(options, value, onChange, attrs = {}) {
-  const { class: cls = '', search, clearable = false, ...rest } = attrs;
+  const { class: cls = '', search, clearable = false, face: fixed = null, menuWidth = null, ...rest } = attrs;
   const tone = /\bstatus-select\b/.test(cls) ? { prefix: 's-', kind: 'status' }
     : /\bprio-select\b/.test(cls) ? { prefix: 'pr-', kind: 'prio' }
       : /\bkind-select\b/.test(cls) ? { prefix: 'k-', kind: 'kind' } : null; // work-log kinds: the coloured square
   let current = value ?? null;
   const choices = options.filter(Array.isArray); // the headings ({ heading }) are only drawn in the menu
   const optionOf = (v) => choices.find(([ov]) => (ov ?? null) === (v ?? null)) || [null, ''];
-  const face = ([, text, ico]) => [ico ? icon(ico, 14) : null, text]; // an option's icon + label
+  const readable = (text) => (tone?.kind === 'status' ? statusLabel(text) : text); // a status reads as statusLabel says
+  const face = ([, text, ico]) => [ico ? icon(ico, 14) : null, readable(text)]; // an option's icon + label
 
   const label = h('span', { class: 'select-label' });
   // Hidden copy of every label: the button is as wide as the longest one, so it never resizes on pick.
-  const sizer = h('span', { class: 'select-sizer', 'aria-hidden': 'true' }, choices.map((o) => h('span', {}, ...face(o))));
+  const sizer = fixed ? null : h('span', { class: 'select-sizer', 'aria-hidden': 'true' }, choices.map((o) => h('span', {}, ...face(o))));
   const btn = h('button', { type: 'button', 'aria-haspopup': 'listbox', ...rest, class: `select-btn ${cls}` },
     h('span', { class: 'select-text' }, label, sizer));
 
   const clear = clearable ? h('button', { type: 'button', class: 'btn icon select-clear', title: 'Clear', 'aria-label': 'Clear' }, icon('x', 12)) : null;
   const paint = () => {
-    label.replaceChildren(...face(optionOf(current)).filter((x) => x !== null));
+    label.replaceChildren(...(fixed ? face([null, fixed[1], fixed[0]]) : face(optionOf(current))).filter((x) => x !== null));
     if (clear) clear.hidden = current == null;
-    if (!tone) return;
+    if (!tone) { btn.classList.toggle('is-empty', !fixed && current == null); return; } // "— none —", "Search an item…": grey (app.css)
     [...btn.classList].filter((c) => /^(s|pr|k)-/.test(c)).forEach((c) => btn.classList.remove(c));
     btn.classList.add(`${tone.prefix}${cssKey(current || (tone.kind === 'status' ? 'Backlog' : 'Normal'))}`);
   };
@@ -502,12 +515,12 @@ export function select(options, value, onChange, attrs = {}) {
     const rows = () => [...list.querySelectorAll('.menu-item')];
     const render = () => {
       const q = input ? input.value.trim().toLowerCase() : '';
-      const shown = options.filter((o) => (Array.isArray(o) ? !q || o[0] == null || o[1].toLowerCase().includes(q) : !q)); // the none row stays: a way out while searching
+      const shown = options.filter((o) => (Array.isArray(o) ? !q || o[0] == null || (o[1].toLowerCase().includes(q) || readable(o[1]).toLowerCase().includes(q)) : !q)); // the none row stays: a way out while searching
       list.replaceChildren(...(shown.some(Array.isArray) ? shown.map((o) => {
         if (!Array.isArray(o)) return h('div', { class: 'menu-label', role: 'presentation' }, o.heading);
         const [v, l, ico] = o;
         const picked = (v ?? null) === current;
-        const text = tone ? h('span', {}, h('span', { class: `chip ${tone.kind} ${tone.prefix}${cssKey(v)}` }, l)) : h('span', {}, l);
+        const text = tone ? h('span', {}, h('span', { class: `chip ${tone.kind} ${tone.prefix}${cssKey(v)}` }, readable(l))) : h('span', {}, l);
         const lead = ico ? icon(ico, 15) : null;
         return h('button', {
           type: 'button', role: 'option', 'aria-selected': String(picked), class: `menu-item ${picked ? 'current' : ''}`,
@@ -536,7 +549,7 @@ export function select(options, value, onChange, attrs = {}) {
     }
     render();
     dropdown(btn, [input ? h('div', { class: 'menu-search' }, input) : null, list].filter(Boolean),
-      { width: Math.max(btn.offsetWidth, 180), focus: false });
+      { width: Math.max(menuWidth?.(btn) || btn.offsetWidth, 180), focus: false });
     (input || list.querySelector('.current') || rows()[0])?.focus();
     list.querySelector('.current')?.scrollIntoView({ block: 'nearest' });
   };
@@ -559,23 +572,31 @@ export const parentOptions = (types, empty = '— none —', { exclude = new Set
   [null, empty],
   ...state.all.filter((i) => i.id && types.includes(i.type) && !exclude.has(i.id) && where(i)
       && ((!isDone(i) && i.fields.archived !== true) || i.id === current))
-    .map((i) => [i.id, `${i.id} · ${i.title}`]),
+    .map((i) => [i.id, `${refOf(i)} · ${i.title}`]),
 ];
 
 // ── chips ────────────────────────────────────────────────────────────────────
 /** A status or priority as a class name: `s-${cssKey(status)}` ("In QA" → s-in-qa). */
 export const cssKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/**
+ * How a status reads on screen: its stored name split where the case changes and in sentence case
+ * ("InProgress" → "In progress", "ToDo" → "To do", "open" → "Open"; an acronym stays: "In QA"). Only what is shown: the file keeps its own name.
+ */
+export const statusLabel = (s) => String(s || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim()
+  .split(/\s+/).filter(Boolean)
+  .map((w, i) => (/^[A-Z0-9]{2,}$/.test(w) ? w : i ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())) // QA stays QA
+  .join(' ');
 
 // ── status colours (TSK-037) ─────────────────────────────────────────────────
 // The eight statuses the folder-per-type structure was built with have their pill colours in app.css (.s-*, light and dark). Any other status
-// (an agent's, an error's, one a vault added) and any a vault gave a colour (Settings → Item type status) get theirs
+// (an agent's, an error's, one a vault added) and any a vault gave a colour (Settings → Statuses) get theirs
 // here, from one hue: the fill is the hue over the background, the text the hue towards the foreground, so it reads
 // in both themes.
 const BUILT_IN = { backlog: '#8a8f98', todo: '#1a73e8', onhold: '#e3a008', blocked: '#d93025', inprogress: '#e8710a',
   review: '#8e44ad', done: '#1e8e3e', discarded: '#6e4a33' };
 const PALETTE = ['#1a73e8', '#e8710a', '#8e44ad', '#0d9488', '#db2777', '#65a30d', '#0891b2', '#b45309'];
 const hash = (s) => [...s].reduce((n, c) => (n * 31 + c.charCodeAt(0)) >>> 0, 7);
-/** The hue a status shows in (what Settings → Item type status starts its colour picker at). */
+/** The hue a status shows in (what Settings → Statuses starts its colour picker at). */
 export function statusColor(status, group, colors = {}) {
   if (colors[status]) return colors[status];
   const key = cssKey(status);
@@ -596,7 +617,7 @@ export function statusCss(structure) {
     }
   }
   return [...seen].map(([key, c]) => `.s-${key}{--st-bg:color-mix(in srgb,${c} 22%,var(--background));`
-    + `--st-fg:color-mix(in srgb,${c} 78%,var(--foreground))}`).join('\n');
+    + `--st-fg:color-mix(in srgb,${c} 78%,var(--foreground));--st-dot:${c}}`).join('\n');
 }
 if (typeof document !== 'undefined') {
   onStructure((s) => {
@@ -619,7 +640,7 @@ export function statusTreeSelect(types, values, onChange, { any = 'Any status', 
     const whole = tree().filter(([, , names]) => names.every((n) => ticked.has(n)));
     const count = tree().reduce((n, [, , names]) => n + names.filter((x) => ticked.has(x)).length, 0);
     if (whole.length && whole.reduce((n, [, , names]) => n + names.length, 0) === count) return whole.map(([, l]) => l).join(' + ');
-    return ticked.size === 1 ? String([...ticked][0]) : `${ticked.size} statuses`;
+    return ticked.size === 1 ? statusLabel([...ticked][0]) : `${ticked.size} statuses`;
   };
   const face = h('span', { class: 'select-label' }, label());
   const btn = selectButton(face, attrs);
@@ -656,37 +677,21 @@ export function statusTreeSelect(types, values, onChange, { any = 'Any status', 
 /** The statuses of the open groups (Not started + In progress) of `types`: what "open" ticks. */
 export const openStatuses = (types) => statusTree(types).filter(([g]) => g !== 'closed').flatMap(([, , names]) => names);
 
-export const statusChip = (status) => h('span', { class: `chip status s-${cssKey(status)}` }, status);
+/** A status's chip, its name as statusLabel reads it (`raw`: the stored name, where that name is what is being edited). */
+export const statusChip = (status, { raw = false } = {}) => h('span', { class: `chip status s-${cssKey(status)}`, title: raw || statusLabel(status) === String(status || '') ? null : String(status) }, raw ? status : statusLabel(status));
 export const priorityChip = (p) => h('span', { class: `chip prio pr-${cssKey(p)}` }, p);
 
 /**
- * When an item is planned for, as a chip (the Free board's and Month's cards): Today, Tomorrow, the weekday within the
- * coming week ("Thu 30"), else the date, its week ("W45") when it has no day, or its month ("Nov") with neither; in red
- * when that has passed and it is still open.
- */
-export function planChip(item) {
-  const { plan_day: day, plan_week: week, plan_month: month } = item.fields;
-  if (!day && !week && !month) return null;
-  const t = today();
-  const label = day ? (day > t && day <= addDays(t, 6) && day !== addDays(t, 1) ? dayLabel(day) : relDay(day))
-    : week ? week.split('-')[1] : monthLabel(month, true);
-  const late = isLate(item);
-  return h('span', { class: `chip plan ${late ? 'late' : ''}`, title: `Planned for ${day || week || month}${late ? ' · late' : ''}` },
-    icon('calendar', 12), label);
-}
-
-/**
  * What a card shows besides its subject: status, priority and due date (a meeting its date, an activity
- * whether it is resolved), and when it is planned for if `showPlan`. The parent is its own line (see itemCard);
+ * whether it is resolved). The parent is its own line (see itemCard);
  * everything else lives in the item's card.
  */
-export function chips(item, { hideStatus = false, showPlan = false } = {}) {
+export function chips(item, { hideStatus = false } = {}) {
   const f = item.fields;
   const out = [];
   if (PLANNABLE.has(item.type)) {
     if (!hideStatus && f.status) out.push(statusChip(f.status));
     out.push(priorityChip(f.priority || 'Normal'));
-    if (showPlan) { const plan = planChip(item); if (plan) out.push(plan); }
     if (f.due) out.push(h('span', { class: `chip due ${isOverdue(item) ? 'late' : ''}` }, icon('flag', 12), relDay(f.due)));
   }
   if (item.type === 'meeting' && f.date) out.push(h('span', { class: 'chip' }, icon('users', 12), relDay(f.date)));
@@ -703,7 +708,7 @@ function parentLink(item) {
   const p = item.fields.related_to && state.byId.get(item.fields.related_to);
   if (!p) return null;
   return h('button', {
-    class: 'card-parent', title: `Open ${p.id} · ${p.title}`,
+    class: 'card-parent', title: `Open ${refOf(p)} · ${p.title}`,
     ...opener(p, (it, e) => { e.stopPropagation(); import('./panel.js').then((m) => m.openItem(it.id)); }),
   }, typeIcon(p.type, 12), h('span', {}, p.title));
 }
@@ -718,8 +723,47 @@ export function checkbox(item) {
   }, isDone(item) ? icon('check', 12) : '');
 }
 
-export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, showPlan = false, cls = '', titleAction = null } = {}) {
-  const el = h('div', {
+/**
+ * A card of a list's board (views/list.js as a board; docs/design.md §3): its done box, a subject of two lines at
+ * most, a grey line with what it hangs from (its initiative or parent, else its project), and one row of priority,
+ * ID, planned (red when late), due, the tracker's ticket and labels. No status (its column says it), no framed chips.
+ * `shows(key)` says which it carries (Display → Show on cards: viewmodel.js cardProps / cardShows).
+ * Planning's boards (planrows.js planCard) leave out the ID (`id: false`) and the plan where the column says it
+ * (`plan: false`), add what they say of it (`meta`: due, done) and a move at its right (`action`: carried over → now).
+ */
+function boardCard(item, { onOpen, projectName = (k) => k, shows = (k) => !CARD_OFF.has(k), id = true, plan: showPlan = true, meta = [], action = null, status = null }) {
+  const p = shows('parent') && item.fields.related_to && state.byId.get(item.fields.related_to);
+  const proj = item.fields.project && (shows('project') || (shows('parent') && !p)) ? projectName(item.fields.project) : null;
+  const where = [
+    ...(p ? [typeIcon(p.type, 12), h('span', {}, p.title)] : []),
+    ...(proj ? [p ? h('span', { class: 'card-where-sep', 'aria-hidden': 'true' }, '·') : typeIcon('project', 12), h('span', {}, proj)] : []),
+  ];
+  const plan = planText(item.fields);
+  const labels = shows('labels') && Array.isArray(item.fields.labels) ? item.fields.labels : [];
+  const ref = shows('extref') && EXTERNAL_REF.id_key ? item.fields[EXTERNAL_REF.id_key] : null;
+  return h('div', {
+    class: `card board-card t-${item.type} ${isDone(item) ? 'done' : ''}`, 'data-key': item.key,
+    ...(onOpen ? opener(item, onOpen) : {}),
+  },
+  checkbox(item),
+  h('div', { class: 'card-body' },
+    h('div', { class: 'card-title', title: item.title }, item.title),
+    where.length ? h('div', { class: 'card-where', title: [p ? `${refOf(p)} · ${p.title}` : null, proj].filter(Boolean).join(' · ') }, ...where) : null,
+    h('div', { class: 'card-meta' }, ...[
+      (status ?? shows('status')) && item.fields.status ? statusChip(item.fields.status) : null, // its status, then its priority (as a list's columns)
+      shows('priority') && item.fields.priority ? priorityChip(item.fields.priority) : null,
+      id && shows('id') ? h('span', { class: 'mono' }, shownId(item)) : null,
+      showPlan && shows('plan') && PLANNABLE.has(item.type) && !plan.none ? h('span', { class: plan.late ? 'late-text' : '', title: plan.late ? `Planned ${plan.since}` : null }, plan.text) : null,
+      shows('due') && item.fields.due ? h('span', { class: isOverdue(item) ? 'late-text' : '', title: `Due ${item.fields.due}` }, `Due ${relDay(item.fields.due)}`) : null,
+      ref ? h('span', { class: 'mono', title: `${EXTERNAL_REF.label} #${ref}` }, `#${ref}`) : null,
+      ...meta,
+      ...labels.map((l) => h('span', { class: 'card-label' }, `#${l}`)),
+      action ? h('span', { class: 'card-act' }, action) : null,
+    ].filter(Boolean))));
+}
+
+export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, cls = '', variant = null, projectName, shows, board = {} } = {}) {
+  const el = variant === 'board' ? boardCard(item, { onOpen, projectName, shows, ...board }) : h('div', {
     class: `card t-${item.type} ${isDone(item) ? 'done' : ''} ${cls}`,
     'data-key': item.key,
     draggable: draggable ? 'true' : null,
@@ -730,12 +774,12 @@ export function itemCard(item, { onOpen, draggable = false, extra = null, hidePa
     h('div', { class: 'card-head' },
       h('div', { class: 'card-title', title: item.title }, // the board truncates it: the full subject on hover
         item.type !== 'task' && PLANNABLE.has(item.type) ? h('span', { class: 'type-ico' }, typeIcon(item.type)) : null,
-        item.title),
-      titleAction),
+        item.title)),
     hideParent ? null : parentLink(item),
-    h('div', { class: 'chips' }, chips(item, { hideStatus, showPlan }))),
+    h('div', { class: 'chips' }, chips(item, { hideStatus }))),
   extra ? h('div', { class: 'card-extra', onclick: (e) => e.stopPropagation() }, extra) : null);
   if (draggable) {
+    el.setAttribute('draggable', 'true');
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', item.key);
       e.dataTransfer.effectAllowed = 'move';
@@ -748,7 +792,7 @@ export function itemCard(item, { onOpen, draggable = false, extra = null, hidePa
 
 /**
  * Make `zone` accept dropped cards. onDrop(key, index) gets the position among
- * the zone's other `.card` children, computed from the pointer's Y.
+ * the zone's other cards or rows (anything with a `data-key`: a `.card`, a planrows.js `.plan-row`), from the pointer's Y.
  */
 // Card drags carry the item key as text/plain; list drags (board) use their own type
 // and must not light up card zones.
@@ -757,7 +801,7 @@ const isCardDrag = (e) => [...e.dataTransfer.types].includes('text/plain');
 export function dropZone(zone, onDrop) {
   // Where the card would land among the zone's other cards, from the pointer's Y.
   const slot = (e, key = null) => {
-    const cards = [...zone.querySelectorAll('.card')].filter((c) => !c.classList.contains('dragging') && c.dataset.key !== key);
+    const cards = [...zone.querySelectorAll('[data-key]')].filter((c) => !c.classList.contains('dragging') && c.dataset.key !== key);
     const index = cards.findIndex((c) => { const r = c.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
     return { cards, index: index < 0 ? cards.length : index };
   };
@@ -810,7 +854,8 @@ export function selectButton(label, attrs = {}) {
  * its content fills it — a list that scrolls above a fixed composer). Returns the
  * tab bar followed by one panel per tab; switching only hides / shows panels, so
  * nothing re-renders and drafts survive. `active` is the tab shown first and
- * `onChange(key)` lets the caller remember the choice.
+ * `onChange(key)` lets the caller remember the choice. A name longer than TAB_LABEL_MAX is cut (tablabel.js), and
+ * said whole on hover; each button carries its tab's key (`data-tab`), as its panel does.
  */
 export function tabPanels(tabs, active, onChange = () => {}) {
   const first = tabs.some((t) => t.key === active) ? active : tabs[0].key;
@@ -825,11 +870,20 @@ export function tabPanels(tabs, active, onChange = () => {}) {
       if (on) panels.get(t.key).dispatchEvent(new Event('tabshow'));
     }
     if (focus) buttons.get(key).focus();
+    buttons.get(key).scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); // a row that scrolls sideways shows the tab picked
     onChange(key);
   };
   const bar = h('div', { class: 'tabs-bar', role: 'tablist' }, tabs.map((t) => {
-    const btn = h('button', { type: 'button', class: 'tab-btn', role: 'tab', 'aria-selected': 'false', onclick: () => show(t.key) },
-      t.label, t.count ? h('span', { class: 'tab-count' }, t.count) : null);
+    const { text, full } = tabLabel(t.label);
+    const btn = h('button', {
+      type: 'button', class: `tab-btn${t.apart ? ' apart' : ''}`, role: 'tab', 'aria-selected': 'false', 'data-tab': t.key, title: full,
+      'aria-label': full && (t.count ? `${full} ${t.count}` : full), // the whole name for a screen reader too
+      onclick: () => show(t.key),
+    }, h('span', { class: 'tab-label' }, text), t.count ? h('span', { class: 'tab-count' }, t.count) : null);
+    // Short of room a tab narrows and its name is cut by the CSS too: then it is said whole on hover as well.
+    const cut = () => { const l = btn.firstChild; btn.title = full || (typeof text === 'string' && l.scrollWidth > l.clientWidth ? text : ''); };
+    btn.addEventListener('mouseenter', cut);
+    btn.addEventListener('focus', cut);
     btn.addEventListener('keydown', (e) => {
       const i = tabs.findIndex((x) => x.key === t.key);
       if (e.key === 'ArrowRight') { e.preventDefault(); show(tabs[(i + 1) % tabs.length].key, true); }
@@ -838,7 +892,20 @@ export function tabPanels(tabs, active, onChange = () => {}) {
     buttons.set(t.key, btn);
     return btn;
   }));
-  for (const t of tabs) panels.set(t.key, h('div', { class: `tab-panel ${t.fill ? 'fill' : ''}`, role: 'tabpanel' }, ...[t.content].flat()));
+  // A row wider than its room scrolls sideways (its bar hidden): the side with more fades out (app.css), and the wheel
+  // scrolls it as well as a trackpad does.
+  const edges = () => {
+    bar.classList.toggle('more-left', bar.scrollLeft > 1);
+    bar.classList.toggle('more-right', bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 1);
+  };
+  bar.addEventListener('scroll', edges, { passive: true });
+  bar.addEventListener('wheel', (e) => {
+    if (bar.scrollWidth <= bar.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    bar.scrollLeft += e.deltaY;
+  }, { passive: false });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(edges).observe(bar);
+  for (const t of tabs) panels.set(t.key, h('div', { class: `tab-panel ${t.fill ? 'fill' : ''}`, role: 'tabpanel', 'data-tab': t.key }, ...[t.content].flat()));
   for (const t of tabs) { // initial state without calling onChange
     buttons.get(t.key).setAttribute('aria-selected', String(t.key === first));
     buttons.get(t.key).tabIndex = t.key === first ? 0 : -1;
@@ -848,6 +915,13 @@ export function tabPanels(tabs, active, onChange = () => {}) {
 }
 
 export const menuIsOpen = () => openMenu !== null;
+
+/** A menu, list or calendar opened from the side panel of a card or page is drawn at the panel's one text size
+ *  (app.css .menu-side), though it lives on the body. */
+export function sideSized(el, anchor) {
+  if (anchor?.closest?.('.im-side.tabbed')) el.classList.add('menu-side');
+  return el;
+}
 
 /**
  * Open a menu under `anchor`. `items` are nodes, or { label, icon, kbd, onSelect,
@@ -872,7 +946,7 @@ export function dropdown(anchor, items, { align = 'start', width = null, focus =
       el.append(btn);
     }
   }
-  document.body.append(el);
+  document.body.append(sideSized(el, anchor));
   const r = anchor.getBoundingClientRect();
   const w = el.offsetWidth;
   const left = align === 'end' ? r.right - w : r.left;
@@ -890,8 +964,92 @@ export function dropdown(anchor, items, { align = 'start', width = null, focus =
   if (focus) el.querySelector('button, input, select')?.focus();
 }
 
+/**
+ * A section whose title folds what is under it (an item's Attachments, its Area and objective): ▸/▾, an icon, the title
+ * and, given one, a count. Open or folded is kept under `key` for every item (this browser only); open at first.
+ * `body` is the element folded (it needs an id); `cls` the section's classes.
+ */
+export function foldSection({ key, title, ico, count = null, cls = '' }, body) {
+  const head = h('button', { type: 'button', class: 'fold-head', 'aria-controls': body.id });
+  const show = (open) => {
+    body.hidden = !open;
+    head.setAttribute('aria-expanded', String(open));
+    head.title = `${open ? 'Hide' : 'Show'} ${title.toLowerCase()}`;
+    head.replaceChildren(...[icon(open ? 'down' : 'right', 14), icon(ico, 15), h('span', { class: 'fold-title' }, title),
+      count === null ? null : h('span', { class: 'tab-count' }, String(count))].filter(Boolean));
+  };
+  show(pref(`${key}.open`, true) !== false);
+  head.addEventListener('click', () => { const open = body.hidden; show(open); setPref(`${key}.open`, open); });
+  return h('section', { class: `${cls} fold-section` }, head, body);
+}
+
+/**
+ * The search of a page's bar (the view bar's): a muted box with a magnifier around a search input — Work log, Labels,
+ * Contacts, Trash, Docs. Returns the box; the input keeps its own listeners.
+ */
+export function searchBox(input) {
+  input.classList.add('vb-search');
+  return h('label', { class: 'vb-search-box' }, icon('search', 14), input);
+}
+
+/**
+ * A page's head, a list's (views/list.js): its title with a grey count on the baseline (`count`, an element the page
+ * fills), then its primary action at the right. Work log, Labels, Contacts, Trash, Settings.
+ */
+export function pageHead({ title, count = null, action = null }) {
+  return h('header', { class: 'view-head row' },
+    h('div', { class: 'view-title' }, h('h1', {}, title), count), h('span', { class: 'spacer' }), action);
+}
+/** A page's count, for pageHead: grey, on the title's baseline. */
+export const pageCount = () => h('span', { class: 'muted view-count' });
+/** A page with nothing to show: a quiet grey line where its rows go, no box (a list's empty row). */
+export const pageEmpty = (text) => h('p', { class: 'page-empty' }, text);
+
 export function emptyState(text) {
   return h('div', { class: 'empty' }, text);
+}
+
+// ── Panel kit: the side panel's patterns, as components (docs/design.md §3 Panel kit; their CSS in app.css under the
+// same name). Built for the side panel, usable anywhere: the size comes from where they sit.
+
+/** A secondary button: a border and no fill (the accent on hover). "+ Add relation", "Add existing session". */
+export const secondaryButton = (label, { ico = null, class: cls = '', ...attrs } = {}) =>
+  h('button', { type: 'button', ...attrs, class: `btn secondary ${cls}` }, ico ? icon(ico, 14) : null, label);
+
+/** A group: its name above what it holds (rows, a picker, a button), a line between one group and the next. Without a
+ *  name, only the line (Relations' "+ Add relation"). `title` is the name's tooltip. `aside` goes on the name's line, at
+ *  the right (an item tab's "+ Add link" on its first group): with no name, that line holds it alone. */
+export const stackGroup = (label, content, { title = null, class: cls = '', aside = null } = {}) => {
+  const name = label ? h('span', { class: 'stack-label', title }, label) : null;
+  return h('div', { class: `stack-group ${cls}` },
+    aside ? h('div', { class: 'stack-head' }, name || h('span', { class: 'stack-label' }), aside) : name, content);
+};
+
+/** A list of plain rows (rowItem): no box, no line between; `ordered` for a chain (a parent, then its parent…). */
+export const rowList = (rows, { ordered = false } = {}) => h(ordered ? 'ol' : 'ul', { class: 'row-list' }, rows);
+
+/**
+ * A plain row (Relations, Docs): its icon and title, a muted `meta` at the right (an id: `mono`; a folder), the accent
+ * on hover, and its `actions` (rowAction) shown only then. With an `href` it is a link (`linkAttrs` on it: an opener,
+ * a title); with an `onClick` instead, a button (a file opened in a dialog); with neither, a muted line (`tip` says why). `depth` steps it in, `lead` goes before it (a chain's "in").
+ */
+export function rowItem({ text, href = null, ico = null, meta = null, mono = false, textMono = false, tip = null, depth = 0,
+  lead = null, actions = [], linkAttrs = {}, onClick = null, class: cls = '' }) {
+  const body = [ico, h('span', { class: `row-title ${textMono ? 'mono' : ''}` }, text),
+    meta ? h('span', { class: `row-meta ${mono ? 'mono' : ''}` }, meta) : null];
+  const link = href ? h('a', { title: tip, ...linkAttrs, class: `row-link ${linkAttrs.class || ''}`, href }, ...body)
+    : onClick ? h('button', { type: 'button', title: tip, ...linkAttrs, class: `row-link ${linkAttrs.class || ''}`, onclick: onClick }, ...body)
+      : h('span', { class: 'row-link muted', title: tip }, ...body);
+  return h('li', { class: `row-item hover-host ${cls}`, style: depth ? `--depth:${depth}` : null },
+    lead ? h('span', { class: 'row-lead muted small' }, lead) : null, link, [actions].flat().filter(Boolean));
+}
+
+/** A row's action (× to unlink, ⋯ for more): an icon button, shown on the row's hover (always on a touch screen).
+ *  `onClick(event, button)`. */
+export function rowAction(ico, label, onClick, attrs = {}) {
+  const btn = h('button', { type: 'button', ...attrs, class: `btn icon row-action hover-reveal ${attrs.class || ''}`, title: label, 'aria-label': label,
+    onclick: (e) => { e.preventDefault(); onClick(e, btn); } }, icon(ico, 14));
+  return btn;
 }
 
 export function section(title, items, opts = {}, actions = null) {

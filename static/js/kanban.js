@@ -28,8 +28,8 @@ export function startRename(nameEl, current, onCommit) {
  * The header of a column: drag handle for reordering, name (double-click renames),
  * count and a ⋯ button. `menu(anchor, nameEl)` opens the column's menu.
  */
-export function listHeader({ list, idx, count, countTitle = null, cls = '', before = null, menu, onRename }) {
-  const name = h('h2', { class: 'list-name', title: `${list.name} — double-click to rename` }, list.name);
+export function listHeader({ list, idx, count, countTitle = null, cls = '', before = null, menu, onRename, label = null }) {
+  const name = h('h2', { class: 'list-name', title: `${list.name} — double-click to rename` }, label ?? list.name);
   name.addEventListener('dblclick', () => startRename(name, list.name, onRename));
   const more = h('button', { class: 'btn icon', title: `${list.name} list actions`, 'aria-haspopup': 'menu' }, icon('more', 16));
   more.addEventListener('click', (e) => { e.stopPropagation(); menu(more, name); });
@@ -91,7 +91,7 @@ export const moveList = (ls, from, to) => ls.splice(to, 0, ls.splice(from, 1)[0]
  * The trailing "Add another list" column. `extra()` may return a control shown
  * under the name (the Board's status select); onAdd(name, extraEl) creates the list.
  */
-export function addListColumn({ label = 'Add another list', placeholder = 'List name…', extra = null, onAdd }) {
+export function addListColumn({ label = 'Add another list', placeholder = 'List name…', button = 'Add list', extra = null, onAdd }) {
   const col = h('div', { class: 'board-col add-list' });
   const closed = () => {
     col.replaceChildren(h('button', { class: 'add-list-btn', onclick: opened }, icon('plus', 16), label));
@@ -105,8 +105,9 @@ export function addListColumn({ label = 'Add another list', placeholder = 'List 
       onAdd(name, extraEl);
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') closed(); });
-    col.replaceChildren(input, extraEl, h('div', { class: 'row-actions' },
-      h('button', { class: 'btn primary small', onclick: add }, 'Add list'),
+    // replaceChildren writes a null as the text "null": without an extra control, none.
+    col.replaceChildren(...[input, extraEl].filter(Boolean), h('div', { class: 'row-actions' },
+      h('button', { class: 'btn primary small', onclick: add }, button),
       h('button', { class: 'btn icon', title: 'Cancel', onclick: closed }, icon('x', 16))));
     input.focus();
   };

@@ -1,10 +1,12 @@
 ---
 fileClass: Ticket Plan
-item: "[[{{id}} {{title}}]]"           # the initiative (or promoted support ticket) this plan executes
+id: "{{id}}"                           # its number, drawn PLN-<n>
+aliases: []
+item: "[[{{item_ref}} {{item_title}}]]"   # the initiative, story or support ticket this plan executes
 project: "[[00 {{project}}]]"
 written: {{date}}
 base: "develop @ <sha>"                # the sha measured during diagnosis; what this builds on
-branch: ""                             # e.g. feature/{{id}}-{{slug}}
+branch: ""                             # e.g. feature/{{item_ref}}-{{slug}}
 worktree: ""
 executor: ""                           # claude · codex · owner — chosen by the owner at approval
 verifier: ""                           # reviewer or judge; never the same hand as the executor
@@ -15,10 +17,10 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — Plan: {{title}}
+# {{ref}} — {{title}}
 
 > **This file is the complete brief.** Whoever executes it starts without the coordinator's context:
-> everything needed is here or in a file cited by its path. The *why* is in the initiative ([[{{id}} {{title}}]]).
+> everything needed is here or in a file cited by its path. The *why* is in what it executes ([[{{item_ref}} {{item_title}}]]).
 
 > [!owner] §0–§7 frozen at 2. ToDo, together with the initiative.
 

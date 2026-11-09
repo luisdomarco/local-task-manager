@@ -10,11 +10,13 @@ import { api } from './api.js';
 import { chatView, statusLabel, statusTone } from './chat.js';
 import { sessionStatus } from './chat-model.js';
 import { pref, setPref } from './prefs.js';
+import { wireResizer } from './resizer.js';
 import { itemName, itemPicker } from './itempicker.js';
 import { claudeAssociate, claudeChatOpen, claudeTermOpen, onChange, state, toast } from './state.js';
 import { setAlertTitle } from './tabtitle.js';
 import { closeMenu, dropdown, h, icon, typeIcon } from './ui.js';
 import { vaultId } from './vault.js';
+import { refOf } from './shownid.js';
 
 const VENDOR = 'vendor/xterm';
 // id → a session: { id, label, key, vault, cwd, kind: 'chat' | 'term', pane, row, alive, … }
@@ -157,31 +159,10 @@ function toggleMax() {
   else { beforeMax = now; setHeight(maxHeight()); }
 }
 function wireGrip(grip) {
-  grip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    try { grip.setPointerCapture(e.pointerId); } catch { /* the moves still arrive while the pointer stays on it */ }
-    const startY = e.clientY;
-    const startH = dock.getBoundingClientRect().height;
-    document.documentElement.classList.add('dock-resizing');
-    const move = (ev) => setHeight(startH + startY - ev.clientY, false);
-    const up = () => {
-      grip.removeEventListener('pointermove', move);
-      grip.removeEventListener('pointerup', up);
-      grip.removeEventListener('pointercancel', up);
-      document.documentElement.classList.remove('dock-resizing');
-      setHeight(dock.getBoundingClientRect().height);
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', up);
-    grip.addEventListener('pointercancel', up);
-  });
-  grip.addEventListener('dblclick', toggleMax);
-  grip.addEventListener('keydown', (e) => {
-    const step = e.key === 'ArrowUp' ? 40 : e.key === 'ArrowDown' ? -40 : 0;
-    if (!step) return;
-    e.preventDefault();
-    setHeight(dock.getBoundingClientRect().height + step);
+  wireResizer(grip, {
+    axis: 'y', invert: true, step: 40, cls: 'dock-resizing', reset: toggleMax, // it grows upward; double-click fills
+    size: () => dock.getBoundingClientRect().height,
+    set: (px, done) => setHeight(px, done),
   });
 }
 
@@ -216,7 +197,7 @@ function paintRow(t) {
   t.row.querySelector('.td-dot').className = `td-dot tone-${statusTone(st)}`;
   const said = t.kind === 'term' && st !== 'terminal' ? `terminal · ${statusLabel(st)}` : statusLabel(st);
   const it = itemOf(t);
-  t.row.querySelector('.td-sub').textContent = it ? `${said} · ${it.id || it.type}` : said;
+  t.row.querySelector('.td-sub').textContent = it ? `${said} · ${refOf(it) || it.type}` : said;
   t.row.classList.toggle('ended', !t.alive);
   t.row.classList.toggle('needs-you', st === 'needs_you');
   if (t.id === active) paintHead();
@@ -322,7 +303,7 @@ async function moveTo(t, it) {
   rename(t, out.session?.label || (it ? itemName(it) : t.label));
   paintRow(t);
   if (it) t.view?.attachItem(it);
-  toast(it ? `Moved to ${it.id || it.title}'s history` : 'Moved to the general history');
+  toast(it ? `Moved to ${refOf(it) || it.title}'s history` : 'Moved to the general history');
 }
 
 /** A history row's Move…: the dock's own move when it has that session open (its name and chip follow), else the
@@ -333,7 +314,7 @@ export async function moveClaudeSession(sessionId, fromKey, it) {
   const to = it ? it.key : null;
   if (to === (fromKey || null)) return;
   try { await claudeAssociate(sessionId, fromKey, to); } catch { return; } // toasted by the state
-  toast(it ? `Moved to ${it.id || it.title}'s history` : 'Moved to the general history');
+  toast(it ? `Moved to ${refOf(it) || it.title}'s history` : 'Moved to the general history');
 }
 
 // ── a terminal ──────────────────────────────────────────────────────────────

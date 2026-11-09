@@ -7,7 +7,7 @@ from tm.store import Store
 from tm.structures import get
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SAMPLES = {'sample-vault': 'folders', 'sample-vault-ticketing': 'ticketing'}
+SAMPLES = {'sample-vault': 'ticketing', 'sample-vault-legacy': 'folders'}
 
 
 class SamplesTest(unittest.TestCase):

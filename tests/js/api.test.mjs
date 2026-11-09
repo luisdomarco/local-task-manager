@@ -45,4 +45,12 @@ describe('api', () => {
     assert.equal(vaultId(), 'a');
     assert.equal(lost, true); // the page was showing b: it must load again
   });
+
+  it('says the server cannot be reached when no answer comes, not the browser\'s "Failed to fetch"', async () => {
+    const real = globalThis.fetch;
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    try {
+      await assert.rejects(api.items(), (e) => e.status === 0 && /Can't reach the app's server/.test(e.message));
+    } finally { globalThis.fetch = real; }
+  });
 });

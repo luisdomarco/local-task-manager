@@ -1,13 +1,15 @@
 // A tree of the vault's folders and files in the sidebar, with its filter, its row menu, renaming and making things in
 // place, dragging to move and the keyboard (↑ ↓ ← → F2 ⌘⌫). The Explorer (explorer.js) shows the whole vault with one;
 // Docs (docs.js) shows only its Docs folders, in sections, with another. Each pane keeps its own folds, filter and
-// what is being typed; the list of files is the Explorer's (fileTree), loaded once for both.
+// what is being typed; the list of files is the Explorer's (fileTree), loaded once for both. The eye by the filter shows
+// hidden files in both (files.hidden, per vault): dimmed, edited like any other; .git and .task-manager are sealed — a
+// lock, never opened, only Show in Finder and Copy path.
 import { api } from './api.js';
-import { ancestorPaths, dropOrder, fileKind, filesHref, filterTree, findNode, orderedChildren, pathOfParam } from './filetree.js';
+import { ancestorPaths, dropOrder, fileKind, filesHref, filterTree, findNode, isHiddenPath, orderedChildren, pathOfParam } from './filetree.js';
 import { pref, setPref } from './prefs.js';
 import { findByPageRef } from './rules.js';
 import { createFile, deletePath, duplicateFile, makeFolder, movePath, renamePath, state, toast, updateItem, uploadFiles } from './state.js';
-import { cssKey, dropdown, h, icon, typeIcon } from './ui.js';
+import { cssKey, dropdown, h, icon, searchBox, typeIcon } from './ui.js';
 import { openFileInEdit } from './views/files.js';
 
 const FILE_ICON = { image: 'image', pdf: 'file', text: 'text', markdown: 'note', other: 'file' };
@@ -43,7 +45,8 @@ async function run(op) {
  *   label        the tree's accessible name
  *   sections(tree) → [{ id, path, node, head? }]: what it lists. `node` is the folder whose children are the top rows
  *                (null when it is not there yet), `path` where a new top row goes, `head` an element drawn above them.
- *   bar          the elements next to its filter (new file / new folder…)
+ *   bar          the elements next to its filter (new file / new folder…); the Show hidden files eye comes after them
+ *   reload()     fetches the list again (after the eye changed what it holds)
  *   rootDrop     whether its empty space takes drops, into the vault itself
  *   newText(path)  what a new Markdown file starts with ('' or undefined: the server's heading)
  *   empty        what it says when there is nothing to list
@@ -84,13 +87,14 @@ export function treePane(cfg) {
   }
 
   function row(node, depth, set, filtering, siblings = []) {
+    if (node.sealed) return [sealedRow(node, depth)];
     const isDir = node.kind === 'dir';
     const expanded = isDir && (filtering || set.has(node.path));
     const mark = isDir ? icon(expanded ? 'folderopen' : 'folder', 15)
       : node.item ? typeIcon(node.item.type, 15) : icon(FILE_ICON[fileKind(node.path)], 15);
     const status = node.item?.status ? h('span', { class: `tree-status s-${cssKey(node.item.status)}`, title: node.item.status }) : null;
     const el = h('a', {
-      class: `tree-row ${isDir ? 'is-dir' : ''}`, href: href(node.path), role: 'treeitem', tabindex: '-1',
+      class: `tree-row ${isDir ? 'is-dir' : ''} ${isHiddenPath(node.path) ? 'is-hidden' : ''}`, href: href(node.path), role: 'treeitem', tabindex: '-1',
       'data-path': node.path, style: `--depth:${depth}`, title: node.item ? `${node.item.key} · ${node.item.title}\n${node.path}` : node.path,
       ...(isDir ? { 'aria-expanded': String(expanded) } : {}),
       // A folder unfolds as it opens in the middle; clicked again once shown there, it folds. While filtering,
@@ -110,6 +114,18 @@ export function treePane(cfg) {
     const fresh = editing?.kind === 'new' && editing.parent === node.path && expanded ? [newRow(depth + 1)] : [];
     const inside = expanded ? kids(node) : [];
     return expanded ? [el, ...fresh, ...inside.flatMap((c) => row(c, depth + 1, set, filtering, inside))] : [el];
+  }
+
+  /** .git or .task-manager, while hidden files show: there, locked — the app's own and git's, never opened or changed
+   *  here. Its menu only shows it in Finder or copies its path. */
+  function sealedRow(node, depth) {
+    const why = `${node.path}: ${node.name.toLowerCase() === '.git' ? 'git’s' : 'the app’s'} own, not opened or changed here`;
+    const el = h('div', { class: 'tree-row is-hidden is-sealed', role: 'treeitem', tabindex: '-1', 'aria-disabled': 'true', 'data-path': node.path, style: `--depth:${depth}`, title: why },
+      h('span', { class: 'tree-chevron', 'aria-hidden': 'true' }), icon('lock', 15), h('span', { class: 'tree-name' }, node.name),
+      h('button', { class: 'btn icon tree-more', tabindex: '-1', title: `Actions on ${node.name}`, 'aria-haspopup': 'menu',
+        onclick: (e) => { e.preventDefault(); e.stopPropagation(); rowMenu(e.currentTarget, node); } }, icon('more', 14)));
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); rowMenu(el.querySelector('.tree-more'), node); });
+    return el;
   }
 
   function editField(node) {
@@ -142,7 +158,7 @@ export function treePane(cfg) {
       const named = file && !/\.[^.\s]+$/.test(name) ? `${name}.md` : name;
       const path = parent ? `${parent}/${named}` : named;
       const text = file && /\.md$/i.test(named) ? cfg.newText?.(path) : undefined;
-      const out = await run(() => (file ? createFile(path, text) : makeFolder(path, parents)));
+      const out = await run(() => (file ? createFile(path, text, parents) : makeFolder(path, parents)));
       if (!out) return;
       reveal(out.path);
       if (file) openFileInEdit(out.path, href);
@@ -209,6 +225,11 @@ export function treePane(cfg) {
   function rowMenu(anchor, node) {
     const root = state.vault?.root;
     const isDir = node.kind === 'dir';
+    const copyPath = { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) };
+    if (node.sealed) {
+      dropdown(anchor, [root ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null, copyPath].filter(Boolean), { width: 210 });
+      return;
+    }
     const renameLabel = node.item?.rename === 'title' ? 'Rename (its title)' : 'Rename';
     dropdown(anchor, [
       isDir ? { label: 'New file inside', icon: 'file', onSelect: () => startNew(node.path, 'file') } : null,
@@ -220,7 +241,8 @@ export function treePane(cfg) {
       '-',
       root ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null,
       { label: `Open in ${state.config.editor_app || 'Cursor'}`, icon: 'code', onSelect: () => api.openInEditor(node.path).catch((e) => toast(e.message, true)) },
-      { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) },
+      !isDir ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(node.path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
+      copyPath,
       // A Markdown file, as another note links to it (by its name, as Obsidian resolves it).
       !isDir && /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => {
         const link = `[[${node.name.replace(/\.md$/i, '')}]]`;
@@ -318,6 +340,25 @@ export function treePane(cfg) {
     });
   }
 
+  /** The eye by the filter: Show hidden files (.obsidian, .gitignore, .DS_Store…), for this vault, in every pane. */
+  function hiddenToggle() {
+    return h('button', { class: 'btn icon toggle tree-hidden-toggle', onclick: () => {
+      setPref('files.hidden', pref('files.hidden') ? null : true);
+      syncHiddenToggle(box());
+      cfg.reload?.();
+    } }, icon('eye', 15));
+  }
+
+  function syncHiddenToggle(el) {
+    const btn = el?.querySelector('.tree-hidden-toggle');
+    if (!btn) return;
+    const on = !!pref('files.hidden');
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.title = on ? 'Hide hidden files' : 'Show hidden files (.obsidian, .gitignore…)';
+    btn.setAttribute('aria-label', on ? 'Hide hidden files' : 'Show hidden files');
+  }
+
   function render() {
     const el = box();
     const tree = cfg.tree();
@@ -338,8 +379,9 @@ export function treePane(cfg) {
         type: 'search', class: 'side-explorer-filter side-explorer-search', placeholder: 'Search in files… ⏎', 'aria-label': 'Search in files',
         onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim().length >= 2) location.hash = `#/find/${encodeURIComponent(e.target.value.trim())}`; },
       });
-      el.replaceChildren(h('div', { class: 'side-explorer-bar' }, filter, ...(cfg.bar || [])), h('div', { class: 'side-explorer-bar' }, search), list, note);
+      el.replaceChildren(h('div', { class: 'side-explorer-bar' }, searchBox(filter), ...(cfg.bar || []), hiddenToggle()), h('div', { class: 'side-explorer-bar' }, searchBox(search)), list, note);
     }
+    syncHiddenToggle(el);
     const filtering = !!query.trim();
     const set = open();
     const rows = cfg.sections(tree).flatMap((s) => {
@@ -385,8 +427,8 @@ export function treePane(cfg) {
     const path = cur.dataset.path;
     const go = (r) => { if (r) { e.preventDefault(); r.focus(); } };
     const node = findNode(cfg.tree(), path);
-    if (e.key === 'F2' && node) { e.preventDefault(); startRename(node); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace' && e.metaKey) && node) { e.preventDefault(); remove(node); return; }
+    if (e.key === 'F2' && node && !node.sealed) { e.preventDefault(); startRename(node); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace' && e.metaKey) && node && !node.sealed) { e.preventDefault(); remove(node); return; }
     if (e.key === 'ArrowDown') go(rows[i + 1]);
     else if (e.key === 'ArrowUp') go(rows[i - 1]);
     else if (e.key === 'Home') go(rows[0]);

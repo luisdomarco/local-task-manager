@@ -61,18 +61,19 @@ class ServeSampleTest(unittest.TestCase):
         self.assertTrue(real.startswith(folder + os.sep), f'{real} is not inside {folder}')
 
     def test_every_vault_is_a_temp_copy_and_config_path_is_redirected(self):
-        tmp = self.serve(ticketing=True)
+        tmp = self.serve(legacy=True)
         self.assertTrue(tmp.startswith(os.path.realpath(tempfile.gettempdir()) + os.sep))
         self.assert_inside(server.CONFIG_PATH, tmp)
         self.assertNotEqual(os.path.realpath(server.CONFIG_PATH), os.path.realpath(REAL_CONFIG))
         vaults = server.APP.config['vaults']
-        self.assertEqual([(v['id'], v['structure']) for v in vaults], [('sample', 'folders'), ('tickets', 'ticketing')])
+        self.assertEqual([(v['id'], v['structure']) for v in vaults], [('sample', 'ticketing'), ('legacy', 'folders')])
         self.assertEqual(server.APP.config['default_vault'], 'sample')
         real = real_vault_paths()
         for v in vaults:
             self.assert_inside(v['path'], tmp)
             self.assertNotIn(server.resolve_root(v['path']), real)
-            self.assertNotEqual(server.resolve_root(v['path']), os.path.realpath(serve_sample.SAMPLE_VAULT))
+            self.assertNotIn(server.resolve_root(v['path']), {os.path.realpath(serve_sample.SAMPLE_VAULT),
+                                                             os.path.realpath(serve_sample.SAMPLE_LEGACY)})
             store = server.APP.store_for(v['id'])
             self.assert_inside(store.root, tmp)
             self.assertTrue(store.check()['ok'], store.check())

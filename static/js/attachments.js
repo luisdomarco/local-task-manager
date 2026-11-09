@@ -1,12 +1,12 @@
-// An item's attachments, under its description on its card and its page: a drop zone (or Add files), then the title
-// with its count, which folds the table of its files — name · Open · Delete — or says there are none. Open shows the file in a dialog (an image, a PDF, plain text read as text) or offers to download
+// An item's attachments, in its page's Files tab: "+ Add files" (or a drop anywhere on them), then a row per file —
+// its thumbnail or icon, its name, Open and Delete on hover — or a line saying there are none. Open shows the file in a dialog (an image, a PDF, plain text read as text) or offers to download
 // it. The files live in the vault's Attachments/ folder and the item names them in `attachments` (tm/attachments.py).
 import { zoomableImage } from './zoom.js';
 import { attachmentUrl } from './api.js';
 import { trapFocus } from './create.js';
-import { pref, setPref } from './prefs.js';
 import { addAttachments, removeAttachment, toast } from './state.js';
-import { h, icon } from './ui.js';
+import { fileKind } from './linkgroups.js';
+import { foldSection, h, icon, rowAction, rowItem, rowList, stackGroup } from './ui.js';
 
 const MAX_BYTES = 25 * 1024 * 1024; // tm/attachments.py MAX_BYTES: said here before sending 25 MB for nothing
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i;
@@ -19,58 +19,68 @@ const at = (el, prop, url) => { el[prop] = url; return el; };
 
 /** The Attachments section of an item. */
 export function attachmentsSection(item) {
+  // The title folds the zone and the list; the choice is kept for every item (this browser only).
+  return foldSection({ key: 'attachments', title: 'Attachments', ico: 'paperclip', count: (item.fields.attachments || []).length,
+    cls: 'panel-section attachments' }, attachmentsBody(item));
+}
+
+/** The item's files, without a title (a project page's Files tab holds them under its own): a drop strip with the hint
+ *  and "+ Add files", then a row per file, the newest first. A file dropped anywhere on them is added; the strip lights
+ *  up while one is dragged over. */
+export function attachmentsBody(item) {
   const files = item.fields.attachments || [];
   const input = h('input', { type: 'file', multiple: true, hidden: true, 'aria-label': 'Files to attach' });
-  const zone = h('div', { class: 'attach-zone', tabindex: '0', role: 'button', 'aria-label': 'Attach files: drop them here or press Enter to pick' },
-    icon('upload', 16), h('span', {}, 'Drop files here or '),
-    h('button', { type: 'button', class: 'btn small', onclick: (e) => { e.stopPropagation(); input.click(); } }, 'Add files'),
-    h('span', { class: 'muted small' }, 'up to 25 MB each'));
+  const add = h('button', { type: 'button', class: 'btn small ghost tab-add', onclick: (e) => { e.stopPropagation(); input.click(); } }, icon('plus', 14), 'Add files');
+  const text = h('span', {}, 'Drop files here · up to 25 MB each');
+  const hint = h('span', { class: 'stack-label attach-hint' }, icon('upload', 14), text);
   const send = async (list) => {
     const all = [...list];
     const big = all.filter((f) => f.size > MAX_BYTES);
     big.forEach((f) => toast(`${f.name}: an attachment is at most 25 MB`, true));
     const ok = all.filter((f) => f.size <= MAX_BYTES);
     if (!ok.length) return;
-    zone.classList.add('busy');
-    zone.querySelector('span').textContent = `Attaching ${ok.length === 1 ? ok[0].name : `${ok.length} files`}…`;
-    await addAttachments(item.key, ok); // reloads: the section is drawn again with the new rows
+    box.classList.add('busy');
+    add.disabled = true;
+    text.textContent = `Attaching ${ok.length === 1 ? ok[0].name : `${ok.length} files`}…`;
+    await addAttachments(item.key, ok); // reloads: the tab is drawn again with the new rows
   };
   input.addEventListener('change', () => { if (input.files.length) send(input.files); input.value = ''; });
-  zone.addEventListener('click', () => input.click());
-  zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
-  // Only a drag that carries files lights the zone up (not a card being dragged around the board).
+
+  // Each a row, as Links' and Docs' (ui.js rowItem): its kind's icon, its name, its extension muted; a click opens
+  // it (openAttachment); on hover the eye does the same and the bin deletes it (to the trash, with Undo).
+  // An icon per kind, never a thumbnail: at a row's size a screenshot is a white square (the eye shows the file).
+  const KIND_ICON = { image: 'image', pdf: 'file', text: 'text', sheet: 'table', doc: 'note', archive: 'archive', file: 'file' };
+  const rows = [...files].reverse().map((path) => {
+    const name = nameOf(path);
+    const kind = fileKind(path);
+    const ext = (name.match(/\.([a-z0-9]+)$/i)?.[1] || '').toUpperCase();
+    return rowItem({
+      ico: icon(KIND_ICON[kind], 14),
+      text: name, meta: ext || null, onClick: () => openAttachment(path), linkAttrs: { title: `Open ${name}` },
+      actions: [rowAction('eye', `Open ${name}`, () => openAttachment(path)),
+        rowAction('trash', `Delete ${name}`, () => removeAttachment(item.key, path).catch(() => {}))],
+    });
+  });
+  const box = h('div', { class: 'attach-list', id: `attach-list-${String(item.key).replace(/[^\w-]/g, '-')}` }, // a key may be a path
+    stackGroup(null, rows.length ? rowList(rows) : null, // none: the strip alone says what to do
+      { aside: add }), input);
+  // The group's first line is the drop strip: a light well with a dashed edge, the hint at its left, "+ Add files" at its
+  // right; a click anywhere on it picks files too.
+  const strip = box.querySelector('.stack-head');
+  strip.classList.add('attach-drop');
+  strip.querySelector('.stack-label').replaceWith(hint);
+  strip.addEventListener('click', () => input.click());
+  // Only a drag that carries files lights it up (not a card being dragged around the board).
   const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
-  zone.addEventListener('dragover', (e) => { if (!carriesFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; zone.classList.add('over'); });
-  zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('over'); });
-  zone.addEventListener('drop', (e) => {
+  box.addEventListener('dragover', (e) => { if (!carriesFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; box.classList.add('over'); });
+  box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('over'); });
+  box.addEventListener('drop', (e) => {
     if (!carriesFiles(e)) return;
     e.preventDefault();
-    zone.classList.remove('over');
+    box.classList.remove('over');
     send(e.dataTransfer.files);
   });
-
-  const rows = files.map((path) => h('tr', {},
-    h('td', { class: 'attach-name' }, IMAGE.test(path) ? at(h('img', { class: 'attach-thumb', alt: '', loading: 'lazy' }), 'src', attachmentUrl(path)) : icon('file', 15),
-      h('span', { title: path }, nameOf(path))),
-    h('td', { class: 'attach-act' }, h('button', { type: 'button', class: 'btn small', onclick: () => openAttachment(path) }, icon('eye', 13), 'Open')),
-    h('td', { class: 'attach-act' }, h('button', { type: 'button', class: 'btn small ghost', title: `Delete ${nameOf(path)}`,
-      onclick: () => removeAttachment(item.key, path).catch(() => {}) }, icon('trash', 13), 'Delete'))));
-  const list = h('div', { class: 'attach-list', id: `attach-list-${String(item.key).replace(/[^\w-]/g, '-')}` }, // a key may be a path
-    files.length ? h('table', { class: 'attach-table' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', { class: 'sr-only' }, 'Open'), h('th', { class: 'sr-only' }, 'Delete'))),
-      h('tbody', {}, rows)) : h('p', { class: 'muted small attach-empty' }, 'No attachments yet'));
-  // The title folds the list; the choice is kept for every item (this browser only).
-  const head = h('button', { type: 'button', class: 'attach-head', 'aria-controls': list.id });
-  const show = (open) => {
-    list.hidden = !open;
-    head.setAttribute('aria-expanded', String(open));
-    head.title = open ? 'Hide the attachments' : 'Show the attachments';
-    head.replaceChildren(icon(open ? 'down' : 'right', 14), icon('paperclip', 15), h('span', { class: 'attach-title' }, 'Attachments'),
-      h('span', { class: 'muted small' }, String(files.length)));
-  };
-  show(pref('attachments.open', true) !== false);
-  head.addEventListener('click', () => { const open = list.hidden; show(open); setPref('attachments.open', open); });
-  return h('section', { class: 'panel-section attachments' }, zone, input, head, list);
+  return box;
 }
 
 /** A file shown as what it is (`kind`: 'image' | 'pdf' | 'text' | 'other'): an <img>, the browser's PDF viewer in a

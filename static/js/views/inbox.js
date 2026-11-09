@@ -7,6 +7,8 @@ import { quickAddBar } from '../quickadd.js';
 import { PARENT_TYPES } from '../rules.js';
 import { state } from '../state.js';
 import { dropdown, emptyState, h, itemCard, parentOptions, select, selectButton } from '../ui.js';
+import { refOf } from '../shownid.js';
+import { planSection } from '../planrows.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders.
 const relatedChoice = new Map();
@@ -27,7 +29,7 @@ function triage(item, rerender) {
     // A type can only be related to certain parent types: offer just the ones that fit the choice.
     const types = parent ? TYPES.filter((t) => PARENT_TYPES[t].includes(parent.type)) : TYPES;
     dropdown(transform, [
-      ...(parent ? [{ heading: `Can relate to ${parent.id}` }] : []),
+      ...(parent ? [{ heading: `Can relate to ${refOf(parent)}` }] : []),
       ...types.map((t) => ({
         label: TYPE_LABEL[t], icon: TYPE_ICON[t],
         onSelect: () => convertTo(item, t, parent ? { related_to: parent.id } : {}),
@@ -40,7 +42,7 @@ function triage(item, rerender) {
 const newestFirst = (a, b) => String(b.fields.created_at || '').localeCompare(String(a.fields.created_at || ''));
 
 export function mount(root) {
-  const list = h('div', { class: 'stack' });
+  const list = h('div', { class: 'plan-list inbox-list' });
   root.replaceChildren(
     h('header', { class: 'view-head' }, h('h1', {}, 'Inbox')),
     quickAddBar({ type: 'inbox' }, { autofocus: true, placeholder: 'Capture anything…  (/task, /note… to file it straight away)' }),
@@ -49,10 +51,10 @@ export function mount(root) {
     update() {
       const captured = state.items.filter((i) => i.type === 'inbox').sort(newestFirst);
       list.replaceChildren(...[
-        h('section', { class: 'group' },
-          h('header', {}, h('h2', { class: 'h3' }, 'Captured', h('span', { class: 'count' }, captured.length || ''))),
+        h('section', { class: 'plan-block inbox-block' },
+          planSection({ title: 'Captured', count: captured.length || '' }),
           captured.length
-            ? h('div', { class: 'cards' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()) })))
+            ? h('div', { class: 'cards rows' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()) })))
             : emptyState('Inbox zero. Nothing captured waiting to be sorted.')),
       ].filter(Boolean));
     },

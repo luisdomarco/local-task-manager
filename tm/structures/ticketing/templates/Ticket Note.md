@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Note
-id: "{{id}}"                           # NOTE-NNN
+id: "{{id}}"                           # its number, drawn NOTE-<n>
 name: "{{slug}}"
 project: ""                            # "[[00 <Project>]]", optional
 related_to: ""                         # "[[…]]" the item it is about, if any

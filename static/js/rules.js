@@ -1,12 +1,14 @@
 // Business rules: which item shows up where. Views only ask these questions;
 // they never inspect frontmatter fields to decide membership themselves.
-import { addDays, isoWeek, monthOf, shiftWeek, thisMonth, today, thisWeek, weekDays, weekMonth } from './dates.js';
-import { FOLDER_PER_TYPE } from './structure.js';
+import { isoWeek, monthOf, shiftWeek, thisMonth, today, thisWeek, weekDays, weekMonth } from './dates.js';
+import { PROJECTS } from './structure.js';
+import { refOf } from './shownid.js';
 
 // Catalogs: the vault's structure (GET /api/structure, tm/structures; the server validates against the same
 // lists). Live bindings, set by setStructure() before anything renders: importers always read the current one.
-// Until then, and in the node tests, they are the folder-per-type structure's (structure.js).
-export let STRUCTURE = FOLDER_PER_TYPE;
+// Until then they are the default structure's, Projects (structure.js); a node test of the legacy folder-per-type
+// structure sets that one first (`setStructure(FOLDER_PER_TYPE)`).
+export let STRUCTURE = PROJECTS;
 export let TYPE_DEFS = {}; // name → the type as the structure describes it
 export let STATUSES = [];
 export let CLOSED = new Set();
@@ -18,6 +20,8 @@ export let EXTERNAL_REF = {};
 export let PARENT_TYPES = {};
 /** Types with status / priority / planning (the actionable ones). */
 export let PLANNABLE = new Set();
+/** A Ticketing project's kinds (tm/structures/kinds.py), by id: the types each has and the fields it hides. */
+export let KINDS = {};
 let closedOf = {}; // type → the statuses that close it
 // The three groups every status falls in (tm/structures GROUPS, TSK-037): fixed, never edited. Open = the first two.
 export let STATUS_GROUPS = [['not_started', 'Not started'], ['in_progress', 'In progress'], ['closed', 'Closed']];
@@ -43,17 +47,18 @@ export function setStructure(s) {
   PARENT_TYPES = Object.fromEntries(s.types.map((t) => [t.name, t.parents]));
   PLANNABLE = new Set(s.types.filter((t) => t.plannable).map((t) => t.name));
   closedOf = Object.fromEntries(s.types.map((t) => [t.name, t.closed.length ? new Set(t.closed) : CLOSED]));
+  KINDS = Object.fromEntries((s.kinds || []).map((k) => [k.id, k]));
   if (s.groups) STATUS_GROUPS = s.groups;
   listeners.forEach((fn) => fn(s));
 }
-setStructure(FOLDER_PER_TYPE);
+setStructure(PROJECTS);
 
 /** Whether this vault has the type turned on: a type turned off in Settings → Vaults is not in its structure. */
 export const isEnabled = (type) => !!TYPE_DEFS[type];
 
 /** The statuses an item of this type may have: its own (an error's open · mitigated · resolved), else the structure's. */
 export const statusesOf = (type) => (TYPE_DEFS[type]?.statuses?.length ? TYPE_DEFS[type].statuses : STATUSES);
-/** The group of a status in a type: as the vault arranged it (Settings → Item type status), else closed if it closes
+/** The group of a status in a type: as the vault arranged it (Settings → Statuses), else closed if it closes
  *  the type, not started for Backlog · ToDo · Idea · open, under way for the rest. */
 export function groupOf(type, status) {
   const g = TYPE_DEFS[type]?.groups?.[status];
@@ -117,16 +122,152 @@ export const splitsInitiative = (type) => hasField(type, 'project') && (PARENT_T
 export const defaultOf = (key, fallback) => STRUCTURE.defaults?.[key] ?? fallback;
 
 /** What names an item in its page's address: its id, or a Ticketing project's key (a project note has no id). */
-export const pageRef = (item) => item?.id || (item?.type === 'project' ? item.fields.project_key || '' : '');
+export const pageRef = (item) => item?.ref || item?.id || (item?.type === 'project' ? item.fields.project_key || '' : '');
 /** Whether an item opens as a page of its own (its type's `page`: an initiative; in Ticketing a project and a PRD
  *  too) rather than as a card over its list. One with nothing to name it by opens as a card. */
 export const hasPage = (item) => !!item && !!TYPE_DEFS[item.type]?.page && !!pageRef(item);
-/** The item a page's address names, among `items`: by its id, or a project by its key. */
-export const findByPageRef = (type, ref, items) => items.find((i) => i.type === type && pageRef(i) === ref) || null;
+/** The item a page's address names, among `items`: by its ref (INI-482) or id, a project by its key, and an address
+ *  from before short ids by the item's old id (aliases). */
+export const findByPageRef = (type, ref, items) => items.find((i) => i.type === type
+  && (pageRef(i) === ref || i.id === ref || (i.aliases || []).includes(ref))) || null;
 /** Where an item shows one of its type's own fields: 'main' (its properties), or a tab of the side panel. */
 export const tabOf = (p) => p.tab || (p.kind === 'link' || p.kind === 'links' ? 'relations' : 'main');
-/** A type's own fields shown in one place (tabOf). */
-export const propsIn = (type, tab) => (TYPE_DEFS[type]?.props || []).filter((p) => tabOf(p) === tab);
+/** A type's own fields, as the kind of the item's project keeps them (none: all of them). The ones the kind hides
+ *  go; the project's own Types (the structure's `types_key`) offers only the kind's types, the ones it always has
+ *  ticked and fixed, and goes too when the kind has none to turn on or off (an agentic system). */
+export function propsOf(type, kind = null) {
+  const props = TYPE_DEFS[type]?.props || [];
+  if (!kind) return props;
+  return props.filter((p) => !hides(kind, type, p.key)).flatMap((p) => {
+    if (type !== 'project' || p.key !== STRUCTURE.types_key) return [p];
+    if (!kind.optional.length) return [];
+    return [{ ...p, options: p.options.filter(([v]) => kind.types.includes(v)),
+      fixed: kind.types.filter((t) => !kind.optional.includes(t) && p.options.some(([v]) => v === t)) }];
+  });
+}
+/** Whether the create form asks for a type's own field. Not the ones the app sets (readonly), nor the ones a later
+ *  step writes (`later`: how it is carried out and released, its triage, a pause, its outcome: the template's value
+ *  until then); but those chosen once, on creation (`once`: a Ticketing project's kind). */
+export const askedOnCreate = (p) => !p.later && ((p.kind !== 'readonly' && !p.readonly) || !!p.once);
+/** A type's own fields shown in one place (tabOf), as `kind` keeps them. */
+export const propsIn = (type, tab, kind = null) => propsOf(type, kind).filter((p) => tabOf(p) === tab);
+/** A new project's Types: what its kind starts with (its fixed types and those on by default), in the option order. */
+export const kindDefaultTypes = (kind) => {
+  const p = (TYPE_DEFS.project?.props || []).find((x) => x.key === STRUCTURE.types_key);
+  return p && kind ? p.options.map(([v]) => v).filter((t) => kind.types.includes(t) && (!kind.optional.includes(t) || kind.default_on.includes(t))) : [];
+};
+
+/** A project kind by its id: an unknown or missing one is the first (product), as the server reads it. None in a
+ *  structure without kinds (folder per type). */
+export const kindById = (id) => (STRUCTURE.kinds?.length ? KINDS[id] || STRUCTURE.kinds[0] : null);
+/** The project note an item belongs to, among `items`: itself for a project, else the one its `project` names. */
+export const projectOf = (item, items) => (item?.type === 'project' ? item
+  : item?.fields?.project ? items.find((i) => i.type === 'project' && i.fields.project_key === item.fields.project) || null : null);
+/** The kind an item falls under: its project's, or none (a task with no project, a vault without kinds). */
+export const kindFor = (item, items) => {
+  const project = projectOf(item, items);
+  return project ? kindById(project.fields[STRUCTURE.kind_key]) : null;
+};
+/** Whether a kind hides one of a type's fields (a simple project has no execution mode, its initiatives no size). */
+export const hides = (kind, type, key) => !!kind?.hidden?.[type]?.includes(key);
+const scoped = (type) => (STRUCTURE.project_scoped || []).includes(type);
+/** Whether a project may hold items of a type. One that lives at the root (a task, a note) any project may; one
+ *  that lives in the project's folder only if its kind has it and, when the kind lets it be turned off, its note's
+ *  enabled_types names it (none: the kind's default). Without kinds, only enabled_types narrows the optional ones. */
+export function projectHas(project, type) {
+  if (!scoped(type)) return true;
+  const on = project?.fields?.enabled_types;
+  const kind = kindById(project?.fields?.[STRUCTURE.kind_key]);
+  if (!kind) return !(STRUCTURE.optional_types || []).includes(type) || (on || []).includes(type);
+  if (!kind.types.includes(type)) return false;
+  return !kind.optional.includes(type) || (Array.isArray(on) ? on : kind.default_on).includes(type);
+}
+/** Whether a type has a place in this vault: one that lives in a project's folder needs a project that may hold it
+ *  (a vault of simple projects has no stories). A vault with no project yet keeps every type. */
+export function inSomeProject(type, items) {
+  if (!scoped(type)) return true;
+  const projects = items.filter((i) => i.type === 'project');
+  return !projects.length || projects.some((p) => projectHas(p, type));
+}
+
+/** The sidebar's Add item, under the Inbox capture: the types made most often, by group, in order. Not a fact of a
+ *  vault but of the menu: a structure without one of them (no projects, no stories) just leaves it out. */
+export const ADD_MENU = [['activity'], ['note', 'task', 'meeting'], ['project', 'initiative', 'story']];
+/** ADD_MENU's groups with only the types `offered` (those the vault creates), an empty group dropped. The first
+ *  stays with the Inbox capture; the rest each after a line. */
+export const addMenuGroups = (offered) => {
+  const [first, ...rest] = ADD_MENU.map((g) => g.filter((t) => offered.includes(t)));
+  return [first, ...rest.filter((g) => g.length)];
+};
+
+/**
+ * What the create form still needs before the server would take it (tm/store.py create, _create_project,
+ * _create_coded): `[[key, why], …]` in the order the fields are drawn, empty when it can be sent. `why` is null for a
+ * required field left empty (the form only marks it) and says what is wrong with a value given (a key taken). `form`
+ * holds the form's values by field key; `items` the vault's, for the keys taken and a parent's project.
+ */
+export function missingOnCreate(type, form, items) {
+  const out = [];
+  if (!String(form.subject || '').trim()) out.push(['subject', null]);
+  if (type === 'project') {
+    const key = String(form.project_key || '').trim().toUpperCase();
+    const taken = key && items.find((i) => i.type === 'project' && i.fields.project_key === key);
+    if (!key) out.push(['project_key', null]);
+    else if (!/^[A-Z]{2,4}$/.test(key)) out.push(['project_key', 'A key is 2 to 4 capital letters']);
+    else if (taken) out.push(['project_key', `${key} is the key of ${taken.title}`]);
+    return out;
+  }
+  const parent = form.related_to ? items.find((i) => i.id === form.related_to) : null;
+  // Its Parent (one field for its project and what it hangs from): a ticket lives in a project's folder, its own or the
+  // one of what it hangs from; a story, a PRD, a hotfix, a plan always hang from an item (needsParent).
+  if ((scoped(type) && !form.project && !parent?.fields?.project) || (needsParent(type) && !parent)) out.push(['parent', null]);
+  return out;
+}
+
+/** Whether an item of this type chooses its project (a task, a note, a meeting…) rather than living in one for good
+ *  (a ticket: its folder and its id carry the key). */
+export const movesProject = (type) => hasField(type, 'project') && !scoped(type);
+/** Whether a type always hangs from another item, never from its project alone (a story, a PRD, a hotfix, a plan:
+ *  STRUCTURE.needs_parent): its Parent never offers a project, is required on creation, and is changed, never let go. */
+export const needsParent = (type) => (STRUCTURE.needs_parent || []).includes(type);
+/** An item's Parent as one value: the item it hangs from (its id), else, where it has one, its project as `project:KEY`. */
+export const PROJECT_PICK = 'project:';
+export const parentValue = (fields) => fields.related_to || (fields.project ? `${PROJECT_PICK}${fields.project}` : null);
+/** What its Parent field is called: Parent, or, for a type with no project that hangs from one type only, that type's
+ *  name (a transcription's Meeting). */
+export const parentLabel = (type) => {
+  const types = PARENT_TYPES[type] || [];
+  return hasField(type, 'project') || types.length !== 1 ? 'Parent' : TYPE_DEFS[types[0]]?.label || 'Parent';
+};
+/**
+ * The options of an item's Parent (one field for its project and what it hangs from: `related_to` and `project` in the
+ * file): the projects, where it chooses its project (or is being created: a ticket is created in one), then the items it
+ * may hang from — for a ticket, only those of its project; never one of its own descendants (`exclude`), nor a closed or
+ * archived one unless it is the `current` parent. → [{ value, label, type }]
+ */
+export function parentChoices(type, { project = null, exclude = new Set(), current = null, creating = false } = {}, items) {
+  const free = movesProject(type) || (creating && hasField(type, 'project'));
+  const projects = free && !needsParent(type) ? items.filter((i) => i.type === 'project' && i.fields.project_key)
+    .map((p) => ({ value: PROJECT_PICK + p.fields.project_key, label: `${p.fields.project_key} · ${p.title}`, type: 'project' })) : [];
+  const types = PARENT_TYPES[type] || [];
+  const fixed = scoped(type) && !creating ? project : null; // a ticket hangs only from what is in its own project
+  const parents = items.filter((i) => i.id && types.includes(i.type) && !exclude.has(i.id) && (!fixed || i.fields.project === fixed)
+      && ((!isDone(i) && i.fields.archived !== true) || i.id === current))
+    .map((i) => ({ value: i.id, label: `${refOf(i)} · ${i.title}`, type: i.type }));
+  return [...projects, ...parents];
+}
+/**
+ * What picking `value` in the Parent field writes, given its `fields` now: a project hangs it from that project alone;
+ * an item hangs it from that item, and brings the item's project where its project can change; none lets go of what
+ * it hangs from (an item first, then, where it can, its project).
+ */
+export function parentPick(type, value, items, fields = {}, { creating = false } = {}) {
+  const free = movesProject(type) || (creating && hasField(type, 'project'));
+  if (!value) return fields.related_to && !needsParent(type) ? { related_to: null } : free && !fields.related_to && fields.project ? { project: null } : {};
+  if (value.startsWith(PROJECT_PICK)) return { related_to: null, project: value.slice(PROJECT_PICK.length) };
+  const project = free ? items.find((i) => i.id === value)?.fields?.project || null : null;
+  return { related_to: value, ...(project && project !== fields.project ? { project } : {}) };
+}
 
 /** Whether a type can be linked to others at all (parent, child, related): it carries `relations`. */
 export const RELATABLE = (type) => TYPE_DEFS[type]?.relatable ?? true;
@@ -181,13 +322,13 @@ export const carriedOverMonth = (it) =>
 export const isLate = (it) => carriedOverDay(it) || carriedOverWeek(it) || carriedOverMonth(it);
 
 /** The Month board's columns, in order (rules.planHorizon names them). */
-export const MONTH_HORIZONS = [['carried', 'Carried over'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'],
+export const MONTH_HORIZONS = [['carried', 'Carried over'], ['today', 'Today'], ['week', 'This week'],
   ['nextweek', 'Next week'], ['month', 'Later this month']];
 
 /**
  * Where a plannable item falls on the Month board, by what it is planned for — its day, else its week, else its month
- * (`plan_month`, kept for what has no week yet): 'today' (also a past day still open, as on Today), 'tomorrow', 'week'
- * (the rest of this week, or any day of it), 'nextweek', 'month' (later this month: a week or day after next week whose
+ * (`plan_month`, kept for what has no week yet): 'today' (also a past day still open, as on Today), 'week'
+ * (the rest of this week, or any other day of it), 'nextweek', 'month' (later this month: a week or day after next week whose
  * month is this one, or the month itself), 'carried' (a past week or month, still open), or null — unplanned, closed in
  * the past, or further out than this month and next week.
  */
@@ -199,7 +340,6 @@ export function planHorizon(it) {
   if (day) {
     if (day < t) return open ? 'today' : null;
     if (day === t) return 'today';
-    if (day === addDays(t, 1)) return 'tomorrow';
   }
   if (day || week) {
     const w = day ? isoWeek(day) : week;
@@ -235,7 +375,6 @@ export const isPlannedMonth = (it) => {
 export const PLAN_FILTERS = {
   any: { label: 'Any plan', test: () => true },
   today: { label: 'Today', test: (it) => it.fields.plan_day === today() || carriedOverDay(it) },
-  tomorrow: { label: 'Tomorrow', test: (it) => it.fields.plan_day === addDays(today(), 1) },
   week: { label: 'This week', test: (it) => it.fields.plan_week === thisWeek() || carriedOverWeek(it) },
   nextweek: { label: 'Next week', test: (it) => it.fields.plan_week === shiftWeek(thisWeek(), 1) },
   month: { label: 'This month', test: isPlannedMonth },

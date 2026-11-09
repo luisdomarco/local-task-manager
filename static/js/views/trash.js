@@ -7,7 +7,7 @@ import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { trashSummary } from '../housekeeping.js';
 import { emptyTrash, purgeFile, purgeFromTrash, restoreFile, restoreFromTrash, state } from '../state.js';
 import { saveSort, savedSort } from '../prefs.js';
-import { emptyState, h, icon, typeIcon } from '../ui.js';
+import { h, icon, pageCount, pageEmpty, pageHead, rowAction, searchBox, typeIcon } from '../ui.js';
 
 // Keys of the shared column widths (datatable.js fixedColumns).
 const FIXED = fixedColumns(['id', 'subject', 'type', 'deleted_at', 'path', 'unlinked', 'actions'].map((key) => ({ key })));
@@ -23,13 +23,15 @@ export function mount(root) {
 
   const filter = h('input', { type: 'search', placeholder: 'Filter the trash…', 'aria-label': 'Filter the trash', 'data-filter': '' });
   filter.addEventListener('input', () => { search = filter.value.trim().toLowerCase(); api.update(); });
-  const emptyBtn = h('button', { class: 'btn danger', onclick: () => { confirm = 'all'; api.update(); } }, icon('trash', 15), 'Empty trash');
+  const emptyBtn = h('button', { class: 'btn small ghost danger-text', onclick: () => { confirm = 'all'; api.update(); } }, icon('trash', 14), 'Empty trash');
+  const count = pageCount();
   const banner = h('div', { class: 'trash-confirm' });
   const note = h('p', { class: 'muted small trash-files', 'data-trash-files': '' });
   const table = h('div', { class: 'tag-table' });
   const filesBox = h('section', { class: 'trash-files-section' });
   root.replaceChildren(
-    h('header', { class: 'view-head row' }, h('h1', {}, 'Trash'), h('div', { class: 'filters' }, filter, emptyBtn)),
+    pageHead({ title: 'Trash', count }),
+    h('div', { class: 'view-bar' }, searchBox(filter), h('span', { class: 'spacer' }), emptyBtn), // on a phone the head goes: Empty trash lives here
     banner, note, table, filesBox);
 
   const th = (col, label) => h('th', { scope: 'col', class: sort.col === col ? 'sorted' : '', 'aria-sort': sort.col === col ? (sort.dir > 0 ? 'ascending' : 'descending') : null },
@@ -39,21 +41,21 @@ export function mount(root) {
   const row = (e) => {
     if (confirm === e.trashed) {
       return h('tr', { class: 'tag-edit' }, h('td', { colspan: COLS }, h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, `Delete ${e.id || e.title} for good? It cannot be undone.`),
+        h('span', { class: 'small' }, `Delete ${e.ref || e.id || e.title} for good? It cannot be undone.`),
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
         h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever'))));
     }
-    return h('tr', { class: 'trash-row' },
-      h('td', {}, h('span', { class: 'mono' }, e.id || '—')),
+    return h('tr', { class: 'trash-row hover-host' },
+      h('td', {}, h('span', { class: 'mono' }, e.ref || e.id || '—')),
       h('td', { class: 'c-subject' }, e.title),
       h('td', {}, h('span', { class: `chip t-${e.type}` }, typeIcon(e.type, 12), e.type || '—')),
       h('td', { title: e.deleted_at }, when(e.deleted_at)),
       h('td', { class: 'muted trash-path', title: e.original_path }, e.original_path),
       h('td', { class: 'num', title: 'Related items that were detached, and come back with a restore' }, e.unlinked || h('span', { class: 'muted' }, '0')),
       h('td', { class: 'c-actions' },
-        h('button', { class: 'btn small', onclick: async () => { try { await restoreFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('back', 13), 'Restore'),
-        h('button', { class: 'btn icon', title: `Delete ${e.id || e.title} for good`, 'aria-label': `Delete ${e.title} for good`, onclick: () => { confirm = e.trashed; api.update(); } }, icon('trash', 15))));
+        h('button', { class: 'btn small ghost', onclick: async () => { try { await restoreFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('back', 13), 'Restore'),
+        rowAction('trash', `Delete ${e.ref || e.id || e.title} for good`, () => { confirm = e.trashed; api.update(); })));
   };
 
   // Files and folders deleted from the Explorer: where they were, when; Restore puts one back there.
@@ -65,12 +67,12 @@ export function mount(root) {
         h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
         h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFile(f.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever'))));
     }
-    return h('tr', { class: 'trash-row' },
+    return h('tr', { class: 'trash-row hover-host' },
       h('td', { class: 'trash-file' }, icon(f.kind === 'dir' ? 'folder' : 'file', 15), h('span', { class: 'mono', title: f.path }, f.path)),
       h('td', { title: f.deleted_at }, when(f.deleted_at)),
       h('td', { class: 'c-actions' },
-        h('button', { class: 'btn small', onclick: async () => { try { await restoreFile(f.trashed); } catch { /* toasted */ } } }, icon('back', 13), 'Restore'),
-        h('button', { class: 'btn icon', title: `Delete ${f.path} for good`, 'aria-label': `Delete ${f.path} for good`, onclick: () => { confirm = f.trashed; api.update(); } }, icon('trash', 15))));
+        h('button', { class: 'btn small ghost', onclick: async () => { try { await restoreFile(f.trashed); } catch { /* toasted */ } } }, icon('back', 13), 'Restore'),
+        rowAction('trash', `Delete ${f.path} for good`, () => { confirm = f.trashed; api.update(); })));
   };
   const filesSection = () => {
     const files = state.trashedFiles.filter((f) => !search || f.path.toLowerCase().includes(search));
@@ -81,12 +83,15 @@ export function mount(root) {
         ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid tag-grid trash-grid', 'aria-label': 'Deleted files and folders' },
           h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Was in'), h('th', { scope: 'col' }, 'Deleted'), h('th', { scope: 'col', class: 'c-actions' }, h('span', { class: 'sr-only' }, 'Actions')))),
           h('tbody', {}, files.map(fileRow))))
-        : emptyState('Nothing deleted matches.')];
+        : pageEmpty('Nothing deleted matches.')];
   };
 
   const api = {
     update() {
       const all = state.trash;
+      const files = state.trashedFiles.length;
+      count.textContent = all.length || files ? [all.length ? `${all.length} item${all.length === 1 ? '' : 's'}` : '',
+        files ? `${files} file${files === 1 ? '' : 's'} or folder${files === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') : 'Empty';
       const summary = trashSummary(all.length, state.trashFiles, state.trashedFiles.length);
       emptyBtn.hidden = !summary.canEmpty;
       if (!summary.canEmpty && confirm === 'all') confirm = null;
@@ -98,7 +103,7 @@ export function mount(root) {
         h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
         h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await emptyTrash(); } catch { /* toasted */ } } }, icon('trash', 13), 'Empty trash'))] : []));
       const key = { id: (e) => e.id || '', title: (e) => e.title.toLowerCase(), type: (e) => e.type || '', deleted_at: (e) => e.deleted_at, original_path: (e) => e.original_path, unlinked: (e) => e.unlinked }[sort.col];
-      const matching = all.filter((e) => !search || `${e.id} ${e.title} ${e.type} ${e.original_path}`.toLowerCase().includes(search))
+      const matching = all.filter((e) => !search || `${e.ref} ${e.id} ${e.title} ${e.type} ${e.original_path}`.toLowerCase().includes(search))
         .sort((a, b) => { const x = key(a); const y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; });
       const page = paged({ key: 'trash', rows: matching, size: LIST_PAGE, onChange: () => api.update() });
       const { rows } = page;
@@ -107,7 +112,7 @@ export function mount(root) {
           h('thead', {}, h('tr', {}, th('id', 'ID'), th('title', 'Subject'), th('type', 'Type'), th('deleted_at', 'Deleted'), th('original_path', 'Was in'), th('unlinked', 'Unlinked'),
             h('th', { scope: 'col', class: 'c-actions' }, h('span', { class: 'sr-only' }, 'Actions')))),
           h('tbody', {}, rows.length ? rows.map(row) : h('tr', {}, h('td', { colspan: COLS, class: 'empty' }, 'Nothing in the trash matches.')))))
-        : emptyState(state.trashFiles || state.trashedFiles.length ? 'No deleted items in the trash.' : 'The trash is empty. What you delete waits here until you restore it or empty the trash.'), page.pager].filter(Boolean));
+        : pageEmpty(state.trashFiles || state.trashedFiles.length ? 'No deleted items in the trash.' : 'The trash is empty. What you delete waits here until you restore it or empty the trash.'), page.pager].filter(Boolean));
       filesBox.replaceChildren(...filesSection());
     },
   };

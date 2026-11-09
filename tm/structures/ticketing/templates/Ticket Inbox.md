@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Inbox
-id: "{{id}}"                           # INB-NNN: captured, not triaged yet
+id: "{{id}}"                           # its number, drawn INB-<n>: captured, not triaged yet
 name: "{{slug}}"
 url: ""
 tags: []

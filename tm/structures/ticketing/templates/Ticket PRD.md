@@ -1,12 +1,12 @@
 ---
 fileClass: Ticket PRD
-id: "{{id}}"                           # KEY-PRD-NNN
+id: "{{id}}"                           # its number, drawn PRD-<n>
 name: "{{slug}}"
 project: "[[00 {{project}}]]"
 status_ticket: "1. Backlog"            # 1. Backlog = draft · 5. Review = being read · 6. Done = approved and in force · 7. Discarded = superseded
 status_log: []
-initiative: ""                         # "[[KEY-INI-NNN …]]" created when approved
-supersedes: ""                         # "[[KEY-PRD-NNN …]]"
+initiative: ""                         # "[[INI-<n> …]]" created when approved
+supersedes: ""                         # "[[PRD-<n> …]]"
 superseded_by: ""
 url: ""
 tags: []
@@ -14,7 +14,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 > [!owner] A PRD states intent: who needs what, and how we will know it worked. It does not describe the
 > implementation, and it does not change after approval. If the intent changes, a new PRD supersedes it.

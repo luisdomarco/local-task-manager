@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { parseQuick } from '../../static/js/quickadd.js';
+import { setStructure } from '../../static/js/rules.js';
+import { FOLDER_PER_TYPE, PROJECTS } from '../../static/js/structure.js';
 import { state } from '../../static/js/state.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -19,7 +21,7 @@ describe('quick add parser', () => {
     const p = parseQuick('Fix login !high @today due:fri +auth #INI-0001 session:s1');
     assert.equal(p.type, 'task');
     assert.equal(p.title, 'Fix login');
-    assert.equal(p.values.priority, 'High');
+    assert.equal(p.values.priority, 'P1'); // !high: the second priority, whatever the structure calls it
     assert.equal(p.values.plan_day, '2026-10-15');
     assert.equal(p.values.plan_week, '2026-W42');
     assert.equal(p.values.due, '2026-10-16');
@@ -39,9 +41,17 @@ describe('quick add parser', () => {
 
   it('reads numeric priorities and the first link as the main one', () => {
     const p = parseQuick('Read this !1 https://a.io www.b.io');
-    assert.equal(p.values.priority, 'Urgent');
+    assert.equal(p.values.priority, 'P0');
     assert.equal(p.values.url, 'https://a.io');
     assert.deepEqual(p.values.links, [{ url: 'https://www.b.io' }]);
+  });
+
+  it('reads a priority word by its rank in each structure', () => {
+    for (const [s, want] of [[PROJECTS, ['P0', 'P1', 'P2', 'P3']], [FOLDER_PER_TYPE, ['Urgent', 'High', 'Normal', 'Low']]]) {
+      setStructure(s);
+      assert.deepEqual(['!urgent', '!high', '!normal', '!LOW'].map((w) => parseQuick(`X ${w}`).values.priority), want, s.id);
+    }
+    setStructure(PROJECTS);
   });
 
   it('types an item with a slash word', () => {

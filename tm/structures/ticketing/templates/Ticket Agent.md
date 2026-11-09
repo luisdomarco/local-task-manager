@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Agent
-id: "{{id}}"                           # AGT-NNN: an agent has no project key, its project can change
+id: "{{id}}"                           # its number, drawn AGT-<n>: an agent has no project key, its project can change
 name: "{{slug}}"
 project: ""                            # "[[00 <Project>]]", optional
 status_agent: Idea                     # Idea · Design · Build · Test · Live · Retired
@@ -10,14 +10,14 @@ platform: ""                           # Claude Code subagent · Agent SDK · Ma
 model: ""
 trigger: ""                            # manual · scheduled · event
 tools: ""                              # the tools and MCP servers it uses
-related_to: ""                         # "[[KEY-INI-NNN …]]" it is part of, if any
+related_to: ""                         # "[[INI-<n> …]]" it is part of, if any
 url: ""
 tags: []
 creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 ## Purpose
 

@@ -10,6 +10,7 @@ import { IMAGE_TYPES, dropToken, imageFit, insertPick, matchCommands, matchFiles
 import { isDone } from './rules.js';
 import { state, toast } from './state.js';
 import { h, icon, renderMarkdown, select, typeIcon } from './ui.js';
+import { refOf } from './shownid.js';
 
 const MODES = [['default', 'Ask before edits', 'user'], ['acceptEdits', 'Accept edits', 'pencil'], ['plan', 'Plan', 'note'], ['auto', 'Auto', 'target']];
 const MODELS = ['opus', 'sonnet', 'haiku', 'fable']; // until claude lists its own (tm/chat.py model_choice)
@@ -201,9 +202,9 @@ function permissionItem(item, chat, cwd, answer) {
 
 /** A vault item attached to a message: its type, its id, its title — and an × while it is still in the composer. */
 function itemChip(it, onRemove = null) {
-  return h('span', { class: 'cv-att', title: `${it.id ? `${it.id} · ` : ''}${it.title}` }, it.type ? typeIcon(it.type, 12) : icon('note', 12),
-    it.id ? h('span', { class: 'cv-att-id' }, it.id) : null, h('span', { class: 'cv-att-title' }, it.title),
-    onRemove ? h('button', { type: 'button', class: 'btn icon cv-att-x', title: 'Remove', 'aria-label': `Remove ${it.id || it.title}`, onclick: onRemove }, icon('x', 11)) : null);
+  return h('span', { class: 'cv-att', title: `${it.id ? `${refOf(it)} · ` : ''}${it.title}` }, it.type ? typeIcon(it.type, 12) : icon('note', 12),
+    it.id ? h('span', { class: 'cv-att-id' }, refOf(it)) : null, h('span', { class: 'cv-att-title' }, it.title),
+    onRemove ? h('button', { type: 'button', class: 'btn icon cv-att-x', title: 'Remove', 'aria-label': `Remove ${refOf(it) || it.title}`, onclick: onRemove }, icon('x', 11)) : null);
 }
 
 /** An image of a message: its thumbnail (a data: URL the composer made), or a plain chip when none was kept. */
@@ -542,7 +543,7 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
         return h('div', { class: `cv-sug${i === picker.active ? ' active' : ''}`, role: 'option', id: `${suggest.id}-${i}`,
           'aria-selected': String(i === picker.active), onmousedown: (e) => { e.preventDefault(); pick(i); },
           onmousemove: () => { if (picker && picker.active !== i) { picker.active = i; paintActive(); } } },
-        typeIcon(value.type, 14), h('span', { class: 'cv-sug-name' }, value.title), value.id ? h('span', { class: 'cv-sug-dir' }, value.id) : null);
+        typeIcon(value.type, 14), h('span', { class: 'cv-sug-name' }, value.title), value.id ? h('span', { class: 'cv-sug-dir' }, refOf(value)) : null);
       }
       const folder = value.endsWith('/');
       const cut = value.replace(/\/$/, '').lastIndexOf('/');
@@ -590,7 +591,7 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
   function attachItem(it) {
     if (attached.some((a) => a.key === it.key)) return;
     if (attached.length >= ITEMS_MAX) toast(`At most ${ITEMS_MAX} items go with one message`, true);
-    else attached.push({ key: it.key, id: it.id || '', title: it.title, type: it.type });
+    else attached.push({ key: it.key, id: it.id || '', ref: it.ref || '', title: it.title, type: it.type });
     paintChips();
   }
   // The /, @ and # buttons: as if typed at the caret (a / only starts a message).

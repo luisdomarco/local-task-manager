@@ -271,6 +271,28 @@ def build(fields, body=''):
     return '---\n' + '\n'.join(lines) + '\n---\n' + body
 
 
+def rename_keys(text, names):
+    """`text` with the top-level frontmatter keys of `names` ({old: new}) renamed in place: same line, same value and
+    comment, every other byte untouched. A key whose new name is already there is left as it is (never two of one key).
+    → (text, the old names renamed)."""
+    m = FM_RE.match(text)
+    if not m:
+        return text, []
+    rows = m.group(1).split('\n')
+    present = {mk.group(1) for mk in (KEY_RE.match(r[:-1] if r.endswith('\r') else r) for r in rows) if mk}
+    done = []
+    for i, row in enumerate(rows):
+        mk = KEY_RE.match(row[:-1] if row.endswith('\r') else row)
+        if mk and mk.group(1) in names and names[mk.group(1)] not in present:
+            old, new = mk.group(1), names[mk.group(1)]
+            rows[i] = new + row[len(old):]
+            present.add(new)
+            done.append(old)
+    if not done:
+        return text, []
+    return text[:m.start(1)] + '\n'.join(rows) + text[m.end(1):], done
+
+
 def patch(text, updates, body=None):
     """Set `updates` keys in the frontmatter of `text`, keeping every other byte.
 
@@ -326,3 +348,23 @@ def patch(text, updates, body=None):
         if new_body and not tail.endswith('\n'):
             tail += nl
     return head + ''.join(out) + tail + new_body
+
+
+def drop(text, keys):
+    """Remove `keys` (and the block under each) from the frontmatter of `text`, keeping every other byte, as `patch`
+    does. A key not there is ignored; text without frontmatter is returned as it is."""
+    m = FM_RE.match(text)
+    keys = set(keys)
+    if not m or not keys:
+        return text
+    raw = m.group(1).split('\n')
+    lines = _lines(m.group(1))
+    out, i = [], 0
+    while i < len(lines):
+        mk = KEY_RE.match(lines[i])
+        if mk and mk.group(1) in keys:
+            i = _block_end(lines, i + 1)
+            continue
+        out.append(raw[i])
+        i += 1
+    return text[:m.start(1)] + '\n'.join(out) + text[m.end(1):]

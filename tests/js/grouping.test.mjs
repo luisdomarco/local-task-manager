@@ -29,7 +29,7 @@ describe('grouping', () => {
 
   it('orders groups: status by workflow, priority by rank, no initiative last', () => {
     assert.deepEqual(['Done', 'Backlog', 'InProgress'].sort(GROUPS.status.order), ['Backlog', 'InProgress', 'Done']);
-    assert.deepEqual(['Low', 'Urgent', 'Normal'].sort(GROUPS.priority.order), ['Urgent', 'Normal', 'Low']);
+    assert.deepEqual(['P3', 'P0', 'P2'].sort(GROUPS.priority.order), ['P0', 'P2', 'P3']);
     const two = byIdOf({ id: 'INI-2', title: 'Beta' }, { id: 'INI-3', title: 'Alpha' });
     assert.deepEqual([NONE, 'INI-2', 'INI-3'].sort((a, b) => GROUPS.initiative.order(a, b, two)), ['INI-3', 'INI-2', NONE]);
   });
@@ -71,7 +71,7 @@ describe('grouping', () => {
 
     it('by the day when there is one, the week ignored', () => {
       assert.equal(plan({ plan_day: '2026-10-15', plan_week: '2026-W44' }), 'today');
-      assert.equal(plan({ plan_day: '2026-10-16' }), 'tomorrow');
+      assert.equal(plan({ plan_day: '2026-10-16' }), 'week'); // tomorrow is no group of its own: its week's
       assert.equal(plan({ plan_day: '2026-10-18' }), 'week'); // Sunday of this week
       assert.equal(plan({ plan_day: '2026-10-21' }), 'nextweek');
       assert.equal(plan({ plan_day: '2026-11-30' }), 'later');
@@ -98,7 +98,7 @@ describe('grouping', () => {
       assert.equal(plan({ plan_month: '2026-11' }), 'later');
       assert.equal(plan({ plan_month: '2026-09' }), 'overdue');
       assert.equal(plan({ plan_month: '2026-09' }, 'Done'), 'past');
-      assert.equal(plan({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'tomorrow'); // the day wins
+      assert.equal(plan({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'week'); // the day wins
     });
   });
 });

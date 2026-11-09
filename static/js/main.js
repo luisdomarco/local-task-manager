@@ -2,16 +2,18 @@
 import { addMenu } from './create.js';
 import { closePalette, openPalette, paletteIsOpen } from './palette.js';
 import { closeItem, hasUnsaved, isExpanded, isOpen, openItem, renderPanel } from './panel.js';
-import { renderPinbar } from './pinbar.js';
-import { initSidebar, onSidebarMode, setSidebarMode, sidebarMode, syncSidebarMode, toggleSidebar } from './sidebar.js';
+import { renderPinbar, setBarTitle } from './pinbar.js';
+import { initSidebar, onSidebarMode, setSidebarMode, sidebarMode, syncSidebarMode, toggleSidebar, revealActiveLink } from './sidebar.js';
+import { handleItemKey } from './itemkeys.js';
 import { initExplorer } from './explorer.js';
 import { filesHref } from './filetree.js';
 import { restoreTerms } from './term.js';
 import { openQuickModal } from './quickadd.js';
-import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
-import { addDays, shiftWeek, thisWeek, today as todayYmd, weekDays } from './dates.js';
+import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, inSomeProject, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
+import { shiftWeek, thisWeek, weekDays } from './dates.js';
 import { byType, createVaultFolders, firstLoad, onChange, progress, reload, saveSidebarOrder, state, toast } from './state.js';
-import { cssKey, h, icon, menuIsOpen, select } from './ui.js';
+import { cssKey, h, icon, menuIsOpen, select, typeIcon } from './ui.js';
+import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sections.js';
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
 import { GO } from './shortcuts.js';
@@ -23,7 +25,7 @@ import * as find from './views/find.js';
 import { filesUnsaved } from './views/files.js';
 import { pageView } from './views/detail.js';
 import * as inbox from './views/inbox.js';
-import { listView } from './views/list.js';
+import { boardTypes, listView } from './views/list.js';
 import * as log from './views/log.js';
 import { contacts, labels } from './views/tags.js';
 import { setPageTitle } from './tabtitle.js';
@@ -31,19 +33,22 @@ import * as trash from './views/trash.js';
 import * as settings from './views/settings.js';
 import * as table from './views/table.js';
 import * as today from './views/today.js';
-import { tomorrow } from './views/today.js';
 import * as week from './views/week.js';
 import { nextWeek as nextweek } from './views/week.js';
 import * as month from './views/month.js';
 import * as docs from './views/docs.js';
+import * as graph from './views/graph.js';
+import * as goals from './views/goals.js';
+import { refOf } from './shownid.js';
+import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews } from './savedviews.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, tomorrow, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs };
+const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, graph };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
-  inbox: 'Inbox', today: 'Today', tomorrow: 'Tomorrow', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'All items', log: 'Work log',
-  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs',
+  inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
+  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', graph: 'Graph',
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
@@ -52,16 +57,17 @@ let LIST_OF = {};
 let FIRST_LIST = 'tasks'; // for an address whose item is not there: the first type's list
 // An item's page lights up its type's list in the sidebar (an initiative's, Initiatives).
 let NAV_OF = {};
-// The sidebar's count of each type with a link: all of them, or the open ones. The daily views show their count
-// even at 0 ("nothing left today" is news too), and so do the types whose link says so (Inbox, Activity); the
-// rest only when there is something.
+// The sidebar's count of each type with a link: all of them, or the open ones. Today shows its count even at 0
+// ("nothing left today" is news too), and so do the types whose link says so (Inbox, Activity); the rest — the weeks,
+// the month — only when there is something.
 let COUNTED = [];
-const ALWAYS_COUNTED = new Set(['today', 'tomorrow', 'week', 'nextweek', 'month']);
+const ALWAYS_COUNTED = new Set(['today']);
 
 onStructure((s) => {
   VIEWS = {
     ...FIXED_VIEWS,
-    ...Object.fromEntries(s.types.filter((t) => t.list).map((t) => [t.route, listView(t.name)])),
+    // A type's list, at its route; Projects' goals have a view of their own (views/goals.js: each goal and what it holds).
+    ...Object.fromEntries(s.types.filter((t) => t.list).map((t) => [t.route, t.name === 'goal' ? goals : listView(t.name)])),
     ...Object.fromEntries(s.types.filter((t) => t.page).map((t) => [t.name, pageView(t.name)])),
   };
   LIST_OF = Object.fromEntries(s.types.map((t) => [t.name, t.route]));
@@ -85,8 +91,9 @@ function DOCS_LINK() {
 /** Each type's link, in its nav group's box (index.html), by its order there, with a line where its `section`
  *  changes. Only between links that are there: a type the vault turned off leaves no line of its own. */
 function renderNav(s) {
+  const inSection = sectionRoutes();
   for (const box of document.querySelectorAll('[data-nav-group]')) {
-    const types = s.types.filter((t) => t.nav?.group === box.dataset.navGroup).sort((a, b) => a.nav.order - b.nav.order);
+    const types = s.types.filter((t) => t.nav?.group === box.dataset.navGroup && !inSection.has(t.route)).sort((a, b) => a.nav.order - b.nav.order);
     box.replaceChildren(...types.flatMap((t, i) => [
       i && t.nav.section !== types[i - 1].nav.section ? h('div', { class: 'nav-sep', role: 'separator' }) : null,
       h('a', { href: `#/${t.route}`, 'data-view': t.route }, icon(t.icon, 16), t.plural, h('span', { class: 'count', 'data-count': t.route })),
@@ -94,6 +101,39 @@ function renderNav(s) {
       t.name === 'note' ? DOCS_LINK() : null,
     ]).filter(Boolean));
     if (box.dataset.navGroup === 'types' && !types.some((t) => t.name === 'note')) box.append(DOCS_LINK());
+    // Then the structure's sections (Meetings, Brief…), one link each after a line; renderSidebar points each at its tab.
+    if (box.dataset.navGroup === 'types') {
+      box.append(...(s.sections || []).flatMap((sec, i) => [i ? null : h('div', { class: 'nav-sep', role: 'separator' }),
+        h('a', { href: '#/', 'data-view': `section-${sec.key}`, 'data-section': sec.key }, icon(sec.icon, 16), sec.label)]).filter(Boolean));
+    }
+  }
+}
+/** A type that lives in a project's folder has no link while no project of the vault may hold it (rules.js
+ *  inSomeProject: a vault of simple projects lists no stories) and the vault has none; a line between sections goes
+ *  with the links around it. */
+function hideHomelessTypes() {
+  for (const box of document.querySelectorAll('[data-nav-group]')) {
+    for (const t of STRUCTURE.types) {
+      const a = t.nav && box.querySelector(`a[data-view="${t.route}"]`);
+      if (a) a.hidden = !inSomeProject(t.name, state.all) && !state.all.some((i) => i.type === t.name); // its items stay reachable
+    }
+    // A section's link goes to the tab it was left on; with no tab left (none of its types here), it is not there.
+    const shown = sections();
+    for (const a of box.querySelectorAll('a[data-section]')) {
+      const sec = shown.find((x) => x.key === a.dataset.section);
+      a.hidden = !sec;
+      if (sec) a.href = `#/${lastTab(sec)}`;
+    }
+    // A line only between links shown: one where sections meet, none at either end.
+    let before = false;
+    let pending = null;
+    for (const el of box.children) {
+      if (el.classList.contains('nav-sep')) { el.hidden = true; if (before) pending = el; continue; }
+      if (el.hidden) continue;
+      if (pending) pending.hidden = false;
+      pending = null;
+      before = true;
+    }
   }
 }
 let current = null;
@@ -151,18 +191,20 @@ async function route() {
   // An item's address (#/item/TSK-1, links.js; #/task/… from before): its list, with its card open on top.
   if ((name === 'item' || name === 'task') && param) {
     const ref = decodeURIComponent(param);
-    const it = state.byId.get(ref) || state.all.find((i) => i.key === ref);
+    // By its id or key, its ref (TSK-482), or an id it had before (an old link: ACME-INI-001, in its aliases).
+    const it = state.byId.get(ref) || state.all.find((i) => i.key === ref || i.ref === ref || (i.aliases || []).includes(ref));
     if (hasPage(it)) { location.replace(pageHref(it)); return; }
     history.replaceState(null, '', `#/${LIST_OF[it?.type] || FIRST_LIST}`);
     await route();
     openItem(it || ref); // an unknown one says so (toast) over the list
     return;
   }
-  // A view whose items this vault turned off (the Board shows tasks; the day views, what can be planned) goes home.
+  // A view whose items this vault turned off (the Board shows a type with a status; the day views, what can be planned) goes home.
   // A type turned off has no list or page view at all.
   const planning = STRUCTURE.types.some((t) => t.plannable);
-  const off = (name === 'board' && !isEnabled('task')) || (['today', 'tomorrow', 'week', 'nextweek', 'month'].includes(name) && !planning);
+  const off = (name === 'board' && !boardTypes().length) || (['today', 'week', 'nextweek', 'month'].includes(name) && !planning);
   if (name === 'people') { location.replace('#/contacts'); return; } // People is Contacts' first tab (TSK-050)
+  if (name === 'tomorrow') { location.replace('#/week'); return; } // Tomorrow is gone: an old link lands on its week
   if (!VIEWS[name] || off) { location.hash = planning ? '#/today' : '#/table'; return; }
   const key = `${name}/${param || ''}`;
   if (key === currentRoute) return;
@@ -173,12 +215,17 @@ async function route() {
   document.getElementById('main').scrollTop = 0;
   setPageTitle(VIEW_TITLES[name] || '');
   current = VIEWS[name].mount(root, param);
-  const nav = NAV_OF[name] || name;
+  const own = NAV_OF[name] || name;
+  const sec = sectionOf(own);
+  const nav = sec ? `section-${sec.key}` : own; // a tab lights up its section's link
   document.querySelectorAll('[data-view]').forEach((a) => {
     a.classList.toggle('active', a.dataset.view === nav);
     if (a.dataset.view === nav) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
+  revealActiveLink();
+  renderSavedViews(); // which saved view (if any) the page now shows
   current.update();
+  setBarTitle(root.querySelector(':scope > .view-head h1')?.textContent || VIEW_TITLES[name] || ''); // a phone's top bar
   renderSidebar();
   renderPinbar();
 }
@@ -189,11 +236,18 @@ let vaultSwitchSig = '';
 function renderVaultSwitch() {
   const box = document.getElementById('vault-switch');
   const vaults = state.config.vaults || [];
-  const sig = JSON.stringify([vaultId(), vaults.map((v) => [v.id, v.name])]);
+  const sig = JSON.stringify([vaultId(), vaults.map((v) => [v.id, v.name, v.structure])]);
   if (!box || sig === vaultSwitchSig) return;
   vaultSwitchSig = sig;
+  // A vault of a legacy structure (Initiatives, Tasks) works as ever; one quiet line says it can be moved to
+  // Projects, and its row in Settings → Vaults says how (settings.js legacyNote).
+  const shown = vaults.find((v) => v.id === vaultId());
+  const legacy = shown && (state.config.legacy_structures || []).includes(shown.structure);
   box.replaceChildren(select(vaults.map((v) => [v.id, v.name, 'folder']), vaultId(), (id) => switchVault(id),
-    { class: 'small vault-select', 'aria-label': 'Vault', title: 'The vault this page shows' }));
+    { class: 'small vault-select', 'aria-label': 'Vault', title: 'The vault this page shows' }),
+  legacy ? h('a', { class: 'vault-legacy-hint small', href: '#/settings/vaults',
+    title: `${(state.config.structures || {})[shown.structure] || shown.structure} is a legacy structure: see how to move this vault to Projects` },
+  icon('alert', 12), 'Legacy · move to Projects') : '');
 }
 
 function renderSidebar() {
@@ -204,7 +258,6 @@ function renderSidebar() {
     // Archived items are left out of byType: the prompts counted are the active ones.
     ...Object.fromEntries(COUNTED.map(([route, type, counted]) => [route, byType(type).filter((i) => counted === 'all' || !isDone(i)).length])),
     today: state.items.filter((i) => (isPlannedToday(i) || carriedOverDay(i)) && !isDone(i)).length,
-    tomorrow: state.items.filter((i) => i.fields.plan_day === addDays(todayYmd(), 1) && !isDone(i)).length,
     // What the Week view lists: planned for the week or one of its days, plus what is carried over from past weeks.
     week: state.items.filter((i) => !isDone(i) && (isPlannedWeek(i) || days.includes(i.fields.plan_day) || carriedOverWeek(i))).length,
     nextweek: state.items.filter((i) => !isDone(i) && (isPlannedWeek(i, next) || nextDays.includes(i.fields.plan_day))).length,
@@ -215,6 +268,12 @@ function renderSidebar() {
     const el = document.querySelector(`[data-count="${k}"]`);
     if (el) el.textContent = vaultBlocked() ? '' : n || ALWAYS_COUNTED.has(k) ? String(n) : '';
   }
+  // A section's tabs count what each holds: Planning's, what is planned there (as above); a type's, its open items.
+  const tabCounts = { week: counts.week, nextweek: counts.nextweek, month: counts.month };
+  for (const sec of sections()) {
+    for (const t of sec.tabs) if (t.type) tabCounts[t.route] = byType(t.type).filter((i) => !isDone(i)).length;
+  }
+  setTabCounts(vaultBlocked() ? {} : tabCounts);
   renderVaultSwitch();
   // Favourites: the initiatives starred on their page (a new one is not; a file from before without the key is), in the
   // order dragged there, then the ones never placed, by status: closed first, then under way, then not started (as the
@@ -234,11 +293,16 @@ function renderSidebar() {
   const box = document.getElementById('side-initiatives');
   // A vault with initiatives turned off has no Favourites section; the Board (tasks) and the day views (what can be
   // planned) go when what they show is turned off too.
-  box.closest('.side-section').hidden = !isEnabled('initiative');
-  document.querySelector('#sidebar a[data-view="board"]').hidden = !isEnabled('task');
-  for (const view of ['today', 'tomorrow', 'week', 'nextweek', 'month']) {
-    document.querySelector(`#sidebar a[data-view="${view}"]`).hidden = !STRUCTURE.types.some((t) => t.plannable);
-  }
+  document.getElementById('side-favs').hidden = !isEnabled('initiative');
+  renderSavedViews();
+  document.querySelector('#sidebar a[data-view="board"]').hidden = !boardTypes().length;
+  document.querySelector('#sidebar a[data-view="today"]').hidden = !STRUCTURE.types.some((t) => t.plannable);
+  // Planning goes to the tab it was left on (sections.js), and is not there where nothing can be planned.
+  const planning = sections().find((s) => s.key === 'planning');
+  const planLink = document.querySelector('#sidebar a[data-section="planning"]');
+  planLink.hidden = !planning;
+  if (planning) planLink.href = `#/${lastTab(planning)}`;
+  hideHomelessTypes();
   wireSidebarDrop(box, move);
   box.replaceChildren(...(inis.length ? inis.map((i, idx) => {
     const p = progress(i.id);
@@ -246,7 +310,7 @@ function renderSidebar() {
     const status = i.fields.status || 'Backlog';
     const el = h('a', {
       class: `side-ini ${location.hash === href ? 'active' : ''}`, href, draggable: 'true', 'data-id': i.id,
-      title: `${i.title}\n${i.id} · ${status} · ${p.done}/${p.total} tasks — drag (or Shift+↑/↓) to reorder`, 'aria-label': `${i.title}, ${status}, ${p.pct}% closed`,
+      title: `${i.title}\n${refOf(i)} · ${status} · ${p.done}/${p.total} tasks — drag (or Shift+↑/↓) to reorder`, 'aria-label': `${i.title}, ${status}, ${p.pct}% closed`,
       onkeydown: (e) => {
         if (!e.shiftKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
         e.preventDefault();
@@ -265,6 +329,41 @@ function renderSidebar() {
     return el;
   }) : [h('p', { class: 'muted small' }, 'No favourites — star an initiative on its page.')]));
 }
+
+/** Views: the ones saved from a list's bar (savedviews.js), each a link to its page drawn as it was saved; × forgets it
+ *  (with Undo). The section shows while there are favourites or views. */
+function renderSavedViews() {
+  const views = savedViews();
+  const box = document.getElementById('side-views');
+  document.getElementById('side-views-box').hidden = !views.length;
+  box.closest('.side-section').hidden = !views.length && document.getElementById('side-favs').hidden;
+  const iconOf = (route) => {
+    const r = route.replace(/^#\//, '').split(/[/?]/)[0];
+    if (r === 'board') return icon('kanban', 15);
+    if (r === 'table') return icon('table', 15);
+    const t = STRUCTURE.types.find((x) => x.route === r);
+    return t ? typeIcon(t.name, 15) : icon('list', 15);
+  };
+  box.replaceChildren(...views.map((v) => {
+    const open = (e) => {
+      if (e.metaKey || e.ctrlKey || e.button === 1) return; // a new tab opens the page as it is
+      e.preventDefault();
+      applyView(v);
+      if (location.hash === v.route) { currentRoute = null; route(); } else location.hash = v.route; // its page mounts afresh, reading it
+      renderSavedViews();
+    };
+    const drop = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const gone = removeView(v.id);
+      if (gone) toast(`Removed the view “${v.name}”`, false, { label: 'Undo', run: () => restoreView(gone) });
+    };
+    return h('a', { class: `side-ini side-view ${isShowing(v) ? 'active' : ''}`, href: v.route, title: `${v.name} — the saved view`, onclick: open },
+      h('span', { class: 'side-view-ico', 'aria-hidden': 'true' }, iconOf(v.route)),
+      h('span', { class: 'ini-title' }, v.name),
+      h('button', { type: 'button', class: 'btn icon small side-view-x', title: 'Remove this view', 'aria-label': `Remove the view ${v.name}`, onclick: drop }, icon('x', 12)));
+  }));
+}
+onSavedViews(renderSavedViews);
 
 // Sidebar initiatives reorder by dragging: a line shows where the dragged one will land.
 const SIDE_MIME = 'application/x-tm-side';
@@ -338,6 +437,7 @@ document.addEventListener('keydown', (e) => {
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (pendingG) { pendingG = false; if (GO[e.key]) { location.hash = `#/${GO[e.key]}`; } return; }
   if (e.key === 'g') { pendingG = true; setTimeout(() => { pendingG = false; }, 1000); return; }
+  if (handleItemKey(e)) return; // x · t · w · s · p on the open card, or the card or row focused or under the pointer
   if (e.key === 'q') { e.preventDefault(); openQuickModal(); }
   if (e.key === '/') {
     const f = document.querySelector('#view [data-filter], #view .qa-input');

@@ -39,9 +39,8 @@ def transcript_path(session_id, cwd, home=None):
     (else that id in any project). None when there is none: Claude never saved it (it ended before a message)."""
     if not SESSION_RE.match(str(session_id or "")):
         return None
-    home = home or os.path.expanduser("~")
-    projects = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "projects")
-    path = os.path.join(projects, re.sub(r"[^A-Za-z0-9]", "-", str(cwd or "")), f"{session_id}.jsonl")
+    projects = _projects_dir(home)
+    path = os.path.join(projects, _slug(cwd), f"{session_id}.jsonl")
     if os.path.isfile(path):
         return path
     found = glob.glob(os.path.join(glob.escape(projects), "*", f"{session_id}.jsonl"))
@@ -53,6 +52,118 @@ def session_updated(session_id, cwd, home=None):
     cannot be resumed."""
     path = transcript_path(session_id, cwd, home)
     return datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%dT%H:%M") if path else None
+
+
+# Where a session on disk was started, from its transcript's `entrypoint` (what the AI tab's Add a session shows).
+SESSION_SOURCES = {"cli": "Terminal", "claude-desktop": "Claude Desktop", "claude-vscode": "VS Code / Cursor",
+                   "sdk-cli": "SDK", "sdk-py": "SDK", "sdk-ts": "SDK"}
+_HEAD = _TAIL = 64 * 1024  # what is read of a transcript: its start says where it ran, its end its latest title
+
+
+def _projects_dir(home=None):
+    home = home or os.path.expanduser("~")
+    return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "projects")
+
+
+def _first_prompt(message):
+    """The text of a user message, skipping what Claude Code itself puts there (<command-…>, <system-reminder>…)."""
+    content = (message or {}).get("content")
+    texts = [content] if isinstance(content, str) else [b.get("text") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"]
+    for t in texts:
+        t = " ".join(str(t or "").split())
+        if t and not t.startswith("<"):
+            return t
+    return ""
+
+
+def session_facts(path):
+    """What a transcript says about its conversation: {id, cwd, started, updated, title, source}, or None when it
+    holds no message of the user (nothing to resume). Reads its first and last 64 KB only: transcripts grow to MBs.
+    The title is the last one given (/rename, else Claude's own), else the first thing asked."""
+    sid = os.path.basename(path)[:-len(".jsonl")]
+    if not SESSION_RE.match(sid):
+        return None
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            head = f.read(_HEAD)
+            if size > _HEAD:
+                f.seek(max(_HEAD, size - _TAIL))
+            tail = f.read(_TAIL) if size > _HEAD else b""
+        updated = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%dT%H:%M")
+    except OSError:
+        return None
+    facts = {"id": sid, "cwd": "", "started": "", "updated": updated, "title": "", "source": ""}
+    prompt, titles = "", {}
+    for chunk, whole in ((head, size <= _HEAD), (tail, True)):
+        lines = chunk.decode("utf-8", "replace").split("\n")
+        for line in lines if whole else lines[:-1]:  # the head's last line may be cut
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(d, dict):
+                continue
+            if d.get("type") in ("custom-title", "ai-title"):
+                titles[d["type"]] = d.get("customTitle") or d.get("aiTitle") or titles.get(d["type"], "")
+            elif d.get("type") == "user" and not d.get("isSidechain") and not d.get("isMeta"):
+                facts["cwd"] = facts["cwd"] or str(d.get("cwd") or "")
+                facts["source"] = facts["source"] or str(d.get("entrypoint") or "")
+                if not facts["started"] and d.get("timestamp"):
+                    try:
+                        at = datetime.fromisoformat(str(d["timestamp"]).replace("Z", "+00:00"))
+                        facts["started"] = at.astimezone().strftime("%Y-%m-%dT%H:%M")
+                    except ValueError:
+                        pass
+                prompt = prompt or _first_prompt(d.get("message"))
+    if not facts["cwd"]:
+        return None
+    facts["title"] = " ".join(str(titles.get("custom-title") or titles.get("ai-title") or prompt).split())[:120]
+    return facts
+
+
+def _mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0
+
+
+def _slug(cwd):
+    """The name Claude Code gives a folder's transcripts' folder: every non-alphanumeric as -."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(cwd or ""))
+
+
+def recent_sessions(limit=60, home=None, cwd=None):
+    """The newest Claude Code conversations on this computer, whatever started them (Terminal, Claude Desktop, the
+    VS Code / Cursor extension, this app): newest first, the ones with nothing said left out. `cwd`: only the ones
+    that ran in that folder, however old."""
+    pattern = os.path.join(glob.escape(_projects_dir(home)), glob.escape(_slug(cwd)) if cwd else "*", "*.jsonl")
+    out = []
+    for path in sorted(glob.glob(pattern), key=_mtime, reverse=True)[:limit * 2]:
+        facts = session_facts(path)
+        if facts and (not cwd or facts["cwd"] == cwd):  # two folders can share a slug: the transcript says which
+            out.append(facts)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def session_folders(home=None):
+    """Every folder Claude Code has run a conversation in on this computer: [{cwd, count, updated}], the last written
+    first. The folder is read from the newest transcript of each (its name on disk loses the / and the .)."""
+    out = {}
+    for d in glob.glob(os.path.join(glob.escape(_projects_dir(home)), "*", "")):
+        files = sorted(glob.glob(os.path.join(glob.escape(d), "*.jsonl")), key=_mtime, reverse=True)
+        for path in files[:5]:  # the newest may hold nothing yet
+            facts = session_facts(path)
+            if facts:
+                f = out.setdefault(facts["cwd"], {"cwd": facts["cwd"], "count": 0, "at": 0})
+                f["count"] += len(files)
+                f["at"] = max(f["at"], _mtime(files[0]))
+                break
+    return [{"cwd": f["cwd"], "count": f["count"], "updated": datetime.fromtimestamp(f["at"]).strftime("%Y-%m-%dT%H:%M")}
+            for f in sorted(out.values(), key=lambda f: f["at"], reverse=True)]
 
 
 def claude_flags(model="", effort=""):

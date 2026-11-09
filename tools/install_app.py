@@ -31,7 +31,10 @@ from tm import export  # noqa: E402  (its exclusions: what never travels with th
 LABEL = 'com.taskmanager.app'
 PORT = 3200
 # What the app needs to run: the server, the page, the tools it may call, and the sample vault (the default root).
-APP_FILES = ('server.py', 'tm', 'static', 'docs', 'tools', 'sample-vault', 'sample-vault-ticketing', 'README.md', 'package.json', 'config.example.json')
+APP_FILES = ('server.py', 'tm', 'static', 'docs', 'tools', 'sample-vault', 'sample-vault-legacy', 'README.md', 'package.json', 'config.example.json')
+# What older versions installed and this one has not: removed on --update and --uninstall (the Projects sample was
+# sample-vault-ticketing/ until it became sample-vault/).
+RETIRED_FILES = ('sample-vault-ticketing',)
 
 
 def locations(home):
@@ -53,10 +56,19 @@ def _ignore(src, names):
     return out
 
 
+def _remove(d):
+    if os.path.isdir(d) and not os.path.islink(d):
+        shutil.rmtree(d)
+    elif os.path.lexists(d):
+        os.remove(d)
+
+
 def copy_code(src, app):
     """This checkout's code into the app's folder: each of APP_FILES replaced whole; anything else there (its
     config.json and its backups) left alone."""
     os.makedirs(app, exist_ok=True)
+    for name in RETIRED_FILES:
+        _remove(os.path.join(app, name))
     for name in APP_FILES:
         s, d = os.path.join(src, name), os.path.join(app, name)
         if not os.path.exists(s):
@@ -184,12 +196,8 @@ def uninstall(home, run):
     run(['launchctl', 'bootout', f'{_domain()}/{LABEL}'], check=False)
     if os.path.exists(where['plist']):
         os.remove(where['plist'])
-    for name in (*APP_FILES, export.INSTALL_FILE):  # the code goes; its config.json (and backups) stay, for a later install
-        d = os.path.join(where['app'], name)
-        if os.path.isdir(d) and not os.path.islink(d):
-            shutil.rmtree(d)
-        elif os.path.lexists(d):
-            os.remove(d)
+    for name in (*APP_FILES, *RETIRED_FILES, export.INSTALL_FILE):  # the code goes; its config.json (and backups) stay
+        _remove(os.path.join(where['app'], name))
     return {'kept': os.path.join(where['app'], 'config.json')}
 
 

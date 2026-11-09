@@ -1,54 +1,39 @@
-// Week and Next week, the same view on two weeks: this one (with Previous / Next to move through the others) and the
-// next one, fixed. Three layouts, each remembered per view (TSK-043): List, an agenda (a section per day, Mon…Sun, with
-// full-width cards); Board, a column per day side by side; and Free board, columns of your own like Today's (Waiting,
-// Deep work…), one set shared by both views so a card keeps its column when it moves to another week (`week_list`,
-// columns in <root>/.task-manager/week.md). List and Board have "Anytime this week" for items planned for the week
-// but not a day, and, on this week, what was carried over from earlier weeks; the Free board holds all of them and shows
-// each card's day. Drag a card onto a day to plan it there (onto Anytime to keep the week and clear the day); on the Free
-// board a drop only changes its column, never its day. What goes where is rules.js weekBuckets, the same for all three.
-// The board can be kept to some weekdays (remembered too; Carried over and Anytime always show). Cards keep the order
-// you drop them in (TSK-053: `plan_order` by day, `week_order` on the Free board); those never placed follow, by priority.
-import { openCreateModal } from '../create.js';
+// Week (docs/design.md §3 Planning; mock-ups H and H2): one week, this one to start with, moved with ‹ This week › in
+// Planning's head (#/nextweek opens it one week on). The view bar: search, Filter, "3 of 7 done", Display (Show closed;
+// on the board, Empty columns and the days shown) and List | Board | Free board, each remembered (prefs `plan.week`).
+//
+// List, an agenda: Carried over from earlier weeks (this week only: each with its move, and "Move all to this week") ·
+// Anytime this week · a section per day — past days grey, today's line dark with its tag, a day's meetings at their
+// time — where days with nothing share one line ("Tue 10 · Wed 11  Nothing planned"), and under this week a line to
+// the next one. Board: a column per day beside Carried over and Anytime, past days and empty ones folded into strips
+// (Display → Empty columns), today's a little wider. Free board: columns of your own like Today's (Waiting, Deep
+// work…), one set shared by every week so a card keeps its column when it moves to another week (`week_list`, columns
+// in <root>/.task-manager/week.md); a drop there only changes its column, never its day.
+// Drag a row or card onto a day to plan it there, onto Anytime to keep the week and clear the day. What goes where is
+// rules.js weekBuckets, the same for all three. Cards and rows keep the order you drop them in (TSK-053: `plan_order` by
+// day, `week_order` on the Free board); those never placed follow, by priority.
 import { dayLabel, isoWeek, shiftWeek, thisWeek, today, weekLabel } from '../dates.js';
-import { addListColumn, listDropZone, listHeader, moveEntries, moveList, startRename } from '../kanban.js';
+import { addListColumn, listHeader, moveEntries, moveList, startRename } from '../kanban.js';
 import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
-import { byManualOrder, isDone, pickDays, weekBuckets } from '../rules.js';
+import { PLANNABLE, byManualOrder, isDone, pickDays, weekBuckets } from '../rules.js';
 import {
   TODAY_DEFAULT, noMonth, placeInPlan, placeInWeekList, planWeek, saveWeekLists, slugId, state, updateMany, weekListOf,
 } from '../state.js';
-import { byPriority, checkSelect, dropZone, dropdown, h, icon, itemCard } from '../ui.js';
-import { isTentative } from '../worktime.js';
+import { byPriority, checkSelect, dropZone, dropdown, h, icon } from '../ui.js';
+import { boardOf } from '../boardview.js';
+import { viewBar } from '../viewbar.js';
+import { filterFields, matches } from '../viewmodel.js';
+import { idMatches } from '../shownid.js';
+import { vaultCtx } from './list.js';
+import {
+  emptySlot, meetingsOn, moveNow, nextWeekLine, periodHead, planCard, planRow, planSection, planViewOf, sectionAction,
+} from '../planrows.js';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const MODES = [['list', 'text', 'List'], ['board', 'kanban', 'Board'], ['free', 'columns', 'Free board']];
+const LAYOUTS = [['list', 'List', 'list'], ['board', 'Board', 'kanban'], ['free', 'Free board', 'columns']];
+const CLOSED = [['none', 'None'], ['all', 'All']];
 const find = (key) => state.items.find((i) => i.key === key);
-
-/** One agenda section: heading, its cards (a drop target), and a quick add for that slot. */
-function section(title, items, onDrop, { cls = '', meta = null, qaValues, qaPlaceholder } = {}) {
-  const zone = h('div', { class: 'cards agenda-cards' },
-    items.length ? items.map((i) => itemCard(i, { onOpen: openItem, draggable: true }))
-      : h('div', { class: 'agenda-empty' }, 'Nothing here — drop a card or add one below'));
-  dropZone(zone, (key, index) => { const it = find(key); if (it) onDrop(it, index); });
-  const open = items.filter((i) => !isDone(i)).length;
-  return h('section', { class: `agenda-day ${cls}` },
-    h('header', { class: 'agenda-head' },
-      h('h3', {}, title), meta,
-      h('span', { class: 'count' }, open || '')),
-    zone,
-    quickAddBar({ values: qaValues }, { placeholder: qaPlaceholder }));
-}
-
-/** One board column: its name, its open count, its cards (a drop target unless `onDrop` is null), and a quick add. */
-function column(title, items, onDrop, { cls = '', meta = null, qaValues = null, extraFor = null } = {}) {
-  const zone = h('div', { class: 'col-cards' }, items.map((i) => itemCard(i, { onOpen: openItem, draggable: true, extra: extraFor?.(i) })));
-  if (onDrop) dropZone(zone, (key, index) => { const it = find(key); if (it) onDrop(it, index); });
-  const open = items.filter((i) => !isDone(i)).length;
-  return h('section', { class: `board-col week-col ${cls}`, 'aria-label': `${title} column` },
-    h('header', { class: 'list-head week-col-head' }, h('h3', { class: 'list-name' }, title), meta, h('span', { class: 'count' }, open || '')),
-    zone,
-    qaValues ? quickAddBar({ type: 'task', values: qaValues }, { placeholder: '+ Add a card' }) : null);
-}
 
 // ── Free board: the week's cards in columns of your own ─────────────────────
 function editLists(fn) {
@@ -76,150 +61,250 @@ function freeListMenu(anchor, list, idx, nameEl) {
   ], { width: 300 });
 }
 
-function freeColumn(list, idx, items, week, extraFor) {
-  const zone = h('div', { class: 'col-cards' },
-    items.map((i) => itemCard(i, { onOpen: openItem, draggable: true, showPlan: true, extra: extraFor(i) })));
-  dropZone(zone, (key, index) => { const it = find(key); if (it) placeInWeekList(it, list.id, items, index); });
-  const open = items.filter((i) => !isDone(i)).length;
-  return h('section', { class: `board-col today-col free-col ${list.id === TODAY_DEFAULT ? 'default' : ''}`, 'data-list': list.id, 'aria-label': `${list.name} column` },
-    listHeader({
-      list, idx, count: open || '', countTitle: `${open} open`,
-      menu: (anchor, nameEl) => freeListMenu(anchor, list, idx, nameEl),
-      onRename: (v) => editLists((ls) => { ls[idx].name = v; }),
-    }),
-    zone,
-    quickAddBar({ type: 'task', values: { plan_week: week, ...(list.id === TODAY_DEFAULT ? {} : { week_list: list.id }) } },
-      { placeholder: '+ Add a card' }));
+/** The read-only old layout (tm-<name>-mode) and day filter (tm-<name>-days) of before the view bar. */
+function oldPrefs(name) {
+  let mode = null;
+  let days = [];
+  try { mode = localStorage.getItem(`tm-${name}-mode`); } catch { /* none */ }
+  try { const v = JSON.parse(localStorage.getItem(`tm-${name}-days`)); if (Array.isArray(v)) days = v.filter((n) => WEEKDAYS[n]); } catch { /* none */ }
+  return { layout: LAYOUTS.some(([k]) => k === mode) ? mode : 'list', days };
 }
 
-function renderFree(free, b, week, extraFor) {
-  const items = [...b.carried, ...b.anytime, ...b.days.flatMap((d) => b.byDay[d])].sort(byManualOrder(byPriority, 'week_order'));
-  const placed = new Map(state.weekBoard.lists.map((l) => [l.id, []]));
-  for (const it of items) placed.get(weekListOf(it)?.id ?? TODAY_DEFAULT)?.push(it);
-  free.replaceChildren(
-    ...state.weekBoard.lists.map((l, i) => freeColumn(l, i, placed.get(l.id) || [], week, extraFor)),
-    addListColumn({
-      label: 'Add a column', placeholder: 'Column name… (Waiting, Deep work, Errands)',
-      onAdd: (name) => editLists((ls) => ls.push({ id: slugId(name, ls.map((l) => l.id)), name })),
-    }));
-}
-
-/**
- * The view for one week: `offset` 0 is this week, which Previous / Next move away from (`nav`); 1 is next week, fixed.
- * Each keeps its own layout and day filter (`tm-<name>-mode`, `tm-<name>-days`).
- */
-function weekView({ name, title, offset, nav }) {
-  const MODE_KEY = `tm-${name}-mode`;
-  const DAYS_KEY = `tm-${name}-days`;
-  const readMode = () => { try { const m = localStorage.getItem(MODE_KEY); return MODES.some(([k]) => k === m) ? m : 'list'; } catch { return 'list'; } };
-  // The weekdays the board shows, 0 = Mon … 6 = Sun; none = all.
-  const readDays = () => { try { const v = JSON.parse(localStorage.getItem(DAYS_KEY)); return Array.isArray(v) ? v.filter((n) => WEEKDAYS[n]) : []; } catch { return []; } };
-  let mode = readMode();
-  let boardDays = readDays();
-  let shift = 0; // weeks away from this view's own (Week only)
-  let hideDone = false;
-  let seekToday = true; // the board scrolls to today's column once: on opening, switching to it, or changing week
-
+/** The view for a week: `offset` 0 opens this week, 1 the next (#/nextweek); ‹ › move from there. */
+function weekView({ offset }) {
   return function mount(root) {
+    const { view, save } = planViewOf('week', { closed: 'all', ...oldPrefs('week') });
+    if (!Array.isArray(view.days)) view.days = [];
+    let shift = 0; // weeks away from where this view opened
+    let text = '';
+    let seekToday = true; // the board scrolls to today's column once: on opening, switching to it, or changing week
     const weekNow = () => shiftWeek(thisWeek(), offset + shift);
-    const agenda = h('div', { class: 'agenda' });
-    const board = h('div', { class: 'board week-board' });
-    const free = h('div', { class: 'board today-board week-free' });
-    listDropZone(free, (from, to) => editLists((ls) => moveList(ls, from, to)));
-    const label = h('span', { class: 'week-label' });
-    const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Layout' });
-    const doneToggle = h('label', { class: 'toggle' },
-      h('input', { type: 'checkbox', checked: hideDone, onchange: (e) => { hideDone = e.target.checked; api.update(); } }), 'Hide closed');
-    const dayFilter = checkSelect(WEEKDAYS.map((day, n) => [n, day]), boardDays, (picked) => {
-      boardDays = picked;
-      try { localStorage.setItem(DAYS_KEY, JSON.stringify(picked)); } catch { /* fine */ }
-      api.update();
-    }, { any: 'All days', text: (p) => (p.length <= 3 ? p.map((n) => WEEKDAYS[n].slice(0, 3)).join(', ') : `${p.length} days`), class: 'small', 'aria-label': 'Days shown' });
-    const go = (n) => () => { shift = n === 0 ? 0 : shift + n; seekToday = true; api.update(); };
-    const addTask = () => {
-      const week = weekNow();
-      const plan = week === thisWeek() ? 'week' : week === shiftWeek(thisWeek(), 1) ? 'nextweek' : week;
-      openCreateModal('task', { plan }, { fixedType: true });
+    const change = (patch) => { Object.assign(view, patch); save(); api.update(); };
+    const go = (n) => () => { shift = n === 0 ? -offset : shift + n; seekToday = true; api.update(); };
+    let head = h('header', { class: 'view-head row period-head' });
+    const body = h('div', { class: 'plan-list week-list' });
+    const note = h('span', {});
+    const fields = () => filterFields([...PLANNABLE], vaultCtx());
+    const inWeek = () => {
+      const b = weekBuckets(state.items, weekNow());
+      return [...b.carried, ...b.anytime, ...b.days.flatMap((d) => b.byDay[d])];
     };
-    seekToday = true;
-    root.replaceChildren(
-      h('header', { class: 'view-head row' }, h('h1', {}, title),
-        h('div', { class: 'week-nav' },
-          nav ? [
-            h('button', { class: 'btn small', onclick: go(-1), title: 'Previous week' }, icon('left', 14)),
-            h('button', { class: 'btn small', onclick: go(0) }, 'This week'),
-            h('button', { class: 'btn small', onclick: go(1), title: 'Next week' }, icon('right', 14)),
-          ] : null,
-          label),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'btn primary', onclick: addTask }, icon('plus', 16), 'Add task')),
-      h('div', { class: 'toolbar' }, seg, dayFilter, doneToggle),
-      agenda, board, free);
+    const vb = viewBar({
+      view, save, fields, ctx: vaultCtx, items: inWeek, closable: true, closedModes: CLOSED, closedDefault: 'all', note,
+      placeholder: 'Search this week…',
+      layout: { current: () => view.layout, pick: (l) => { seekToday = true; change({ layout: l }); }, options: LAYOUTS, isBoard: () => view.layout !== 'list' },
+      displayRows: () => (view.layout === 'board' ? [h('div', { class: 'vb-row' }, h('span', {}, 'Days'),
+        checkSelect(WEEKDAYS.map((day, n) => [n, day]), view.days, (picked) => change({ days: picked }),
+          { any: 'All days', text: (p) => (p.length <= 3 ? p.map((n) => WEEKDAYS[n].slice(0, 3)).join(', ') : `${p.length} days`), class: 'small', 'aria-label': 'Days shown' }))] : []),
+      onReset: () => { view.days = []; },
+      onText: (t) => { text = t; api.update(); },
+      onChange: () => api.update(),
+    });
+    root.replaceChildren(head, vb.bar, vb.chips, body);
 
     const api = {
       update() {
         const week = weekNow();
-        label.textContent = weekLabel(week);
-        seg.replaceChildren(...MODES.map(([m, ico, text]) => h('button', {
-          class: `btn small ${mode === m ? 'active' : ''}`, 'aria-pressed': String(mode === m),
-          onclick: () => { mode = m; seekToday = true; try { localStorage.setItem(MODE_KEY, m); } catch { /* fine */ } api.update(); },
-        }, icon(ico, 14), text)));
-        agenda.hidden = mode !== 'list';
-        board.hidden = mode !== 'board';
-        free.hidden = mode !== 'free';
-        dayFilter.hidden = mode !== 'board';
-        const b = weekBuckets(state.items, week, { hideDone, sort: byManualOrder(byPriority) });
-        const toWeek = (i) => planWeek(i, week);
-        const toThisWeek = (i) => h('button', { class: 'btn small', onclick: () => toWeek(i) }, '→ This week');
-        // On the board's narrow column, an icon (its name in the tooltip) leaves the title room.
-        const toThisWeekIcon = (i) => h('button', { class: 'btn icon small', title: 'Move to this week', 'aria-label': `Move ${i.title} to this week`,
-          onclick: () => toWeek(i) }, icon('arrow', 14));
-        if (mode === 'free') {
-          // Carried-over cards stay in their column, with the same one-click move to this week.
-          renderFree(free, b, week, (i) => (b.carried.includes(i) ? toThisWeekIcon(i) : null));
-          return;
-        }
+        const away = week !== thisWeek();
+        const nextHead = periodHead({
+          period: 'week', range: weekLabel(week),
+          nav: { prev: go(-1), now: go(0), next: go(1), label: 'This week', away },
+        });
+        head.replaceWith(nextHead);
+        head = nextHead;
+        vb.update();
+        const fs = fields();
+        const ctx = vaultCtx();
+        const q = text.toLowerCase();
+        const keep = (i) => matches(i, view.filters, fs, ctx) && (!q || idMatches(i, q) || i.title.toLowerCase().includes(q));
+        const hideDone = view.closed === 'none';
+        const all = weekBuckets(state.items.filter(keep), week, { sort: byManualOrder(byPriority) });
+        const planned = [...all.anytime, ...all.days.flatMap((d) => all.byDay[d])];
+        note.textContent = planned.length ? `${planned.filter(isDone).length} of ${planned.length} done` : '';
+        const b = weekBuckets(state.items.filter(keep), week, { hideDone, sort: byManualOrder(byPriority) });
+        // Meetings show on their day while nothing narrows the week (a filter is about the work).
+        const meetingsOf = (d) => (view.filters.length ? [] : meetingsOn(d).filter((m) => !q || m.title.toLowerCase().includes(q)));
+        const toThisWeek = (i) => moveNow(i, 'this week', (it) => planWeek(it, week));
+        const moveAll = () => updateMany(b.carried.map((i) => [i.key, { plan_week: week, plan_day: null, ...noMonth(i) }]));
         // A card dropped on a day (or on Anytime) is planned there, at the place it was dropped.
         const toDay = (d) => (it, index) => placeInPlan(it, it.fields.plan_day === d ? {} : { plan_day: d, plan_week: isoWeek(d), ...noMonth(it) },
           b.byDay[d], index);
         const toAnytime = (it, index) => placeInPlan(it, !it.fields.plan_day && it.fields.plan_week === week ? {}
           : { plan_week: week, plan_day: null, ...noMonth(it) }, b.anytime, index);
-        const logged = (d) => state.worklog.filter((e) => e.date === d && !isTentative(e)).length;
-        const dayMeta = (d) => [
-          d === today() ? h('span', { class: 'chip plan today' }, 'Today') : null,
-          logged(d) ? h('span', { class: 'muted small', title: 'Work log entries' }, icon('clock', 11), ` ${logged(d)}`) : null,
-        ];
-        const dayCls = (d) => `${d === today() ? 'today' : ''} ${d < today() ? 'past' : ''}`;
-
-        if (mode === 'board') {
-          board.replaceChildren(...[
-            b.carried.length ? column('Carried over', b.carried, null, { cls: 'warn', extraFor: toThisWeekIcon }) : null,
-            column('Anytime', b.anytime, toAnytime, { cls: 'anytime', qaValues: { plan_week: week } }),
-            ...pickDays(b.days, boardDays).map((d) => column(dayLabel(d), b.byDay[d], toDay(d),
-              { cls: dayCls(d), meta: dayMeta(d), qaValues: { plan_day: d, plan_week: week } })),
-          ].filter(Boolean));
-          const todayCol = seekToday && board.querySelector('.week-col.today');
-          // Just enough for today to show: Carried over and Anytime stay in view when it fits beside them.
-          if (todayCol) board.scrollLeft = Math.max(0, todayCol.offsetLeft - board.offsetLeft + todayCol.offsetWidth + 24 - board.clientWidth);
-          seekToday = false;
-          return;
-        }
-        agenda.replaceChildren(...[
-          b.carried.length ? h('section', { class: 'agenda-day warn' },
-            h('header', { class: 'agenda-head' }, h('h3', {}, 'Carried over from previous weeks'), h('span', { class: 'count' }, b.carried.length)),
-            h('div', { class: 'cards agenda-cards' }, b.carried.map((i) => itemCard(i, { onOpen: openItem, draggable: true, extra: toThisWeek(i) })))) : null,
-          section('Anytime this week', b.anytime, toAnytime, {
-            cls: 'anytime', qaValues: { plan_week: week }, qaPlaceholder: 'Add to this week, any day…',
-          }),
-          ...b.days.map((d) => section(dayLabel(d), b.byDay[d], toDay(d), {
-            cls: dayCls(d), meta: dayMeta(d), qaValues: { plan_day: d, plan_week: week }, qaPlaceholder: `Add a task for ${dayLabel(d)}…`,
-          })),
-        ].filter(Boolean));
+        root.classList.toggle('board-layout', view.layout !== 'list');
+        body.classList.toggle('list-main', view.layout !== 'list');
+        if (view.layout === 'free') { paintFree(b, week, toThisWeek); return; }
+        if (view.layout === 'board') { paintBoard(b, week, { toDay, toAnytime, toThisWeek, moveAll, meetingsOf }); return; }
+        paintAgenda(b, week, { toDay, toAnytime, toThisWeek, moveAll, meetingsOf });
       },
     };
+
+    /** A day's few words: open ones, else how many are done; and its meetings. */
+    const dayCount = (items, meetings) => [
+      items.filter((i) => !isDone(i)).length || (items.length ? `${items.length} done` : ''),
+      meetings.length ? `${meetings.length} ${meetings.length === 1 ? 'meeting' : 'meetings'}` : '',
+    ].filter(Boolean).join(' · ');
+
+    function rowsZone(items, onDrop, opts = {}) {
+      const zone = h('div', { class: 'plan-rows' }, items.map((i) => planRow(i, { onOpen: openItem, ...(opts.row?.(i) || {}) })));
+      if (onDrop) dropZone(zone, (key, index) => { const it = find(key); if (it) onDrop(it, index); });
+      return zone;
+    }
+
+    /** A slot's quick add, shown from its head's "+" (and focused). */
+    function quickFor(values, placeholder) {
+      const box = h('div', { class: 'plan-quick', hidden: true }, quickAddBar({ values }, { placeholder }));
+      const add = h('button', {
+        type: 'button', class: 'btn icon small plan-add', title: placeholder, 'aria-label': placeholder,
+        onclick: () => { box.hidden = !box.hidden; if (!box.hidden) box.querySelector('input')?.focus(); },
+      }, icon('plus', 14));
+      return { box, add };
+    }
+
+    function paintAgenda(b, week, { toDay, toAnytime, toThisWeek, moveAll, meetingsOf }) {
+      const t = today();
+      const out = [];
+      const opened = new Set(api.openSlots || []);
+      const openSlot = (d) => { api.openSlots = [...opened, d]; api.update(); };
+      if (b.carried.length) {
+        out.push(h('section', { class: 'plan-block carried' },
+          planSection({ title: 'Carried over', count: b.carried.length, dot: 'late', action: sectionAction('Move all to this week', moveAll) }),
+          rowsZone(b.carried, null, { row: (i) => ({ action: toThisWeek(i) }) })));
+      }
+      const anyName = week === thisWeek() ? 'Anytime this week' : 'Anytime that week';
+      const anyQ = quickFor({ plan_week: week }, 'Add to this week, any day…');
+      if (b.anytime.length || opened.has('anytime')) {
+        if (!b.anytime.length) anyQ.box.hidden = false;
+        out.push(h('section', { class: 'plan-block anytime' },
+          planSection({ title: anyName, count: b.anytime.filter((i) => !isDone(i)).length || '', action: anyQ.add }),
+          rowsZone(b.anytime, toAnytime), anyQ.box));
+      } else {
+        // Empty, one line as an empty day's: its name takes a drop, and a click adds to it.
+        const slot = h('button', { type: 'button', class: 'plan-slot', title: 'Add to this week, any day', onclick: () => openSlot('anytime') }, anyName);
+        dropZone(slot, (key) => { const it = find(key); if (it) toAnytime(it, 0); });
+        out.push(emptySlot([slot]));
+      }
+      // Days with nothing (no item, no meeting) in a row share one line; each name takes a drop, and a click adds to it.
+      let run = [];
+      const flush = () => {
+        if (!run.length) return;
+        const names = [];
+        run.forEach((d, n) => {
+          if (n) names.push(h('span', { class: 'sep' }, '·'));
+          const slot = h('button', { type: 'button', class: 'plan-slot', title: `Add a task for ${dayLabel(d)}`,
+            onclick: () => { openSlot(d); } }, dayLabel(d));
+          dropZone(slot, (key) => { const it = find(key); if (it) toDay(d)(it, 0); });
+          names.push(slot);
+        });
+        out.push(emptySlot(names));
+        run = [];
+      };
+      for (const d of b.days) {
+        const items = b.byDay[d];
+        const meetings = meetingsOf(d);
+        if (!items.length && !meetings.length && !opened.has(d) && d !== t) { run.push(d); continue; }
+        flush();
+        const q = quickFor({ plan_day: d, plan_week: week }, `Add a task for ${dayLabel(d)}…`);
+        if (opened.has(d) && !items.length) q.box.hidden = false;
+        out.push(h('section', { class: 'plan-block day' },
+          planSection({
+            title: dayLabel(d), count: dayCount(items, meetings), cls: d === t ? 'today' : d < t ? 'past' : '',
+            tag: d === t ? 'Today' : null, action: q.add,
+          }),
+          meetings.length ? h('div', { class: 'plan-rows' }, meetings.map((m) => planRow(m, { onOpen: openItem }))) : null,
+          items.length || meetings.length ? rowsZone(items, toDay(d)) : (() => {
+            const z = rowsZone([], toDay(d));
+            if (q.box.hidden) z.append(h('p', { class: 'plan-line-empty' }, 'Nothing planned'));
+            return z;
+          })(),
+          q.box));
+      }
+      flush();
+      if (week === thisWeek()) out.push(nextWeekLine(state.items));
+      body.replaceChildren(...out);
+      const focus = api.openSlots?.length && body.querySelector('.plan-quick:not([hidden]) input');
+      if (focus) { focus.focus(); api.openSlots = []; }
+    }
+
+    function paintBoard(b, week, { toDay, toAnytime, toThisWeek, moveAll, meetingsOf }) {
+      const t = today();
+      const fold = view.boardFold || {};
+      const empties = view.emptyCols || 'fold';
+      const onFold = (k, f) => change({ boardFold: { ...fold, [k]: f } });
+      const cols = [];
+      if (b.carried.length) {
+        cols.push({
+          key: 'carried', label: 'Carried over', items: b.carried, cls: 'carried-col', unfoldable: true,
+          face: [h('span', { class: 'plan-dot late' }), h('span', { class: 'group-name' }, 'Carried over')],
+          aside: h('button', { type: 'button', class: 'btn ghost small plan-sec-btn', onclick: moveAll }, 'Move all'),
+          card: (i) => planCard(i, { onOpen: openItem, action: toThisWeek(i) }), folded: false,
+        });
+      }
+      cols.push({
+        key: 'anytime', label: 'Anytime', items: b.anytime, cls: 'anytime-col',
+        face: [h('span', { class: 'group-name' }, week === thisWeek() ? 'Anytime this week' : 'Anytime')],
+        card: (i) => planCard(i, { onOpen: openItem }), drop: (key, index) => { const it = find(key); if (it) toAnytime(it, index); },
+        quick: { type: 'task', values: { plan_week: week } }, folded: fold.anytime ?? (!b.anytime.length && empties === 'fold'),
+      });
+      for (const d of pickDays(b.days, view.days)) {
+        const items = b.byDay[d];
+        const meetings = meetingsOf(d);
+        const empty = !items.length && !meetings.length;
+        if (empty && empties === 'hide' && fold[d] === undefined && d !== t) continue;
+        cols.push({
+          key: d, label: dayLabel(d), items, cls: `day-col ${d === t ? 'now-col' : ''} ${d < t ? 'past' : ''}`,
+          face: [h('span', { class: 'group-name' }, dayLabel(d)), d === t ? h('span', { class: 'plan-tag' }, 'Today') : null].filter(Boolean),
+          lead: meetings.map((m) => planCard(m, { onOpen: openItem, draggable: false })),
+          card: (i) => planCard(i, { onOpen: openItem }), drop: (key, index) => { const it = find(key); if (it) toDay(d)(it, index); },
+          quick: { type: 'task', values: { plan_day: d, plan_week: week } },
+          folded: fold[d] ?? (d !== t && (d < t || (empty && empties === 'fold'))),
+        });
+      }
+      const board = boardOf({ columns: cols, onFold, onOpen: openItem });
+      board.classList.add('plan-board', 'week-board');
+      body.replaceChildren(board);
+      const todayCol = seekToday && board.querySelector('.now-col');
+      // Just enough for today to show: Carried over and Anytime stay in view when it fits beside them.
+      if (todayCol) board.scrollLeft = Math.max(0, todayCol.offsetLeft - board.offsetLeft + todayCol.offsetWidth + 24 - board.clientWidth);
+      seekToday = false;
+    }
+
+    function paintFree(b, week, toThisWeek) {
+      const items = [...b.carried, ...b.anytime, ...b.days.flatMap((d) => b.byDay[d])].sort(byManualOrder(byPriority, 'week_order'));
+      const placed = new Map(state.weekBoard.lists.map((l) => [l.id, []]));
+      for (const it of items) placed.get(weekListOf(it)?.id ?? TODAY_DEFAULT)?.push(it);
+      const fold = view.freeFold || {};
+      const cols = state.weekBoard.lists.map((list, idx) => {
+        const its = placed.get(list.id) || [];
+        const open = its.filter((i) => !isDone(i)).length;
+        return {
+          key: list.id, label: list.name, items: its, attrs: { 'data-list': list.id }, cls: `free-col ${list.id === TODAY_DEFAULT ? 'default' : ''}`,
+          face: [h('span', { class: 'group-name' }, list.name)],
+          head: listHeader({
+            list, idx, count: open || '', countTitle: `${open} open`,
+            menu: (anchor, nameEl) => freeListMenu(anchor, list, idx, nameEl),
+            onRename: (v) => editLists((ls) => { ls[idx].name = v; }),
+          }),
+          card: (i) => planCard(i, { onOpen: openItem, plan: true, action: b.carried.includes(i) ? toThisWeek(i) : null }),
+          drop: (key, index) => { const it = find(key); if (it) placeInWeekList(it, list.id, its, index); },
+          quick: { type: 'task', values: { plan_week: week, ...(list.id === TODAY_DEFAULT ? {} : { week_list: list.id }) } },
+          folded: fold[list.id] ?? false,
+        };
+      });
+      const board = boardOf({
+        columns: cols, onFold: (k, f) => change({ freeFold: { ...fold, [k]: f } }), onOpen: openItem,
+        after: addListColumn({
+          label: 'Add a column', placeholder: 'Column name… (Waiting, Deep work, Errands)',
+          onAdd: (name) => editLists((ls) => ls.push({ id: slugId(name, ls.map((l) => l.id)), name })),
+        }),
+        onReorder: (from, to) => editLists((ls) => moveList(ls, from, to)),
+      });
+      board.classList.add('plan-board', 'free-board');
+      body.replaceChildren(board);
+    }
     return api;
   };
 }
 
-export const mount = weekView({ name: 'week', title: 'Week', offset: 0, nav: true });
-export const nextWeek = { mount: weekView({ name: 'nextweek', title: 'Next week', offset: 1, nav: false }) };
+export const mount = weekView({ offset: 0 });
+export const nextWeek = { mount: weekView({ offset: 1 }) };

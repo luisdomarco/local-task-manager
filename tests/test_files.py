@@ -59,7 +59,8 @@ class StoreFilesTest(unittest.TestCase):
 
     def test_vault_file_stays_inside_and_visible(self):
         self.assertEqual(self.store.vault_file('templates/plan.md'), os.path.join(self.root, 'templates', 'plan.md'))
-        for bad, status in [('../etc/passwd', 400), ('.obsidian/app.json', 400), ('templates', 404), ('nope.md', 404), ('', 400)]:
+        self.assertEqual(self.store.vault_file('.obsidian/app.json'), os.path.join(self.root, '.obsidian', 'app.json'))  # hidden: served
+        for bad, status in [('../etc/passwd', 400), ('.task-manager/ids.json', 400), ('.git/config', 400), ('templates', 404), ('nope.md', 404), ('', 400)]:
             with self.subTest(bad=bad), self.assertRaises(StoreError) as e:
                 self.store.vault_file(bad)
             self.assertEqual(e.exception.status, status)
@@ -74,11 +75,11 @@ class StoreFilesTest(unittest.TestCase):
         self.assertEqual(e.exception.status, 400)
 
 
-SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample-vault')
+SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample-vault-legacy')
 
 
 class StoreFileOpsTest(unittest.TestCase):
-    """New folder, rename, move and delete on a vault that matches its structure (a copy of sample-vault, folder per type)."""
+    """New folder, rename, move and delete on a vault that matches its structure (a copy of sample-vault-legacy, folder per type)."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -96,7 +97,7 @@ class StoreFileOpsTest(unittest.TestCase):
     def test_makes_a_folder_only_inside_one_that_exists(self):
         self.assertEqual(self.store.make_folder('notes/drafts/old')['path'], 'notes/drafts/old')
         self.assertTrue(os.path.isdir(os.path.join(self.root, 'notes/drafts/old')))
-        for bad, status in [('notes/drafts/old', 409), ('nope/x', 404), ('.obsidian', 400), ('../out', 400)]:
+        for bad, status in [('notes/drafts/old', 409), ('nope/x', 404), ('.git', 400), ('.task-manager/x', 400), ('../out', 400)]:
             with self.subTest(bad=bad), self.assertRaises(StoreError) as e:
                 self.store.make_folder(bad)
             self.assertEqual(e.exception.status, status)
@@ -125,7 +126,7 @@ class StoreFileOpsTest(unittest.TestCase):
         self.assertTrue(self.store.check()['ok'])
 
     def test_refuses_bad_names_and_taken_ones(self):
-        for name in ['', '.hidden', 'a/b', 'a:b', '..']:
+        for name in ['', '.git', '.Task-Manager', '...', 'a/b', 'a:b', '..']:
             with self.subTest(name=name), self.assertRaises(StoreError) as e:
                 self.store.rename_path('notes/drafts/idea.md', name)
             self.assertEqual(e.exception.status, 400)
@@ -278,7 +279,7 @@ class UnmatchedFileOpsTest(unittest.TestCase):
 
 
 class StoreSaveFileTest(unittest.TestCase):
-    """The Explorer's editor: Store.save_file on a copy of sample-vault (folder per type), which must keep matching."""
+    """The Explorer's editor: Store.save_file on a copy of sample-vault-legacy (folder per type), which must keep matching."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -341,7 +342,7 @@ class StoreSaveFileTest(unittest.TestCase):
 
 
 class StoreNewFilesTest(unittest.TestCase):
-    """New file, duplicate and upload, on a copy of sample-vault (folder per type) that must keep matching."""
+    """New file, duplicate and upload, on a copy of sample-vault-legacy (folder per type) that must keep matching."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -360,7 +361,7 @@ class StoreNewFilesTest(unittest.TestCase):
         self.assertEqual(self.text('notes/drafts/Idea nueva.md'), '# Idea nueva\n')
         self.store.create_file('notes/drafts/script.py', 'print(1)\n')
         self.assertEqual(self.text('notes/drafts/script.py'), 'print(1)\n')
-        for path, status in (('notes/drafts/Idea nueva.md', 409), ('notes/nope/x.md', 404), ('notes/drafts/.hidden', 400),
+        for path, status in (('notes/drafts/Idea nueva.md', 409), ('notes/nope/x.md', 404), ('notes/drafts/.git', 400),
                              ('../x.md', 400)):
             with self.subTest(path=path), self.assertRaises(StoreError) as e:
                 self.store.create_file(path)
@@ -384,7 +385,7 @@ class StoreNewFilesTest(unittest.TestCase):
         self.assertEqual(self.store.upload_file('', 'root.txt', b'x')['path'], 'root.txt')
         with open(os.path.join(self.root, 'notes/drafts/shot.png'), 'rb') as f:
             self.assertEqual(f.read(), b'\x89PNG')
-        for folder, name, status in (('notes/nope', 'a.txt', 404), ('notes/drafts', '.env', 400), ('notes/drafts', '', 400)):
+        for folder, name, status in (('notes/nope', 'a.txt', 404), ('notes/drafts', '.task-manager', 400), ('notes/drafts', '', 400)):
             with self.subTest(name=name), self.assertRaises(StoreError) as e:
                 self.store.upload_file(folder, name, b'x')
             self.assertEqual(e.exception.status, status)
@@ -481,3 +482,71 @@ class HttpFilesTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HiddenFilesTest(unittest.TestCase):
+    """Show hidden files (treepane.js's eye): dotfiles are listed and edited like any other, .git and .task-manager are
+    listed sealed and never touched, and an item never goes under a hidden name."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.store = Store(self.root)
+        self.task = self.store.create('task', 'Primera')
+        write(self.root, '.obsidian/app.json', '{"a": 1}')
+        write(self.root, '.gitignore', 'node_modules\n')
+        write(self.root, '.git/config', '[core]')
+        write(self.root, '.git/objects/ab/cdef', 'x')
+        write(self.root, 'notes/campaña.md', 'campaña visible')
+        write(self.root, '.obsidian/oculta.md', 'campaña oculta')
+
+    def listed(self, **kw):
+        return {e['path']: e for e in self.store.files(**kw)['entries']}
+
+    def test_listed_only_when_asked_and_the_sealed_never_walked(self):
+        self.assertFalse([p for p in self.listed() if p.startswith('.')])  # as before, by default
+        shown = self.listed(hidden=True)
+        self.assertIn('.obsidian/app.json', shown)
+        self.assertIn('.gitignore', shown)
+        self.assertTrue(shown['.git'].get('sealed') and shown['.task-manager'].get('sealed'))
+        self.assertFalse([p for p in shown if p.startswith(('.git/', '.task-manager/'))])  # listed, not walked into
+        self.assertNotIn('sealed', shown['.obsidian'])
+
+    def test_search_and_backlinks_still_leave_them_out(self):
+        self.assertEqual([r['path'] for r in self.store.search_files('campaña')['results']], ['notes/campaña.md'])
+
+    def test_a_hidden_file_is_edited_renamed_made_and_deleted(self):
+        rev = Store.disk_rev(os.path.join(self.root, '.obsidian/app.json'))
+        self.store.save_file('.obsidian/app.json', '{"a": 2}', rev)
+        with open(os.path.join(self.root, '.obsidian/app.json'), encoding='utf-8') as f:
+            self.assertEqual(f.read(), '{"a": 2}')
+        self.assertEqual(self.store.create_file('notes/.env.example', 'A=1\n')['path'], 'notes/.env.example')
+        self.assertEqual(self.store.make_folder('.config')['path'], '.config')
+        self.assertEqual(self.store.rename_path('.gitignore', '.ignore')['path'], '.ignore')
+        self.store.delete_path('.ignore')
+        self.assertFalse(os.path.exists(os.path.join(self.root, '.ignore')))  # to the trash, as any file
+
+    def test_git_and_the_app_s_own_are_never_touched(self):
+        for op in (lambda: self.store.save_file('.git/config', 'x', None, True),
+                   lambda: self.store.delete_path('.task-manager'),
+                   lambda: self.store.rename_path('.git', 'git'),
+                   lambda: self.store.move_path('notes/campaña.md', '.git'),
+                   lambda: self.store.make_folder('notes/.GIT'),  # case aside: on a Mac's disk it is .git
+                   lambda: self.store.rename_path('notes/campaña.md', '.task-manager')):
+            with self.assertRaises(StoreError) as e:
+                op()
+            self.assertEqual(e.exception.status, 400)
+        self.assertTrue(os.path.isfile(os.path.join(self.root, 'notes/campaña.md')))
+
+    def test_an_item_never_goes_under_a_hidden_name(self):
+        self.store.make_folder('.archive')
+        with self.assertRaises(StoreError) as e:
+            self.store.move_path(self.task['path'], '.archive')
+        self.assertEqual(e.exception.status, 409)
+        folder = os.path.dirname(self.task['path'])
+        with self.assertRaises(StoreError) as e:  # nor a folder that holds items
+            self.store.rename_path(folder, '.' + os.path.basename(folder))
+        self.assertEqual(e.exception.status, 409)
+        self.assertTrue(os.path.isfile(os.path.join(self.root, self.task['path'])))  # nothing moved
+        self.assertEqual(self.store.move_path('notes/campaña.md', '.archive')['path'], '.archive/campaña.md')  # a plain file goes

@@ -1,5 +1,5 @@
 // Settings, in tabs (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show,
-// each with its structure; the default; for a folder-per-type vault, the folders new items go to), Item type status (each
+// each with its structure; the default; for a folder-per-type vault, the folders new items go to), Statuses (each
 // type's statuses in the three groups, views/statuses.js), General (work
 // kinds), Claude, Maintenance, Keyboard, Export (the system, the agents or a vault, as zips), App and Documentation (the
 // user guide, docs/user-guide.md). Vaults, General and
@@ -11,13 +11,13 @@ import { warningGroups } from '../housekeeping.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
 import { keyboardHelp } from '../shortcuts.js';
-import { h, icon, renderMarkdown, select, tabPanels } from '../ui.js';
+import { h, icon, pageHead, renderMarkdown, select, tabPanels } from '../ui.js';
 import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
 
-const TABS = [['vaults', 'Vaults'], ['statuses', 'Item type status'], ['general', 'General'], ['claude', 'Claude'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['general', 'General'], ['claude', 'Claude'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);
@@ -72,22 +72,22 @@ function appPanel() {
   const load = async () => {
     let s;
     try { s = await api.serverStatus(); } catch (e) { el.replaceChildren(h('p', { class: 'muted' }, `Cannot reach the server: ${e.message}`)); return; }
-    const row = (k, v) => h('tr', {}, h('th', {}, k), h('td', { class: 'mono' }, v));
+    const row = (k, v) => h('div', { class: 'field' }, h('span', {}, k), h('span', { class: 'mono set-value' }, v)); // a property row
     el.replaceChildren(
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Server')),
         h('p', { class: 'muted' }, s.on_demand
           ? 'This is the installed app (tools/install_app.py): it starts when you open it, and runs until you stop it here. Stopped, nothing runs; opening the app again starts it.'
           : 'Started by hand (python3 server.py): stopped here, it stays off until it is started again the same way.'),
-        h('table', { class: 'files-props server-props' }, h('tbody', {},
+        h('div', { class: 'fields prop-rows server-props' },
           row('Runs as', s.on_demand ? 'the app, started on demand' : 'started by hand'),
           row('Address', `http://localhost:${s.port}`),
           row('Running for', since(s.uptime_s || 0)),
           row('Process', String(s.pid)),
-          row('Folder', s.app_dir))),
+          row('Folder', s.app_dir)),
         h('div', { class: 'server-actions' },
-          s.on_demand ? h('button', { class: 'btn', onclick: () => stop(true) }, icon('restore', 14), 'Restart') : null,
-          h('button', { class: 'btn danger', onclick: () => stop(false) }, icon('ban', 14), 'Stop server'))));
+          s.on_demand ? h('button', { class: 'btn small', onclick: () => stop(true) }, icon('restore', 14), 'Restart') : null,
+          h('button', { class: 'btn small ghost danger-text', onclick: () => stop(false) }, icon('ban', 14), 'Stop server'))));
   };
   return { el, load };
 }
@@ -107,11 +107,51 @@ function vaultWarnings(warnings) {
       h('ul', { class: 'vault-findings' }, g.findings.map((f) => h('li', {}, h('code', {}, f.path), h('span', { class: 'muted small' }, f.detail)))))));
 }
 
+/** The page's vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, which tells an agent opened in the folder
+ *  how to read and write the vault with tools/vault.py. On or off at once, not with Save: it writes a file in the vault. */
+function agentsToggle() {
+  const a = state.vaultAgents;
+  if (!a) return null;
+  const box = h('input', { type: 'checkbox', checked: a.on, 'aria-label': 'Guide for agents',
+    onchange: async (e) => {
+      const on = e.target.checked;
+      e.target.disabled = true;
+      try {
+        state.vaultAgents = await api.vaultAgents(on);
+        toast(on ? 'AGENTS.md written at the top of the vault' : 'The guide for agents is gone from the vault');
+      } catch (err) {
+        e.target.checked = !on;
+        toast(err.message, true);
+      } finally {
+        e.target.disabled = false;
+      }
+    } });
+  return h('div', { class: 'vault-agents' },
+    h('label', { class: 'vault-type' }, box, 'Guide for agents'),
+    h('p', { class: 'muted small' }, 'Keeps an ', h('code', {}, 'AGENTS.md'), ' at the top of this vault (and a ', h('code', {}, 'CLAUDE.md'),
+      ' that points to it, if it has none) telling any agent opened in its folder — Claude Code, Codex, Cursor — what the vault holds and how to read and write it with ',
+      h('code', {}, 'tools/vault.py'), ', with or without the app open. Written from the vault’s types and projects, and again when they change; your own text in the file is kept.'));
+}
+
+/** What a vault of a legacy structure is told in its row: it keeps working, and how it moves to the current one. */
+export function legacyNote(structure, current) {
+  return h('p', { class: 'small warn vault-legacy' }, icon('alert', 13),
+    h('span', {}, `${structure} is a legacy structure: this vault keeps working, but new vaults use ${current}, which holds every kind of project. `
+      + 'To move it, ask Claude to follow ', h('code', {}, 'docs/migrate-structures.md'),
+      ' in this app’s folder: it writes the vault into a new folder, asks you about each project, and leaves this one as it is.'));
+}
+
 /** The Vaults tab: one row per vault (name, folder, structure, default, remove), and Add. `edit` is the list
  *  being edited, saved with the rest of the form; removing a vault only takes it out of the list. */
 function vaultsEditor(c, edit) {
   const box = h('div', { class: 'vault-rows' });
-  const structures = Object.entries(c.structures || { folders: 'Folder per type' });
+  const structures = Object.entries(c.structures || { ticketing: 'Projects' });
+  // A legacy structure (Initiatives, Tasks) is kept for the folders that already are one of its vaults: a new vault
+  // starts as Projects (the server refuses a legacy one on an empty folder), and docs/migrate-structures.md moves an old one.
+  const legacy = new Set(c.legacy_structures || []);
+  const fresh = c.default_structure || 'ticketing';
+  const labelOf = (k) => (c.structures || {})[k] || k;
+  const saved = new Set((c.vaults || []).map((v) => v.id)); // a new row gets its id on save, before the server says yes
   const render = () => box.replaceChildren(
     ...edit.vaults.map((v, i) => {
       // No autocomplete on either: a browser's suggestion must never fill one vault's field with another's.
@@ -120,10 +160,19 @@ function vaultsEditor(c, edit) {
       const path = h('input', { type: 'text', class: 'vault-path', autocomplete: 'off', spellcheck: 'false', value: v.path || '', placeholder: '/absolute/path or ~/… to an existing folder',
         'aria-label': `Folder of ${v.name || 'the vault'}`, oninput: (e) => { v.path = e.target.value; } });
       // Another structure has other types: what was turned off in the old one means nothing there.
-      const structure = select(structures.map(([k, label]) => [k, label]), v.structure || 'folders', (s) => { v.structure = s; v.disabled_types = []; render(); },
+      const offered = [...structures.filter(([k]) => !legacy.has(k)),
+        ...structures.filter(([k]) => legacy.has(k)).map(([k, label]) => [k, `${label} (legacy)`])];
+      // A new row set to a legacy structure starts with the folders of a saved vault of it (an old vault re-added on its
+      // own folder keeps its type folders), else that structure's defaults.
+      const pick = (s) => {
+        v.structure = s; v.disabled_types = [];
+        if (!saved.has(v.id) && legacy.has(s)) v.folders = { ...((c.vaults || []).find((x) => x.structure === s)?.folders || {}) };
+        render();
+      };
+      const structure = select(offered, v.structure || fresh, pick,
         { class: 'small', 'aria-label': 'Structure' });
       // Which of its structure's types this vault shows. Off only hides: the files stay, and come back when turned on.
-      const choices = (c.structure_types || {})[v.structure || 'folders'] || { types: [], required: [] };
+      const choices = (c.structure_types || {})[v.structure || fresh] || { types: [], required: [] };
       const off = new Set(v.disabled_types || []);
       const typesBox = h('details', { class: 'vault-types', open: !!v.typesOpen, ontoggle: (e) => { v.typesOpen = e.target.open; } },
         h('summary', {}, `Item types · ${choices.types.length - off.size} of ${choices.types.length} on`),
@@ -145,23 +194,27 @@ function vaultsEditor(c, edit) {
         ? [h('span', { class: 'muted small' }, 'Take it out of the list? Its files are not touched.'),
           h('button', { class: 'btn small danger', onclick: () => { edit.vaults.splice(i, 1); render(); } }, 'Remove'),
           h('button', { class: 'btn small', onclick: () => { v.confirm = false; render(); } }, 'Cancel')]
-        : [h('button', { class: 'btn icon', title: `Remove ${v.name || 'this vault'} from the list`, disabled: edit.vaults.length < 2,
+        : [h('button', { class: 'btn icon row-action', title: `Remove ${v.name || 'this vault'} from the list`, disabled: edit.vaults.length < 2,
           onclick: () => { v.confirm = true; render(); } }, icon('x', 14))];
-      const folders = (v.structure || 'folders') === 'folders'
+      // Only a structure of one folder per type lets a vault move them: its own, else the structure's default.
+      const movable = Object.entries(choices.folders || {});
+      const folders = movable.length
         ? h('details', {}, h('summary', {}, 'Folders for new items'),
           h('p', { class: 'muted small' }, 'Relative to the vault. Every one must exist for the vault to match its structure.'),
-          h('div', { class: 'fields' }, Object.entries(v.folders || {}).map(([t, f]) => h('label', { class: 'field' }, h('span', {}, t),
-            h('input', { type: 'text', value: f, oninput: (e) => { v.folders[t] = e.target.value.trim(); } })))))
+          h('div', { class: 'fields' }, movable.map(([t, def]) => h('label', { class: 'field' }, h('span', {}, t),
+            h('input', { type: 'text', value: v.folders?.[t] || def, oninput: (e) => { v.folders = { ...v.folders, [t]: e.target.value.trim() }; } })))))
         : null;
       return h('div', { class: 'vault-row' },
         h('div', { class: 'vault-row-head' }, name, path, structure, isDefault, ...remove),
         v.id === vaultId() ? h('span', { class: 'muted small' }, 'Shown in this page.') : null,
+        saved.has(v.id) && legacy.has(v.structure) ? legacyNote(labelOf(v.structure), labelOf(fresh)) : null,
         v.id === vaultId() ? vaultWarnings(state.vaultCheck?.warnings) : null,
+        v.id === vaultId() ? agentsToggle() : null,
         typesBox,
         folders);
     }),
-    h('div', {}, h('button', { class: 'btn small', onclick: () => {
-      edit.vaults.push({ id: '', name: '', path: '', structure: 'folders', folders: { ...(c.vaults?.[0]?.folders || {}) } });
+    h('div', {}, h('button', { class: 'btn small ghost', onclick: () => {
+      edit.vaults.push({ id: '', name: '', path: '', structure: fresh, folders: {} });
       render();
     } }, icon('plus', 13), 'Add vault')));
   render();
@@ -170,7 +223,7 @@ function vaultsEditor(c, edit) {
 
 export function mount(root, param) {
   const form = h('div', { class: 'settings' });
-  root.replaceChildren(h('header', { class: 'view-head' }, h('h1', {}, 'Settings')), form);
+  root.replaceChildren(pageHead({ title: 'Settings' }), form);
   const known = (k) => TABS.some(([t]) => t === k);
   let tab = known(param) ? param : known(pref('settings.tab')) ? pref('settings.tab') : 'general';
   const exportsTab = exportPanel();
@@ -214,8 +267,8 @@ export function mount(root, param) {
         h('div', { class: 'cp-row' }, radio('', 'Default'), nameInput('', 'the project folder'), h('span', { class: 'cp-path muted' }, 'The project folder of this app')),
         ...paths.map((p, i) => h('div', { class: 'cp-row' }, radio(p, 'Default'), nameInput(p, p),
           h('code', { class: 'cp-path', title: p }, p),
-          h('button', { class: 'btn icon', title: `Remove ${p}`, onclick: () => { paths.splice(i, 1); delete names[p]; if (defaultPath === p) defaultPath = ''; renderPaths(); } }, icon('x', 14)))),
-        h('div', { class: 'cp-add' }, addInput, h('button', { class: 'btn small', onclick: addPath }, 'Add')));
+          h('button', { class: 'btn icon row-action', title: `Remove ${p}`, onclick: () => { paths.splice(i, 1); delete names[p]; if (defaultPath === p) defaultPath = ''; renderPaths(); } }, icon('x', 14)))),
+        h('div', { class: 'cp-add' }, addInput, h('button', { class: 'btn small ghost', onclick: addPath }, icon('plus', 13), 'Add')));
       renderPaths();
       const claudeCmd = h('input', { type: 'text', class: 'wide', value: c.claude_command || 'claude', placeholder: 'claude' });
       let terminal = c.terminal || 'Terminal';
@@ -268,15 +321,14 @@ export function mount(root, param) {
           vaultsEditor(c, edit)),
         saveBar(),
       ];
+      // A setting as a row (its name, then its control with what it does under it), as a card's properties.
+      const setRow = (label, control, help) => h('div', { class: 'field' }, h('span', {}, label),
+        h('div', { class: 'set-control' }, control, help ? h('p', { class: 'muted small set-help' }, help) : null));
       const general = [
         h('section', { class: 'group' },
-          h('header', {}, h('h3', {}, 'Work kinds')),
-          h('p', { class: 'muted' }, 'Options offered by "Log work", comma separated.'),
-          kinds),
-        h('section', { class: 'group' },
-          h('header', {}, h('h3', {}, 'Editor')),
-          h('p', { class: 'muted' }, 'The app the Explorer\'s "Open in…" hands a file or folder to, to edit it there.'),
-          h('div', { class: 'field' }, h('span', {}, 'Editor app'), editorSel)),
+          h('div', { class: 'fields prop-rows' },
+            setRow('Work kinds', kinds, 'Options offered by "Log work", comma separated.'),
+            setRow('Editor app', editorSel, 'The app the Explorer\'s "Open in…" hands a file or folder to, to edit it there.'))),
         saveBar(),
       ];
       const claude = [
@@ -287,7 +339,7 @@ export function mount(root, param) {
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'How Claude starts')),
           h('p', { class: 'muted' }, `The command, the app for "Open in Terminal", and the model and effort every launch starts with. The terminal inside the app takes Claude Code's own theme (now ${c.claude_theme === 'light' ? 'light' : 'dark'}; /theme in Claude changes it).`),
-          h('div', { class: 'fields' },
+          h('div', { class: 'fields prop-rows' },
             h('label', { class: 'field' }, h('span', {}, 'Command'), claudeCmd),
             h('div', { class: 'field' }, h('span', {}, 'Terminal app'), terminalSel),
             h('div', { class: 'field' }, h('span', {}, 'Default model'), modelSel),
@@ -300,7 +352,7 @@ export function mount(root, param) {
           missing.length
             ? h('div', {}, h('p', { class: 'muted' }, 'Found by type but missing an id (hand-written or from another tool). Relations need ids.'),
               h('ul', {}, missing.map((i) => h('li', { class: 'mono' }, i.path))),
-              h('button', { class: 'btn', onclick: () => assignIds().then((r) => toast(`Assigned ${r.assigned.length} ids`)).catch(() => {}) }, 'Assign IDs'))
+              h('button', { class: 'btn small', onclick: () => assignIds().then((r) => toast(`Assigned ${r.assigned.length} ids`)).catch(() => {}) }, 'Assign IDs'))
             : h('p', { class: 'muted' }, 'All items have an id.')),
       ];
       const keyboard = [h('section', { class: 'group' },
@@ -360,7 +412,7 @@ function exportPanel() {
         h('button', { class: 'btn small ghost', onclick: () => { confirming = null; render(); } }, 'Cancel'),
         h('button', { class: 'btn small danger', onclick: () => run(async () => { confirming = null; await api.deleteExport(r.name); await load(); }) }, icon('trash', 13), 'Delete'))));
     }
-    return h('tr', { class: 'export-row' },
+    return h('tr', { class: 'export-row hover-host' },
       h('td', { title: r.name }, String(r.created_at || '').replace('T', ' ').slice(0, 16) || '—'),
       r.kind === 'vault' ? h('td', { title: [r.vault_id, r.structure, r.vault_root].filter(Boolean).join(' · ') || null },
         r.vault_id ? vaultName(r.vault_id) : h('span', { class: 'muted' }, '—')) : null,
@@ -370,9 +422,9 @@ function exportPanel() {
       h('td', { class: 'c-note', title: r.note || null }, r.note || h('span', { class: 'muted' }, '—')),
       h('td', { class: 'num' }, fileSize(r.size)),
       h('td', { class: 'c-actions' },
-        h('a', { class: 'btn icon', href: `${location.origin}/api/exports/file?name=${encodeURIComponent(r.name)}`, download: r.name, title: `Download ${r.name}` }, icon('down', 15)),
-        h('button', { class: 'btn icon', title: 'Show in Finder', onclick: () => run(() => api.revealExport(r.name)) }, icon('folder', 15)),
-        h('button', { class: 'btn icon', title: `Delete ${r.name}`, onclick: () => { confirming = r.name; render(); } }, icon('trash', 15))));
+        h('a', { class: 'btn icon row-action', href: `${location.origin}/api/exports/file?name=${encodeURIComponent(r.name)}`, download: r.name, title: `Download ${r.name}`, 'aria-label': `Download ${r.name}` }, icon('down', 14)),
+        h('button', { type: 'button', class: 'btn icon row-action', title: 'Show in Finder', 'aria-label': `Show ${r.name} in Finder`, onclick: () => run(() => api.revealExport(r.name)) }, icon('folder', 14)),
+        h('button', { type: 'button', class: 'btn icon row-action', title: `Delete ${r.name}`, 'aria-label': `Delete ${r.name}`, onclick: () => { confirming = r.name; render(); } }, icon('trash', 14))));
   };
   const table = (list, kind) => (rows === null ? h('p', { class: 'muted' }, 'Loading…')
     : !list.length ? h('p', { class: 'muted' }, `No ${kind} exports yet.`)

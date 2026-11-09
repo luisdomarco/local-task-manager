@@ -5,7 +5,7 @@ Your tasks, projects, notes and meetings as **plain Markdown files** in folders 
 ## What it gives you
 
 - **One place for the work and its context.** Initiatives, stories, tasks, notes, meetings and their transcripts, incoming messages, prompts and AI agents — each one a Markdown file with its properties on top.
-- **Planning by day and by week.** Today is a board of columns of your own; Tomorrow and Week show what is planned; anything left from a past day is carried over, marked in red.
+- **Planning by day and by week.** Today is a board of columns of your own; Week, Next week and Month show what is planned; anything left from a past day is carried over, marked in red.
 - **Pages for the big items.** An initiative (or a Ticketing project) has its own page: progress, properties, the description, its files, and a tab for each kind of thing that hangs from it, each with its count.
 - **Favourites.** Star an initiative on its page and it stays in the sidebar, right under *Add item*.
 - **Search everything.** ⌘K finds items, views and files and runs commands.
@@ -17,16 +17,18 @@ Your tasks, projects, notes and meetings as **plain Markdown files** in folders 
 
 A **vault** is a folder of Markdown files. Each vault has a **structure** that says what its folders are and which files are items:
 
-- **Folder per type** — one folder per kind of item (`tasks/`, `notes/`, `initiatives/`…), ids like `TSK-0001`. The simplest way to start.
-- **Ticketing** — one folder per project, with its initiatives, support tickets, hotfixes, PRDs, plans and records inside, and ids like `ACME-INI-001`. For work organised by project.
+- **Projects** — one folder per project, with its initiatives, support tickets, hotfixes, PRDs, plans and records inside, and ids like `ACME-INI-001`; tasks, notes and meetings sit in their own folders and name their project. Each project has a **kind**, chosen when you make it: *Product* (everything, with hotfixes and PRDs), *Agentic system* (the same without them) or *Simple* (initiatives and tasks). Every new vault is a Projects vault.
+- **Initiatives** and **Tasks** (legacy) — one folder per kind of item (`tasks/`, `notes/`, `initiatives/`…), ids like `TSK-0001`. A vault of theirs keeps working; the line *Legacy · move to Projects* under the vault selector leads to how to move it (Claude does it with you, into a new folder, leaving the old one as it is).
 
-Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample of each structure (`sample-vault/` and `sample-vault-ticketing/`): the quickest way to see every screen with something in it.
+Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, a project of each kind): the quickest way to see every screen with something in it.
+
+**Guide for agents** (in the vault's row in Settings → Vaults) writes an `AGENTS.md` at the top of the vault: open Claude Code, Codex or Cursor in the vault's folder and it knows how to read and write your items, even with the app closed — ask it *what blocks this initiative?* or *file a story for…*. It is written from your vault and kept up to date; anything you add outside its markers stays.
 
 A new vault opens in the **Explorer** (its files). Click **Project**, the first button at the top of the sidebar, to see it as items. If folders the structure needs are missing, the page offers to create them.
 
 ## A day with it
 
-1. **Capture.** Press `q` (or *Add item → Capture to Inbox*) and type one line. Tokens fill in the rest: `Call the bank @tomorrow !high +admin` plans it for tomorrow, high priority, label *admin*. Inbox items are converted into a task, a note… when you have a minute.
+1. **Capture.** Press `q` (or *Add item → Capture to Inbox*) and type one line. Tokens fill in the rest: `Call the bank @week !high +admin` plans it for this week, high priority, label *admin*. Inbox items are converted into a task, a note… when you have a minute.
 2. **Plan.** Drag items into **Today**, or plan them for a day or a week from their card. Today's columns are yours: *Morning*, *Waiting*, whatever helps.
 3. **Work.** Open a card: change its status and priority, write the description (Markdown, with a live preview and a dictation mic), attach files, link it to other items, comment on it, log time.
 4. **Review.** **Week** shows the week by day. **Board** shows tasks by list. **All items** lists everything, with its filters.

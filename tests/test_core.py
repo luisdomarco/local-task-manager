@@ -104,7 +104,7 @@ class StoreTest(unittest.TestCase):
         story, task = self.s.read('US-0001'), self.s.read('TSK-0001')
         self.assertEqual((self.s.relation_kind(task, story), self.s.relation_kind(story, task)), ('blocks', 'blocked'))
         self.assertEqual(self.s.relation_kind(task, self.s.read('NOTE-0001')), 'relates')
-        self.assertIn('TSK-0001 · T (Blocked by)', self.s.claude_prompt('US-0001'))
+        self.assertIn('TSK-0001 · T — Blocked by (depends on)', self.s.claude_prompt('US-0001'))
         # removing the relation takes its kind with it; a relation without one (from before) is `relates`
         self.assertEqual(self.s.update('TSK-0001', {'relations': ['NOTE-0001']})['fields']['relation_kinds'], {})
         self.assertEqual(self.s.relation_kind(self.s.read('US-0001'), self.s.read('TSK-0001')), 'relates')
@@ -113,19 +113,22 @@ class StoreTest(unittest.TestCase):
         self.s.create('task', 'T')
         self.s.create('task', 'U')
         self.s.create('note', 'N')
-        for bad in ({'TSK-0002': 'parent'}, {'NOTE-0001': 'blocks'}, ['TSK-0002']):  # no such kind; a note only relates; not a map
+        for bad in ({'TSK-0002': 'parent'}, ['TSK-0002']):  # no such kind; not a map
             with self.assertRaises(StoreError) as e:
                 self.s.update('TSK-0001', {'relations': ['TSK-0002', 'NOTE-0001'], 'relation_kinds': bad})
             self.assertEqual(e.exception.status, 400)
         made = self.s.create('task', 'V', {'relations': ['TSK-0001', 'TSK-0002'], 'relation_kinds': {'TSK-0001': 'precedes', 'TSK-0009': 'blocks'}})
         self.assertEqual(made['fields']['relation_kinds'], {'TSK-0001': 'precedes'})  # only for what it relates to
-        self.assertNotIn('relation_kinds', self.s.update('NOTE-0001', {'relation_kinds': {'TSK-0001': 'blocks'}})['fields'])
+        self.assertFalse(self.s.update('NOTE-0001', {'relation_kinds': {'TSK-0001': 'blocks'}})['fields'].get('relation_kinds'))  # not related
+        note = self.s.update('NOTE-0001', {'relations': ['TSK-0001'], 'relation_kinds': {'TSK-0001': 'blocks'}})  # every type has the kinds
+        self.assertEqual(self.s.relation_kind(self.s.read('TSK-0001'), note), 'blocked')
 
     def test_the_ticket_tracker_is_free_text(self):
-        s = self.s.create('story', 'S', {'redmine_id': '4521', 'tracker': '  Story '})
+        s = self.s.create('story', 'S', {'ticket_id': '4521', 'tracker': '  Story '})
         self.assertEqual(s['fields']['tracker'], 'Story')
         self.assertIsNone(self.s.update('US-0001', {'tracker': ''})['fields']['tracker'])
-        self.assertNotIn('tracker', self.s.create('task', 'T', {'tracker': 'Epic'})['fields'])  # a task has no ticket
+        self.assertEqual(self.s.create('task', 'T', {'tracker': 'Epic'})['fields']['tracker'], 'Epic')  # a task has a ticket too (traits: tracked)
+        self.assertNotIn('tracker', self.s.create('note', 'N', {'tracker': 'Epic'})['fields'])  # a note has none
         self.s.update('US-0001', {'tracker': 'Epic'})
         self.assertIn('- Tracker: Epic', self.s.claude_prompt('US-0001'))
 
@@ -138,14 +141,14 @@ class StoreTest(unittest.TestCase):
                 self.s.update('TSK-0001', bad)
 
     def test_user_stories(self):
-        self.s.create('initiative', 'I', {'redmine_id': '4521', 'redmine_url': 'https://redmine.example/issues/4521'})
+        self.s.create('initiative', 'I', {'ticket_id': '4521', 'ticket_url': 'https://redmine.example/issues/4521'})
         out = self.s.update('INI-0001', {'user_stories': [
             {'id': 'US-1', 'subject': 'Login', 'local_path': '~/specs/login', 'extra': 'dropped'},
             {'id': 'US-2', 'subject': 'Logout', 'status': 'Review', 'redmine_url': 'https://r.io/2'}]})
-        self.assertEqual(out['fields']['user_stories'], [
+        self.assertEqual(out['fields']['user_stories'], [  # embedded stories keep their old keys: a legacy list
             {'id': 'US-1', 'subject': 'Login', 'local_path': '~/specs/login', 'status': 'Backlog'},
             {'id': 'US-2', 'subject': 'Logout', 'redmine_url': 'https://r.io/2', 'status': 'Review'}])
-        self.assertEqual(out['fields']['redmine_id'], '4521')
+        self.assertEqual(out['fields']['ticket_id'], '4521')
         for bad in ([{'id': 'US-1'}], [{'id': 'A', 'subject': 's'}, {'id': 'A', 'subject': 't'}],
                     [{'id': 'A', 'subject': 's', 'status': 'Nope'}]):
             with self.assertRaises(StoreError):
@@ -416,7 +419,7 @@ class StoreTest(unittest.TestCase):
     def test_claude_prompt_carries_the_item(self):
         self.s.create('initiative', 'Pricing', {'local_path': self.tmp.name})
         self.s.create('story', 'Tiers', {'related_to': 'INI-0001', 'status': 'InProgress', 'priority': 'High', 'due': '2026-11-01',
-                                          'redmine_id': '4521', 'url': 'https://e.io/a', 'labels': ['billing']}, 'Offer three tiers.\n\n- [ ] draft')
+                                          'ticket_id': '4521', 'url': 'https://e.io/a', 'labels': ['billing']}, 'Offer three tiers.\n\n- [ ] draft')
         text = self.s.claude_prompt('US-0001')
         for needle in ('# US-0001 · Tiers', '- Status: InProgress', '- Priority: High', '- Due: 2026-11-01', '- Related to: INI-0001 · Pricing',
                        '- Labels: billing', '- Ticket: #4521', 'https://e.io/a', 'Offer three tiers.', '- [ ] draft', CLAUDE_DEFAULT_INSTRUCTION):
@@ -747,7 +750,7 @@ class StoreTest(unittest.TestCase):
         stories = sorted((i for i in self.s.items() if i['type'] == 'story'), key=lambda i: i['id'])
         self.assertEqual([x['id'] for x in stories], ['US-0001', 'US-0002', 'US-0003'])  # the old ids repeated; the new ones do not
         self.assertEqual(stories[0]['fields']['status'], 'Review')
-        self.assertEqual(stories[0]['fields']['redmine_url'], 'https://redmine.example.com/issues/1')
+        self.assertEqual(stories[0]['fields']['ticket_url'], 'https://redmine.example.com/issues/1')
         self.assertEqual([x['fields']['related_to'] for x in stories], ['INI-0001', 'INI-0001', 'INI-0002'])
         self.assertEqual(self.s.read('INI-0001')['fields']['user_stories'], [])
         self.assertTrue(os.listdir(os.path.join(self.tmp.name, '.task-manager', 'backup')))
@@ -993,7 +996,7 @@ class StoreTest(unittest.TestCase):
     # A valid value for every field any type has, plus fields no type has.
     EVERYTHING = {
         'status': 'ToDo', 'priority': 'High', 'priority_reason': 'why', 'related_to': None, 'url': 'https://x.io', 'url_label': 'X', 'links': [],
-        'archived': False, 'session_name': 's', 'sidebar': True, 'redmine_id': '7', 'redmine_url': 'https://r.io/7',
+        'archived': False, 'session_name': 's', 'sidebar': True, 'ticket_id': '7', 'ticket_url': 'https://r.io/7',
         'local_path': '/tmp', 'due': '2026-11-01', 'plan_week': '2026-W44', 'plan_day': '2026-10-30', 'today_list': 'am',
         'labels': ['l'], 'comments': [], 'user_stories': [], 'list': 'todo', 'order': 1, 'date': '2026-10-30',
         'attendees': ['Ana'], 'source': 'Email', 'from': ['Bea'], 'resolution': 'done', 'legacy_id': 'US-9',
@@ -1020,7 +1023,8 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(f['story']['legacy_id'], 'US-9')
         self.assertEqual(f['initiative']['user_stories'], [])  # legacy, still accepted on an initiative
         self.assertNotIn('legacy_id', f['task'])
-        self.assertEqual(set(f['prompt']) - {'id', 'type', 'subject', 'created_at', 'updated_at'}, {'archived', 'labels'})
+        # a prompt is read, never worked on: its links, labels, archive and board order (traits.KINDS), no comments nor sessions
+        self.assertEqual(set(f['prompt']) - {'id', 'type', 'subject', 'created_at', 'updated_at'}, {'archived', 'labels', 'url', 'url_label', 'links', 'order'})
         self.assertNotIn('status', f['note'])
         self.assertEqual(f['meeting']['date'], '2026-10-30')
 
@@ -1034,7 +1038,7 @@ class StoreTest(unittest.TestCase):
         # a task turned into a Prompt in the form sends what the task had: only the prompt's fields land
         self.s.create('prompt', 'P')
         out = self.s.update('PRM-0001', {'session_name': 's', 'url': 'https://x.io', 'status': 'Done', 'archived': True})['fields']
-        self.assertEqual({k for k in out if k in self.EVERYTHING}, {'archived', 'labels'})
+        self.assertEqual({k for k in out if k in self.EVERYTHING}, {'archived', 'labels', 'url', 'url_label', 'links', 'order'} & set(self.EVERYTHING))
         self.assertTrue(out['archived'])
         # a foreign value that would not even validate is dropped, not a 400
         self.s.create('task', 'T')

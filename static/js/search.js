@@ -11,20 +11,21 @@ export function matches(q, text) {
   return norm(q).split(/\s+/).filter(Boolean).every((w) => t.includes(w));
 }
 
-/** How well an item answers the query, best first: 0 its id exactly, 1 its id starts with it, 2 its title starts with
- *  it, 3 every word starts a word of the title, 4 every word is somewhere in the id or title. null: not a match. */
+/** How well an item answers the query, best first: 0 one of its ids exactly, 1 one of them starts with it, 2 its title
+ *  starts with it, 3 every word starts a word of the title, 4 every word is somewhere in its ids or title. null: not a
+ *  match. Its ids: how it is drawn (`ref`, TSK-482), its id (482) and its old ones (`aliases`, ACME-INI-001). */
 export function rank(query, item) {
   const q = norm(query.trim());
   if (!q) return null;
-  const id = norm(item.id);
+  const ids = [...new Set([item.ref, item.id, ...(item.aliases || [])].filter(Boolean).map(norm))];
   const title = norm(item.title);
-  if (id && id === q) return 0;
-  if (id && id.startsWith(q)) return 1;
+  if (ids.some((id) => id === q)) return 0;
+  if (ids.some((id) => id.startsWith(q))) return 1;
   if (title.startsWith(q)) return 2;
   const words = q.split(/\s+/).filter(Boolean);
   const starts = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   if (words.every((w) => starts.some((s) => s.startsWith(w)))) return 3;
-  return matches(q, `${item.id || ''} ${item.title}`) ? 4 : null;
+  return matches(q, `${ids.join(' ')} ${item.title}`) ? 4 : null;
 }
 
 /** The types in the sidebar's order: its nav groups top to bottom, each by its order; types with no link last. */

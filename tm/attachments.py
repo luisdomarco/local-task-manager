@@ -42,8 +42,9 @@ def safe_name(filename):
 
 
 def owner_folder(item):
-    """The folder of an item's files: its id, else its file's name (a plan, an analysis), made safe."""
-    return safe_name(item.get('id') or os.path.splitext(os.path.basename(item['path']))[0])
+    """The folder of an item's files: its id as drawn (SUP-482, ACME-SUP-001), else its file's name (a plan, an
+    analysis), made safe."""
+    return safe_name(item.get('ref') or item.get('id') or os.path.splitext(os.path.basename(item['path']))[0])
 
 
 def clean_list(value):

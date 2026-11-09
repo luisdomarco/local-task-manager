@@ -24,6 +24,8 @@ from .. import frontmatter as fm
 # not see that item, so its id could be handed out again.
 PLACEHOLDER_RE = re.compile(r'\.icloud$')
 IGNORED_FILES = {'.DS_Store', 'Icon\r', '.gitkeep'}
+# The vault's guides for agents, at its top (tm/agentsmd.py): known files, never an item and never warned about.
+ROOT_GUIDES = {'AGENTS.md', 'CLAUDE.md'}
 
 
 def folders_spec(folders, item_types, id_re, skip_dirs):
@@ -96,7 +98,7 @@ def check(root, spec, load=None):
             if PLACEHOLDER_RE.search(name):
                 blocking.append(_finding('placeholder', rel, 'Not downloaded from iCloud yet: open the vault in Finder so it downloads.'))
                 continue
-            if name in IGNORED_FILES or name.startswith('.'):
+            if name in IGNORED_FILES or name.startswith('.') or (dirpath == root and name in ROOT_GUIDES):
                 continue
             if not name.endswith('.md'):
                 warnings.append(_finding('not_markdown', rel, 'Not a Markdown file: the app ignores it.'))

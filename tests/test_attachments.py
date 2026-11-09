@@ -194,11 +194,11 @@ class TicketingAttachmentsTest(unittest.TestCase):
             s.create('project', 'Internal Tools', {'project_key': 'HB', 'project_kind': 'system'})
             sup = s.create('support', 'Falla', {'project': 'HB'})
             it = s.add_attachment(sup['key'], 'log.txt', b'trace')
-            self.assertEqual(it['fields']['attachments'], ['Attachments/HB-SUP-001/log.txt'])
-            self.assertIn('Attachments/HB-SUP-001/log.txt', open(os.path.join(root, sup['path']), encoding='utf-8').read())
+            self.assertEqual(it['fields']['attachments'], ['Attachments/SUP-1/log.txt'])  # a new vault: short ids
+            self.assertIn('Attachments/SUP-1/log.txt', open(os.path.join(root, sup['path']), encoding='utf-8').read())
             self.assertTrue(s.check()['ok'], s.check())
             s.delete(sup['key'])
-            self.assertTrue(os.path.isfile(os.path.join(root, 'Attachments', 'HB-SUP-001', 'log.txt')))
+            self.assertTrue(os.path.isfile(os.path.join(root, 'Attachments', 'SUP-1', 'log.txt')))
             self.assertEqual(s.empty_trash()['attachments'], 1)
             self.assertFalse(os.path.exists(os.path.join(root, 'Attachments', 'HB-SUP-001')))
 

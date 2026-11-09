@@ -1,4 +1,4 @@
-// Removing a status that items have (Settings → Item type status): where those items can go, and which of those the
+// Removing a status that items have (Settings → Statuses): where those items can go, and which of those the
 // dialog offers first. Pure, so the node tests reach it (tests/js/statusremap.test.mjs); views/statuses.js draws it.
 //
 // A row is the Settings draft of one status: { name, group, from, count, removed, to } — `from` its saved name (null

@@ -20,6 +20,17 @@ test('an id beats a title that starts with the query, which beats a word, which 
   assert.equal(rank('   ', item('TSK-044', 'Terminal raro')), null);
 });
 
+test('a short id is found by its ref, its number and its old ids, which beat its title', () => {
+  const sty = { id: '482', ref: 'STY-482', aliases: ['ACME-STY-001'], title: 'Pay in one page', type: 'story' };
+  assert.equal(rank('sty-482', sty), 0);
+  assert.equal(rank('482', sty), 0);
+  assert.equal(rank('ACME-STY-001', sty), 0);
+  assert.equal(rank('sty-4', sty), 1);
+  assert.equal(rank('acme-sty', sty), 1);
+  assert.equal(rank('pay', sty), 2);
+  assert.equal(rank('ini-482', sty), null);
+});
+
 test('types go in the sidebar order: capture, types, tools, then those with no link', () => {
   const types = [
     { name: 'prompt', nav: { group: 'tools', order: 1 } }, { name: 'plan' },

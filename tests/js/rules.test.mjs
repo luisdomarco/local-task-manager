@@ -90,7 +90,7 @@ describe('rules', () => {
     assert.equal(at({ plan_day: '2026-10-14' }), 'today'); // a past day, still open: carried over to Today
     assert.equal(at({ plan_day: '2026-10-14' }, 'Done'), null); // done back then
     assert.equal(at({ plan_day: '2026-10-15', plan_week: '2026-W42' }), 'today');
-    assert.equal(at({ plan_day: '2026-10-16' }), 'tomorrow');
+    assert.equal(at({ plan_day: '2026-10-16' }), 'week'); // no Tomorrow column: tomorrow is this week's
     assert.equal(at({ plan_day: '2026-10-17' }), 'week'); // Saturday: the rest of this week
     assert.equal(at({ plan_week: '2026-W42' }), 'week');
     assert.equal(at({ plan_day: '2026-10-20' }), 'nextweek'); // a day decides by its own week
@@ -104,7 +104,7 @@ describe('rules', () => {
     assert.equal(at({ plan_week: '2026-W41' }), 'carried'); // a past week, still open
     assert.equal(at({ plan_week: '2026-W41' }, 'Done'), null);
     assert.equal(at({ plan_month: '2026-09' }), 'carried');
-    assert.equal(at({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'tomorrow'); // the day wins over a month left behind
+    assert.equal(at({ plan_day: '2026-10-16', plan_month: '2026-09' }), 'week'); // the day wins over a month left behind
     assert.equal(at({}), null); // unplanned
     assert.equal(planHorizon({ type: 'note', fields: { plan_week: '2026-W42' } }), null); // not plannable
   });
@@ -113,7 +113,7 @@ describe('rules', () => {
     const items = [task({ plan_month: '2026-10', status: 'ToDo', n: 2 }), task({ plan_week: '2026-W44', status: 'ToDo', n: 1 }),
       task({ plan_day: '2026-10-15', status: 'Done' }), task({})];
     const b = monthBuckets(items, { sort: (a, c) => a.fields.n - c.fields.n });
-    assert.deepEqual(MONTH_HORIZONS.map(([k]) => k), ['carried', 'today', 'tomorrow', 'week', 'nextweek', 'month']);
+    assert.deepEqual(MONTH_HORIZONS.map(([k]) => k), ['carried', 'today', 'week', 'nextweek', 'month']);
     assert.deepEqual(b.month.map((i) => i.fields.n), [1, 2]);
     assert.equal(b.today.length, 1);
     assert.equal(monthBuckets(items, { hideDone: true }).today.length, 0);
@@ -138,7 +138,7 @@ describe('rules', () => {
   it('filters by plan', () => {
     assert.equal(planFilter('today')(task({ plan_day: '2026-10-15' })), true);
     assert.equal(planFilter('today')(task({ plan_day: '2026-10-12', status: 'ToDo' })), true); // carried over counts
-    assert.equal(planFilter('tomorrow')(task({ plan_day: '2026-10-16' })), true);
+    assert.ok(!('tomorrow' in PLAN_FILTERS), 'no Tomorrow: Today, This week, Next week, This month');
     assert.equal(planFilter('nextweek')(task({ plan_week: '2026-W43' })), true);
     assert.equal(planFilter('month')(task({ plan_month: '2026-10' })), true);
     assert.equal(planFilter('month')(task({ plan_week: '2026-W44' })), true); // Thursday Oct 29
@@ -150,15 +150,21 @@ describe('rules', () => {
     assert.ok(Object.keys(PLAN_FILTERS).includes('any'));
   });
 
-  it('keeps the relation table consistent', () => {
-    const types = Object.keys(PARENT_TYPES);
-    for (const [type, parents] of Object.entries(PARENT_TYPES)) {
-      for (const p of parents) assert.ok(types.includes(p), `${type} may hang from ${p}, which is not a type`);
-      assert.ok(!parents.includes('inbox') && !parents.includes('prompt'), `${type} cannot hang from an inbox item or a prompt`);
+  it('keeps the relation table consistent', async () => {
+    const { setStructure } = await import('../../static/js/rules.js');
+    const { FOLDER_PER_TYPE, PROJECTS } = await import('../../static/js/structure.js');
+    for (const s of [PROJECTS, FOLDER_PER_TYPE]) {
+      setStructure(s);
+      const types = Object.keys(PARENT_TYPES);
+      for (const [type, parents] of Object.entries(PARENT_TYPES)) {
+        for (const p of parents) assert.ok(types.includes(p), `${s.id}: ${type} may hang from ${p}, which is not a type`);
+        assert.ok(!parents.includes('inbox') && !parents.includes('prompt'), `${s.id}: ${type} cannot hang from an inbox item or a prompt`);
+      }
+      assert.deepEqual(PARENT_TYPES.prompt, [], s.id);
     }
-    assert.deepEqual(PARENT_TYPES.transcription, ['meeting']);
-    assert.deepEqual(PARENT_TYPES.prompt, []);
+    assert.deepEqual(PARENT_TYPES.transcription, ['meeting']); // the legacy structure's, last set
     assert.deepEqual([...PLANNABLE].sort(), ['initiative', 'story', 'task']);
+    setStructure(PROJECTS);
   });
 });
 

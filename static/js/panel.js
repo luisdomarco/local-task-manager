@@ -7,34 +7,41 @@
 // route #/<type>/:ref: an initiative; in Ticketing a project and a PRD too). Each instance keeps its
 // own open item, content draft and focus.
 import { api } from './api.js';
-import { COL, DETAIL_PAGE, TASK_COLUMNS, columnOf, dataTable, fixedColumns, paged, pagedBox } from './datatable.js';
-import { addDays, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
+import { historyText } from './historytext.js';
+import { DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
+import { relDay, shiftWeek, stampLabel, thisMonth, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL, trapFocus } from './create.js';
-import { itemFields, linkLabelControl, modalFrame, modalTitle, parentFields, planKey, propField, relatedControl, sideFold } from './itemform.js';
+import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, planKey, propField, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
 import { itemHref, opener, pageHref } from './links.js';
-import { sourceOffset } from './clickmap.js';
-import { mdEditor } from './mdeditor.js';
+import { mdBlock } from './mdblock.js';
 import { pref, saveSort, savedSort, setPref } from './prefs.js';
-import { attachmentsSection } from './attachments.js';
+import { attachmentsBody } from './attachments.js';
+import { shownKinds } from './kindgroups.js';
+import { groupLinks, linkIcon, shortUrl } from './linkgroups.js';
 import { quickAddBar } from './quickadd.js';
-import { STORY_COLUMNS } from './stories.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, inProject, isDone, isEnabled, isOverdue, matchesWhere, pageRef, parentProject, propsIn, splitsInitiative,
+  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, kindFor, matchesWhere, movesProject, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectHas, projectOf, propsIn, statusesOf,
 } from './rules.js';
 import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
 import { itemName, setCardTitle, setPageTitle } from './tabtitle.js';
 import { sumTime } from './worktime.js';
-import { kindChange, kindLabel, kindOf, kinded } from './relkinds.js';
+import { kindLabel, kindOf, kinded, relatedIn, relationWrites } from './relkinds.js';
 import {
-  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, editComment, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, progress, setStatus, updateLog,
+  addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, editComment, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, setStatus, updateLog,
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
-import { openClaudeDialog, sessionList } from './claude.js';
-import { closeMenu, dropdown, h, icon, select, statusChip as statusPill, tabPanels, tagInput, typeIcon, renderMarkdown, withMentions } from './ui.js';
+import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
+import { closeMenu, dropdown, h, icon, priorityChip, rowAction, rowItem, rowList, secondaryButton, select, stackGroup, statusChip, statusLabel, tabPanels, tagInput, typeIcon, withMentions } from './ui.js';
+import { refOf } from './shownid.js';
+import { MEMBER_TYPES, byGoalOrder, goalCandidates, goalProgress, inGoal, nextGoalOrder } from './goals.js';
+import { itemPicker } from './itempicker.js';
+
+/** A phone's width, where the card's head keeps only its essentials (app.css matches it). */
+const PHONE = '(max-width: 640px)';
 
 const modal = () => document.getElementById('item-modal');
 const backdrop = () => document.getElementById('item-backdrop');
@@ -62,7 +69,6 @@ function editBinding(item) {
   const apply = (plan) => {
     if (!plan) return unplan(item);
     if (plan === 'today') return planDay(item, today());
-    if (plan === 'tomorrow') return planDay(item, addDays(today(), 1));
     if (plan === 'week') return planWeek(item, thisWeek());
     if (plan === 'nextweek') return planWeek(item, shiftWeek(thisWeek(), 1));
     if (plan === 'month') return planMonth(item, thisMonth());
@@ -72,8 +78,8 @@ function editBinding(item) {
   return {
     type: item.type,
     exclude: item.id ? descendants(item.id) : new Set(),
-    // Everything but a prompt has the side panel: its parent and project in Relations, its session under Details, its
-    // own fields in their tab (rules.js tabOf).
+    // Everything but a prompt has the side panel: its parent and project in Relations, its Claude sessions in the AI
+    // tab, its own fields in their tab (rules.js tabOf).
     sidePanel: item.type !== 'prompt',
     get: (key) => {
       if (key === 'planned') return planKey(f); // not `plan`: a Ticketing initiative has a field of that name (its Plan)
@@ -101,30 +107,30 @@ function claudeButton(item) {
   }, icon('terminal', 16));
 }
 
-/** The AI tab: start a conversation with Claude on this item, and the ones already started, each resumable. */
+/** The AI tab: the Claude sessions of this item — started here (Work on it with Claude), or elsewhere (Terminal,
+ * Claude Desktop, Cursor…) and added by hand (Add existing session) — each resumed the same way: in the dock, or Open in ▾.
+ * One can be starred as its main one (the row's ⋯). */
 function aiTab(item) {
+  // The main action filled; bringing in one started elsewhere, a frame alone (app.css .ai-start).
+  const add = secondaryButton('Add existing session', { ico: 'plus', class: 'ai-add', title: 'Add a conversation started in Terminal, Claude Desktop, Cursor…',
+    'aria-haspopup': 'dialog', onclick: () => addSessionPicker(add, item.key) });
   return [
     h('div', { class: 'ai-start' },
-      h('button', { class: 'btn', onclick: () => openClaudeDialog(item) }, icon('terminal', 14), 'Work on it with Claude')),
-    sessionList(item.fields.claude_sessions, { key: item.key, empty: 'No conversations yet — start one above. Each one can be resumed from here.' }),
+      h('button', { class: 'btn primary', onclick: () => openClaudeDialog(item) }, icon('terminal', 14), 'Work on it with Claude'), add),
+    sessionList(item.fields.claude_sessions, { key: item.key,
+      empty: 'No conversations yet — start one, or add one you started in Terminal, Claude Desktop or Cursor. Each one resumes from here.' }),
   ];
 }
 
-/** Copies the item file's full path on disk (the vault's folder + the item's own path). */
-function copyPathButton(item) {
-  if (!item.path) return null;
+/** Copies the item file's full path on disk (the vault's folder + the item's own path): Copy path, in its ⋯ menu. */
+async function copyPath(item) {
   const full = `${String(state.config.root_resolved || '').replace(/\/+$/, '')}/${item.path}`;
-  return h('button', {
-    class: 'btn icon', title: 'Copy the full path of this item', 'aria-label': 'Copy the full path of this item',
-    onclick: async () => {
-      try {
-        await navigator.clipboard.writeText(full);
-        toast(`Copied ${full}`);
-      } catch {
-        toast('Could not copy the path', true);
-      }
-    },
-  }, icon('copy', 16));
+  try {
+    await navigator.clipboard.writeText(full);
+    toast(`Copied ${full}`);
+  } catch {
+    toast('Could not copy the path', true);
+  }
 }
 
 /** Initiatives: whether this one is a favourite, listed under Favourites in the sidebar (a new one is not: store.py). */
@@ -150,53 +156,36 @@ function resolveButton(item) {
 
 /** Minimize: the card closes into a chip on the top bar, and comes back as it was (minimizeItem). */
 const minimizeButton = () => h('button', {
-  class: 'btn icon', title: 'Minimize to the top bar', onclick: () => minimizeItem(),
+  class: 'btn icon minimize', title: 'Minimize to the top bar', onclick: () => minimizeItem(),
 }, icon('minimize', 16));
 
 // ── the card expanded: over the whole content (beside the sidebar, under the top bar) instead of floating on it ──
 // Remembered (prefs.js `card.expanded`): the next card opens the way the last one was left. A prompt's small card
-// does not expand.
+// does not expand. Expand / Back to its size is in the card's ⋯ menu (expandAction).
 export const isExpanded = () => pref('card.expanded', false) === true;
 const paintExpanded = () => backdrop().classList.toggle('expanded', isExpanded() && !modal().classList.contains('is-prompt'));
-function expandButton() {
-  const paint = (b) => {
-    const on = isExpanded();
-    b.title = on ? 'Back to its size' : 'Expand to the whole content';
-    b.setAttribute('aria-label', b.title);
-    b.setAttribute('aria-pressed', String(on));
-    b.replaceChildren(icon(on ? 'restore' : 'maximize', 15));
-  };
-  const b = h('button', { class: 'btn icon im-expand', onclick: () => { setPref('card.expanded', isExpanded() ? null : true); paintExpanded(); paint(b); } });
-  paint(b);
-  return b;
-}
+const expandAction = () => (isExpanded()
+  ? { label: 'Back to its size', icon: 'restore', onSelect: () => { setPref('card.expanded', null); paintExpanded(); } }
+  : { label: 'Expand', icon: 'maximize', onSelect: () => { setPref('card.expanded', true); paintExpanded(); } });
 
 function pinButton(item) {
   if (!item.id) return null;
   const on = isPinned(item.id);
   return h('button', {
     class: `btn icon pin ${on ? 'on' : ''}`, title: on ? 'Unpin from top bar' : 'Pin to top bar', 'aria-pressed': String(on),
-    onclick: () => togglePin(item.id).then(() => toast(on ? `Unpinned ${item.id}` : `Pinned ${item.id} to the top bar`)).catch(() => {}),
+    onclick: () => togglePin(item.id).then(() => toast(on ? `Unpinned ${refOf(item)}` : `Pinned ${refOf(item)} to the top bar`)).catch(() => {}),
   }, icon('pin', 16));
 }
 
 // ── relations ────────────────────────────────────────────────────────────────
-// What the item is linked to, in the side panel: its project (Ticketing), its parent (and the chain above it), the
-// items its own link fields name (a Ticketing initiative's origin, PRD, plan, depends on…), what hangs from it, and
-// what it is related to as an equal (both ways: the link is kept on one of the two, shown on both). Each row
-// opens that item (⌘/Ctrl-click, in a new tab) and its × undoes the link, with Undo in the toast. The row at
-// the foot adds one: the kind (Related unless picked otherwise), then the item, from a searchable list. An item
-// has one parent at most: while it has one, Parent is not offered (unlink it first to hang it elsewhere).
-// An item without an id (a Ticketing plan, an analysis) shows the same, but can only be given a parent: the
-// other links name an item by its id.
-const childTypesOf = (type) => Object.keys(PARENT_TYPES).filter((t) => PARENT_TYPES[t].includes(type));
-const relatedOf = (item) => {
-  if (!item.id) return [];
-  const own = new Set(item.fields.relations || []);
-  return state.items.filter((i) => i.id && i.id !== item.id && (own.has(i.id) || (i.fields.relations || []).includes(item.id)));
-};
-const titled = (i) => (i.id ? `${i.id} · ${i.title}` : i.title);
-const projectOf = (item) => state.all.find((i) => i.type === 'project' && i.fields.project_key === item.fields.project) || null;
+// What the item is linked to, in the side panel: the row that adds a relation (the kind, then the item, from a
+// searchable list), its project, its parent (a picker, with the chain above it to open), the items its own link
+// fields name (a Ticketing initiative's origin…), and what it is related to as an equal, one section per kind (both
+// ways: the link is kept on one of the two, shown on both). Each row opens that item (⌘/Ctrl-click, in a new tab);
+// its ⋯ changes the kind or unrelates it, with Undo in the toast. What hangs from it is not here: those are the tabs
+// of its card or page. An item without an id (a Ticketing plan, an analysis) can only be given a parent.
+const relatedOf = (item) => relatedIn(item, state.items, STRUCTURE.relation_kinds);
+const titled = (i) => (i.id ? `${refOf(i)} · ${i.title}` : i.title);
 /** The items a link field holds (item keys; one, or a list), or the value itself when it names none we have. */
 const linkTargets = (item, p) => {
   const raw = item.fields[p.key];
@@ -206,19 +195,32 @@ const linkTargets = (item, p) => {
 function relink(change, undo, message) {
   change().then(() => toast(message, false, { label: 'Undo', run: undo })).catch(() => {});
 }
+/** Whether an item of `type` can name one of `other` in a link field (relkinds.js relationWrites: Projects keeps Blocked
+ *  by in depends_on only towards the types its file allows there, hidden from the panel or not). */
+const canLink = (type, field, other) => {
+  const p = (TYPE_DEFS[type]?.props || []).find((x) => x.key === field);
+  return !!p && (!p.types || p.types.includes(other));
+};
+/** relkinds.js relationWrites, one item after the other, with an Undo that puts each back (last first). */
+function rewrite(writes, message) {
+  const run = (list, pick) => list.reduce((p, w) => p.then(() => updateItem(w.holder.key, pick(w))), Promise.resolve());
+  if (writes.length) relink(() => run(writes, (w) => w.values), () => run([...writes].reverse(), (w) => w.was), message);
+}
 
 const hasProject = (type) => type !== 'project' && hasField(type, 'project');
+/** An item's own link fields (its Relations), as its project's kind keeps them: a simple initiative has no PRD nor plan. */
+const relationProps = (item) => propsIn(item.type, 'relations', kindFor(item, state.all));
 
-/** How many links the Relations tab shows: the project, the parent, the link fields, the children, the related. */
+/** How many links the Relations tab shows: the project, the parent, the link fields, the related. */
 const relationsCount = (item) => (hasProject(item.type) && item.fields.project ? 1 : 0)
   + (item.fields.related_to && state.byId.get(item.fields.related_to) ? 1 : 0)
-  + propsIn(item.type, 'relations').reduce((n, p) => n + linkTargets(item, p).length, 0)
-  + (item.id ? childrenOf(item.id).length : 0) + relatedOf(item).length;
+  + relationProps(item).reduce((n, p) => n + linkTargets(item, p).length, 0)
+  + relatedOf(item).length;
 
-/** The Relations tab of the side panel, or null for an item that cannot be linked (an inbox item, a prompt) and for
- *  a Ticketing project (what it holds is the tables of its page). */
+/** The Relations tab of the side panel, or null for an item that cannot be linked (an inbox item, a prompt). A
+ *  Ticketing project is related by its key, its id here (store._item); a plan, without an id, can only get a parent. */
 function relationsTab(item, rerender) {
-  if (item.type === 'project' || !(RELATABLE(item.type) || hasProject(item.type) || propsIn(item.type, 'relations').length)) return null;
+  if ((item.type === 'project' && !item.id) || !(RELATABLE(item.type) || hasProject(item.type) || relationProps(item).length)) return null;
   return { key: 'relations', label: 'Relations', count: relationsCount(item), content: [relationsSection(item, rerender)] };
 }
 
@@ -235,20 +237,25 @@ function docsTab(item, rerender) {
   }
   if (!fileTree()) loadFiles().then(rerender);
   const docs = item.fields.docs || [];
-  const name = item.id || item.title;
+  const name = refOf(item) || item.title;
   const entries = resolveDocs(docs, fileTree(), docGroups);
-  const rows = entries.map((d) => h('li', {},
-    d.path
-      ? h('a', { class: 'chain-link', href: docsHref(d.path), title: d.path }, icon(d.kind === 'folder' ? 'folder' : 'note', 14),
-        h('span', { class: 'chain-title' }, d.kind === 'folder' ? `${d.name}/` : d.name))
-      : h('span', { class: 'chain-link muted', title: 'Not found: moved or deleted outside the app' }, icon(d.kind === 'folder' ? 'folder' : 'note', 14),
-        h('span', { class: 'chain-title' }, `${d.value} · not found`)),
-    h('button', { class: 'btn icon rel-remove', title: `Unlink ${d.value}`, 'aria-label': `Unlink ${d.value}`,
-      onclick: (e) => { e.preventDefault(); relink(() => updateItem(item.key, { docs: docs.filter((x) => x !== d.value) }), () => updateItem(item.key, { docs }), `${d.value} unlinked from ${name}`); } },
-    icon('x', 14))));
+  // Each a row, as in Relations (ui.js rowItem): its icon and name, its folder muted at the right, an × to unlink it.
+  const where = (path) => path.split('/').slice(0, -1).join('/');
+  const rows = entries.map((d) => rowItem({
+    ico: icon(d.kind === 'folder' ? 'folder' : 'note', 14),
+    ...(d.path ? { href: docsHref(d.path), linkAttrs: { title: d.path }, text: d.kind === 'folder' ? `${d.name}/` : d.name, meta: where(d.path) || null }
+      : { text: `${d.value} · not found`, tip: 'Not found: moved or deleted outside the app' }),
+    actions: rowAction('x', `Unlink ${d.value}`, () => relink(() => updateItem(item.key, { docs: docs.filter((x) => x !== d.value) }),
+      () => updateItem(item.key, { docs }), `${d.value} unlinked from ${name}`)),
+  }));
   const choices = docChoices(fileTree(), docGroups).filter((c) => !docs.includes(c.value));
-  const pick = select([[null, choices.length ? '+ Link a doc or folder' : 'No docs to link yet'], ...choices.map((c) => [c.value, c.kind === 'folder' ? `${c.path}/` : c.path, c.kind === 'folder' ? 'folder' : 'note'])],
-    null, (v) => { if (v) updateItem(item.key, { docs: [...docs, v] }).catch(() => {}); }, { class: 'small', 'aria-label': 'Link a doc or folder', search: true });
+  // "+ Link a doc" at the top right, as Links' and Files' "+ Add": it opens the list of docs and folders to search.
+  const pick = choices.length
+    ? select(choices.map((c) => [c.value, c.kind === 'folder' ? `${c.path}/` : c.path, c.kind === 'folder' ? 'folder' : 'note']),
+      null, (v) => { if (v) updateItem(item.key, { docs: [...docs, v] }).catch(() => {}); },
+      { class: 'ghost tab-add', face: ['plus', 'Link a doc'], 'aria-label': 'Link a doc or folder', title: 'Link a doc or folder', search: true,
+        menuWidth: (btn) => Math.min(btn.closest('.stack-group')?.offsetWidth || 0, 560) }) // wide for its paths, not the whole column
+    : null;
   // The docs that mention it ([[its id …]] in their text): the backlinks of its file, those in a Docs folder.
   const seen = mentions.get(item.key);
   if (!seen || seen.rev !== item.rev) {
@@ -260,11 +267,14 @@ function docsTab(item, rerender) {
     }, () => {});
   }
   const mentioned = mentions.get(item.key).paths;
-  const group = (label, content) => h('div', { class: 'rel-group' }, h('span', { class: 'rel-label' }, label), content);
-  return { key: 'docs', label: 'Docs', count: docs.length, content: [h('section', { class: 'panel-section relations docs-links' },
-    group('Linked docs', [h('div', { class: 'rel-pick' }, pick), rows.length ? h('ul', { class: 'chain' }, rows) : null]),
-    mentioned.length ? group('Mentioned in', h('ul', { class: 'chain' }, mentioned.map((p) => h('li', {},
-      h('a', { class: 'chain-link', href: docsHref(p), title: p }, icon('note', 14), h('span', { class: 'chain-title' }, p.split('/').pop().replace(/\.md$/i, ''))))))) : null)] };
+  // As Relations (ui.js stackGroup, rowList): each group its name above its rows, "+ Link a doc" on the first's line.
+  // The linked ones need no name unless the docs that mention it follow (the tab already says Docs).
+  const none = choices.length ? 'No docs linked yet' : 'No docs to link yet'; // on the button's line, as a group's name
+  return { key: 'docs', label: 'Docs', count: docs.length, // a number: 0 hides the badge (ui.js tabPanels)
+    content: [h('section', { class: 'panel-section relations quiet docs-links' },
+    stackGroup(mentioned.length ? 'Linked' : rows.length ? null : none, rows.length ? rowList(rows) : mentioned.length ? h('p', { class: 'muted small rel-none' }, none) : null, { aside: pick }),
+    mentioned.length ? stackGroup('Mentioned in', rowList(mentioned.map((p) => rowItem({ ico: icon('note', 14), href: docsHref(p), linkAttrs: { title: p },
+      text: p.split('/').pop().replace(/\.md$/i, ''), meta: where(p) || null })))) : null)] };
 }
 
 /** A note's "Convert to doc…": where it goes, a Docs folder (its project's first), then the conversion; the page
@@ -293,145 +303,178 @@ async function convertToDoc(item, anchor, done) {
 function relationsSection(item, rerender) {
   const f = item.fields;
   const chain = ancestorsOf(item, state.byId);
-  const kids = item.id ? childrenOf(item.id) : [];
   const related = relatedOf(item);
-  const childTypes = childTypesOf(item.type);
   const open = (p) => (hasPage(p) ? closeAll().then((ok) => { if (ok) location.hash = pageHref(p); }) : openFromItem(p));
-  const row = (p, { depth = 0, lead = null, remove = null } = {}) => h('li', { style: `--depth:${depth}` },
-    lead,
-    typeof p === 'string' // a link to an item we do not have (turned off, or gone): its name as the file has it
-      ? h('span', { class: 'chain-link muted', title: 'Not in this vault' }, h('span', { class: 'chain-title mono' }, p))
-      : h('a', { class: 'chain-link item-link', href: itemHref(p), title: `Open ${titled(p)}`, ...opener(p, open) },
-        typeIcon(p.type, 14), h('span', { class: 'chain-title' }, p.title)), // the id only in the tooltip: the side column is narrow
-    remove ? h('button', { class: 'btn icon rel-remove', title: remove.title, 'aria-label': remove.title, onclick: (e) => { e.preventDefault(); remove.run(); } }, icon('x', 14)) : null);
-  // Each group reads as a field of the other tabs (Details, Delivery): its name above, then its control and its items.
-  const group = (label, rows, title = null) => h('div', { class: 'rel-group' }, h('span', { class: 'rel-label', title }, label), rows);
-  const name = item.id || item.title;
+  // A row (ui.js rowItem): its icon and title, its id muted at the right; an item we do not have (turned off, or
+  // gone) by its name as the file has it.
+  const row = (p, { depth = 0, lead = null, remove = null, menu = null } = {}) => rowItem({
+    depth, lead, actions: menu || (remove ? rowAction('x', remove.title, () => remove.run()) : null),
+    ...(typeof p === 'string' ? { text: p, textMono: true, tip: 'Not in this vault' }
+      : { text: p.title, ico: typeIcon(p.type, 14), meta: refOf(p), mono: true, href: itemHref(p), linkAttrs: { class: 'item-link', title: `Open ${titled(p)}`, ...opener(p, open) } }),
+  });
+  // Each group (ui.js stackGroup): its name above, then its rows and its control.
+  const group = (label, rows, title = null) => stackGroup(label, rows, { title });
 
-  const parentRows = chain.map((p, i) => row(p, {
-    depth: i, lead: i ? h('span', { class: 'chain-in muted small' }, 'in') : null,
-    remove: i ? null : { title: `Unlink from ${p.title}`, run: () => relink(() => updateItem(item.key, { related_to: null }), () => updateItem(item.key, { related_to: p.id }), `${name} no longer hangs from ${p.id}`) },
-  }));
-  const unlinkChild = (k) => relink(() => updateItem(k.key, { related_to: null }), () => updateItem(k.key, { related_to: item.id }), `${k.id} no longer hangs from ${item.id}`);
-  // Who keeps the link (the item or the other one) is the one whose list loses it.
-  const unrelate = (r) => {
-    const holder = (f.relations || []).includes(r.id) ? item : r;
-    const other = holder === item ? r.id : item.id;
-    const before = holder.fields.relations || [];
-    // Its kind goes with it (the server drops it); Undo brings both back.
-    const was = { relations: before, ...(holder.fields.relation_kinds ? { relation_kinds: holder.fields.relation_kinds } : {}) };
-    relink(() => updateItem(holder.key, { relations: before.filter((x) => x !== other) }), () => updateItem(holder.key, was), `${item.id} and ${r.id} are no longer related`);
-  };
-  // What this item is to each related one (it Blocks it, it Precedes it…: Redmine's kinds, read as "<this> Blocks
-  // <that>"), where both types have kinds: a small select before it that changes the kind on whichever of the two
-  // keeps the relation.
+  // Out of wherever it is kept (either item's relations, with its kind, or a kind's own field); Undo brings it back.
   const RK = STRUCTURE.relation_kinds;
-  const kindPick = (r) => (kinded(RK, item.type, r.type) ? select(RK.kinds, kindOf(item, r, RK), (v) => {
-    const c = kindChange(item, r, v, RK);
-    relink(() => updateItem(c.holder.key, c.values), () => updateItem(c.holder.key, c.was), `${item.id}: ${kindLabel(RK, v)} ${r.id}`);
-  }, { class: 'small rel-kind-of', 'aria-label': `What ${item.id} is to ${r.id}`, 'data-fk': 'relation-kind-of' }) : null);
+  const unrelate = (r) => rewrite(relationWrites(item, r, null, RK, canLink), `${refOf(item)} and ${refOf(r)} are no longer related`);
+  // What this item is to each related one (it Blocks it, it Precedes it…: Redmine's kinds, read as "<this> Blocks
+  // <that>"), where both types have kinds. Each kind is a section of its own (relatedGroups); a row's ⋯ moves it to
+  // another kind, on whichever of the two keeps the relation (or in the kind's own field), or unrelates it.
+  const relMenu = (r) => rowAction('more', `${r.title}: relation actions`, (e, btn) => {
+    const cur = kinded(RK, item.type, r.type) ? kindOf(item, r, RK) : null;
+    dropdown(btn, [
+      ...(cur ? [{ heading: `What ${refOf(item)} is to it` }, ...RK.kinds.map(([v, l]) => ({ label: l, icon: v === cur ? 'check' : null, onSelect: () => {
+        if (v === cur) return;
+        rewrite(relationWrites(item, r, v, RK, canLink), `${refOf(item)}: ${kindLabel(RK, v)} ${refOf(r)}`);
+      } })), '-'] : []),
+      { label: 'Unrelate', icon: 'x', danger: true, onSelect: () => unrelate(r) },
+    ], { align: 'end' });
+  }, { 'aria-haspopup': 'menu' });
+  // Its related items, one section per kind, in the kinds' order ("Related to", "Blocks"…); those without kinds (a
+  // note's) under Related.
+  const relatedGroups = () => {
+    const byKind = new Map();
+    for (const r of related) {
+      const k = kinded(RK, item.type, r.type) ? kindOf(item, r, RK) : '';
+      byKind.set(k, [...(byKind.get(k) || []), r]);
+    }
+    const order = [...(RK?.kinds || []).map(([v]) => v), ''];
+    return order.filter((k) => byKind.has(k)).map((k) => group(k ? kindLabel(RK, k) : 'Related',
+      rowList(byKind.get(k).map((r) => row(r, { menu: relMenu(r) })))));
+  };
 
-  // Its project: the one it was created in, for good, for a ticket (its id carries the key); a choice, for a task,
-  // a note, a meeting or an activity, which may have none.
-  let projectGroup = null;
-  if (hasProject(item.type)) {
-    const p = projectOf(item);
-    const scoped = (STRUCTURE.project_scoped || []).includes(item.type);
-    const projects = state.items.filter((i) => i.type === 'project' && i.fields.project_key);
-    const pick = scoped ? null : select([[null, '— none —'], ...projects.map((x) => [x.fields.project_key, `${x.fields.project_key} · ${x.title}`, 'folder'])],
-      f.project || null, (v) => {
-        // A parent in another project lets go (Undo puts both back): an item and its parent share one project.
-        const parent = state.byId.get(f.related_to);
-        if (!parent || inProject(v)(parent)) { save(item, { project: v || null }); return; }
-        relink(() => updateItem(item.key, { project: v || null, related_to: null }),
-          () => updateItem(item.key, { project: f.project || null, related_to: f.related_to }), `${item.id || item.title} no longer hangs from ${parent.id}: it is in another project`);
-      }, { class: 'small', 'aria-label': 'Project', 'data-fk': 'project', clearable: true });
-    projectGroup = group('Project', [
-      pick ? h('div', { class: 'rel-pick' }, pick) : null,
-      p ? h('ul', { class: 'chain' }, row(p)) : f.project ? h('ul', { class: 'chain' }, row(f.project)) : null,
-    ], scoped ? 'The project it lives in: its folder, and the key of its id' : null);
+  // One row per link, shown once: its name opens it; on hover ✎ picks another (the item picker, only what it may name)
+  // and × lets it go (Undo in the toast). Both are always there: one that cannot act now is drawn faint, and a click
+  // says why. `choices`: the items it may name now, `onPick(item)`.
+  const off = (ico, label, why) => rowAction(ico, `${label} — ${why}`, () => toast(why), { class: 'is-off', 'aria-disabled': 'true' });
+  const changer = (label, choices, onPick, why = 'There is nothing else it can be now.') => (choices.length
+    ? rowAction('pencil', label, (e, btn) => itemPicker(btn, null, (it) => it && onPick(it),
+      { keeps: (it) => choices.includes(it), first: () => choices.slice(0, 40), none: null, label }))
+    : off('pencil', label, why));
+
+  // Its Parent, first: where it lives, one field for its project and what it hangs from (`project`, `related_to`). Set,
+  // the chain as rows — what it hangs from and on up, closed by its project (`in`) —; the first row changes it (✎) and,
+  // where it may hang from nothing, lets it go (×). A ticket's project changes too where its id is a short one: the
+  // file moves to that project's folder, with what hangs from it there (store._project_move_plan). While it hangs from
+  // nothing, the picker (itemform.js parentControl): only what may be its parent.
+  let parentGroup = null;
+  const withProject = hasProject(item.type);
+  if (withProject || PARENT_TYPES[item.type].length) {
+    const free = movesProject(item.type);
+    const what = refOf(item) || item.title;
+    const setParent = (v) => {
+      const now = parentPick(item.type, v, state.all, { related_to: f.related_to || null, project: f.project || null });
+      if (!Object.keys(now).length) return;
+      const was = Object.fromEntries(Object.keys(now).map((k) => [k, f[k] || null]));
+      const named = (k) => refOf(state.byId.get(k)) || k; // the item it hangs from, as drawn (INI-482)
+      relink(() => updateItem(item.key, now), () => updateItem(item.key, was),
+        now.related_to ? `${what} now hangs from ${named(now.related_to)}` : now.project ? `${what} is now in ${now.project}`
+          : 'related_to' in now ? `${what} no longer hangs from ${named(f.related_to)}` : `${what} is in no project now`);
+    };
+    const project = withProject ? projectOf(item, state.all) || f.project || null : null;
+    const ups = f.related_to ? (chain.length ? chain : [f.related_to]) : [];
+    const letGo = (title) => rowAction('x', title, () => setParent(null));
+    const exclude = item.id ? descendants(item.id) : new Set();
+    const asItem = (c) => (c.type === 'project' ? state.items.find((i) => i.type === 'project' && i.fields.project_key === c.value.slice('project:'.length))
+      : state.byId.get(c.value));
+    const pickable = parentChoices(item.type, { project: f.project || null, exclude, current: f.related_to || null }, state.all)
+      .filter((c) => c.value !== f.related_to && c.value !== `project:${f.project}`)
+      .map((c) => [c, asItem(c)]).filter(([, it]) => it);
+    const valueOf = new Map(pickable.map(([c, it]) => [it, c.value]));
+    const kind = TYPE_DEFS[item.type]?.label?.toLowerCase() || item.type;
+    const aKind = `${/^[aeiou]/.test(kind) ? 'An' : 'A'} ${kind}`; // "An initiative"
+    const toParent = changer(`Change ${parentLabel(item.type).toLowerCase()}`, pickable.map(([, it]) => it), (it) => setParent(valueOf.get(it)),
+      `Nothing else can be its ${parentLabel(item.type).toLowerCase()} now.`);
+    // A ticket (its folder is its project's) moves to another project that holds its type; only with a short id.
+    const movable = !free && project && !ups.length && /^\d+$/.test(String(item.id || ''));
+    const others = movable ? state.items.filter((p) => p.type === 'project' && p.fields.project_key && p.fields.project_key !== f.project
+      && !isDone(p) && projectHas(p, item.type)) : [];
+    const toProject = changer('Move to another project', others, (p) => {
+      const key = p.fields.project_key;
+      relink(() => updateItem(item.key, { project: key }), () => updateItem(item.key, { project: f.project }), `${what} is now in ${key}`);
+    }, movable ? `No other open project holds ${kind}s.` : `Its id (${what}) carries its project: move it after its vault has short ids.`);
+    const rows = [
+      ...ups.map((p, i) => row(p, { depth: i, lead: i ? 'in' : null,
+        menu: i ? null : [toParent, needsParent(item.type) ? off('x', `Unlink from ${refOf(p) || p}`, `${aKind} always hangs from one: ✎ picks another.`)
+          : letGo(`Unlink from ${refOf(p) || p}`)] })),
+      ...(project ? [row(project, { depth: ups.length, lead: ups.length ? 'in' : null,
+        menu: ups.length ? null : [free ? toParent : toProject, free ? letGo(`Take it out of ${f.project}`)
+          : off('x', `Take it out of ${f.project}`, `${aKind} is always in a project: ✎ moves it to another.`)] })] : []),
+    ];
+    const pick = !rows.length && pickable.length
+      ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, 'Pick a parent…'],
+        ...pickable.map(([c]) => [c.value, c.label, c.type === 'project' ? 'folder' : TYPE_ICON[c.type] || null])],
+        null, (v) => v && setParent(v), { class: 'small', 'aria-label': parentLabel(item.type), 'data-fk': 'rel-parent', search: true }))
+      : null;
+    parentGroup = group(parentLabel(item.type), [rows.length ? rowList(rows, { ordered: true }) : null, pick].filter(Boolean));
   }
 
-  // The item's own link fields, each under its name with its control always there, as in Delivery; what it links to
-  // follows, to open it.
+  // The item's own link fields, each under its name: what it links to as rows (to open it, ✎ to change a single one, ×
+  // to let it go); with none, the picker (as in Delivery).
   const b = editBinding(item);
-  const linkGroups = propsIn(item.type, 'relations').map((p) => {
+  const linkGroups = relationProps(item).map((p) => {
     const targets = linkTargets(item, p);
+    const many = p.kind === 'links';
+    const pool = state.items.filter((i) => (p.types || []).includes(i.type) && i.key !== item.key && !isDone(i) && i.fields.archived !== true);
+    const keys = many ? (f[p.key] || []) : [];
+    const set = (v, message) => { const was = f[p.key] ?? (many ? [] : null); relink(() => updateItem(item.key, { [p.key]: v }), () => updateItem(item.key, { [p.key]: was }), message); };
+    const name = (t) => (typeof t === 'string' ? t : refOf(t) || t.title);
+    const rows = targets.map((t) => row(t, { menu: p.readonly ? null : [
+      many ? null : changer(`Change ${p.label.toLowerCase()}`, pool.filter((i) => i !== t), (it) => set(it.key, `${p.label}: ${name(it)}`),
+        `There is no other open ${p.label.toLowerCase()} to pick.`),
+      rowAction('x', `Remove ${name(t)}`, () => set(many ? keys.filter((k) => k !== (typeof t === 'string' ? t : t.key)) : null, `${name(t)} is no longer its ${p.label.toLowerCase()}`)),
+    ] }));
+    const addMore = many && !p.readonly ? pool.filter((i) => !keys.includes(i.key)) : [];
     return group(p.label, [
-      p.readonly ? null : h('div', { class: 'rel-pick' }, propField(b, { ...p, label: '' })),
-      targets.length ? h('ul', { class: 'chain' }, targets.map((t) => row(t))) : p.readonly ? h('p', { class: 'muted small rel-none' }, '—') : null,
-    ]);
+      targets.length ? rowList(rows) : p.readonly ? h('p', { class: 'muted small rel-none' }, '—')
+        : many ? null : h('div', { class: 'rel-pick picks-quiet' }, propField(b, { ...p, label: '' })),
+      addMore.length ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, `Add ${p.label.toLowerCase()}…`], ...addMore.map((i) => [i.key, `${refOf(i)} · ${i.title}`, TYPE_ICON[i.type] || null])],
+        null, (v) => v && set([...keys, v], `${p.label}: ${name(state.items.find((i) => i.key === v) || v)}`), { class: 'small', search: true, 'aria-label': `Add ${p.label.toLowerCase()}` })) : null,
+    ].filter(Boolean));
   });
 
-  // Ticketing: what it hangs from, in the create form's fields — Initiative, and Related to for the rest — each of its
-  // project. One parent still: picking in one empties the other; a parent brings its project where that can change.
-  const parentPicks = splitsInitiative(item.type) ? parentFields(item.type).map((pf) => {
-    const movable = !(STRUCTURE.project_scoped || []).includes(item.type);
-    const setParent = (v) => {
-      const project = movable ? parentProject(state.byId.get(v)) : null;
-      const now = { related_to: v || null, ...(project && project !== f.project ? { project } : {}) };
-      const was = { related_to: f.related_to || null, ...('project' in now ? { project: f.project || null } : {}) };
-      relink(() => updateItem(item.key, now), () => updateItem(item.key, was),
-        v ? `${item.id || item.title} now hangs from ${v}` : `${item.id || item.title} no longer hangs from ${f.related_to}`);
-    };
-    const binding = { type: item.type, exclude: item.id ? descendants(item.id) : new Set(), get: (k) => f[k], set: (k, v) => setParent(v) };
-    return group(pf.label, h('div', { class: 'rel-pick' }, relatedControl(binding, { ...pf, fk: `rel-${pf.fk}` })));
-  }) : [];
-
-  const nothing = !projectGroup && !chain.length && !kids.length && !related.length && !linkGroups.length;
-  return h('section', { class: 'panel-section relations' },
-    projectGroup,
-    ...parentPicks,
-    chain.length ? group('Parent', h('ol', { class: 'chain' }, parentRows), TYPE_DEFS[item.type]?.parent_label || null) : null,
+  // Where it lives (project, parent), its own link fields, and what it is related to, one section per kind, each
+  // its name above its items; last, "+ Add relation", a secondary button (as Docs' "+ Link a doc or folder") that
+  // opens the row that adds one.
+  const add = RELATABLE(item.type) ? addRelation(item, { related }) : null;
+  const addRow = !add ? null : addingRelation.has(item.key) ? stackGroup('Add relation', add)
+    : stackGroup(null, secondaryButton('Add relation', { ico: 'plus', 'data-fk': 'add-relation',
+      onclick: () => { addingRelation.add(item.key); rerender(); requestAnimationFrame(() => document.querySelector('[data-fk="relation-target"]')?.focus()); } }));
+  return h('section', { class: 'panel-section relations quiet' },
+    parentGroup,
     ...linkGroups,
-    kids.length ? group(`Children · ${kids.length}`, pagedBox((rerenderBox) => {
-      const page = paged({ key: `relations.children.${item.type}`, at: `relations.children.${item.key}`, rows: kids, size: DETAIL_PAGE, onChange: rerenderBox });
-      return [h('ul', { class: 'chain' }, page.rows.map((k) => row(k, { remove: { title: `Unlink ${k.title}`, run: () => unlinkChild(k) } }))), page.pager];
-    })) : null,
-    related.length ? group('Related', h('ul', { class: 'chain' }, related.map((r) => row(r, { lead: kindPick(r), remove: { title: `Unrelate ${r.title}`, run: () => unrelate(r) } })))) : null,
-    nothing ? h('p', { class: 'muted small' }, 'Not linked to anything yet.') : null,
-    RELATABLE(item.type) ? addRelation(item, { chain, kids, related, childTypes }) : null);
+    ...relatedGroups(),
+    addRow);
 }
 
+// The items whose Relations tab shows the row that adds one (opened with "+ Add relation"), for as long as the page is open.
+const addingRelation = new Set();
+
 /**
- * The foot of the Relations section: [Related | Parent | Child] + a searchable item list + Add. Where the item's
- * relations have kinds (an initiative, a story, a task), Related is Redmine's list instead: Related to, Is duplicate
- * of… Copied from, a kind other than Related to offering only items whose relations have kinds too.
+ * The head of the Relations section: the kind + a searchable item list + Add. Where the item's relations have kinds
+ * (relation_kinds), the kinds are Redmine's: Related to, Blocked by… Copied from, a kind other than Related to offering
+ * only items whose relations have kinds too; elsewhere, Related. Its parent is picked in its own line, and a child
+ * is added from its tab: neither is a kind here. An item without an id (a plan) has none: a relation names its id.
  */
-function addRelation(item, { chain, kids, related, childTypes }) {
-  const f = item.fields;
+function addRelation(item, { related }) {
   const RK = STRUCTURE.relation_kinds;
   const typed = RK && RK.types.includes(item.type);
-  const kinds = [
-    ...(!item.id ? [] : typed ? RK.kinds.map(([k, label]) => [`rel:${k}`, label]) : [['related', 'Related']]), // related and children name it by its id: one without can only get a parent
-    PARENT_TYPES[item.type].length && !chain.length ? ['parent', 'Parent'] : null, // one parent at most
-    item.id && childTypes.length ? ['child', 'Child'] : null,
-  ].filter(Boolean);
+  if (!item.id) return null;
+  const kinds = typed ? RK.kinds.map(([k, label]) => [`rel:${k}`, label]) : [['related', 'Related']];
   const relKind = () => (kind.startsWith('rel:') ? kind.slice(4) : 'relates');
-  if (!kinds.length) return null;
   let kind = kinds[0][0];
   let picked = null;
-  const above = new Set(chain.map((p) => p.id));
-  const under = descendants(item.id); // itself and everything under it: never its parent
-  // Ticketing: a parent of its own project only (any, while it has none); one whose project can change takes its parent's.
-  const sameProject = hasField(item.type, 'project') ? inProject(f.project) : () => true;
-  const movable = hasField(item.type, 'project') && !(STRUCTURE.project_scoped || []).includes(item.type);
-  const inParent = (i) => { const p = i.fields.related_to && state.byId.get(i.fields.related_to); return p ? ` · in ${p.title}` : ''; };
   const candidates = () => {
-    if (kind === 'parent') {
-      return state.items.filter((i) => i.id && PARENT_TYPES[item.type].includes(i.type) && !under.has(i.id) && !isDone(i) && sameProject(i))
-        .map((i) => [i.id, titled(i)]);
-    }
-    if (kind === 'child') { // one that hangs elsewhere moves here: the label says from where
-      const mine = new Set(kids.map((k) => k.id));
-      return state.items.filter((i) => i.id && childTypes.includes(i.type) && i.id !== item.id && !above.has(i.id) && !mine.has(i.id) && !isDone(i))
-        .map((i) => [i.id, `${titled(i)}${inParent(i)}`]);
-    }
     const have = new Set(related.map((r) => r.id));
     const fits = relKind() === 'relates' ? () => true : (i) => kinded(RK, item.type, i.type); // a note only ever "relates"
-    return state.items.filter((i) => i.id && RELATABLE(i.type) && i.id !== item.id && !have.has(i.id) && fits(i)).map((i) => [i.id, titled(i)]);
+    // Those of its own project first (a stable sort keeps each part in the order they come), then the rest of the vault.
+    const home = item.type === 'project' ? item.fields.project_key : item.fields.project;
+    return state.items.filter((i) => i.id && RELATABLE(i.type) && i.id !== item.id && !have.has(i.id) && fits(i))
+      .sort((a, b) => Number(!home || a.fields.project !== home) - Number(!home || b.fields.project !== home))
+      .map((i) => [i.id, titled(i)]);
   };
-  const addBtn = h('button', { class: 'btn small', type: 'button', disabled: true }, 'Add');
+  const addBtn = h('button', { class: 'btn small primary rel-add-btn', type: 'button', disabled: true }, 'Add');
   const targetSlot = h('span', { class: 'rel-target' });
   const fillTarget = () => {
     picked = null;
@@ -443,70 +486,87 @@ function addRelation(item, { chain, kids, related, childTypes }) {
   addBtn.addEventListener('click', () => {
     const other = picked && state.byId.get(picked);
     if (!other) return;
-    if (kind === 'parent') {
-      // Its parent's project comes with it, when it can change (not a ticket, whose project is in its id).
-      const was = { related_to: f.related_to || null, ...(movable ? { project: f.project || null } : {}) };
-      const project = movable ? parentProject(other) : null;
-      const now = { related_to: other.id, ...(project && project !== f.project ? { project } : {}) };
-      relink(() => updateItem(item.key, now), () => updateItem(item.key, was), `${item.id || item.title} now hangs from ${other.id}`);
-    } else if (kind === 'child') {
-      const was = other.fields.related_to || null;
-      relink(() => updateItem(other.key, { related_to: item.id }), () => updateItem(other.key, { related_to: was }), `${other.id} now hangs from ${item.id}`);
-    } else {
-      const before = f.relations || [];
-      const rk = relKind();
-      const kindsBefore = f.relation_kinds || {};
-      const now = { relations: [...before, other.id], ...(rk !== 'relates' ? { relation_kinds: { ...kindsBefore, [other.id]: rk } } : {}) };
-      const was = { relations: before, ...(rk !== 'relates' ? { relation_kinds: kindsBefore } : {}) };
-      relink(() => updateItem(item.key, now), () => updateItem(item.key, was),
-        rk === 'relates' ? `${item.id} and ${other.id} are now related` : `${item.id}: ${kindLabel(RK, rk)} ${other.id}`);
-    }
+    const rk = relKind();
+    rewrite(relationWrites(item, other, rk, RK, canLink),
+      rk === 'relates' ? `${refOf(item)} and ${refOf(other)} are now related` : `${refOf(item)}: ${kindLabel(RK, rk)} ${refOf(other)}`);
   });
   fillTarget();
-  return h('div', { class: 'rel-add' }, kindSel, targetSlot, addBtn);
+  return h('div', { class: 'rel-add picks-quiet' }, kindSel, targetSlot, addBtn);
 }
 
-function links(item) {
+// The items whose Links tab shows the row that adds one (opened with "+ Add link"), and the link each has open to
+// edit (its place in the list), for as long as the page is open.
+const addingLink = new Set();
+const editingLink = new Map();
+
+function links(item, rerender) {
   const f = item.fields;
-  const list = (f.links || []).map((l) => ({ ...l }));
-  const saveLinks = () => save(item, { links: list.filter((l) => l.url) });
-  const open = (url) => openUrlBtn(url);
-  const main = h('input', { type: 'text', inputmode: 'url', value: f.url || '', placeholder: 'Main link — dominio.com or https://…' });
-  main.addEventListener('change', () => save(item, { url: main.value.trim() || null }));
-  const [mainLabel] = linkLabelControl(f.url_label || '', (v) => save(item, { url_label: v || null }));
-  const rows = list.map((l, i) => {
-    const [label] = linkLabelControl(l.label || '', (v) => { list[i].label = v || undefined; saveLinks(); });
-    const url = h('input', { type: 'text', inputmode: 'url', value: l.url, placeholder: 'dominio.com' });
-    url.addEventListener('change', () => { list[i].url = url.value.trim(); saveLinks(); });
-    return h('div', { class: 'link-item' },
-      h('div', { class: 'link-row' }, label, url, open(l.url),
-        h('button', { class: 'btn icon', title: 'Make main link', onclick: () => {
-          const promoted = list.splice(i, 1)[0];
-          if (f.url) list.unshift({ url: f.url, ...(f.url_label ? { label: f.url_label } : {}) }); // the old main keeps its label
-          save(item, { url: promoted.url, url_label: promoted.label || null, links: list });
-        } }, icon('star', 14)),
-        h('button', { class: 'btn icon', title: 'Remove', onclick: () => { list.splice(i, 1); saveLinks(); } }, icon('x', 14))));
-  });
-  let newLabel = '';
-  const [addLabel, addCustom] = linkLabelControl('', (v) => { newLabel = v; });
-  const addUrl = h('input', { type: 'text', inputmode: 'url', placeholder: 'Add link — dominio.com…' });
-  const add = () => {
-    if (!addUrl.value.trim()) return;
-    const label = addCustom.hidden ? newLabel : addCustom.value.trim();
-    list.push({ url: addUrl.value.trim(), ...(label ? { label } : {}) });
-    saveLinks();
+  // One list, the main first: the item's url is its main link, its links the others. With one link, that one is the
+  // main; with several, a star marks the main and any other can take its place (its ☆ on hover).
+  const all = [...(f.url ? [{ url: f.url, ...(f.url_label ? { label: f.url_label } : {}) }] : []), ...(f.links || []).map((l) => ({ ...l }))];
+  const close = () => { addingLink.delete(item.key); editingLink.delete(item.key); };
+  const commit = () => {
+    close();
+    const kept = all.filter((l) => l.url);
+    const next = { url: kept[0]?.url || null, url_label: kept[0]?.label || null, links: kept.slice(1) };
+    const was = { url: f.url || null, url_label: f.url_label || null, links: (f.links || []).filter((l) => l.url) };
+    const changed = Object.fromEntries(Object.entries(next).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(was[k])));
+    if (Object.keys(changed).length) save(item, changed); // only what changed: a Ticketing file keeps the rest byte for byte
+    else rerender();
   };
-  addUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
-  return h('section', { class: 'panel-section' },
-    h('h4', {}, icon('link', 14), 'Links'),
-    // The main link is the first row, marked with a filled star (the others get an outlined one to promote them).
-    h('div', { class: 'link-item' },
-      h('div', { class: 'link-row main' }, mainLabel, main, open(f.url),
-        h('span', { class: 'link-main-mark', title: 'Main link', 'aria-label': 'Main link', role: 'img' }, icon('star', 14)),
-        h('span', { class: 'link-spacer' }))),
-    rows,
-    h('div', { class: 'link-item' },
-      h('div', { class: 'link-row' }, addLabel, addUrl, h('button', { class: 'btn small', onclick: add }, 'Add'))));
+  const focusUrl = () => requestAnimationFrame(() => document.querySelector('[data-fk="link-url"]')?.focus());
+  // The row that adds or edits one: its label (the usual services or "Other"), its address, the primary button.
+  const editor = (l, done, verb) => {
+    let label = l.label || '';
+    const [slot, custom] = linkLabelControl(label, (v) => { label = v; });
+    const url = h('input', { type: 'text', inputmode: 'url', value: l.url || '', placeholder: 'dominio.com', 'aria-label': 'Link', 'data-fk': 'link-url' });
+    const ok = h('button', { type: 'button', class: 'btn small primary', disabled: !l.url }, verb);
+    const submit = () => {
+      const u = url.value.trim();
+      const lb = custom.hidden ? label : custom.value.trim();
+      if (u) done({ url: u, ...(lb ? { label: lb } : {}) });
+    };
+    url.addEventListener('input', () => { ok.disabled = !url.value.trim(); });
+    url.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+      if (e.key === 'Escape') { e.stopPropagation(); close(); rerender(); }
+    });
+    ok.addEventListener('click', submit);
+    return h('div', { class: 'link-row link-edit' }, slot, url, ok,
+      h('button', { type: 'button', class: 'btn small ghost', onclick: () => { close(); rerender(); } }, 'Cancel'));
+  };
+  const several = all.length > 1;
+  const editing = editingLink.get(item.key);
+  // Each a row, as Relations' and Docs' (ui.js rowItem): its service's icon and its address (with several, the main's
+  // star right after it), opened in a new tab; on hover ☆ to make it the main and ⋯ for Edit, Copy link and Delete.
+  const row = (l, i) => (i === editing ? h('li', { class: 'row-edit' }, editor(l, (v) => { all[i] = v; commit(); }, 'Save')) : rowItem({
+    ico: icon(linkIcon(l.label), 14),
+    meta: i === 0 && several ? h('span', { class: 'link-main-mark', title: 'Main link', 'aria-label': 'Main link', role: 'img' }, icon('star', 12)) : null, // after it
+    text: shortUrl(l.url),
+    href: /^[a-z][\w+.-]*:/i.test(l.url) ? l.url : `https://${l.url}`, // "dominio.com" as typed: a web address
+    linkAttrs: { target: '_blank', rel: 'noopener', title: l.url },
+    actions: [
+      i > 0 ? rowAction('star', 'Mark as main', () => { all.unshift(...all.splice(i, 1)); commit(); }) : null, // the old main stays, second
+      rowAction('more', 'Link actions', (e, btn) => dropdown(btn, [
+        { label: 'Edit', icon: 'pencil', onSelect: () => { addingLink.delete(item.key); editingLink.set(item.key, i); rerender(); focusUrl(); } },
+        { label: 'Copy link', icon: 'copy', onSelect: () => navigator.clipboard.writeText(l.url).then(() => toast('Link copied'), () => toast('Could not copy the link', true)) },
+        { label: 'Delete', icon: 'trash', danger: true, onSelect: () => { all.splice(i, 1); commit(); } },
+      ], { align: 'end' }), { 'aria-haspopup': 'menu' }),
+    ],
+  }));
+  // A group per label (linkgroups.js: the usual services, the others A–Z, the unlabelled last), its name above its
+  // rows; with only unlabelled links, no name. "+ Add link" at the right of the first group's name; it opens the row
+  // that adds one, above the groups.
+  const adding = addingLink.has(item.key);
+  const addBtn = adding ? null : h('button', { type: 'button', class: 'btn small ghost tab-add', 'data-fk': 'add-link',
+    onclick: () => { editingLink.delete(item.key); addingLink.add(item.key); rerender(); focusUrl(); } }, icon('plus', 14), 'Add link');
+  const groups = groupLinks(all);
+  const named = groups.length > 1 || groups[0]?.label;
+  const blocks = groups.map((g, n) => stackGroup(named ? g.label || 'Other links' : null, rowList(g.items.map(({ link, index }) => row(link, index))),
+    { aside: n === 0 ? addBtn : null }));
+  return h('section', { class: 'panel-section relations links-tab' },
+    adding ? stackGroup('Add link', editor({}, (v) => { all.push(v); commit(); }, 'Add')) : null, // the first one added is the main
+    ...(blocks.length ? blocks : [adding ? null : stackGroup('No links yet', null, { aside: addBtn })])); // on the button's line
 }
 
 function openPathBtn(path) {
@@ -531,28 +591,29 @@ export function trackerInput(input, ext) {
 }
 
 // The top of the side panel: where the work happens. An initiative or a story points at an issue of the vault's
-// outside tracker (`ext`: Redmine in the folder-per-type structure) and a folder; every item names the session handling it (Session sits
-// under Local path; alone where there is none).
+// outside tracker (`ext`: Redmine in the folder-per-type structure) and a folder; an item with a folder and no ticket (a
+// Tasks project, an agent) has its folder alone. The Claude sessions handling it are in the AI tab (aiTab).
 function externalRef(item, ext) {
-  if (item.type === 'prompt') return null; // a prompt has no side panel
+  if (item.type === 'prompt') return []; // a prompt has no side panel
   const f = item.fields;
   const input = (key, attrs) => {
     const el = h('input', { value: f[key] || '', 'data-fk': key, ...attrs });
     el.addEventListener('change', () => save(item, { [key]: el.value.trim() || null }));
     return el;
   };
-  const session = field('Session', input('session_name', { type: 'text', placeholder: 'Claude session handling this' }), 'span2');
-  if (!item.id || !hasExternalRef(item.type)) { // an item without an id (a Ticketing plan) has no ticket of its own
-    return h('section', { class: 'panel-section' }, h('h4', {}, 'Session'), h('div', { class: 'fields' }, session));
+  const local = field('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), 'span2');
+  // A project is named by its key (a Ticketing project's note has no id) and has its ticket and folder as any work does;
+  // any other item without an id (a Ticketing plan) has no ticket of its own.
+  const named = !!item.id || item.type === 'project';
+  if (!named || !hasExternalRef(item.type)) {
+    // Its folder, where it has one without a ticket: where Claude starts for it.
+    return named && hasField(item.type, 'local_path') ? [local] : [];
   }
-  return h('section', { class: 'panel-section' },
-    h('h4', {}, `${ext.label} & local`),
-    h('div', { class: 'fields' },
-      field(`${ext.label} ID`, input(ext.id_key, { type: 'text', placeholder: ext.id_placeholder })),
-      ext.tracker_key && hasField(item.type, ext.tracker_key) ? field('Tracker', trackerInput(input, ext)) : null,
-      field(`${ext.label} URL`, h('div', { class: 'inline' }, input(ext.url_key, { type: 'text', inputmode: 'url', placeholder: ext.url_placeholder }), openUrlBtn(f[ext.url_key]))),
-      field('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), 'span2'),
-      session));
+  return [ // the tracker first: it says what the ticket is
+    ext.tracker_key && hasField(item.type, ext.tracker_key) ? field('Tracker', trackerInput(input, ext)) : null,
+    field(`${ext.label} ID`, input(ext.id_key, { type: 'text', placeholder: ext.id_placeholder })),
+    field(`${ext.label} URL`, h('div', { class: 'inline' }, input(ext.url_key, { type: 'text', inputmode: 'url', placeholder: ext.url_placeholder }), openUrlBtn(f[ext.url_key]))),
+    local].filter(Boolean);
 }
 
 /**
@@ -563,10 +624,33 @@ function externalRef(item, ext) {
 function watchers(item) {
   if (!item.id || !hasField(item.type, 'watchers')) return null;
   const names = item.fields.watchers || [];
-  return h('section', { class: 'panel-section watchers' },
-    h('h4', { title: 'People and groups to tell when its status changes' }, icon('eye', 14), 'Watchers',
-      names.length ? h('span', { class: 'muted' }, ` · ${names.length}`) : null),
+  return h('div', { class: 'field span2 watchers', title: 'People and groups to tell when its status changes' }, h('span', {}, 'Watchers'),
     tagInput(names, (list) => save(item, { watchers: list }), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: 'watchers' }));
+}
+
+
+/**
+ * An item's properties, on its card and its page: the first tab of the side panel (sideTabs), one per row — its fields
+ * (status aside: it sits by the title), its outside ticket and local path, its watchers, in blocks (PROP_BLOCKS). Every
+ * one is shown, an empty one saying so (quietBlanks).
+ */
+function propertiesSection(item, { inline = false } = {}) {
+  const b = { ...editBinding(item), propList: true, titleStatus: hasField(item.type, 'status') };
+  const list = itemFields(b);
+  const own = [...list.children].filter((el) => el.classList.contains('field'));
+  const ext = externalRef(item, EXTERNAL_REF);
+  const watch = [watchers(item)].filter(Boolean);
+  list.append(...ext, ...watch);
+  breakBlocks([
+    ...blocksOf(own),
+    ...ext.map((el) => [el, PROP_BLOCKS.length]),
+    ...watch.map((el) => [el, PROP_BLOCKS.length + 1]),
+  ]);
+  quietBlanks(list);
+  // `inline`: the copy under the title that narrow screens show instead of the tab (app.css), where the side column
+  // would come last. It keeps a heading; the tab is named by its button.
+  return h('section', { class: `panel-section prop-list prop-rows quiet ${inline ? 'prop-inline' : ''}`, 'aria-label': 'Properties' },
+    inline ? h('h4', {}, 'Properties') : null, list);
 }
 
 // Unsent "Log work" forms, per item: a re-render (a comment, a status change) must not wipe what was typed.
@@ -592,23 +676,24 @@ function workLog(item, rerender) {
   if (!item.id) return null;
   const draft = logDrafts.get(item.id) || { kind: state.config.work_kinds[0], time: '00:00', date: today(), note: '' };
   const addForm = logForm(draft, {
-    submitLabel: 'Add',
+    submitLabel: 'Add', quick: true, rows: true,
     onChange: (patch) => logDrafts.set(item.id, Object.assign(draft, patch)),
     onSubmit: async (v) => {
       logDrafts.set(item.id, { ...v, time: '00:00', note: '' }); // keeps the type and the day for the next one
       try { await logWork(item.id, v.kind, v.note, v.date, v.time); } catch { return; }
-      toast(`Logged ${v.kind} · ${v.time} on ${item.id}`);
+      toast(`Logged ${v.kind} · ${v.time} on ${refOf(item)}`);
     },
   });
 
   const entries = logOf(item.id).slice().sort((a, b) => (b.date + (b.at || '')).localeCompare(a.date + (a.at || '')));
   const days = new Set(entries.map((e) => e.date)).size;
-  // The records: a table, one row per record; a click opens the row's fields for editing.
+  // The records, as the properties are: one per row, its day on the left, then its time, type and notes; a click opens
+  // its fields for editing in its place.
   const row = (e) => {
     const key = `${item.id}|${e.date}#${e.index}`;
     if (editingLog === key) {
-      return h('tr', { class: 'wl-edit' }, h('td', { colspan: 4 }, logForm({ kind: e.kind, time: e.time, date: e.date, note: e.note || '' }, {
-        submitLabel: 'Save', fk: 'log-edit',
+      return h('div', { class: 'wl-edit' }, logForm({ kind: e.kind, time: e.time, date: e.date, note: e.note || '' }, {
+        submitLabel: 'Save', fk: 'log-edit', rows: true,
         onSubmit: async (v) => {
           editingLog = null;
           try { await updateLog(e.date, e.index, { kind: v.kind, time: v.time, note: v.note, new_date: v.date }); } catch { return; }
@@ -616,29 +701,32 @@ function workLog(item, rerender) {
         },
         onCancel: () => { editingLog = null; rerender(); },
         onDelete: async () => { editingLog = null; try { await unlogWork(e.date, e.index); } catch { /* toasted */ } },
-      })));
+      }));
     }
     const open = () => { editingLog = key; rerender(); };
-    return h('tr', {
-      class: 'wl-row', tabindex: '0', title: 'Click to edit', 'aria-label': `${e.kind} ${e.time} on ${e.date}`,
+    return h('div', {
+      class: 'field wl-entry', role: 'button', tabindex: '0', title: 'Click to edit', 'aria-label': `${e.kind} ${e.time} on ${e.date}`,
       onclick: open,
       onkeydown: (ev) => { if (ev.target === ev.currentTarget && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); open(); } },
     },
-    h('td', { class: `wl-day ${e.date === today() ? 'today' : ''}`, title: `${e.date} · logged at ${e.at || '—'}` }, relDay(e.date)),
-    h('td', { class: `wl-time ${e.time === '00:00' ? 'zero' : ''}` }, e.time),
-    h('td', {}, h('span', { class: `chip kind k-${String(e.kind).toLowerCase()}` }, e.kind)),
-    h('td', { class: 'wl-note', title: e.note || null }, e.note || ''));
+    h('span', { class: `wl-day ${e.date === today() ? 'today' : ''}`, title: `${e.date} · logged at ${e.at || '—'}` }, relDay(e.date)),
+    h('div', { class: 'wl-value' },
+      h('span', { class: `wl-time ${e.time === '00:00' ? 'zero' : ''}` }, e.time),
+      h('span', { class: `chip kind k-${String(e.kind).toLowerCase()}` }, e.kind),
+      e.note ? h('span', { class: 'wl-note', title: e.note }, e.note) : null));
   };
-  return h('section', { class: 'panel-section' },
-    h('h4', {}, icon('clock', 14), 'Log work', entries.length ? h('span', { class: 'muted' }, ` · ${days} day${days > 1 ? 's' : ''} · ${sumTime(entries)}`) : null),
+  // In blocks, as the properties: the form · how much in all · the records.
+  return h('section', { class: 'panel-section log-panel' },
     addForm,
-    entries.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed wl-table', style: WL_FIXED.style, 'aria-label': 'Work log entries' }, WL_FIXED.colgroup.cloneNode(true),
-      h('thead', {}, h('tr', {}, ['Date', 'Time', 'Type', 'Notes'].map((c) => h('th', { scope: 'col' }, c)))),
-      h('tbody', {}, entries.map(row)))) : null);
+    entries.length ? h('div', { class: 'fields prop-rows quiet wl-rows', 'aria-label': 'Work log entries' },
+      h('div', { class: 'field prop-break wl-total' }, h('span', {}, 'Logged'),
+        h('span', {}, h('span', { class: 'wl-time' }, sumTime(entries)), h('span', { class: 'muted' }, ` · ${days} day${days > 1 ? 's' : ''}`))),
+      ...entries.map((e, i) => {
+        const el = row(e);
+        if (i === 0) el.classList.add('prop-break');
+        return el;
+      })) : null);
 }
-
-// The side panel's work log: the shared column widths (datatable.js); the notes take the rest.
-const WL_FIXED = fixedColumns(['day', 'time', 'kind', 'note'].map((key) => ({ key })));
 
 // Remembered per kind of table (prefs.js): the type of the item it sits on and the type it lists — a task's
 // notes, an initiative's notes — so every task shares one choice, never one item alone. A type not named here
@@ -649,19 +737,19 @@ const childSort = (type) => childSorts[type] || TYPE_DEFS[type]?.list?.sort || {
 // The types whose items close (rules.js isDone): their tables show the open ones unless you pick otherwise.
 const childScope = (type) => (type === 'activity' ? 'resolved' : TYPE_DEFS[type]?.statuses?.length ? 'status' : null);
 
-/** What hangs from an item: its children (related_to), or, for a Ticketing project, the tickets that live in it. */
+/** What hangs from an item: its children (related_to), or, for a Ticketing project, the tickets that live in it; for
+ *  a goal, the items that name it (goals.js) and its notes. */
 const heldBy = (item) => (item.type === 'project'
   ? (k) => k.fields.project === item.fields.project_key
-  : (k) => k.fields.related_to === item.id);
+  : item.type === 'goal' ? (k) => (k.type === 'note' ? k.fields.related_to === item.id : inGoal(item.id)(k))
+    : (k) => k.fields.related_to === item.id);
 const SCOPE_LABELS = { status: { open: 'Open', closed: 'Closed', all: 'All' }, resolved: { open: 'Unresolved', closed: 'Resolved', all: 'All' } };
-const SCOPE_TEST = { open: (k) => !isDone(k), closed: isDone, all: () => true };
-
 /**
- * The items related to `item` of one type, as a tab (childTabs): a sortable table whose rows open the item, with a
- * quick add above it (`qa` is its placeholder; null for no quick add) and, for types that close, Open / Closed / All
- * beside it picking which rows show. The tab counts all of them.
- * All remembered per kind of table (child.scope.<item type>.<type>, the sort, the page size).
- * Before, they were per listed type alone (child.scope.<type>…): what was chosen then is where each starts.
+ * The items related to `item` of one type, as a group of its page or card (workGroups, from its `group`): all of
+ * them (`all`; archived ones out, `archived` says how many), its quick add's placeholder (`qa`; null for none) and
+ * the values it writes, the words for its closed ones (`labels`, for types that close), and for an issue kind's table
+ * its columns and its sort, remembered per kind of table (child.<item type>.<type>; before, per listed type alone:
+ * what was chosen then is where each starts). It counts all of them.
  * `where` (TypeDef.child_tables) keeps only the items whose fields hold those values, and its quick add writes them.
  */
 function childTable(item, rerender, { type, title, cols, qa = null, where = null }) {
@@ -670,54 +758,240 @@ function childTable(item, rerender, { type, title, cols, qa = null, where = null
   const all = state.items.filter((k) => k.type === type && holds(k));
   const labels = SCOPE_LABELS[childScope(type)];
   const kind = `${item.type}.${type}`;
-  const remembered = (name, fallback) => pref(`${name}.${kind}`, pref(`${name}.${type}`, fallback));
-  const picked = remembered('child.scope', 'open');
-  const scope = labels && picked in SCOPE_TEST ? picked : 'all';
-  const rows = all.filter(SCOPE_TEST[scope]);
-  const closed = labels ? all.filter(isDone).length : 0;
   // Archived items are out of every list; say how many are hidden here so the table does not look short.
   const archived = state.all.filter((k) => k.type === type && holds(k) && k.fields.archived === true).length;
-  const scopeBar = labels ? h('div', { class: 'seg section-scope', role: 'group', 'aria-label': `Show ${title.toLowerCase()}` },
-    Object.entries(labels).map(([k, l]) => h('button', {
-      type: 'button', class: `btn small ${scope === k ? 'active' : ''}`, 'aria-pressed': String(scope === k),
-      onclick: () => { setPref(`child.scope.${kind}`, k); rerender(); },
-    }, l))) : null;
-  const add = qa ? withFk(`page-${type}-qa`, quickAddBar({ type, values: item.type === 'project' ? { project: item.fields.project_key } : { related_to: item.id, ...where } }, { placeholder: qa, mic: false })) : null;
-  // With items, an empty table is the scope's doing: say so, and how many the default scope hides.
-  // (Only types that close have a scope: for the rest, rows are all of them and this is never shown.)
-  const none = !all.length || !labels ? `No ${title.toLowerCase()} yet${qa ? ' — add the first one above' : ''}.`
-    : `No ${labels[scope].toLowerCase()} ${title.toLowerCase()}${scope === 'open' ? ` — ${closed} ${labels.closed.toLowerCase()}` : ''}.`;
+  const defaults = item.type === 'project' ? { project: item.fields.project_key }
+    : item.type === 'goal' && type !== 'note' ? { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) } : { related_to: item.id, ...where };
+  const sort = savedSort(`child.${kind}`, savedSort(`child.${type}`, childSort(type)));
+  const onSort = (s) => { saveSort(`child.${kind}`, s); rerender(); };
   return {
-    key: type, label: title, count: String(all.length), // 0 too: every tab says how many it holds
-    content: [
-      add || scopeBar ? h('div', { class: 'child-bar' }, add, scopeBar) : null,
-      archived ? h('p', { class: 'muted small', title: 'Archived items are hidden from lists and from progress' }, `${archived} archived, not listed`) : null,
-      dataTable({
-        columns: cols, rows, sort: savedSort(`child.${kind}`, savedSort(`child.${type}`, childSort(type))), label: title,
-        paging: { key: `child.${kind}`, at: `child.${item.key}.${type}`, size: DETAIL_PAGE },
-        onSort: (s) => { saveSort(`child.${kind}`, s); rerender(); },
-        onRow: openFromItem,
-        empty: none,
-      }),
-    ].filter(Boolean),
+    key: type, label: title, count: String(labels ? all.filter((k) => !isDone(k)).length : all.length), // its open ones (a kind that closes)
+    group: { type, title, all, qa, defaults, labels, cols, sort, onSort, archived }, // workGroups (an issue group: its table)
   };
 }
 
-/** What hangs from an item, under its description and files: one tab per table (childTable), each with its count.
- *  The tab shown is remembered per item type (child.tab.<item type>). Nothing when no table applies. */
-function childTabs(item, tables) {
-  const tabs = tables.filter(Boolean);
-  if (!tabs.length) return null;
-  const key = `child.tab.${item.type}`;
-  return h('section', { class: 'child-tabs' }, ...tabPanels(tabs, pref(key, tabs[0].key), (k) => setPref(key, k)));
+/**
+ * An item's own sections as one tab bar, what hangs from it among them, on its card and its page alike:
+ * Overview (its description, then its work and records stacked: Tasks, Notes, Meetings… (workGroups); an activity's Message, then its
+ * Resolution) · Settings (Area and objective first — a project's, an initiative's —, then a project's own settings, then
+ * a ticket's Delivery groups) · Files (its attachments) · Links · Docs (docsTab) · Issues (what hangs from it but its work
+ * and records: groupTabs — Issues, in Projects Initiatives · Issues · Briefs · Records), each with its count but the first ones. Only the ones its type has. A
+ * detail opens on the first one; the one picked (`current`, `onPick`) holds while it stays open (a save re-renders it).
+ */
+function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPick = () => {}) {
+  const b = editBinding(item);
+  const f = item.fields;
+  // Settings: Area and objective first (a project's, an initiative's), as one more group, then a project's settings,
+  // then how a ticket is carried out (its Delivery groups: Readiness, Execution… Paused or discarded).
+  const aim = aimFields(b);
+  const own = settingsBody(b);
+  const delivery = deliveryBody(b);
+  // One list of groups (a line between each, as the side panel's blocks): the aim's, the project's own, the ticket's.
+  const settings = aim || own || delivery ? h('div', { class: 'fold-groups settings-body prop-rows quiet settings-tab' },
+    aim ? h('section', { class: 'panel-section prop-group aim', 'aria-label': 'Area and objective' }, aim) : null, // its fields, no title
+    ...(own ? own.children : []), ...(delivery ? delivery.children : [])) : null;
+  const files = (f.attachments || []).length;
+  const linked = (f.url ? 1 : 0) + (f.links || []).filter((l) => l.url).length;
+  const tabs = [
+    // Overview: its description, then its work and records in groups (Tasks, Notes, Meetings…), first.
+    { key: 'description', label: item.type === 'activity' ? 'Message' : 'Overview',
+      content: [item.type === 'goal' ? goalHead(item, b, c.rerender) : c.bodyEl, workGroups(item, work, c.rerender)].filter(Boolean) },
+    c.resolutionEl ? { key: 'resolution', label: 'Resolution', content: c.resolutionEl } : null,
+    settings ? { key: 'settings', label: 'Settings', content: settings } : null,
+    // Its attachments and its links, a tab each (the tab names them). Counts as numbers: a 0 shows none, as the side panel's.
+    { key: 'files', label: 'Files', count: files, content: h('section', { class: 'files-group' }, attachmentsBody(item)) },
+    { key: 'links', label: 'Links', count: linked, content: links(item, c.rerender) },
+    docsTab(item, c.rerender), // the docs it links and those that mention it
+    ...groupTabs(item, groups, c.rerender),
+  ].filter(Boolean);
+  return h('section', { class: 'item-tabs' }, ...tabPanels(tabs, current, onPick)); // an unknown `current`: the first
 }
 
-const NOTE_COLS = [COL.subject, COL.labels, COL.created, COL.updated, COL.id];
-const TRANSCRIPTION_COLS = [COL.subject, COL.labels, COL.created, COL.updated, COL.id];
-const MEETING_COLS = [COL.subject, COL.labels, COL.date, COL.time, COL.duration, COL.created, COL.updated, COL.attendees, COL.id];
-const ACTIVITY_COLS = [COL.subject, COL.labels, COL.source, COL.from, COL.resolved, COL.created, COL.updated, COL.id];
+/** A goal's Overview head, where another item has its description: its description (a plain text field), how far
+ *  along it is (its items closed of all) and "Add items…", a search over what can join it (goals.js goalCandidates). */
+function goalHead(item, b, rerender) {
+  const desc = TYPE_DEFS.goal?.props?.find((p) => p.key === 'description');
+  const p = goalProgress(state.items, item.id, isDone);
+  const add = secondaryButton('Add items', { ico: 'plus', class: 'small', 'data-fk': 'goal-add', 'aria-haspopup': 'dialog',
+    title: 'Add projects, initiatives, stories or tasks to this goal',
+    onclick: (e) => itemPicker(e.currentTarget, null, (it) => it && updateItem(it.key, { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) }),
+      { keeps: (k) => goalCandidates([k], isDone).length > 0, first: () => goalCandidates(state.items, isDone).slice(0, 12),
+        none: null, label: 'Add an item to this goal' }) });
+  return h('section', { class: 'goal-head' },
+    desc ? h('div', { class: 'goal-desc prop-rows quiet' }, propField(b, { ...desc, label: 'Description' })) : null,
+    h('div', { class: 'goal-progress' },
+      h('div', { class: 'progress', title: `${p.done} of ${p.total} closed` }, h('div', { style: `width:${p.pct}%` })),
+      h('span', { class: 'muted small' }, p.total ? `${p.done} of ${p.total} closed` : 'Nothing in it yet'),
+      h('span', { class: 'spacer' }), add));
+}
 
-const TASK_TABLE_COLS = TASK_COLUMNS.filter((col) => col.key !== 'parent');
+// The kinds that stay in the bar under an item's sections: its work and its records. Every other kind that hangs from
+// it is in a tab of its group (the structure's `child_groups`: in Projects Initiatives · Issues · Briefs · Records),
+// or, in a structure without groups, of Issues (user stories, Epics…).
+const WORK_KINDS = ['task', 'note', 'transcription', 'meeting', 'activity'];
+
+/** Its child tables (relatedSections, pageTables) → { work, groups: [{ key, label, tables }] } (childTable's key is
+ *  its type). A table no group names goes to a last one, More. */
+function splitChildren(tables, { flat = false } = {}) {
+  const all = tables.filter(Boolean);
+  if (flat) return { work: all, groups: [] }; // a goal: what it is made of, all in its Overview
+  const rest = all.filter((t) => !WORK_KINDS.includes(t.key));
+  const defs = STRUCTURE.child_groups || [['issues', 'Issues', rest.map((t) => t.key)]];
+  const groups = defs.map(([key, label, types]) => ({ key, label, tables: rest.filter((t) => types.includes(t.key)) }));
+  const loose = rest.filter((t) => !defs.some(([, , types]) => types.includes(t.key)));
+  if (loose.length) groups.push({ key: 'more', label: 'More', tables: loose });
+  return { work: all.filter((t) => WORK_KINDS.includes(t.key)), groups: groups.filter((g) => g.tables.length) };
+}
+
+/** A tab per group of what hangs from it (Issues; in Projects Initiatives · Issues · Briefs · Records), the first
+ *  set apart from its own sections by a short line. In each, its kinds stacked as Overview's work (workGroups), each
+ *  unfolding into its table. A group counts its kinds' open ones (all of a kind that does not close). */
+function groupTabs(item, groups, rerender) {
+  return groups.map((g, n) => ({
+    key: g.key, label: g.label, apart: n === 0,
+    count: g.tables.reduce((k, t) => k + Number(t.count || 0), 0),
+    content: workGroups(item, g.tables, rerender, { table: true }),
+  }));
+}
+
+// For as long as the page is open: the kinds whose quick add is open, those showing their closed items too, and those
+// showing every row (`${item key}|${type}`).
+const workAdding = new Set();
+// The click outside an open quick add that shuts it: one per group at a time (each drawing replaces its own).
+const outsideClicks = new Map();
+function closeOutside(id, onClick = null) {
+  document.removeEventListener('click', outsideClicks.get(id), true);
+  outsideClicks.delete(id);
+  if (onClick) { outsideClicks.set(id, onClick); document.addEventListener('click', onClick, true); }
+}
+// An issue kind's table on an item's page: the columns of its list (but ISSUE_LEFT_OUT), its id and subject as wide in every kind's table
+// (so the subjects line up from one kind to the next), what is left to an empty last column; past the page's width it
+// scrolls sideways. Its ids are drawn without their project's key (shownid.js: SPEC-001), so a narrower column.
+const ISSUE_TABLE = { flex: { subject: null }, widths: { id: 90, subject: 260 } };
+// What a kind's list has that its table on the page leaves out: its outside ticket's id, its progress (its own page has them).
+const ISSUE_LEFT_OUT = ['extref', 'progress'];
+const workClosed = new Set();
+
+/**
+ * Its work and records under its description (Overview): one group per kind (childTable's `group`), stacked as the
+ * side panel's, never tabs — its name and count, "+ Add …" at the right of its line, its rows: its id muted, its
+ * subject, its status and priority (or its date) at the right, in workOrder; a click opens it. An empty kind is its line alone. A kind that
+ * closes lists its open ones and offers "Show N closed"; a long one pages as the tables do (datatable.js paged: the
+ * same page size, remembered per kind of table). Its name folds it, remembered per item type and kind
+ * (work.fold.<item type>.<type>).
+ */
+const hasStatuses = (type) => !!TYPE_DEFS[type]?.statuses?.length;
+/** When a row of the kind happened, for its order and its date: a meeting's date (else when it last changed), the
+ *  rest when it last changed. ISO text, so it sorts as it reads. */
+const workWhen = (type, k) => String((type === 'meeting' && k.fields.date) || k.fields.updated_at || k.fields.created_at || '');
+/** A group's order: a kind with statuses the furthest on first (its statuses' order, last first), then the latest
+ *  changed; the rest the latest first (workWhen). */
+function workOrder(type) {
+  const latest = (a, b) => workWhen(type, b).localeCompare(workWhen(type, a));
+  if (!hasStatuses(type)) return latest;
+  const list = statusesOf(type);
+  return (a, b) => list.indexOf(b.fields.status) - list.indexOf(a.fields.status) || latest(a, b);
+}
+
+function workGroups(item, tables, rerender, { table = false } = {}) {
+  const kinds = tables.filter((t) => t?.group);
+  // In a tab of groups, only the kinds that hold something (or whose quick add is open) get a group; the empty ones
+  // wait on one "+ Add" line at its foot (kindgroups.js). Overview keeps all its kinds of work, empty or not.
+  const { shown, empty } = table ? shownKinds(kinds, (type) => workAdding.has(`${item.key}|${type}`)) : { shown: kinds, empty: [] };
+  if (!shown.length && !empty.length) return null;
+  const startAdding = (type) => {
+    setPref(`${table ? 'issue' : 'work'}.fold.${item.type}.${type}`, false);
+    workAdding.add(`${item.key}|${type}`);
+    rerender();
+    requestAnimationFrame(() => document.querySelector(`[data-fk="page-${type}-qa"]`)?.focus());
+  };
+  const addKinds = empty.length ? h('div', { class: 'add-kinds' }, ...empty.map((t) => {
+    const name = TYPE_DEFS[t.group.type]?.label || t.group.title;
+    return secondaryButton(name, { ico: 'plus', class: 'small', 'data-fk': `add-${t.group.type}`, title: `Add ${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name === name.toUpperCase() ? name : name.toLowerCase()}`,
+      onclick: () => startAdding(t.group.type) });
+  })) : null;
+  return h('section', { class: `work-groups relations ${table ? 'issue-groups' : ''}` }, ...shown.map((t) => {
+    const g = t.group;
+    const id = `${item.key}|${g.type}`;
+    const name = TYPE_DEFS[g.type]?.label || g.title;
+    const noun = name === name.toUpperCase() ? name : name.toLowerCase(); // "Add PRD", "Add task"
+    const adding = workAdding.has(id);
+    // Folded as last left (work.fold / issue.fold.<item type>.<type>); never so, an issue kind starts folded when it
+    // has nothing open, the rest unfolded.
+    const foldKey = `${table ? 'issue' : 'work'}.fold.${item.type}.${g.type}`;
+    const left = pref(foldKey);
+    const folded = !adding && (left == null ? table && !g.all.some((k) => !isDone(k)) : !!left);
+    // A goal's projects, initiatives and stories are born in their project: its "+ Add" picks one that is in no goal.
+    const joins = !g.qa && item.type === 'goal' && MEMBER_TYPES.includes(g.type);
+    const addBtn = (g.qa || joins) && !adding ? h('button', { type: 'button', class: 'btn small ghost tab-add', 'data-fk': `add-${g.type}`,
+      onclick: (e) => (joins ? itemPicker(e.currentTarget, null, (it) => it && updateItem(it.key, { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) }),
+        { keeps: (k) => k.type === g.type && goalCandidates([k], isDone).length > 0, first: () => goalCandidates(state.items, isDone).filter((k) => k.type === g.type).slice(0, 12),
+          none: null, label: `Add ${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun} to this goal` })
+        : startAdding(g.type)),
+    }, icon('plus', 14), `Add ${noun}`) : null;
+    // Its quick add, framed, opened by "+ Add": Enter adds (and it stays open for the next one), Esc or Close shuts it,
+    // and so does a click anywhere else while nothing is written in it.
+    const qa = adding ? (() => {
+      const fk = `page-${g.type}-qa`;
+      const bar = withFk(fk, quickAddBar({ type: g.type, values: g.defaults }, { placeholder: g.qa, mic: false }));
+      const close = () => { closeOutside(id); workAdding.delete(id); rerender(); };
+      bar.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+      closeOutside(id, (e) => {
+        const input = document.querySelector(`[data-fk="${fk}"]`);
+        if (!input) { closeOutside(id); workAdding.delete(id); return; } // its page is gone: nothing to draw again
+        if (e.target.closest?.('.work-add') || !e.target.isConnected || input.value.trim()) return;
+        close();
+      });
+      return h('div', { class: 'work-add' }, bar, h('button', { type: 'button', class: 'btn small ghost', onclick: close }, 'Close'));
+    })() : null;
+    const showClosed = workClosed.has(id);
+    const closed = g.labels ? g.all.filter(isDone) : [];
+    const listed = g.labels && !showClosed ? g.all.filter((k) => !isDone(k)) : g.all;
+    const sorted = listed.slice().sort(item.type === 'goal' && g.type !== 'note' ? byGoalOrder : workOrder(g.type))
+      .sort((a, b) => Number(isDone(a)) - Number(isDone(b))); // the closed ones, when shown, after the open (a stable sort)
+    const prio = hasField(g.type, 'priority');
+    const more = [
+      closed.length ? h('button', { type: 'button', class: 'btn small ghost work-more', onclick: () => { (showClosed ? workClosed.delete(id) : workClosed.add(id)); rerender(); } },
+        showClosed ? `Hide ${g.labels.closed.toLowerCase()}` : `Show ${closed.length} ${g.labels.closed.toLowerCase()}`) : null,
+    ].filter(Boolean);
+    // Its name, a button that folds it: a chevron before it, its count after.
+    const label = h('button', { type: 'button', class: 'work-fold', 'aria-expanded': String(!folded), title: folded ? `Show ${g.title.toLowerCase()}` : `Hide ${g.title.toLowerCase()}`,
+      onclick: () => { setPref(foldKey, !folded); rerender(); } },
+    icon(folded ? 'right' : 'down', 14), g.title, Number(t.count) ? h('span', { class: 'tab-count' }, t.count) : null); // its open ones
+    const group = (body) => stackGroup(label, folded ? [] : body, { aside: addBtn, class: `work-group ${table ? 'issue-group' : ''} ${folded ? 'folded' : ''}` });
+    // An issue kind: its table (its columns, its sort, its pages; the closed ones, when shown, after the open), with
+    // "Show N closed" on its pager's line.
+    if (table) {
+      return group([qa, g.archived ? h('p', { class: 'muted small work-archived', title: 'Archived items are hidden from lists and from progress' }, `${g.archived} archived, not listed`) : null,
+        listed.length || more.length ? h('div', { class: 'issue-body' },
+          listed.length ? dataTable({
+            columns: [...g.cols.filter((c) => !ISSUE_LEFT_OUT.includes(c.key)), FILL_COLUMN], ...ISSUE_TABLE,
+            rows: listed, sort: g.sort, onSort: g.onSort, label: g.title, onRow: openFromItem, doneLast: true,
+            paging: { key: `child.${item.type}.${g.type}`, at: `child.${item.key}.${g.type}`, size: DETAIL_PAGE },
+          }) : null, ...more) : null]);
+    }
+    const page = paged({ key: `child.${item.type}.${g.type}`, at: `child.${item.key}.${g.type}`, rows: sorted, size: DETAIL_PAGE, onChange: rerender });
+    const rows = page.rows.map((k) => {
+      const f = k.fields;
+      const when = workWhen(g.type, k).slice(0, 10);
+      return rowItem({ // a link as Relations' rows: a click opens it here, ⌘/Ctrl or the middle button in a new tab
+        ico: k.id ? h('span', { class: 'row-id mono' }, refOf(k)) : null,
+        text: k.title, href: itemHref(k),
+        // A kind with statuses: its status, then its priority (at the right edge); a meeting its date (or when it last
+        // changed); the rest when it last changed.
+        meta: hasStatuses(g.type) ? h('span', { class: `work-meta ${prio ? 'with-prio' : ''}` }, // two quiet columns, level row to row
+          f.status ? statusChip(f.status) : h('span'), prio ? (f.priority ? priorityChip(f.priority) : h('span')) : null)
+          : when ? relDay(when) : null,
+        linkAttrs: { class: 'item-link', title: k.id ? `${refOf(k)} · ${k.title}` : k.title, 'data-key': k.key, ...opener(k, openFromItem) },
+        class: isDone(k) ? 'done' : '',
+      });
+    });
+    return group([qa, rows.length ? rowList(rows) : null,
+      page.pager || more.length ? h('div', { class: 'work-foot' }, ...more, page.pager) : null]);
+  }), addKinds);
+}
+
+
 
 /**
  * What hangs from an item, one table per kind, for every kind PARENT_TYPES lets hang from it: a story has
@@ -726,88 +1000,89 @@ const TASK_TABLE_COLS = TASK_COLUMNS.filter((col) => col.key !== 'parent');
  */
 function relatedSections(item, rerender) {
   if (!item.id || TYPE_DEFS[item.type]?.page) return [];
-  const can = (type) => (PARENT_TYPES[type] || []).includes(item.type); // a type the vault's structure may not have (Ticketing: no transcriptions)
   const has = (type) => childrenOf(item.id).some((k) => k.type === type);
-  return [
-    can('task') ? childTable(item, rerender, { type: 'task', title: 'Tasks', cols: TASK_TABLE_COLS, qa: 'Add task…  !high  @today  due:fri' }) : null,
-    can('note') ? childTable(item, rerender, { type: 'note', title: 'Notes', cols: NOTE_COLS, qa: 'Add note…' }) : null,
-    can('transcription') ? childTable(item, rerender, { type: 'transcription', title: 'Transcriptions', cols: TRANSCRIPTION_COLS, qa: 'Add transcription…' }) : null,
-    can('meeting') ? childTable(item, rerender, { type: 'meeting', title: 'Meetings', cols: MEETING_COLS, qa: 'Add meeting…  (@fri for its date)' }) : null,
-    can('activity') && has('activity') ? childTable(item, rerender, { type: 'activity', title: 'Activities', cols: ACTIVITY_COLS }) : null,
-  ];
+  // Every type that can hang from it and is turned on (a Ticketing support: its hotfixes, plans, analyses…): the
+  // app's own first, in this order, then the structure's in its order; activities only once there are some.
+  const FIRST = ['task', 'story', 'note', 'transcription', 'meeting'];
+  // Of a project's own types, only those its kind holds (a system's support has no hotfixes), or that it already has.
+  const home = projectOf(item, state.all);
+  const holds = (t) => !home || projectHas(home, t);
+  const kinds = Object.keys(PARENT_TYPES).filter((t) => isEnabled(t) && (PARENT_TYPES[t] || []).includes(item.type) && (t !== 'activity' || has(t))
+    && (holds(t) || has(t)));
+  return [...FIRST.filter((t) => kinds.includes(t)), ...kinds.filter((t) => !FIRST.includes(t) && t !== 'activity'), ...kinds.filter((t) => t === 'activity')]
+    .map((t) => kindTable(item, rerender, t, {}, { addable: holds(t) }));
 }
 
-// The columns and quick add of a table on an item's page, for the types the app always had; any other takes its
-// list's columns (tm/structures), without the ones a table under its parent would only repeat.
+// The quick add of a kind on an item's page, for the types the app always had (any other: "Add <its noun>…"). Every
+// kind's table takes its list's columns (tm/structures), without the ones a table under its parent would only repeat.
 const PAGE_TABLES = {
-  story: { cols: STORY_COLUMNS, qa: 'Add user story…  !high  @today  due:fri' },
-  task: { cols: TASK_TABLE_COLS, qa: 'Add task…  !high  @today  due:fri' },
-  note: { cols: NOTE_COLS, qa: 'Add note…' },
-  meeting: { cols: MEETING_COLS, qa: 'Add meeting…  (@fri for its date)' },
+  story: { qa: 'Add user story…  !high  @today  due:fri' },
+  task: { qa: 'Add task…  !high  @today  due:fri' },
+  note: { qa: 'Add note…' },
+  transcription: { qa: 'Add transcription…' },
+  meeting: { qa: 'Add meeting…  (@fri for its date)' },
+  activity: { qa: null }, // they come in (mail, Slack…): none is added here
 };
 
-/** Whether a Ticketing project has that type: every one, but those it may leave out (hotfixes, PRDs) only when its
- *  note's enabled_types names them (a system project has neither). */
-const projectHas = (project, type) => !(STRUCTURE.optional_types || []).includes(type) || (project.fields.enabled_types || []).includes(type);
+/** The table of one kind that hangs from `item`, on its card or its page; `some` narrows it (child_tables: Epics). */
+function kindTable(item, rerender, t, some = {}, { addable = true } = {}) {
+  const def = TYPE_DEFS[t];
+  const known = PAGE_TABLES[t];
+  const { label, noun, where } = some;
+  // Without the columns every row of it shares: its parent, its project, the field its `where` fixes.
+  const across = item.type === 'goal'; // a goal's items come from every project: their project and parent are news
+  const cols = (def.list?.columns || ['id', 'subject', 'updated']).map(columnOf)
+    .filter((c) => c && (across || (c.key !== 'parent' && c.key !== 'project')) && !(c.key === 'initiative' && item.type === 'initiative')
+      && !(where && c.key in where));
+  // On a project's page a plan cannot be added from here: it is born under an initiative or a support ticket.
+  // Nor one its project's kind lacks (a system's hotfixes from before kinds: listed, not added to).
+  // On a goal's, only its tasks and notes are written here (a project, an initiative, a story is born in its project:
+  // "Add items…" brings it in).
+  const qa = !addable || (item.type === 'project' && t === 'plan') || (across && !['task', 'note'].includes(t)) ? null
+    : known ? known.qa : `Add ${(noun || def.label).toLowerCase()}…`;
+  return childTable(item, rerender, { type: t, title: label || def.plural, cols, qa, where });
+}
 
 /** One table per type its structure lists for its page (TypeDef.children), each turned on and able to hang from it.
  *  A table of only some of a type (child_tables: an initiative's Epics) shows once it holds one, archived or not. */
 function pageTables(item, rerender) {
-  const project = item.type === 'project';
+  const project = item.type === 'project' || item.type === 'goal'; // what lives in it, whatever it hangs from
+  const home = projectOf(item, state.all); // its project (Ticketing): only the types its kind holds, or it already has
+  const holds = (t) => !home || projectHas(home, t);
+  const held = (t) => state.all.some((k) => k.type === t && heldBy(item)(k));
   const some = TYPE_DEFS[item.type]?.child_tables || {};
-  return (TYPE_DEFS[item.type]?.children || [])
-    .filter((t) => isEnabled(t) && (project ? projectHas(item, t) : (PARENT_TYPES[t] || []).includes(item.type)))
+  const kinds = TYPE_DEFS[item.type]?.children || [];
+  // Its activities too (mail, Slack… that came in about it), last, once there are some: as on a card (relatedSections).
+  const activity = !project && !kinds.includes('activity') && held('activity') ? ['activity'] : [];
+  return [...kinds, ...activity]
+    .filter((t) => isEnabled(t) && (project || (PARENT_TYPES[t] || []).includes(item.type)) && (holds(t) || held(t)))
     .filter((t) => !some[t] || state.all.some((k) => k.type === t && heldBy(item)(k) && matchesWhere(k, some[t].where)))
-    .map((t) => {
-      const def = TYPE_DEFS[t];
-      const known = PAGE_TABLES[t];
-      const { label, noun, where } = some[t] || {};
-      // Without the columns every row of it shares: its parent, its project, the field its `where` fixes.
-      const cols = known?.cols || (def.list?.columns || ['id', 'subject', 'updated']).map(columnOf)
-        .filter((c) => c && c.key !== 'parent' && c.key !== 'project' && !(c.key === 'initiative' && item.type === 'initiative')
-          && !(where && c.key in where));
-      // On a project's page a plan cannot be added from here: it is born under an initiative or a support ticket.
-      const qa = project && t === 'plan' ? null : known?.qa || `Add ${(noun || def.label).toLowerCase()}…`;
-      return childTable(item, rerender, { type: t, title: label || def.plural, cols, qa, where });
-    });
+    .map((t) => kindTable(item, rerender, t, some[t], { addable: holds(t) }));
 }
+
+// Narrow (the columns stacked): the properties sit under the title (propertiesSection `inline`), so the side panel
+// hides its Properties tab (app.css) and opens on the next one.
+const NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)') : { matches: false };
 
 /**
- * The side panel, the same on an item's card and on its page:
- *   Details · the tracker and local folder (or the session), its links, its watchers, its work log, and its settings (a project's)
- *   Delivery · how it is carried out (a Ticketing ticket's executor, branch…): only for a type with such fields
- *   Relations · its project, parent, link fields, children and related
- *   Activity · comments · AI · its Claude conversations
+ * The side panel, the same on an item's card and on its page: one row of tabs, Properties first.
+ *   Properties · its fields, its outside ticket and local path, its watchers
+ *   Activity · comments · AI Agents · its Claude conversations
+ *   Relations · its project, parent, link fields, children and related (Docs is a tab of its own sections: itemTabs)
+ *   Time · its work log, last
+ * On a narrow screen Properties sits under the title instead (app.css), so the first tab there is Activity.
  */
-/** The Delivery tab: its fields in the groups the structure gives them (`group`, in order), each under its title, one
- *  field per row. Fields with no group (another structure's) make one section without a title. */
-function deliveryGroups(props, b) {
-  const groups = [];
-  for (const p of props) {
-    if (groups.at(-1)?.title !== (p.group || '')) groups.push({ title: p.group || '', icon: p.group_icon, props: [] });
-    groups.at(-1).props.push(p);
-  }
-  return groups.map((g) => h('section', { class: 'panel-section delivery-group' },
-    g.title ? h('h4', {}, g.icon ? icon(g.icon, 14) : null, g.title) : null,
-    h('div', { class: 'fields' }, g.props.map((p) => propField(b, p)))));
-}
-
 function sideTabs(item, rerender, current, onPick) {
   const f = item.fields;
-  const b = editBinding(item);
-  const settings = propsIn(item.type, 'details');
-  const delivery = propsIn(item.type, 'delivery');
+  const start = current === 'properties' && NARROW.matches ? 'activity' : current;
   return tabPanels([
-    { key: 'details', label: 'Details', content: [
-      settings.length ? h('section', { class: 'panel-section' }, h('h4', {}, icon('folder', 14), 'Settings'),
-        h('div', { class: 'fields' }, settings.map((p) => propField(b, p)))) : null,
-      externalRef(item, EXTERNAL_REF), links(item), watchers(item), workLog(item, rerender)] },
-    delivery.length ? { key: 'delivery', label: 'Delivery', content: deliveryGroups(delivery, b) } : null,
+    { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
+    { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) },
+    { key: 'ai', label: 'AI Agents', count: (f.claude_sessions || []).length, content: aiTab(item) },
     relationsTab(item, rerender),
-    docsTab(item, rerender),
-    { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false }) },
-    { key: 'ai', label: 'AI', count: (f.claude_sessions || []).length, content: aiTab(item) },
-  ].filter(Boolean), current, onPick);
+    // The time logged on it, last.
+    item.id ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
+  ].filter(Boolean), start, onPick);
 }
 
 /**
@@ -844,16 +1119,45 @@ function commentBox(attrs, onEnter) {
  * Activity: what happened to the item (created, converted, closed) and your
  * comments, oldest first, with the composer at the bottom — Enter adds one. ✎ edits a comment in place.
  */
-function activity(item, { heading = true } = {}) {
+/** Activity's entries (oldest first) cut by day, in order: [{ day: 'YYYY-MM-DD' | '', list }]. */
+function byDay(entries) {
+  const out = [];
+  for (const e of entries) {
+    const day = String(e.at || '').slice(0, 10);
+    if (out.length && out[out.length - 1].day === day) out[out.length - 1].list.push(e);
+    else out.push({ day, list: [e] });
+  }
+  return out;
+}
+
+// item key → { rev, entries }: its history (GET /api/item/history), asked once per version of it.
+const histories = new Map();
+
+function activity(item, { heading = true, rerender = null } = {}) {
   const f = item.fields;
+  // What changed on its status, priority, dates, plan, ticket and local path (tm/history.py), asked again when it changes.
+  const had = histories.get(item.key);
+  if (item.id && (!had || had.rev !== item.rev)) {
+    histories.set(item.key, { rev: item.rev, entries: had?.entries || [] });
+    api.itemHistory(item.key).then((out) => {
+      const entries = out.entries || [];
+      histories.set(item.key, { rev: item.rev, entries });
+      if (rerender && entries.length !== (had?.entries || []).length) rerender();
+    }, () => {});
+  }
+  const changes = histories.get(item.key)?.entries || [];
   const when = (stamp) => {
     const [d, t] = String(stamp || '').split('T');
     return d ? `${relDay(d)}${t ? ` · ${t}` : ''}` : '';
   };
+  // Its entries go under the name of their day (Today, Oct 20…): each says only its time, the whole moment on hover.
+  const clock = (stamp) => String(stamp || '').split('T')[1]?.slice(0, 5) || '';
   const events = [
     f.created_at ? { at: f.created_at, text: f.converted_from ? `Captured as ${f.converted_from}, converted to ${item.type}` : `Created as ${item.type}` } : null,
-    f.completed_at ? { at: f.completed_at, text: `Closed · ${f.status}` } : null,
+    // Closing, unless its history already says so (the status change at that moment).
+    f.completed_at && !changes.some((c) => c.field === 'status' && c.at === f.completed_at) ? { at: f.completed_at, text: `Closed · ${statusLabel(f.status)}` } : null,
     f.resolved_at ? { at: f.resolved_at, text: 'Resolved' } : null,
+    ...changes.map((c) => ({ at: c.at, text: historyText(c, EXTERNAL_REF || {}) })),
   ].filter(Boolean);
   const comments = (f.comments || []).map((c, index) => ({ ...c, index }));
   const entries = [...events.map((e) => ({ ...e, system: true })), ...comments].sort((a, b) => String(a.at).localeCompare(String(b.at)));
@@ -881,19 +1185,19 @@ function activity(item, { heading = true } = {}) {
     const editing = commentEdits.get(k);
     const redraw = () => card.replaceWith(commentCard(e));
     const head = h('header', {}, h('span', { class: 'activity-author' }, 'You'),
-      h('time', { class: 'muted small', datetime: e.at, title: e.edited ? `Edited ${when(e.edited)}` : null }, when(e.at)),
+      h('time', { class: 'muted small', datetime: e.at, title: e.edited ? `${when(e.at)} · edited ${when(e.edited)}` : when(e.at) }, clock(e.at)),
       e.edited ? h('span', { class: 'muted small', title: `Edited ${when(e.edited)}` }, '· edited') : null,
-      editing ? null : h('button', { class: 'btn icon', title: 'Edit comment', onclick: () => {
+      editing ? null : h('button', { class: 'btn icon hover-reveal', title: 'Edit comment', onclick: () => {
         commentEdits.set(k, { was: e.text, text: e.text });
         redraw();
         const ta = list.querySelector(`[data-fk="comment-${e.index}"]`);
         ta?.focus();
         ta?.setSelectionRange(ta.value.length, ta.value.length);
       } }, icon('pencil', 13)),
-      h('button', { class: 'btn icon', title: 'Delete comment', onclick: () => { commentEdits.delete(k); deleteComment(item.key, e.index); } }, icon('x', 13)));
+      h('button', { class: 'btn icon hover-reveal', title: 'Delete comment', onclick: () => { commentEdits.delete(k); deleteComment(item.key, e.index); } }, icon('x', 13)));
     let card;
     if (!editing) {
-      card = h('article', { class: 'activity-card' }, head, h('p', {}, ...withMentions(e.text)));
+      card = h('article', { class: 'activity-card surface-card hover-host' }, head, h('p', {}, ...withMentions(e.text)));
       return card;
     }
     const cancel = () => { commentEdits.delete(k); redraw(); };
@@ -910,7 +1214,7 @@ function activity(item, { heading = true } = {}) {
     box.input.value = editing.text;
     box.input.addEventListener('input', () => { editing.text = box.input.value; });
     box.input.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); cancel(); } }); // not the card's Esc
-    card = h('article', { class: 'activity-card editing' }, head, box.input,
+    card = h('article', { class: 'activity-card surface-card hover-host editing' }, head, box.input,
       h('div', { class: 'activity-edit-actions' },
         h('button', { class: 'btn small', onclick: cancel }, 'Cancel'),
         h('button', { class: 'btn small primary', onclick: save }, 'Save')));
@@ -920,9 +1224,11 @@ function activity(item, { heading = true } = {}) {
   const section = h('section', { class: 'panel-section activity' },
     heading ? h('h4', {}, icon('message', 14), 'Activity', comments.length ? h('span', { class: 'muted' }, ` · ${comments.length}`) : null) : null,
     h('div', { class: 'activity-list', role: 'log', 'aria-label': 'Activity' },
-      entries.length ? entries.map((e) => (e.system
-        ? h('div', { class: 'activity-event' }, h('span', {}, e.text), h('time', { class: 'muted small', datetime: e.at }, when(e.at)))
-        : commentCard(e)))
+      entries.length ? byDay(entries).map(({ day, list: dayEntries }) => h('div', { class: 'activity-day' },
+        h('span', { class: 'activity-day-name' }, day ? relDay(day) : 'Undated'),
+        ...dayEntries.map((e) => (e.system
+          ? h('div', { class: 'activity-event' }, h('span', {}, e.text), h('time', { class: 'muted small', datetime: e.at, title: when(e.at) }, clock(e.at)))
+          : commentCard(e)))))
         : h('p', { class: 'muted small' }, 'No activity yet.')),
     h('div', { class: 'activity-compose' }, input,
       h('button', { class: 'btn small primary', title: 'Add comment', onclick: add }, icon('arrow', 14))));
@@ -939,8 +1245,6 @@ function withFk(fk, bar) {
 }
 
 
-// Height at which a rendered description gets clipped behind "See more" (keep in sync with .md-wrap.clamped).
-const CLAMP_PX = 240;
 
 const FOCUSABLE = 'input, select, textarea, button, a[href]';
 
@@ -964,261 +1268,6 @@ function keepFocus(root, render) {
 }
 
 
-/** The text node and offset under a point (each browser has its own call), or null. */
-function caretAtPoint(x, y) {
-  if (document.caretPositionFromPoint) {
-    const p = document.caretPositionFromPoint(x, y);
-    return p ? { node: p.offsetNode, offset: p.offset } : null;
-  }
-  const r = document.caretRangeFromPoint?.(x, y);
-  return r ? { node: r.startContainer, offset: r.startOffset } : null;
-}
-
-/** A click on rendered Markdown → { offset in its source, y of the click }, or null when it cannot be placed. */
-function clickInSource(rendered, source, e) {
-  const at = caretAtPoint(e.clientX, e.clientY);
-  if (!at || at.node.nodeType !== Node.TEXT_NODE || !rendered.contains(at.node)) return null;
-  const before = document.createRange();
-  before.setStart(rendered, 0);
-  before.setEnd(at.node, at.offset);
-  const ratio = before.toString().length / Math.max(1, rendered.textContent.length);
-  const offset = sourceOffset(source, at.node.textContent, at.offset, ratio);
-  return offset < 0 ? null : { offset, y: e.clientY };
-}
-
-/** Where the character at `pos` sits on screen, measured on the coloured copy of the text behind the textarea. */
-function caretRect(code, pos) {
-  if (!code) return null;
-  const walk = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
-  for (let n = walk.nextNode(), seen = 0; n; n = walk.nextNode()) {
-    if (seen + n.length >= pos) {
-      const r = document.createRange();
-      r.setStart(n, pos - seen);
-      r.setEnd(n, Math.min(n.length, pos - seen + 1));
-      const rect = [...r.getClientRects()][0] || r.getBoundingClientRect();
-      return rect.height ? rect : null;
-    }
-    seen += n.length;
-  }
-  return null;
-}
-
-/** The nearest element around `el` that scrolls vertically. */
-function scrollerOf(el) {
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    if (p.scrollHeight > p.clientHeight && /(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
-  }
-  return null;
-}
-
-/**
- * A markdown text block: rendered in a bordered box that opens the editor on click (with
- * Markdown / Both / View and Done — or a click outside it), long text clipped behind "See more". What you type saves
- * itself AUTOSAVE_MS after you stop (and on blur); the title row says Saving… / Saved. The
- * item's description and an activity's resolution are two instances of it.
- *   configure({ label, emptyText, placeholder, title })  what to call it, set per item (title: the item's, for full screen)
- *   write(text) → Promise<string>                 saves a draft, returns the saved text
- *   heading() → nodes                             the title row's content (default: icon + label)
- */
-const AUTOSAVE_MS = 800;
-const RETRY_MS = [2000, 5000, 10000, 30000]; // a save that failed for any reason but a conflict (server down…) tries again, then every 30s
-
-function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls = '' }) {
-  let saved = '';
-  let autosave = null; // the pending save of what is being typed
-  let retries = 0; // failed saves in a row (not conflicts): how long until the next try
-  let changed = false; // the file changed on disk while a draft was open: the user picks which text wins
-  let inflight = null; // the save in progress: a second flush waits for it instead of sending the same text again
-  let draft = null; // unsaved text, or null when clean
-  let editing = false;
-  let expanded = false; // long text shown in full ("See less") instead of clipped ("See more")
-  let outside = null; // while editing: a press anywhere outside the block finishes, as Done does
-  const stopOutside = () => { if (outside) document.removeEventListener('pointerdown', outside, true); outside = null; };
-  let cfg = { label: 'Description', emptyText: 'Add a more detailed description…', placeholder: '', title: '' };
-  const el = h('div', { class: `body-wrap ${cls}` }); // kept across re-renders so the textarea never loses focus
-  // Full screen: the block covers the card (on a page, the window) until Close or Esc. Only a class on `el`,
-  // never a re-render, so an open editor keeps its text, caret and focus. The first Esc still leaves the
-  // editor (mdeditor.js onEscape: Done); the next one, caught here before the card's own Esc, leaves full screen.
-  const escFull = (e) => {
-    if (!el.isConnected) { document.removeEventListener('keydown', escFull, true); return; }
-    if (e.key !== 'Escape' || e.target.closest?.('textarea')) return;
-    e.preventDefault(); e.stopPropagation();
-    setFull(false);
-  };
-  const setFull = (on, focus = true) => {
-    el.classList.toggle('full', on);
-    if (on) document.addEventListener('keydown', escFull, true);
-    else document.removeEventListener('keydown', escFull, true);
-    if (focus) (el.querySelector('textarea') || el.querySelector(on ? '.body-full-close' : '.full-btn'))?.focus({ preventScroll: true });
-  };
-
-  const setStatus = (text) => { const s = el.querySelector('.unsaved'); if (s) s.textContent = text; };
-  const blk = {
-    el,
-    configure(next) { cfg = { ...cfg, ...next }; },
-    reset(text = '') { stopOutside(); clearTimeout(autosave); retries = 0; saved = text || ''; draft = null; editing = false; expanded = false; changed = false; setFull(false, false); el.replaceChildren(); },
-    /** The file changed on disk under an open draft: show the choice instead of silently overwriting. */
-    markChanged() { if (!changed) { changed = true; blk.render(); } },
-    isChanged: () => changed,
-    clearDraft() { clearTimeout(autosave); draft = null; },
-    hasUnsaved: () => draft !== null && draft !== saved,
-    isEditing: () => editing,
-    ready: () => el.childNodes.length > 0,
-    async flush() {
-      // A blur and a click can both ask to save the same text. Only one goes out: the other waits for it and then
-      // looks again, because the file's version has moved on and a second send would conflict with the first.
-      clearTimeout(autosave);
-      if (inflight) { await inflight; return blk.flush(); }
-      if (!blk.hasUnsaved()) { draft = null; return true; }
-      const sending = draft;
-      setStatus('Saving…');
-      inflight = (async () => {
-        try {
-          saved = await write(sending);
-          if (draft === sending) draft = null; // typed more meanwhile: that stays a draft
-          changed = false;
-          retries = 0;
-          setStatus(blk.hasUnsaved() ? '● unsaved' : 'Saved');
-          return true;
-        } catch (e) {
-          if (e.status === 409) { setStatus('● unsaved'); blk.markChanged(); return false; }
-          // Not saved and nothing to choose: keep the draft and try again on our own, without waiting for a keystroke.
-          const wait = RETRY_MS[Math.min(retries++, RETRY_MS.length - 1)];
-          setStatus(`● not saved — retrying in ${wait / 1000}s`);
-          clearTimeout(autosave);
-          autosave = setTimeout(() => { if (blk.hasUnsaved() && el.isConnected) blk.flush(); }, wait);
-          return false;
-        } finally { inflight = null; }
-      })();
-      return inflight;
-    },
-    render() {
-      const text = draft ?? saved;
-      stopOutside();
-      // `at` ({ offset, y }): opened by a click on the text — the caret goes where it was, and that line stays under
-      // the pointer. Without it (Edit, an empty block) the editor opens at the top.
-      const startEdit = (at = null) => {
-        editing = true;
-        blk.render();
-        const ta = el.querySelector('textarea');
-        if (!ta) return;
-        const pos = at ? at.offset : 0; // the value was set after creation, so the caret would sit at the end and scroll there
-        ta.setSelectionRange(pos, pos);
-        ta.focus({ preventScroll: true });
-        ta.scrollTop = 0;
-        if (!at) { el.scrollIntoView({ block: 'nearest' }); return; }
-        requestAnimationFrame(() => { // once the editor has its height
-          const line = caretRect(el.querySelector('.mde-hl code'), pos);
-          const box = line ? scrollerOf(ta) : null;
-          if (box) box.scrollTop += line.top - at.y;
-          else el.scrollIntoView({ block: 'nearest' });
-        });
-      };
-      // "Reload" takes what is on disk and drops the draft; "Keep mine" saves the draft over it.
-      const notice = changed ? h('div', { class: 'body-conflict', role: 'alert' },
-        h('span', {}, `This ${cfg.label.toLowerCase()} changed on disk while you were editing it.`),
-        h('button', { class: 'btn small', onmousedown: (e) => e.preventDefault(), onclick: async () => {
-          const theirs = fetchTheirs ? await fetchTheirs() : null;
-          if (theirs === null) return;
-          saved = theirs; draft = null; changed = false; editing = false; blk.render();
-        } }, 'Reload (drop mine)'),
-        h('button', { class: 'btn small primary', onmousedown: (e) => e.preventDefault(), onclick: async () => {
-          try { saved = await write(draft ?? saved, true); draft = null; changed = false; editing = false; blk.render(); } catch { /* toasted */ }
-        } }, 'Keep mine')) : null;
-      const toggle = h('div', { class: 'body-tabs' },
-        h('h4', {}, ...(heading ? heading() : [icon('text', 15), cfg.label])),
-        h('span', { class: 'muted unsaved small' }, blk.hasUnsaved() ? '● unsaved' : ''),
-        text.trim() ? h('button', {
-          class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,
-          onmousedown: (e) => e.preventDefault(), // while editing: no blur, no save
-          onclick: async () => {
-            const now = el.querySelector('textarea')?.value ?? draft ?? saved; // what is on screen, typed or not
-            try { await navigator.clipboard.writeText(now); toast(`${cfg.label} copied`); } catch { toast(`Could not copy the ${cfg.label.toLowerCase()}`, true); }
-          },
-        }, icon('copy', 14)) : null,
-        !editing && text.trim() ? h('button', { class: 'btn small', onclick: () => startEdit() }, icon('pencil', 13), 'Edit') : null,
-        h('button', { class: 'btn icon full-btn', title: 'Full screen', onmousedown: (e) => e.preventDefault(), onclick: () => setFull(true) }, icon('maximize', 14)));
-      // Shown only in full screen (CSS): the item's title and the way back.
-      const fullHead = h('div', { class: 'body-full-head' }, h('h2', {}, cfg.title || cfg.label),
-        h('button', { class: 'btn ghost body-full-close', title: 'Exit full screen (Esc)', onmousedown: (e) => e.preventDefault(), onclick: () => setFull(false) },
-          'Close', icon('restore', 14)));
-      let content;
-      if (editing) {
-        const mde = mdEditor({
-          value: text, minHeight, label: cfg.label, fk, highlight: 'markdown',
-          placeholder: cfg.placeholder,
-          // Esc is Done: back to the text as it reads once all is saved, waiting for a save still on its way.
-          onEscape: () => done(),
-          onInput: (v) => {
-            draft = v;
-            setStatus('● unsaved');
-            clearTimeout(autosave);
-            autosave = setTimeout(() => blk.flush(), AUTOSAVE_MS); // a 409 here shows the Reload / Keep mine choice
-          },
-        });
-        content = mde.el;
-        mde.textarea.addEventListener('blur', () => blk.flush());
-        mde.textarea.addEventListener('keydown', (e) => {
-          if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'Enter')) { e.preventDefault(); done(); }
-        });
-        // Everything typed is already saved (or about to be): Done saves what is pending and closes the editor.
-        const keep = (e) => e.preventDefault();
-        const done = () => blk.flush().then((ok) => { if (ok) { editing = false; blk.render(); } });
-        // A press outside the block (not in full screen, where the block is all there is) saves and leaves the
-        // editor, back to the text as it reads. A save that needs a choice (changed on disk) keeps it open.
-        outside = (e) => {
-          if (!el.isConnected) { stopOutside(); return; }
-          if (el.contains(e.target) || el.classList.contains('full') || e.target.closest?.('.menu')) return; // a menu of its toolbar (colours)
-          stopOutside();
-          done();
-        };
-        document.addEventListener('pointerdown', outside, true);
-        el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content, h('div', { class: 'body-actions' },
-          h('span', { class: 'muted small' }, 'Markdown · saves as you type · ⌘↵ to finish · Esc leaves the editor'),
-          h('button', { class: 'btn small primary', onmousedown: keep, onclick: done }, 'Done')));
-        return;
-      } else if (!text.trim()) {
-        content = h('button', { class: 'body-empty', onclick: () => startEdit() }, cfg.emptyText);
-      } else {
-        content = h('div', { class: 'md' });
-        // renderMarkdown() sanitizes with DOMPurify (and fails closed without it).
-        content.innerHTML = renderMarkdown(text);
-        // Make checklist boxes clickable: the n-th box toggles the n-th "[ ]"/"[x]" marker.
-        content.querySelectorAll('input[type=checkbox]').forEach((box, n) => {
-          box.disabled = false;
-          box.addEventListener('change', () => {
-            let i = -1;
-            draft = text.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
-              (++i === n ? `${pre}[${mark === ' ' ? 'x' : ' '}]` : m));
-            blk.flush();
-          });
-        });
-      }
-      if (editing || !text.trim()) { el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content); return; }
-
-      // A long description is clipped with a "See more" toggle; measured before the next paint.
-      const wrap = h('div', { class: 'md-wrap', title: 'Click to edit' }, content);
-      // One click anywhere in the box opens the editor, unless it was a link, a checklist box, or the end of a text selection.
-      wrap.addEventListener('click', (e) => {
-        if (e.target.closest('input, a') || window.getSelection().toString()) return;
-        startEdit(clickInSource(content, text, e));
-      });
-      const more = h('button', { class: 'btn small ghost see-more', hidden: true, onclick: () => {
-        expanded = !expanded;
-        wrap.classList.toggle('clamped', !expanded);
-        more.textContent = expanded ? 'See less' : 'See more';
-      } });
-      el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), wrap, more);
-      requestAnimationFrame(() => {
-        if (content.scrollHeight <= CLAMP_PX + 48) return; // not worth hiding a few lines
-        wrap.classList.toggle('clamped', !expanded);
-        more.textContent = expanded ? 'See less' : 'See more';
-        more.hidden = false;
-      });
-    }
-  };
-  return blk;
-}
 
 /**
  * One editor instance. `host()` is the element it renders into, `layout` arranges
@@ -1235,7 +1284,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
 
   // The description (a "message" for an activity) saves as the file's content; an activity's resolution as a field.
   const body = mdBlock({
-    fk: 'body', minHeight: editorMinHeight,
+    fk: 'body', minHeight: editorMinHeight, fold: 'description',
     write: async (text, force = false) => {
       savingBody = true;
       try {
@@ -1309,7 +1358,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         : item.type === 'transcription'
           ? { label: 'Transcript', emptyText: 'Paste the transcript…', placeholder: 'Paste the transcript of the meeting' }
           : { label: 'Description', emptyText: 'Add a more detailed description…', placeholder: 'Markdown… use "- [ ] step" for checklists' });
-    body.configure({ title: item.title });
+    body.configure({ title: item.title, tabbed: item.type !== 'prompt' }); // in its Description tab (a prompt has no tabs)
     const remove = async () => {
       blocks.forEach((b) => b.clearDraft());
       try { await deleteItem(item.key); } catch { return; }
@@ -1317,9 +1366,21 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
       onGone();
     };
     const more = h('button', { class: 'btn icon', title: 'More actions', 'aria-haspopup': 'menu' }, icon('more', 16));
+    // Copy path, Expand (on a card, not a prompt's: a page has none), Archive (and a note's Convert to doc…), Delete.
     more.addEventListener('click', () => {
       let armed = false;
+      const onCard = modal().contains(more) && !modal().classList.contains('is-prompt'); // the card, not a page
+      // On a phone the head keeps Claude, ⋯ and × only: Pin and Minimize move in here.
+      const phone = typeof matchMedia === 'function' && matchMedia(PHONE).matches;
+      const pinBtn = phone ? more.parentElement?.querySelector('.btn.pin') : null;
+      const minBtn = phone ? more.parentElement?.querySelector('.btn.minimize') : null;
       dropdown(more, [
+        pinBtn ? { label: pinBtn.title, icon: 'pin', onSelect: () => pinBtn.click() } : null,
+        minBtn ? { label: 'Minimize to the top bar', icon: 'minimize', onSelect: () => minBtn.click() } : null,
+        pinBtn || minBtn ? '-' : null,
+        item.path ? { label: 'Copy path', icon: 'copy', title: 'Copy the full path of this item', onSelect: () => copyPath(item) } : null,
+        onCard ? expandAction() : null,
+        item.path || onCard ? '-' : null,
         { label: f.archived ? 'Unarchive' : 'Archive', icon: 'archive', onSelect: () => setArchived(item, !f.archived).catch(() => {}) },
         item.type === 'note' ? { label: 'Convert to doc…', icon: 'book', onSelect: () => setTimeout(() => convertToDoc(item, more, () => { current = null; onGone(); })) } : null,
         '-',
@@ -1330,9 +1391,18 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         } },
       ], { align: 'end' });
     });
-    const subject = h('input', { type: 'text', class: 'title-input', value: item.title, 'aria-label': 'Subject', 'data-fk': 'subject' });
+    // The subject wraps instead of being cut (a phone, a long subject): a one-line textarea that grows with its text.
+    // Enter still ends it, and a line break pasted in becomes a space — a subject is one line in the file.
+    const subject = h('textarea', { class: 'title-input', rows: '1', 'aria-label': 'Subject', 'data-fk': 'subject', spellcheck: 'false' });
+    subject.value = item.title;
+    const fit = () => { if (!subject.isConnected) return; subject.style.height = 'auto'; if (subject.scrollHeight) subject.style.height = `${subject.scrollHeight + 2}px`; };
+    subject.addEventListener('input', () => {
+      if (/[\r\n]/.test(subject.value)) subject.value = subject.value.replace(/[\r\n]+/g, ' ');
+      fit();
+    });
+    requestAnimationFrame(fit);
     subject.addEventListener('change', () => subject.value.trim() && save(item, { subject: subject.value.trim() }));
-    subject.addEventListener('keydown', (e) => { if (e.key === 'Enter') subject.blur(); });
+    subject.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); subject.blur(); } });
     // Someone else (Claude, Obsidian, an editor) changed the description on disk: show it if nothing is being written, else ask.
     // Acted on once per new version the list reports (never in a loop: `bodyRev` comes from a fresh read, the list from an
     // older one, and the two may differ until the next reload without anything having changed since).
@@ -1354,11 +1424,11 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     if (item.type === 'activity' && (!resolution.isEditing() || !resolution.ready())) resolution.render();
 
     const ctx = {
-      subject, bodyEl: body.el, resolutionEl: item.type === 'activity' ? resolution.el : null, more, pin: pinButton(item), minimize: minimizeButton(), sidebar: sidebarButton(item), copyPath: copyPathButton(item), claude: claudeButton(item), rerender: () => ed.render(),
+      subject, bodyEl: body.el, resolutionEl: item.type === 'activity' ? resolution.el : null, more, pin: pinButton(item), minimize: minimizeButton(), sidebar: sidebarButton(item), claude: claudeButton(item), rerender: () => ed.render(),
       foot: h('footer', { class: 'drawer-foot' },
-        h('span', {}, `Created ${f.created_at || '—'} · Updated ${f.updated_at || '—'}`
-          + (f.completed_at ? ` · Closed ${f.completed_at}` : '')),
-        h('span', { class: 'mono', title: item.path }, item.path)),
+        h('span', { title: [`Created ${f.created_at || '—'}`, `Updated ${f.updated_at || '—'}`, f.completed_at ? `Closed ${f.completed_at}` : ''].filter(Boolean).join('\n') },
+          `Created ${stampLabel(f.created_at) || '—'} · Updated ${stampLabel(f.updated_at) || '—'}`
+          + (f.completed_at ? ` · Closed ${stampLabel(f.completed_at)}` : ''))), // its file: ⋯ → Copy path
     };
     // The columns scroll inside the modal and are rebuilt on every render: put their scroll back (a new item starts at the top).
     const keepScroll = scrollFor === current;
@@ -1385,7 +1455,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
 export async function convertTo(item, type, values = {}) {
   let out;
   try { out = await convertItem(item.key, type, values); } catch { return; } // toasted
-  toast(`${item.id} is now ${out.id}`);
+  toast(`${refOf(item)} is now ${refOf(out)}`);
   show(out.id, { parent: parentView }); // the converted item takes the place of the inbox one
 }
 
@@ -1404,13 +1474,13 @@ function ticketActions(item) {
   if (item.type !== 'support' || isDone(item) || f.promoted_to || f.escalated_to) return [];
   const project = state.items.find((i) => i.type === 'project' && i.fields.project_key === f.project);
   const run = (action) => itemAction(action, item.key).then((out) => {
-    toast(`${item.id} ${action === 'promote' ? 'promoted to' : 'escalated to'} ${out.created.id}`);
+    toast(`${refOf(item)} ${action === 'promote' ? 'promoted to' : 'escalated to'} ${refOf(out.created)}`);
     openItem(out.created.key);
   }).catch(() => {});
   return [
     isEnabled('initiative') ? h('button', { class: 'btn small', title: 'Create an initiative from it (origin: this ticket); this one waits on hold until it is done',
       onclick: () => run('promote') }, icon('target', 13), 'Promote') : null,
-    isEnabled('hotfix') && (project?.fields.enabled_types || []).includes('hotfix')
+    isEnabled('hotfix') && !!project && projectHas(project, 'hotfix')
       ? h('button', { class: 'btn small', title: 'Create a hotfix from it (born in ToDo); this one waits on hold until it is done',
         onclick: () => run('escalate') }, icon('flame', 13), 'Escalate') : null,
   ];
@@ -1420,37 +1490,40 @@ function ticketActions(item) {
 // One layout for every item type (modalFrame, itemFields): the type decides which
 // properties and sections show up, not where they sit.
 //   main: title · properties · description · related tables · (activity: resolution) · foot
-//   side: tabs (sideTabs) — Details · Delivery (when the type has it) · Relations · Activity · AI
-let sideTab = 'details'; // the side tab in use: kept while the modal re-renders, back to Details whenever an item is opened
+//   side: tabs (sideTabs) — Properties · Activity · AI Agents · Relations · Time
+// The tabs in use, main and side: kept while the card re-renders, back to the first ones whenever an item is opened
+// (a minimized card or Back brings its own back: snapshot).
+let sideTab = 'properties';
+let mainTab = null;
 
 function modalLayout(item, c) {
   const f = item.fields;
   modal().classList.toggle('is-prompt', item.type === 'prompt'); // a prompt keeps the smaller card: one column, nothing beside it
   const parent = f.related_to ? state.byId.get(f.related_to) : null;
   const back = parentView ? state.all.find((i) => i.key === parentView.key) : null;
+  const kids = item.type === 'prompt' ? { work: [], groups: [] } : splitChildren(relatedSections(item, c.rerender));
   return modalFrame({
     head: [
       back ? h('button', { class: 'btn small ghost im-back', title: 'Back', onclick: goBack },
-        icon('left', 14), `${back.id || ''} ${back.title}`.trim()) : null,
+        icon('left', 14), `${refOf(back)} ${back.title}`.trim()) : null,
       h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), TYPE_DEFS[item.type]?.label || item.type),
-      h('span', { class: 'mono' }, item.id || pageRef(item) || 'no id'),
+      h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
       parent ? h('span', { class: 'muted small im-in' }, 'in ',
         h('button', { class: 'link', ...opener(parent, openFromItem) }, parent.title)) : null,
       f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
       item.type === 'activity' ? (f.resolved_at ? h('span', { class: 'chip ok' }, icon('check', 12), 'resolved') : h('span', { class: 'chip warn' }, 'unresolved')) : null,
       h('span', { class: 'spacer' }),
-      // Claude first, left of everything else (on the page only the Favourites star goes before it).
-      c.claude, item.type === 'inbox' ? convertButton(item) : resolveButton(item), ...ticketActions(item), c.pin, c.minimize, c.copyPath, c.more,
-      item.type === 'prompt' ? null : expandButton(),
+      // An inbox item's Convert to and an activity's Mark resolved first, then Claude, left of the rest (on the page too,
+      // with the Favourites star right after Claude).
+      item.type === 'inbox' ? convertButton(item) : resolveButton(item), c.claude, ...ticketActions(item), c.pin, c.minimize, c.more,
       h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
     ],
-    title: modalTitle(item.type, c.subject),
+    title: modalTitle(item.type, c.subject, item.type === 'prompt' ? null : statusSelect(editBinding(item))),
     main: [
-      h('div', { class: 'im-props' }, itemFields(editBinding(item))),
-      h('section', { class: 'im-section' }, c.bodyEl),
-      item.type === 'prompt' ? null : attachmentsSection(item), // its files, right under what it says
-      c.resolutionEl ? h('section', { class: 'panel-section' }, c.resolutionEl) : null,
-      childTabs(item, relatedSections(item, c.rerender)),
+      // A prompt keeps its few fields here (it has no side column); everything else has them at the top of its side.
+      item.type === 'prompt' ? h('div', { class: 'im-props' }, itemFields(editBinding(item))) : propertiesSection(item, { inline: true }),
+      // Its own sections in one tab bar (a prompt has only what it says), then what hangs from it.
+      item.type === 'prompt' ? h('section', { class: 'im-section' }, c.bodyEl) : itemTabs(item, c, kids, mainTab, (k) => { mainTab = k; }),
       c.foot,
     ],
     sideClass: 'tabbed',
@@ -1470,6 +1543,7 @@ let parentView = null; // { key, tab, mainTop, panelTop }
 const snapshot = () => ({
   key: modalEd.key,
   tab: sideTab,
+  main: mainTab,
   mainTop: mainScroller(modal())?.scrollTop || 0,
   panelTop: modal().querySelector('.tab-panel:not([hidden])')?.scrollTop || 0,
 });
@@ -1517,11 +1591,14 @@ const modalEd = createEditor({
   onTitle: setCardTitle,
 });
 
-/** Shows an item in the modal; a type with a page (rules.js hasPage) opens it instead. `parent` is the snapshot to go back to, `restore` one to come back to. */
-async function show(itemOrKey, { parent = null, restore = null } = {}) {
+/**
+ * Shows an item in the modal; a type with a page (rules.js hasPage) opens it instead, unless `card` (it opens as a card
+ * over the view, as from a canvas). `parent` is the snapshot to go back to, `restore` one to come back to.
+ */
+async function show(itemOrKey, { parent = null, restore = null, card = false } = {}) {
   const known = typeof itemOrKey === 'string'
     ? state.byId.get(itemOrKey) || state.all.find((i) => i.key === itemOrKey) : itemOrKey;
-  if (hasPage(known)) {
+  if (hasPage(known) && !card) {
     if (modalEd.isOpen()) await closeAll();
     location.hash = pageHref(known); // a route, not a modal: there is nothing to go back to
     return true;
@@ -1530,7 +1607,8 @@ async function show(itemOrKey, { parent = null, restore = null } = {}) {
   if (!(await modalEd.load(itemOrKey))) return false;
   unminimize(modalEd.key); // open again, from its chip or from anywhere: no longer minimized
   parentView = parent;
-  sideTab = restore?.tab || 'details';
+  sideTab = restore?.tab || 'properties';
+  mainTab = restore?.main || null;
   if (!wasOpen) returnFocus = document.activeElement;
   backdrop().hidden = false;
   backdrop().onmousedown = (e) => { if (e.target === backdrop()) closeItem(); };
@@ -1550,6 +1628,9 @@ async function show(itemOrKey, { parent = null, restore = null } = {}) {
 
 /** Opens an item from anywhere in the app (a list, the palette, a pin): no history. */
 export const openItem = (itemOrKey) => show(itemOrKey);
+
+/** Opens an item as a card over the view even when its type has a page (a goal from a canvas): closing it, you are where you were. */
+export const openItemCard = (itemOrKey) => show(itemOrKey, { card: true });
 
 /** Opens an item from inside the open one: closing it comes back here. */
 export async function openFromItem(itemOrKey) {
@@ -1590,53 +1671,11 @@ export const hasUnsaved = () => [...editors].some((e) => e.hasUnsaved());
 export const renderPanel = () => modalEd.render();
 
 // ── an item's page (#/<type>/:ref) ───────────────────────────────────────────
-/** A scorecard: what it measures, the number, an optional bar and a line of detail. */
-function stat(label, value, { sub = null, pct = null } = {}) {
-  return h('div', { class: 'stat' },
-    h('span', { class: 'stat-label' }, label),
-    h('b', {}, value),
-    pct === null ? null : h('div', { class: 'progress', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, h('div', { style: `width:${pct}%` })),
-    sub ? h('span', { class: 'stat-sub' }, sub) : null);
-}
-
-let pageTab = 'details'; // the right panel's tab, kept while the page re-renders
+// A page's tabs, main and side: kept while it re-renders, back to the first ones when a page is opened (createPageEditor).
+let pageTab = 'properties';
+let pageMainTab = null;
 const SIDE_KEY = 'tm.iniSidePanel'; // its side panel folded or not: one choice for every page (named when only initiatives had one)
 
-/** The scorecards at the top of a page: what is done of it (an initiative, a PRD), or what its project holds open. */
-function pageStats(item) {
-  if (item.type === 'project') {
-    const mine = state.items.filter(heldBy(item));
-    const open = (t) => mine.filter((k) => k.type === t && !isDone(k));
-    const late = open('support').filter(isOverdue).length;
-    return [
-      ...['initiative', 'support', 'hotfix'].filter((t) => isEnabled(t) && TYPE_DEFS.project.children.includes(t) && projectHas(item, t)).map((t) => {
-        const all = mine.filter((k) => k.type === t).length;
-        return stat(TYPE_DEFS[t].plural, open(t).length, { sub: all ? `open of ${all}` : 'None yet' });
-      }),
-      isEnabled('support') ? stat('Overdue', late, { sub: late ? 'support past its due date' : 'No support overdue' }) : null,
-    ];
-  }
-  const days = new Set(logOf(item.id).map((e) => e.date)).size;
-  const p = progress(item.id);
-  const stories = childrenOf(item.id).filter((k) => k.type === 'story');
-  const storiesClosed = stories.filter(isDone).length;
-  return [
-    stat('Progress', `${p.pct}%`, { pct: p.pct, sub: p.total ? `${p.done} of ${p.total} closed` : 'No tasks yet' }),
-    stat('Open', p.total - p.done, { sub: p.total ? `of ${p.total} task${p.total > 1 ? 's' : ''}` : 'No tasks yet' }),
-    stat('Days', days, { sub: days ? `${sumTime(logOf(item.id))} logged` : 'None logged' }),
-    isEnabled('story') && (TYPE_DEFS[item.type]?.children || []).includes('story')
-      ? stat('Stories', stories.length ? `${storiesClosed}/${stories.length}` : '—', { sub: stories.length ? 'closed' : 'None yet' }) : null,
-  ];
-}
-
-/** Under the title: its status (or, for a project, its key and kind) and when it last changed. */
-function pageMeta(item) {
-  const f = item.fields;
-  const lead = item.type === 'project'
-    ? [h('span', { class: 'chip project-chip mono' }, f.project_key || '—'), f.project_kind ? h('span', { class: 'chip' }, f.project_kind) : null]
-    : hasField(item.type, 'status') ? [statusChip(item)] : [];
-  return h('div', { class: 'page-meta' }, ...lead, h('span', { class: 'muted small' }, `Updated ${String(f.updated_at || '—').replace('T', ' ')}`));
-}
 
 /**
  * An item's page (#/<type>/<ref>), for every type with one (an initiative; in Ticketing a project and a PRD too):
@@ -1647,39 +1686,37 @@ function pageLayout(item, c, rerender) {
   const f = item.fields;
   const def = TYPE_DEFS[item.type] || {};
   const parent = f.related_to ? state.byId.get(f.related_to) : null;
-  const project = hasProject(item.type) ? projectOf(item) : null;
+  const project = hasProject(item.type) ? projectOf(item, state.all) : null;
   const up = parent || project; // where the crumbs lead: its parent, else the project it lives in
   const body = h('div', { class: 'page-body' });
   const crumbs = h('nav', { class: 'crumbs' },
     h('a', { href: `#/${def.route || 'today'}` }, def.plural || item.type),
     up ? [icon('right', 13), h('a', { href: itemHref(up) }, up.title)] : null,
     icon('right', 13),
-    h('span', { class: 'mono' }, item.id || pageRef(item) || 'no id'),
+    h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
     f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
     h('span', { class: 'spacer' }),
-    c.sidebar, c.claude, c.pin, c.copyPath, c.more);
+    c.claude, c.sidebar, c.pin, c.more); // Claude first, then the Favourites star, as on the card; Copy path in ⋯
 
+  // What hangs from it, one table per kind its structure lists for its page, turned on and able to hang from it: its
+  // issues in tabs of their groups (Initiatives, Issues, Briefs, Records), its work and records in Overview under its description (splitChildren). Every other link
+  // (sub-initiatives, its PRD, its plan…) lives in the Relations tab of the side panel.
+  const kids = splitChildren(pageTables(item, rerender), { flat: item.type === 'goal' });
   const main = [
-    c.subject,
-    pageMeta(item),
-    h('div', { class: 'page-stats' }, ...pageStats(item)),
-    h('section', { class: 'panel-section props' }, h('h4', {}, 'Properties'), itemFields(editBinding(item))),
-    h('section', { class: 'panel-section' }, c.bodyEl),
-    attachmentsSection(item),
-    // What hangs from it, one tab per kind its structure lists for its page, turned on and able to hang from it.
-    // Every other link (sub-initiatives, its PRD, its plan…) lives in the Relations tab of the side panel.
-    childTabs(item, pageTables(item, rerender)),
+    h('div', { class: 'page-title' }, c.subject, statusSelect(editBinding(item))), // its properties are in the side column
+    propertiesSection(item, { inline: true }), // …or here, on a narrow screen
+    itemTabs(item, c, kids, pageMainTab, (k) => { pageMainTab = k; }), // its own sections in one tab bar, its children among them
     c.foot,
   ];
   const side = sideTabs(item, rerender, pageTab, (key) => { pageTab = key; });
-  body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, sideFold(body, SIDE_KEY), ...side));
+  body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, sideFold(body, SIDE_KEY), ...[side].flat()));
   return [crumbs, body];
 }
 
-const statusChip = (item) => statusPill(item.fields.status || 'Backlog');
-
 /** An editor that renders an item as a full page inside `container`. */
 export function createPageEditor(container, { onGone }) {
+  pageTab = 'properties';
+  pageMainTab = null;
   const ed = createEditor({
     host: () => container,
     layout: (item, c) => { container.classList.add('two-panel'); return pageLayout(item, c, () => ed.render()); },

@@ -3,8 +3,10 @@
 
     python3 tools/seed_sample_vault.py
 
-sample-vault/            the folder-per-type structure: every type it has (prompts and transcriptions too)
-sample-vault-ticketing/  the Ticketing structure: two projects and every type, from support to learnings
+sample-vault/            the Projects structure, the one a new vault gets: a project of each kind (product, agentic
+                         system, simple) and every type, from support to learnings
+sample-vault-legacy/     the legacy Initiatives structure (folder per type), every type it has: what its tests and
+                         tools/migrate_structures.py read until that structure is retired
 
 Both carry people and groups (Contacts) with their details, labels, docs, work-log days and a favourite, so every screen has something to
 show. tests/test_samples.py checks that each matches its structure and has an item of every type.
@@ -19,8 +21,8 @@ sys.path.insert(0, APP_DIR)
 from tm.store import Store  # noqa: E402
 from tm.structures.ticketing.definition import ROOT_FOLDERS, WORKLOG_FOLDER  # noqa: E402
 
-FOLDERS_VAULT = os.path.join(APP_DIR, 'sample-vault')
-TICKETING_VAULT = os.path.join(APP_DIR, 'sample-vault-ticketing')
+FOLDERS_VAULT = os.path.join(APP_DIR, 'sample-vault-legacy')
+TICKETING_VAULT = os.path.join(APP_DIR, 'sample-vault')
 
 PEOPLE = {
     'Ana': {'emails': ['ana@example.com'], 'calendar_name': 'Ana García', 'slack': '@ana',
@@ -65,12 +67,12 @@ def seed_folders(path=FOLDERS_VAULT):
     people_and_labels(s, ['pricing', 'growth', 'ops'])
     s.create('initiative', 'Pricing revamp', {
         'status': 'InProgress', 'priority': 'High', 'plan_week': week(t), 'sidebar': True, 'labels': ['pricing'],
-        'redmine_id': '4521', 'redmine_url': 'https://redmine.example.com/issues/4521', 'local_path': '~/Documents',
+        'ticket_id': '4521', 'ticket_url': 'https://redmine.example.com/issues/4521', 'local_path': '~/Documents',
         'url': 'https://www.notion.so/pricing-revamp',
         'links': [{'label': 'Figma', 'url': 'https://www.figma.com/file/pricing'}]},
         '## Goal\n\nSimplify pricing to three plans.\n\n## Context\n\nChurn is concentrated in the legacy plans.\n')
     s.create('story', 'As a buyer I see three plans side by side', {
-        'related_to': 'INI-0001', 'status': 'InProgress', 'redmine_id': '4522', 'redmine_url': 'https://redmine.example.com/issues/4522'})
+        'related_to': 'INI-0001', 'status': 'InProgress', 'ticket_id': '4522', 'ticket_url': 'https://redmine.example.com/issues/4522'})
     s.create('story', 'As an admin I can change plan prices', {'related_to': 'INI-0001', 'status': 'Backlog'})
     s.create('initiative', 'Onboarding emails', {'status': 'Backlog', 'priority': 'Normal', 'sidebar': True, 'labels': ['growth']})
     s.create('task', 'Benchmark competitor pricing', {
@@ -105,16 +107,16 @@ def seed_folders(path=FOLDERS_VAULT):
     s.make_folder('docs/Handbook', parents=True)
     s.create_file('docs/Handbook/Pricing principles.md',
                   '# Pricing principles\n\n- Three plans, no more.\n- Prices end in 0.\n- Annual saves two months.\n')
-    s.log_work('TSK-0001', 'Analysis', 'competitor list', y.isoformat())
-    s.log_work('INI-0001', 'Meeting', 'kick-off', y.isoformat())
-    s.log_work('TSK-0006', 'Testing', '', y.isoformat())
-    s.log_work('TSK-0001', 'Analysis', 'captured plans', t.isoformat())
-    s.log_work('TSK-0002', 'Definition', '', t.isoformat())
+    s.log_work('TSK-0001', 'Analysis', 'competitor list', y.isoformat(), time='00:45')
+    s.log_work('INI-0001', 'Meeting', 'kick-off', y.isoformat(), time='00:45')
+    s.log_work('TSK-0006', 'Testing', '', y.isoformat(), time='00:30')
+    s.log_work('TSK-0001', 'Analysis', 'captured plans', t.isoformat(), time='01:30')
+    s.log_work('TSK-0002', 'Definition', '', t.isoformat(), time='01:00')
     return path
 
 
 def seed_ticketing(path=TICKETING_VAULT):
-    """The Ticketing sample: projects as folders, KEY-TYPE-NNN ids, every type of the structure."""
+    """The Ticketing sample: projects as folders, short ids (`STY-5`), every type of the structure."""
     fresh(path)
     for folder in (*ROOT_FOLDERS.values(), WORKLOG_FOLDER):
         os.makedirs(os.path.join(path, folder), exist_ok=True)
@@ -126,6 +128,8 @@ def seed_ticketing(path=TICKETING_VAULT):
              'The customer-facing shop: catalogue, cart and checkout.\n')
     s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'},
              'The scripts and dashboards the team runs on.\n')
+    s.create('project', 'Office Move', {'project_key': 'MOVE', 'project_kind': 'simple'},
+             'Moving the team to the new office: nothing to deliver, just initiatives and their tasks.\n')
     ini = s.create('initiative', 'Checkout redesign', {'project': 'ACME', 'sidebar': True, 'labels': ['checkout']},
                    '## Goal\n\nA one-page checkout that keeps more carts.\n')['id']
     sup = s.create('support', 'Invoice email arrives empty', {'project': 'ACME', 'level': 'C2', 'origin': 'customer', 'labels': ['billing']},
@@ -148,28 +152,34 @@ def seed_ticketing(path=TICKETING_VAULT):
                                                         'plan_day': t.isoformat(), 'plan_week': week(t)})
     s.create('task', 'Draft the empty-invoice reply', {'project': 'ACME', 'related_to': sup, 'plan_week': week(t)})
     s.create('task', 'Clean up old feature flags', {})
+    move = s.create('initiative', 'Set up the new office', {'project': 'MOVE', 'labels': ['infra']})['id']
+    s.create('task', 'Order the desks', {'project': 'MOVE', 'related_to': move, 'plan_week': week(t)})
     s.create('hotfix', 'Restore the invoice template', {'project': 'ACME', 'related_to': sup, 'labels': ['billing']})
     s.create('prd', 'One-page checkout', {'project': 'ACME', 'related_to': ini},
              '## Problem\n\nFour steps lose a third of the carts.\n\n## Scope\n\nAddress, shipping and payment on one page.\n')
-    s.create('plan', 'Plan', {'project': 'ACME', 'related_to': ini}, '1. Map the steps\n2. Prototype\n3. A/B test\n')
+    s.create('plan', 'Roll out the one-page checkout', {'project': 'ACME', 'related_to': ini}, '1. Map the steps\n2. Prototype\n3. A/B test\n')
     s.create('analysis', 'Why carts are abandoned', {'project': 'ACME', 'related_to': ini})
     s.create('error', 'Coupon applied twice', {'project': 'ACME', 'related_to': sup})
     s.create('learning', 'Flags before big UI changes', {'project': 'ACME', 'related_to': ini})
-    s.create('meeting', 'Checkout review', {'project': 'ACME', 'related_to': ini, 'date': y.isoformat(), 'time': '11:00',
-                                            'attendees': ['Ana', 'Marta']}, '- Agreed on one page.\n')
+    mtg = s.create('meeting', 'Checkout review', {'project': 'ACME', 'related_to': ini, 'date': y.isoformat(), 'time': '11:00',
+                                                  'attendees': ['Ana', 'Marta']}, '- Agreed on one page.\n')['id']
+    s.create('transcription', 'Checkout review transcript', {'project': 'ACME', 'related_to': mtg, 'labels': ['checkout']},
+             'Ana: Four steps is too many.\nMarta: Then one page, and we measure the carts kept.\n')
     s.create('note', 'Payment providers', {'project': 'ACME', 'labels': ['checkout']}, '- Stripe\n- Adyen\n')
     s.create('agent', 'Support triage agent', {}, 'Reads new support tickets and suggests their level.\n')
     s.create('activity', 'Re: empty invoice', {'source': 'Email', 'from': 'Ana', 'related_to': sup, 'date': y.isoformat()},
              'Same here: the invoice email has no attachment and no total.\n')
     s.create('inbox', 'Try passkeys for login', {})
+    s.create('prompt', 'Support reply', {'labels': ['billing']},
+             'Draft a reply to this support ticket: say what we found, what we did, and when the customer will see it fixed.\n')
     s.make_folder('Docs/Team', parents=True)
     s.make_folder('Acme Web/Docs/Architecture', parents=True)
     s.create_file('Docs/Team/How we ship.md', '# How we ship\n\nEvery change goes through a pull request and a review.\n')
     s.create_file('Acme Web/Docs/Architecture/Overview.md', '# Overview\n\nA web shop in front of the payments API.\n')
     first_task = next(i['id'] for i in s.items() if i['type'] == 'task')
-    s.log_work(first_task, 'Analysis', 'steps mapped', y.isoformat())
-    s.log_work(ini, 'Meeting', 'review', y.isoformat())
-    s.log_work(first_task, 'Definition', '', t.isoformat())
+    s.log_work(first_task, 'Analysis', 'steps mapped', y.isoformat(), time='01:15')
+    s.log_work(ini, 'Meeting', 'review', y.isoformat(), time='00:30')
+    s.log_work(first_task, 'Definition', '', t.isoformat(), time='02:00')
     return path
 
 

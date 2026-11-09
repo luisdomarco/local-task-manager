@@ -4,7 +4,7 @@
     python3 server.py            # http://127.0.0.1:3100
 
 Config lives in config.json next to this file (created from the Settings screen;
-see config.example.json). Without it, the bundled sample-vault/ is used.
+see config.example.json). Without it, the bundled sample-vault/ (a Projects vault) is used.
 """
 
 import json
@@ -28,17 +28,18 @@ import errno
 import queue
 import signal
 
-from tm import attachments, export, journal
+from tm import agentsmd, attachments, export, journal
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
-                       ide_open_url, resume_flags, session_flags, session_updated, transcript_path)
+                       ide_open_url, recent_sessions, resume_flags, session_facts, session_flags, session_folders, session_updated,
+                       transcript_path)
 from tm.chat import CHAT_MODES, Chat, Chats, chat_flags, session_files
 from tm.pty import MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS, Terms, dim
 from tm.transcript import history as transcript_history
 from tm.store import (ACTIVITY_SOURCES, DEFAULT_FOLDERS, DEFAULT_WORK_KINDS, ITEM_TYPES, PARENT_TYPES, PRIORITIES,
                       META_DIR, STATUSES, Store, StoreError, clean_instruction, now_stamp)
-from tm.structures import DEFAULT_STRUCTURE, REGISTRY, STRUCTURES
+from tm.structures import DEFAULT_STRUCTURE, LEGACY_STRUCTURES, REGISTRY, STRUCTURES, UNNAMED_STRUCTURE
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(APP_DIR, 'static')
@@ -85,18 +86,23 @@ VAULT_ID_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,31}$')
 
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
+    own = {}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, encoding='utf-8') as f:
-            cfg.update(json.load(f))
+            own = json.load(f)
+        cfg.update(own)
     cfg['folders'] = {**DEFAULT_FOLDERS, **cfg.get('folders', {})}
     cfg['claude_paths'] = clean_paths(cfg.get('claude_paths'), cfg.get('claude_cwd'))
     cfg['claude_path_names'] = clean_names(cfg.get('claude_path_names'), cfg['claude_paths'])
     # A config from before there were vaults: its root becomes the one vault, in memory only. The file is
-    # left as it is until the next save from Settings (which keeps a copy of it first).
+    # left as it is until the next save from Settings (which keeps a copy of it first). A root it names was an
+    # Initiatives vault then; with no config at all, the root is the bundled sample, a Projects vault.
     if not isinstance(cfg.get('vaults'), list) or not cfg['vaults']:
-        cfg['vaults'] = [{'id': DEFAULT_STRUCTURE, 'name': STRUCTURES[DEFAULT_STRUCTURE]['label'], 'path': cfg['root'],
-                          'structure': DEFAULT_STRUCTURE, 'folders': cfg['folders']}]
-    cfg['vaults'] = [{**v, 'structure': v.get('structure') or DEFAULT_STRUCTURE} for v in cfg['vaults'] if isinstance(v, dict)]
+        sid = UNNAMED_STRUCTURE if own.get('root') else DEFAULT_STRUCTURE
+        cfg['vaults'] = [{'id': sid, 'name': STRUCTURES[sid]['label'], 'path': cfg['root'],
+                          'structure': sid, 'folders': cfg['folders']}]
+    # A vault saved before there were structures to pick names none: it was an Initiatives one.
+    cfg['vaults'] = [{**v, 'structure': v.get('structure') or UNNAMED_STRUCTURE} for v in cfg['vaults'] if isinstance(v, dict)]
     cfg['vaults'] = [{**v, 'folders': vault_folders(v['structure'], v.get('folders')),
                       'disabled_types': vault_disabled(v['structure'], v.get('disabled_types'))}
                      for v in cfg['vaults']]
@@ -141,6 +147,15 @@ def structures_matching(path, structure=None, folders=None):
         if Store(real, own, s).check()['ok']:
             out.append(sid)
     return out
+
+
+def _is_empty(path):
+    """Whether the folder has nothing but hidden files in it. One that cannot be read is not (the vault check says why:
+    a permission, a missing folder), so it is never refused as empty."""
+    try:
+        return not any(not n.startswith('.') for n in os.listdir(resolve_root(path)))
+    except OSError:
+        return False
 
 
 def _same_or_inside(a, b):
@@ -284,6 +299,7 @@ class App:
         with self._stores_lock:
             if vault_id not in self.stores:
                 self._put(vault_id, self._build(vault))
+                AGENTS_REFRESH.poke(self.stores[vault_id])  # the app may have moved, or its structure changed, since
             return self.stores[vault_id]
 
     def _put(self, vault_id, store):
@@ -327,6 +343,10 @@ class App:
             # are the default vault's.
             cfg['vaults'] = [{**v, 'path': cfg['root'], 'folders': cfg['folders']} if v['id'] == cfg['default_vault'] else v
                              for v in cfg['vaults']]
+        # A saved vault sent without its structure keeps the one it has (the default is only a new vault's).
+        saved = {v['id']: v['structure'] for v in self.config['vaults']}
+        cfg['vaults'] = [{**v, 'structure': v.get('structure') or saved.get(v.get('id'))} if isinstance(v, dict) else v
+                         for v in cfg['vaults']]
         cfg['vaults'], cfg['default_vault'] = clean_vaults(cfg['vaults'], cfg.get('default_vault'))
         self._refuse_other_shapes(cfg['vaults'])
         default = next(v for v in cfg['vaults'] if v['id'] == cfg['default_vault'])
@@ -388,6 +408,11 @@ class App:
                 other = ' or '.join(REGISTRY[s].label for s in shapes)
                 raise StoreError(400, f'the folder of "{v["name"]}" ({resolve_root(v["path"])}) holds a vault of the {other} '
                                       f'structure, not {REGISTRY[v["structure"]].label}: pick {other} for it, or another folder')
+            if v['structure'] in LEGACY_STRUCTURES and not was and _is_empty(v['path']):
+                # A legacy structure opens a folder that already is one of its vaults (to use it, or to move it with
+                # docs/migrate-structures.md); an empty folder starts a vault of the current structure.
+                raise StoreError(400, f'"{v["name"]}": a new vault starts as {REGISTRY[DEFAULT_STRUCTURE].label}. '
+                                      f'{REGISTRY[v["structure"]].label} is a legacy structure, kept only for a folder that already is one of its vaults')
 
     @staticmethod
     def _keep_copy_before_vaults():
@@ -407,6 +432,8 @@ class App:
 
     def public_config(self):
         return {**self.config, 'root_resolved': self.store.root, 'structures': {k: v['label'] for k, v in STRUCTURES.items()},
+                # the ones only an existing vault keeps (Settings offers a new vault the default one)
+                'legacy_structures': list(LEGACY_STRUCTURES), 'default_structure': DEFAULT_STRUCTURE,
                 # what each structure lets a vault turn on and off (Settings → Vaults)
                 'structure_types': {k: s.type_choices() for k, s in REGISTRY.items()},
                 'statuses': STATUSES, 'item_types': list(ITEM_TYPES),
@@ -549,6 +576,7 @@ class Handler(BaseHTTPRequestHandler):
             before = journal_before(store, url.path, body)
             result = handler(store, q, body)
             journal_after(store, self.headers.get(ACTOR_HEADER), url.path, body, before, result)
+            AGENTS_REFRESH.poke(store)
             return self.send_json(result)
         except StoreError as e:
             return self.send_json({**e.extra, 'error': str(e)}, e.status)
@@ -748,6 +776,105 @@ def open_local(path):
     return {'opened' if is_plain_dir else 'revealed': path}
 
 
+# ── a vault file opened in its own app (views/files.js: "Open in <App>" for what the page cannot show) ──────────────
+# open_local never runs `open <file>`: macOS hands it to whatever app claims it, and for a .command or a .app that app
+# runs it. Here the app is looked up first (default_app), checked (opener_policy) and then named to open it with
+# (`open -a <that app> <file>`): what was checked is what runs, and the page shows its name before the click.
+
+# Asks Launch Services which app opens a file — the path comes in as argv, never inside the script.
+_OPENER_JXA = """ObjC.import('AppKit');
+function run(argv) {
+  const app = $.NSWorkspace.sharedWorkspace.URLForApplicationToOpenURL($.NSURL.fileURLWithPath(argv[0]));
+  if (!app || app.isNil()) return '';
+  const id = $.NSBundle.bundleWithURL(app).bundleIdentifier;
+  const name = $.NSFileManager.defaultManager.displayNameAtPath(app.path).js.replace(/\\.app$/, '');
+  return [app.path.js, id && !id.isNil() ? id.js : '', name].join('\\n');
+}"""
+_opener_cache = {}  # extension → the app (or None): Launch Services decides by type, and asking costs ~0.2 s
+
+# Apps that run what they open rather than show it: a file they would open is only revealed in Finder.
+LAUNCHERS = {
+    'com.apple.Terminal', 'com.googlecode.iterm2', 'dev.warp.Warp-Stable', 'net.kovidgoyal.kitty', 'com.github.wez.wezterm',
+    'com.apple.ScriptEditor2', 'com.apple.Automator', 'com.apple.Automator.Automator-Application-Stub', 'com.apple.shortcuts',
+    'com.apple.installer', 'com.apple.systempreferences', 'com.apple.systemevents', 'com.apple.ScriptMenuApp',
+    'org.python.PythonLauncher', 'com.apple.JarLauncher', 'com.apple.Ticket-Viewer', 'com.apple.archiveutility.auto',
+}
+# Shortcuts: what they hold is an address of something else — a .fileloc may point at an .app (Finder would launch it),
+# a URL may carry a scheme that starts an app — so whatever app opens them, it would open what the page never saw.
+# Archives (.zip, .dmg) are not here: unpacking or mounting runs nothing on macOS.
+SHORTCUTS = {'.fileloc', '.inetloc', '.webloc', '.url', '.desktop'}
+
+
+def default_app(full):
+    """The app macOS opens `full` with: {path, id, name} (`name` as Finder shows it, in the Mac's language), or None
+    when no app claims it. Cached by extension; a file without one is asked each time."""
+    ext = os.path.splitext(full)[1].lower()
+    if ext and ext in _opener_cache:
+        return _opener_cache[ext]
+    try:
+        out = subprocess.run(['osascript', '-l', 'JavaScript', '-e', _OPENER_JXA, full],
+                             capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+    parts = out.split('\n')
+    app = {'path': parts[0], 'id': parts[1], 'name': parts[2]} if len(parts) == 3 and parts[0] else None
+    if ext:
+        _opener_cache[ext] = app
+    return app
+
+
+def opener_policy(full, app):
+    """None when `full` may be opened with `app` ({path, id, name}, from default_app); else why not, as the page says it
+    (it offers Show in Finder instead). The file's own bits come first: what is executable, or not a plain file (a
+    .app is a folder), is never handed to an app. Then the app: one that runs what it opens (LAUNCHERS) is refused.
+    Last, a shortcut (SHORTCUTS), whatever app opens it: it would open what it points at."""
+    if not os.path.isfile(full) or os.path.islink(full):
+        return 'only a plain file opens in its app'
+    if os.access(full, os.X_OK):
+        return 'it is executable: opening it could run it'
+    if not app:
+        return 'no app on this Mac opens this kind of file'
+    if app['id'] in LAUNCHERS:
+        return f'{app["name"]} would run it rather than show it'
+    if os.path.splitext(full)[1].lower() in SHORTCUTS:
+        return 'it is a shortcut to something else: open what it points at instead'
+    return None
+
+
+def file_opener(store, path):
+    """What "Open in <App>" offers for a vault file: {app, ok, why?} — `app` the name of the app that opens it (None
+    without one), `ok` whether the app will open it here."""
+    full = _vault_file_for_app(store, path)
+    app = default_app(full)
+    why = opener_policy(full, app)
+    return {'app': app and app['name'], 'ok': why is None, **({'why': why} if why else {})}
+
+
+def open_default(store, path):
+    """A vault file opened in the app macOS opens it with, after opener_policy: `open -a <that app> <file>`, so the
+    app checked is the app that opens it. → {opened, app}."""
+    full = _vault_file_for_app(store, path)
+    app = default_app(full)
+    why = opener_policy(full, app)
+    if why:
+        raise StoreError(409, f'Not opened: {why}. Show it in Finder instead.')
+    try:
+        subprocess.run(['open', '-a', app['path'], full], check=True, timeout=10, capture_output=True)
+    except subprocess.CalledProcessError:
+        raise StoreError(400, f'{app["name"]} could not open it') from None
+    return {'opened': store.rel(full).replace(os.sep, '/'), 'app': app['name']}
+
+
+def _vault_file_for_app(store, path):
+    if sys.platform != 'darwin':
+        raise StoreError(501, 'opening a file in its app needs macOS')
+    rel = store._rel_path(path)
+    full = store.abs(rel)
+    if not os.path.lexists(full):
+        raise StoreError(404, f'no such file: {rel}')
+    return full
+
+
 def folder_name(path):
     """The public name (Settings) of a folder Claude runs in, matched on the real path; '' when it has none."""
     real = os.path.realpath(path)
@@ -876,7 +1003,7 @@ def _launch_plan(store, key, instruction, model, effort, cwd, empty=False):
         raise StoreError(400, 'a prompt is needed when no item is given')
     item = store.read(key) if key else None
     session_id = str(uuid.uuid4())
-    name = (f"{item['id'] or item['type']} · {item['title']}" if item
+    name = (f"{item.get('ref') or item['id'] or item['type']} · {item['title']}" if item
             else info['prompt'].split('\n', 1)[0] if info['prompt'] else UNTITLED)
     flags = [*info['flags'], *session_flags(session_id, name)]
     entry = {'id': session_id, 'at': now_stamp(), 'cwd': info['cwd'], 'instruction': (instruction or '').strip(),
@@ -970,7 +1097,7 @@ def resume_term(store, key, session_id, cols=None, rows=None):
     label = found.get('instruction') or 'Claude'
     if key:
         it = store.find(key)
-        label = f"{it['id'] or it['type']} · {it['title']}"
+        label = f"{it.get('ref') or it['id'] or it['type']} · {it['title']}"
     term = _spawn_term(found['id'], flags, found['cwd'], cols, rows, label)
     term.key, term.vault = key or None, getattr(store, 'vault_id', None)
     return {'term': term.info(), 'cwd': found['cwd'], 'session_id': found['id']}
@@ -1035,7 +1162,7 @@ def resume_chat(store, key, session_id, mode=''):
     label = found.get('instruction') or 'Claude'
     if key:
         it = store.find(key)
-        label = f"{it['id'] or it['type']} · {it['title']}"
+        label = f"{it.get('ref') or it['id'] or it['type']} · {it['title']}"
     if TERMS.live(found['id']):  # close it first, so its transcript is complete before it is read
         TERMS.close(found['id'])
     past = transcript_history(transcript_path(found['id'], found['cwd']))
@@ -1073,7 +1200,7 @@ def associate_claude(store, session_id, from_key, to_key):
     if live:
         it = store.find(to_key) if to_key else None
         live.key = it['key'] if it else None
-        live.label = f"{it['id'] or it['type']} · {it['title']}" if it else (entry.get('instruction') or 'Claude')
+        live.label = f"{it.get('ref') or it['id'] or it['type']} · {it['title']}" if it else (entry.get('instruction') or 'Claude')
         out['session'] = live.info()
     return out
 
@@ -1102,7 +1229,7 @@ def chat_send(chat_id, text, keys=None, vault_id=None, images=None):
         store = APP.store_for(vault_id)
         for key in dict.fromkeys(keys):
             it = store.read(key)
-            items.append({'id': it['id'], 'title': it['title'], 'type': it['type'], 'context': store.claude_item_context(key)})
+            items.append({'id': it.get('ref') or it['id'], 'title': it['title'], 'type': it['type'], 'context': store.claude_item_context(key)})
     chat.send(text, items, images or [])
     if chat.untitled and str(text or '').strip():
         _name_untitled(chat, text)
@@ -1136,6 +1263,31 @@ def chat_control(chat_id, mode=None, model=None, effort=None):
     if effort:
         out.update(chat.set_effort(effort))
     return {**out, 'chat': chat.info()}
+
+
+def recent_claude_sessions(store, cwd=None):
+    """The newest conversations on this computer for the AI tab's Add a session (`cwd`: those of that folder, however
+    old), each with the item that already lists it in this vault (`listed_on`: its key), so the picker can say so."""
+    on = {}
+    for it in store.items():
+        for s in it['fields'].get('claude_sessions') or []:
+            on.setdefault(s.get('id'), it['key'])
+    found = recent_sessions(200, cwd=cwd) if cwd else recent_sessions()
+    return {'sessions': [{**f, 'listed_on': on.get(f['id'])} for f in found]}
+
+
+def add_existing_claude(store, key, session_id):
+    """Add to an item a conversation started elsewhere — Terminal, Claude Desktop, the VS Code / Cursor extension —
+    found by its id among Claude Code's transcripts: the folder, start, title and origin come from there, never from
+    the request, so a resume runs only where Claude Code itself says it ran."""
+    sid = str(session_id or '').strip().lower()
+    path = transcript_path(sid, '')
+    facts = session_facts(path) if path else None
+    if not facts:
+        raise StoreError(404, f'Claude Code has no conversation with that id on this computer: {sid or "(empty)"}')
+    entry = {'id': facts['id'], 'at': facts['started'] or facts['updated'], 'cwd': facts['cwd'],
+             'instruction': facts['title'], 'source': facts['source'] or 'other'}
+    return store.add_existing_claude_session(key, entry)
 
 
 def forget_claude_session(store, key, index):
@@ -1176,7 +1328,44 @@ def vault_status(store, vault_id):
     vault = APP.public_vault(vault_id)
     matches = [] if check['ok'] else [
         {'id': s, 'label': REGISTRY[s].label} for s in structures_matching(store.root, vault['structure'], store.folders) if s != vault['structure']]
-    return {'vault': vault, 'check': check, 'matches': matches}
+    return {'vault': vault, 'check': check, 'matches': matches, 'agents': store.agents_status()}
+
+
+class AgentsRefresh:
+    """Keeps each opted-in vault's AGENTS.md (tm/agentsmd.py) up to date, off the request: poke() after a write
+    (or when a vault is opened) waits DELAY seconds of quiet, then writes the guide again if what it says changed. A
+    burst of saves is one refresh, and no answer waits for the scan it needs. A vault without the guide costs one
+    small read per write."""
+    DELAY = 3.0
+
+    def __init__(self):
+        self._timers = {}
+        self._lock = threading.Lock()
+
+    def poke(self, store):
+        if store is None or not agentsmd.is_on(store.root):
+            return
+        with self._lock:
+            old = self._timers.pop(store.root, None)
+            if old:
+                old.cancel()
+            timer = threading.Timer(self.DELAY, self._run, args=(store,))
+            timer.daemon = True
+            self._timers[store.root] = timer
+            timer.start()
+
+    def _run(self, store):
+        with self._lock:
+            self._timers.pop(store.root, None)
+        try:
+            store.refresh_agents_md(APP_DIR)
+        except StoreError as e:  # a vault that stopped matching its structure: the next write after it is fixed refreshes it
+            sys.stderr.write(f'AGENTS.md of {store.root} not refreshed: {e}\n')
+        except Exception:  # noqa: BLE001 — a guide that cannot be written never breaks the app
+            traceback.print_exc()
+
+
+AGENTS_REFRESH = AgentsRefresh()
 
 
 ROUTES = {
@@ -1193,10 +1382,15 @@ ROUTES = {
     # escalate it to a hotfix); a structure without it answers 404.
     ('POST', '/api/item/action'): lambda s, q, b: s.item_action(b.get('action'), b.get('key')),
     ('POST', '/api/vault/create-folders'): lambda s, q, b: {'check': s.create_missing_folders()},
+    # The vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, on or off (Settings → Vaults).
+    ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on')), APP_DIR),
     ('GET', '/api/items'): lambda s, q, b: {'items': s.items()},
-    ('GET', '/api/files'): lambda s, q, b: s.files(),
+    # The vault as a graph: its items and docs, and every link between them (tm/graph.py). The page filters it.
+    ('GET', '/api/graph'): lambda s, q, b: s.graph(),
+    ('GET', '/api/files'): lambda s, q, b: s.files(hidden=q.get('hidden') == '1'),
     ('POST', '/api/files/mkdir'): lambda s, q, b: s.make_folder(b.get('path'), parents=bool(b.get('parents'))),
     ('GET', '/api/docs/roots'): lambda s, q, b: {'containers': s.docs_roots()},
+    ('GET', '/api/canvases'): lambda s, q, b: s.canvases(q.get('host')),
     ('POST', '/api/docs/from-note'): lambda s, q, b: s.note_to_doc(b.get('key'), b.get('folder')),
     ('POST', '/api/docs/props'): lambda s, q, b: s.update_doc(b.get('path'), b.get('values') or {}, b.get('rev')),
     ('POST', '/api/files/rename'): lambda s, q, b: s.rename_path(b.get('path'), b.get('name')),
@@ -1208,11 +1402,14 @@ ROUTES = {
     ('GET', '/api/files/search'): lambda s, q, b: s.search_files(q.get('q')),
     ('GET', '/api/files/backlinks'): lambda s, q, b: s.backlinks(q.get('path')),
     ('POST', '/api/files/open-in-editor'): lambda s, q, b: open_in_editor(s, b.get('path')),
+    ('GET', '/api/files/opener'): lambda s, q, b: file_opener(s, q.get('path')),
+    ('POST', '/api/files/open-default'): lambda s, q, b: open_default(s, b.get('path')),
     ('POST', '/api/files/save'): lambda s, q, b: s.save_file(b.get('path'), b.get('text'), b.get('base_rev'), bool(b.get('force'))),
-    ('POST', '/api/files/create'): lambda s, q, b: s.create_file(b.get('path'), b.get('text') or ''),
+    ('POST', '/api/files/create'): lambda s, q, b: s.create_file(b.get('path'), b.get('text') or '', parents=bool(b.get('parents'))),
     ('POST', '/api/files/duplicate'): lambda s, q, b: s.duplicate_file(b.get('path')),
     ('POST', '/api/files/upload'): lambda s, q, b: s.upload_file(q.get('folder') or '', b['filename'], b['data']),
     ('GET', '/api/item'): lambda s, q, b: s.read(q['key']),
+    ('GET', '/api/item/history'): lambda s, q, b: {'entries': s.item_history(q['key'])},
     ('POST', '/api/item/create'): lambda s, q, b: s.create(
         b['type'], b.get('subject'), b.get('values'), b.get('body') or ''),
     # A change from the page is the owner's (free to move a status anywhere); a script says "by": "agent" to go through
@@ -1271,6 +1468,10 @@ ROUTES = {
     ('POST', '/api/claude/updated'): lambda s, q, b: {'updated': {str(s.get('id')): session_updated(s.get('id'), s.get('cwd'))
                                                                for s in (b.get('sessions') or [])[:500] if isinstance(s, dict)}},
     ('POST', '/api/claude/resume'): lambda s, q, b: resume_claude(s, b.get('key'), b.get('session_id'), b.get('target') or 'terminal'),
+    ('GET', '/api/claude/recent'): lambda s, q, b: recent_claude_sessions(s, q.get('cwd') or None),
+    ('GET', '/api/claude/folders'): lambda s, q, b: {'folders': session_folders()},
+    ('POST', '/api/claude/add'): lambda s, q, b: add_existing_claude(s, b.get('key'), b.get('session_id')),
+    ('POST', '/api/claude/main'): lambda s, q, b: s.set_main_claude_session(b.get('key'), str(b.get('session_id') or '')),
     ('POST', '/api/claude/forget'): lambda s, q, b: forget_claude_session(s, b.get('key'), int(b.get('index', -1))),
     ('POST', '/api/claude/associate'): lambda s, q, b: associate_claude(s, b.get('session_id'), b.get('from_key'), b.get('to_key')),
     ('GET', '/api/term/list'): lambda s, q, b: {'terms': TERMS.list()},
@@ -1314,7 +1515,7 @@ GLOBAL_ROUTES = {
     ('GET', '/api/term/list'), ('POST', '/api/term/input'), ('POST', '/api/term/resize'), ('POST', '/api/term/close'),
     ('GET', '/api/chat/list'), ('GET', '/api/chat/files'), ('POST', '/api/chat/send'), ('POST', '/api/chat/permission'),
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
-    ('POST', '/api/claude/updated'), ('POST', '/api/open'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
+    ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
 }
 

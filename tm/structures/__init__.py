@@ -19,10 +19,15 @@ from dataclasses import dataclass, field, replace
 GROUPS = ('not_started', 'in_progress', 'closed')
 GROUP_LABELS = {'not_started': 'Not started', 'in_progress': 'In progress', 'closed': 'Closed'}
 # Where a status goes when no vault said: its type's closed ones are closed, these have not started, the rest are under way.
-NOT_STARTED = frozenset({'Backlog', 'ToDo', 'Idea', 'open', 'draft'})  # draft: a spec's
+NOT_STARTED = frozenset({'Backlog', 'ToDo', 'Idea', 'open', 'draft', 'Planned'})  # draft: a spec's; Planned: a project's before 2026-11
 COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 # A status name: what the frontmatter says, so one line, and short enough for a pill.
 STATUS_NAME_RE = re.compile(r'^[^\x00-\x1f:#\[\]{}"\\]{1,40}$')
+# A short id (plans/short-ids.md): the item's number, one counter per vault shared by every type. Stored as it is
+# (`id: 482`); the app draws it with its type's prefix (`TSK-482`, Structure.ref).
+NUMBER_RE = re.compile(r'^[1-9]\d*$')
+# How a short id is drawn and typed: a type's prefix and the number (`TSK-482`), never zero-padded.
+REF_RE = re.compile(r'^([A-Z]{2,4})-([1-9]\d*)$')
 
 
 class StatusConfigError(ValueError):
@@ -58,7 +63,8 @@ class TypeDef:
     # Fields of its own the card shows beyond the app's (status, priority, plan…): [{key, label, kind, options…}]
     # with kind text · textarea · select · number · date · link · links · readonly · map. () for none.
     # `tab` says where the item shows one: 'main' (the properties, the default), or a tab of the side panel:
-    # 'delivery' (how it is carried out: branch, executor…), 'details' (settings to read), 'relations' (every
+    # 'delivery' (how it is carried out: branch, executor…), 'details' (settings to read), 'settings' (a project's, a
+    # section that folds on its page, above its area and objective), 'relations' (every
     # link and links prop goes there unless it says otherwise).
     props: tuple = ()
     page: bool = False        # opens as a page of its own (#/<name>/<id>) instead of a card over its list
@@ -89,6 +95,9 @@ class Structure:
     statuses: tuple                 # every status of the structure, in board order
     closed: frozenset               # the statuses that close an item, for any type that does not say
     other_types: frozenset = frozenset({'worklog'})  # typed files that are not items
+    # Whether a new vault of it numbers its items (short ids: one counter per vault, the type only drawn). A vault that
+    # already has ids of the long form (id_re) keeps them until tools/migrate_short_ids.py moves it.
+    numbered: bool = False
     worklog_folder: str = 'worklog'  # where the work log's day files go
     # `attachments`: its files (tm/attachments.py), on any type, written only once it has one.
     common_fields: frozenset = frozenset({'id', 'type', 'subject', 'created_at', 'updated_at', 'converted_from', 'title', 'attachments'})
@@ -112,6 +121,18 @@ class Structure:
     docs_folder: str = 'docs'
     docs_in_projects: bool = False
     docs_not_projects: frozenset = frozenset()
+    # Project kinds (tm/structures/kinds.py): {id: Kind}, what a project is and which types of its own folders it may
+    # have, and the project field that names it (`kind_key`). {} and '' for a structure whose projects have no kind.
+    kinds: dict = field(default_factory=dict)
+    kind_key: str = ''
+
+    # ── project kinds ────────────────────────────────────────────────────────
+    def kind(self, value):
+        """The Kind a project's kind field names (the default kind when it names none or an unknown one); None when
+        this structure has no kinds."""
+        if not self.kinds:
+            return None
+        return self.kinds.get(str(value or '').strip()) or next(iter(self.kinds.values()))
 
     # ── docs (TSK-039) ───────────────────────────────────────────────────────
     def docs_container(self, rel):
@@ -145,9 +166,12 @@ class Structure:
                                props=tuple(q for q in map(prop, t.props) if q.get('kind') not in ('link', 'links') or q['types']))
                  for name, t in self.types.items() if name not in off}
         extras = {**self.extras, 'disabled_types': sorted(off)}
-        for key in ('project_scoped', 'optional_types'):
+        for key in ('project_scoped', 'optional_types', 'needs_parent'):
             if key in extras:
                 extras[key] = [t for t in extras[key] if t not in off]
+        if 'sections' in extras:  # a type turned off is no tab; a section with none left is no link
+            extras['sections'] = [dict(s, types=[t for t in s['types'] if t not in off]) for s in extras['sections']
+                                  if any(t not in off for t in s['types'])]
         return replace(self, types=types, extras=extras)
 
     # ── statuses a vault arranged (TSK-037) ──────────────────────────────────
@@ -222,7 +246,7 @@ class Structure:
         return {s: 'closed' if s in closed else 'not_started' if s in NOT_STARTED else 'in_progress' for s in statuses}
 
     def status_config(self):
-        """Every type with statuses, as Settings → Item type status edits them: {types: {type: [{name, group}]}, colors}."""
+        """Every type with statuses, as Settings → Statuses edits them: {types: {type: [{name, group}]}, colors}."""
         return {'types': {t.name: [{'name': s, 'group': g} for s, g in self.groups_of(t.name).items()]
                           for t in self.types.values() if t.statuses},
                 'colors': dict(self.colors)}
@@ -235,6 +259,27 @@ class Structure:
 
     def format_id(self, prefix, number):
         return f'{prefix}-{number:0{self.id_pad}d}'
+
+    @staticmethod
+    def is_number(value):
+        """Whether `value` is a short id: a number (`482`, as the file stores it or as a key)."""
+        return isinstance(value, (str, int)) and not isinstance(value, bool) and bool(NUMBER_RE.match(str(value)))
+
+    def ref(self, type_name, item_id):
+        """How an id is drawn: a short id with its type's prefix (`TSK-482`); any other id (a long one, a project's key)
+        as it is."""
+        if self.is_number(item_id) and type_name in self.types and self.types[type_name].prefix:
+            return f'{self.types[type_name].prefix}-{item_id}'
+        return item_id
+
+    @staticmethod
+    def number_of(value):
+        """The number a typed short id names (`482`, `TSK-482`) as a key ('482'), or None."""
+        v = str(value or '').strip()
+        if NUMBER_RE.match(v):
+            return v
+        m = REF_RE.match(v)
+        return m.group(2) if m else None
 
     def prefix_for(self, type_name, project=None):
         """The prefix of a new id of that type: its own, or `<project key>-<its own>` for a type that lives in a project."""
@@ -320,12 +365,17 @@ class Structure:
             **({'colors': dict(self.colors)} if self.colors else {}),
             **({'defaults': dict(self.defaults)} if self.defaults else {}),
             **({'required': list(self.required)} if self.required else {}),
+            # What a project may be, its own types and the fields it has not (tm/structures/kinds.py), and the field
+            # that says it: the page offers a project's kinds and, in each project, only what its kind has.
+            **({'kinds': [k.public(self.types) for k in self.kinds.values()], 'kind_key': self.kind_key} if self.kinds else {}),
             **self.extras,
         }
 
     def type_choices(self):
-        """What Settings → Vaults offers to turn on and off: every type, by name and label, and the required ones."""
-        return {'types': [[t.name, t.plural] for t in self.types.values()], 'required': list(self.required)}
+        """What Settings → Vaults offers a vault of it: every type to turn on and off, by name and label, the required
+        ones, and the folders it may move ({kind: default folder}; {} when its layout is fixed)."""
+        return {'types': [[t.name, t.plural] for t in self.types.values()], 'required': list(self.required),
+                'folders': self.default_folders if self.folders_configurable else {}}
 
 
 def prop_tab(p):
@@ -341,16 +391,24 @@ def _in_order(values, order):
 
 
 def _registry():
-    from .folders import FOLDER_PER_TYPE
+    from .folders import FOLDER_PER_TYPE, TASKS
     from .ticketing import TICKETING
-    return {FOLDER_PER_TYPE.id: FOLDER_PER_TYPE, TICKETING.id: TICKETING}
+    return {FOLDER_PER_TYPE.id: FOLDER_PER_TYPE, TASKS.id: TASKS, TICKETING.id: TICKETING}
 
 
-# The structures a vault can have, by id: one folder per type (the one this app was built on) and Ticketing
-# (projects as folders, KEY-TYPE-NNN ids).
+# The structures a vault can have, by id, in the order Settings → Vaults offers them: Initiatives (`folders`, one
+# folder per type: the one this app was built on), Tasks (`tasks`, the same without user stories) and Projects
+# (`ticketing`: projects as folders, short ids drawn `TSK-482`). The ids are what config.json stores and never change.
 REGISTRY = _registry()
-STRUCTURES = {k: {'label': s.label} for k, s in REGISTRY.items()}
-DEFAULT_STRUCTURE = 'folders'
+# Projects holds every kind of project (tm/structures/kinds.py), so it is the one a new vault gets. Initiatives and
+# Tasks are legacy: a vault of theirs still works, says it can be moved (tools/migrate_structures.py,
+# docs/migrate-structures.md), and Settings no longer offers them for a new vault.
+DEFAULT_STRUCTURE = 'ticketing'
+LEGACY_STRUCTURES = ('folders', 'tasks')
+# What a config that names no structure meant when it was written: a vault from before there were structures to
+# pick (or a `root` from before there were vaults) is an Initiatives vault.
+UNNAMED_STRUCTURE = 'folders'
+STRUCTURES = {k: {'label': s.label, 'legacy': k in LEGACY_STRUCTURES} for k, s in REGISTRY.items()}
 
 
 def get(structure_id):

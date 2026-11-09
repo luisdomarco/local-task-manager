@@ -1,7 +1,8 @@
 // The vault as a tree of folders and files, from the flat list the server gives (/api/files, Store.files): built,
 // sorted and filtered here, drawn by explorer.js and views/files.js. No DOM: the tests import it as it is.
 
-/** A node: { name, path, kind: 'dir' | 'file', size?, mtime?, item?, children? (a folder's) }. '' is the vault. */
+/** A node: { name, path, kind: 'dir' | 'file', size?, mtime?, item?, children? (a folder's), sealed? (.git, .task-manager:
+ *  listed, never opened) }. '' is the vault. */
 export function buildTree(entries) {
   const root = { name: '', path: '', kind: 'dir', children: [] };
   const dirs = new Map([['', root]]);
@@ -14,13 +15,16 @@ export function buildTree(entries) {
     return node;
   };
   for (const e of entries) {
-    if (e.kind === 'dir') { Object.assign(dirOf(e.path), { mtime: e.mtime }, e.order ? { order: e.order } : {}); continue; }
+    if (e.kind === 'dir') { Object.assign(dirOf(e.path), { mtime: e.mtime }, e.order ? { order: e.order } : {}, e.sealed ? { sealed: true } : {}); continue; }
     const cut = e.path.lastIndexOf('/');
     dirOf(cut < 0 ? '' : e.path.slice(0, cut)).children.push({ ...e, name: e.path.slice(cut + 1) });
   }
   sortTree(root);
   return root;
 }
+
+/** Whether a path is hidden: one of its parts starts with '.' (.obsidian/app.json, Docs/.order). */
+export const isHiddenPath = (path) => String(path || '').split('/').some((p) => p.startsWith('.'));
 
 function sortTree(node) {
   if (!node.children) return;

@@ -1,13 +1,13 @@
 ---
 type: labels
-names: ["pricing", "growth", "ops"]
-updated_at: 2026-10-20T09:54
+names: ["checkout", "billing", "infra"]
+updated_at: 2026-11-08T22:50
 ---
 
 # Labels
 
 Every label created or used, for suggestions and for the Labels screen.
 
-- pricing
-- growth
-- ops
+- checkout
+- billing
+- infra

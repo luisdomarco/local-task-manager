@@ -17,6 +17,8 @@ import re
 import unicodedata
 
 from ... import frontmatter as fm
+from .. import NUMBER_RE
+from ..kinds import kind_of
 from . import rules, wikilinks
 from .definition import (CLOSED, INDEX_NOTE, LEGACY_PARENT, OWN_CLOSED, OWN_STATUSES, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, STATUSES, BY_FILE_CLASS,
                          PROPS)
@@ -28,7 +30,7 @@ DATE_PREFIX_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (.+)$')
 # What a file name cannot hold (on macOS, in Obsidian's links, or anywhere): replaced by a space.
 UNSAFE_RE = re.compile(r'[\\/:*?"<>|#^\[\]]+')
 # Keys whose meaning the app gives under another name; never passed through as they are.
-DISK_KEYS = {'fileClass', 'status_ticket', 'status_error', 'status_agent', 'status_spec', 'creation_date', 'updated_date', 'tags'}
+DISK_KEYS = {'fileClass', 'status_ticket', 'status_error', 'status_agent', 'status_spec', 'status_goal', 'creation_date', 'updated_date', 'tags'}
 LINK_PROPS = {t: {p['key'] for p in props if p['kind'] == 'link'} for t, props in PROPS.items()}
 MULTI_PROPS = {t: {p['key'] for p in props if p['kind'] == 'links'} for t, props in PROPS.items()}
 
@@ -65,6 +67,20 @@ def app_status(t, raw):
         return None
     m = STATUS_RE.match(str(raw))
     return m.group(1) if m and t not in OWN_STATUSES else str(raw).strip()
+
+
+def ref(t, item_id):
+    """How a ticket's id is drawn, and so how its file is named: a short id with its type's code (`STY-482`), a long one
+    (`ACME-STY-001`, from before short ids) as it is."""
+    item_id = str(item_id or '')
+    return f"{SPEC[t]['code']}-{item_id}" if NUMBER_RE.match(item_id) and SPEC[t]['code'] else item_id
+
+
+def _title_of(t, item_id):
+    """How a file of type `t` is named: by its spec's `title`, or, for a plan or an analysis with no id (from before
+    they had one), by its `legacy_title`."""
+    spec = SPEC[t]
+    return spec['legacy_title'] if spec['legacy_title'] and not item_id else spec['title']
 
 
 def _stem(rel):
@@ -121,12 +137,14 @@ class TicketingCodec:
             f['id'] = item_id
         else:
             f.pop('id', None)
-        if spec['title'] == 'id':
-            subject = stem[len(item_id) + 1:] if item_id and stem.startswith(item_id + ' ') else stem
-        elif spec['title'] == 'date':
+        title = _title_of(t, item_id)
+        if title == 'id':
+            named = ref(t, item_id)
+            subject = stem[len(named) + 1:] if named and stem.startswith(named + ' ') else stem
+        elif title == 'date':
             m = DATE_PREFIX_RE.match(stem)
             subject = str(raw.get('title') or '').strip() or (m.group(2) if m else stem)
-        elif spec['title'] == 'note':
+        elif title == 'note':
             subject = stem[3:] if stem.startswith('00 ') else stem
         else:
             subject = stem
@@ -175,8 +193,12 @@ class TicketingCodec:
         r = Resolver()
         for it in items:
             stem = _stem(it['path'])
-            r.stem_to_key[stem] = it['key']
+            # A link names an item by its id where it has one: a project's is its key (store._item), which is what
+            # another item's `relations` hold; its path is still its key for everything else.
+            r.stem_to_key[stem] = it['id'] or it['key']
             r.key_to_stem[it['key']] = stem
+            if it['id']:
+                r.key_to_stem[it['id']] = stem
             if it['type'] == 'project':
                 key = str(it['fields'].get('project_key') or '').strip()
                 if PROJECT_KEY_RE.match(key) and key not in r.projects:
@@ -262,14 +284,16 @@ class TicketingCodec:
         return out
 
     def file_name(self, t, item_id, subject, stamp, parent_id=None):
-        title = SPEC[t]['title']
+        """`<ref> <Title>.md` (`STY-482 Pay in one page.md`). A plan or an analysis from before they had ids keeps its old
+        name: a plan after its item's ref (`parent_id`), an analysis after its date."""
+        title = _title_of(t, item_id)
         if title == 'plan':
             return f'{parent_id} Plan.md'
         if title == 'date':
             return f'{stamp[:10]} {safe_title(subject)}.md'
         if title == 'note':
             return f'00 {safe_title(subject)}.md'
-        return f'{item_id} {safe_title(subject)}.md'
+        return f'{ref(t, item_id)} {safe_title(subject)}.md'
 
     def folder_of(self, t, project, r, subject=None):
         """Where a new item of type `t` goes, relative to the vault."""
@@ -292,15 +316,18 @@ class TicketingCodec:
         """→ (path relative to the vault, text) of a new item: its template, filled in, patched with `values`."""
         project = values.get('project')
         p = r.projects.get(project) if project else None
-        name = self.file_name(t, item_id, subject, stamp, parent_id=parent['id'] if parent else None)
+        parent_ref = ref(parent['type'], parent['id']) if parent else None
+        name = self.file_name(t, item_id, subject, stamp, parent_id=parent_ref)
         folder = self.folder_of(t, project, r, subject)
-        variables = {'id': item_id or '', 'key': project or '', 'project': p['name'] if p else '', 'title': subject,
-                     'date': stamp[:10], 'slug': slugify(subject)}
+        variables = {'id': item_id or '', 'ref': ref(t, item_id), 'key': project or '', 'project': p['name'] if p else '', 'title': subject,
+                     'date': stamp[:10], 'slug': slugify(subject),
+                     # what it hangs from (a plan's template names the initiative or story it executes)
+                     'item_ref': parent_ref or '', 'item_title': parent['title'] if parent else ''}
         if t == 'project':  # its note's title is its own name (there is no project yet to take it from)
             variables['project'] = subject
-        if t == 'plan' and parent:  # a plan's template names the initiative it executes
-            variables.update(id=parent['id'], title=parent['title'])
         text = self.template(t, variables)
+        if item_id and NUMBER_RE.match(str(item_id)):  # a short id is stored as the number it is: `id: 482`
+            text = fm.patch(text, {'id': int(item_id)})
         raw = fm.parse(fm.split(text)[0])
         disk = self.encode(t, {k: v for k, v in values.items() if k != 'status'}, raw, r)
         if 'status' in values and SPEC[t]['status_key']:
@@ -311,32 +338,36 @@ class TicketingCodec:
         return f'{folder}/{name}' if folder else name, text
 
     @staticmethod
+    def link_fields(item_type):
+        """The fields of an item of this type that hold links to other items (one or a list), besides its parent
+        (`related_to`), its project and its `relations`: what the graph draws (tm/graph.py)."""
+        return sorted(links_of(item_type) | multi_links_of(item_type))
+
+    @staticmethod
     def title_is_name(item_type):
         """Whether an item of this type is named after its title: its file follows a change of title (renamed)."""
         return SPEC[item_type]['title'] in ('id', 'date', 'note')
 
     def renamed(self, it, subject, stamp):
-        """The new path of an item whose title changes (its file name is its title): same folder, new name."""
+        """The new path of an item whose title changes (its file name is its title): same folder, new name. A plan from
+        before plans had ids is named after its item, not its title: it keeps its name."""
         t = it['type']
+        if not self.title_is_name(t) or _title_of(t, it['id']) == 'plan':
+            return None
         name = self.file_name(t, it['id'], subject, (it['fields'].get('created_at') or stamp))
-        return os.path.join(os.path.dirname(it['path']), name) if self.title_is_name(t) else None
+        return os.path.join(os.path.dirname(it['path']), name)
 
     # ── projects ─────────────────────────────────────────────────────────────
     @staticmethod
     def project_folders(kind, enabled=None):
-        """The type folders a project has: the fixed ones, and Hotfixes / PRDs for a product — or, given its
-        enabled_types, for the ones it names."""
-        types = ['initiative', 'story', 'spec', 'support', 'plan', 'analysis', 'error', 'learning']
-        if enabled is None:
-            types += ['hotfix', 'prd'] if kind == 'product' else []
-        else:
-            types += [t for t in ('hotfix', 'prd') if t in enabled]
-        return [SPEC[t]['folder'] for t in types]
+        """The type folders a project has: those of the types its kind gives it (tm/structures/kinds.py) — its
+        optional ones as its enabled_types names them, or a new project's when None."""
+        return [SPEC[t]['folder'] for t in kind_of(kind).project_types(enabled)]
 
     @staticmethod
     def enabled_types(kind):
-        core = ['initiative', 'story', 'support', 'spec']
-        return [*core, 'hotfix', 'prd'] if kind == 'product' else core
+        """A new project's enabled_types, from its kind."""
+        return kind_of(kind).default_enabled()
 
     @staticmethod
     def is_root_file(name):

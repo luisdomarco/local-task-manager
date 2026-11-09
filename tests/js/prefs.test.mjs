@@ -57,6 +57,16 @@ describe('prefs per vault', () => {
     assert.deepEqual(pref('list.task'), { labels: ['only-in-a'] });
   });
 
+  it('Show hidden files is a vault\'s own; the way a Markdown file opens is not', () => {
+    setPrefsVault('a');
+    setPref('files.hidden', true);
+    setPref('files.mdMode', 'source');
+    assert.ok(store.has('tm.v.a.files.hidden'));
+    setPrefsVault('b');
+    assert.equal(pref('files.hidden'), null);
+    assert.equal(pref('files.mdMode'), 'source');
+  });
+
   it('copies what was saved before vaults into the first vault used, and only into it', () => {
     store.set('tm.ui.list.task', JSON.stringify({ scope: 'all' }));
     store.set('tm.logDismissed', JSON.stringify(['TSK-0001|2026-10-15']));

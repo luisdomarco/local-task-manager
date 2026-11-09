@@ -3,15 +3,17 @@
 // is recorded — on the item, or in the global list — so the conversation can be resumed later (`claude --resume`) from
 // the card's AI tab or from the terminal's History tab. Nothing is launched without this look; Copy works everywhere.
 import { api } from './api.js';
+import { agoLabel } from './dates.js';
 import { DETAIL_PAGE, LIST_PAGE, fixedColumns, paged } from './datatable.js';
 import { saveSort, savedSort } from './prefs.js';
 import { trapFocus } from './create.js';
-import { byType, claudeForget, claudeLaunch, state, toast } from './state.js';
+import { byType, claudeAdd, claudeForget, claudeLaunch, claudeMain, state, toast } from './state.js';
 import { itemPicker } from './itempicker.js';
 import { moveClaudeSession, openClaudeHere, resumeClaudeHere, termIsLive } from './term.js';
-import { dropdown, h, icon, select, tabPanels } from './ui.js';
+import { dropdown, h, icon, select, sideSized, tabPanels } from './ui.js';
 import { withMic } from './dictation.js';
 import { launchModelOptions } from './chat-model.js';
+import { refOf } from './shownid.js';
 
 const SOURCE = {
   item: () => 'the Local path of this item',
@@ -91,11 +93,58 @@ const SESSION_COLS = {
     { key: 'note', label: 'Instruction', get: (s) => (s.instruction || '').toLowerCase(), cell: (s) => instructionCell(s) },
   ],
 };
+// Where one added by hand was started (its transcript's entrypoint; tm/launch.py SESSION_SOURCES says the same).
+const SOURCE_LABEL = { cli: 'Terminal', 'claude-desktop': 'Claude Desktop', 'claude-vscode': 'VS Code / Cursor', 'sdk-cli': 'SDK', 'sdk-py': 'SDK', 'sdk-ts': 'SDK', other: 'Elsewhere' };
+const sourceLabel = (src) => SOURCE_LABEL[src] || src;
+// What was asked (a launch here) or the conversation's title (one added by hand, with where it came from); the main
+// one of an item carries a filled star.
 const instructionCell = (s) => h('span', {
   class: 'cs-text',
-  title: [s.instruction || 'No instruction: Claude was asked to read the item and say what it would do',
-    `Model: ${s.model || "Claude's default"} · Effort: ${s.effort || "Claude's default"}`].join('\n'),
-}, s.instruction || 'Read and plan');
+  title: [s.main ? 'The main session of this item' : null,
+    s.source ? `Added by hand — started in ${sourceLabel(s.source)}` : null,
+    s.instruction || 'No instruction: Claude was asked to read the item and say what it would do',
+    s.source ? null : `Model: ${s.model || "Claude's default"} · Effort: ${s.effort || "Claude's default"}`].filter(Boolean).join('\n'),
+}, s.main ? h('span', { class: 'cs-main', 'aria-label': 'Main session' }, icon('star', 12)) : null,
+  s.source ? h('span', { class: 'chip cs-source' }, sourceLabel(s.source)) : null,
+  s.instruction || (s.source ? 'Untitled conversation' : 'Read and plan'));
+
+const TITLE_MAX = 60;
+const cut = (t) => (t.length > TITLE_MAX ? `${t.slice(0, TITLE_MAX - 1).trimEnd()}…` : t);
+const SOURCE_ICON = { cli: 'terminal', 'claude-desktop': 'sparkles', 'claude-vscode': 'code' };
+// Which Open in target is the app a session was started in (none for one launched here: it opens in this app).
+const SOURCE_TARGET = { cli: 'terminal', 'claude-desktop': 'desktop', 'claude-vscode': 'cursor' };
+
+/** An item's session, its arrow's menu: where to open it — in this app (the dock), in the app it was started in, then
+ *  the other places (Terminal, Claude Desktop, Cursor, Antigravity: those installed). */
+function openMenu(anchor, { key, s, unsaved, onResume }) {
+  const why = unsaved ? 'Nothing to resume: Claude Code never saved this conversation' : null;
+  const live = termIsLive(s.id);
+  const own = SOURCE_TARGET[s.source];
+  const targets = claudeTargets().slice().sort((a, b) => (b.key === own) - (a.key === own));
+  const here = { label: 'This app', icon: 'panel', disabled: unsaved, title: why || `claude --resume ${s.id}, in the dock`, onSelect: async () => {
+    try { await resumeClaudeHere(key, s.id); onResume?.(); } catch { /* toasted */ }
+  } };
+  const opens = targets.map((t) => {
+    const blocked = live && t.key === 'desktop';
+    return { label: t.key === own ? `${t.label} — where it started` : t.label, icon: TARGET_ICON[t.key] || 'external',
+      disabled: unsaved || blocked, title: why || (blocked ? 'Still running in the dock — close it there first' : null),
+      onSelect: () => resumeClaude(key, s.id, t.key).catch(() => {}) };
+  });
+  dropdown(anchor, [{ heading: 'Open the conversation in' }, ...(own ? [...opens.slice(0, 1), here, ...opens.slice(1)] : [here, ...opens])],
+    { align: 'end', width: 240 });
+}
+
+/** Its ⋯: Mark as main, Move to another item…, Forget here. */
+function moreMenu(anchor, { key, s, index, onForget }) {
+  dropdown(anchor, [
+    s.main ? { label: 'Main session', icon: 'star', disabled: true } : { label: 'Mark as main', icon: 'star', onSelect: () => claudeMain(key, s.id).catch(() => {}) },
+    { label: 'Move to another item…', icon: 'arrow', onSelect: () => itemPicker(anchor, key, async (it) => { await moveClaudeSession(s.id, key, it); onForget?.(); }) },
+    '-',
+    { label: 'Forget here', icon: 'trash', danger: true, title: 'The conversation itself stays in Claude Code', onSelect: async () => {
+      try { await claudeForget(key, index); onForget?.(); } catch { /* toasted */ }
+    } },
+  ], { align: 'end' });
+}
 
 /** The recorded launches as a table whose columns sort (last updated first by default, remembered): what was asked,
  * when, where, Resume, Move and Forget. `key` null is the global list. Move and Forget go through the state, so an
@@ -131,16 +180,49 @@ export function sessionList(entries, { key = null, onForget = null, onResume = n
       onclick: () => (targets.length > 1 ? openInMenu(external, targets, resumeIn, s.id) : resumeIn(targets[0])),
     }, icon('external', 14));
     if (unsaved) { external.disabled = true; external.title = 'Nothing to resume: Claude Code never saved this conversation'; }
+    const forgetIt = async () => { try { await claudeForget(key, index); onForget?.(); } catch { /* toasted */ } };
+    // Move…: to another item's history, or to the general one (itempicker.js).
+    const moveIt = (anchor) => itemPicker(anchor, key, async (it) => { await moveClaudeSession(s.id, key, it); onForget?.(); });
     const forget = h('button', { class: 'btn icon', title: 'Forget this session here (the conversation itself stays in Claude Code)', onclick: async () => {
       forget.disabled = true;
-      try { await claudeForget(key, index); onForget?.(); } catch { forget.disabled = false; } // toasted
+      await forgetIt();
+      forget.disabled = false;
     } }, icon('x', 14));
-    // Move…: to another item's history, or to the general one (itempicker.js).
-    const move = h('button', { class: 'btn icon', title: 'Move to another item\'s history…', 'aria-haspopup': 'dialog',
-      onclick: () => itemPicker(move, key, async (it) => { await moveClaudeSession(s.id, key, it); onForget?.(); }) }, icon('arrow', 14));
+    const move = h('button', { class: 'btn icon', title: 'Move to another item\'s history…', 'aria-haspopup': 'dialog', onclick: () => moveIt(move) }, icon('arrow', 14));
     return h('td', { class: 'c-actions' }, h('div', { class: 'cs-actions' }, resume, external, move, forget));
   };
+  // On a card: a list, not a table, its rows as Relations' (no frame). Each row is its name (cut to TITLE_MAX) over its
+  // folder, where it runs and how long ago it was last written (the dates in full on hover), a dot when it is running
+  // in the dock; then, on hover, the arrow, whose menu opens it (in this app, where it was started, Terminal, Claude
+  // Desktop, Cursor…), and its ⋯ (Mark as main, Move…, Forget). Always the last written first.
+  const itemRow = ({ s, index }) => {
+    const unsaved = updated && !updated[s.id];
+    const platform = s.source ? sourceLabel(s.source) : 'Task Manager';
+    const title = s.instruction || (s.source ? 'Untitled conversation' : 'Read and plan');
+    const go = h('button', { class: 'btn icon', title: unsaved ? 'Nothing to resume: Claude Code never saved this conversation' : 'Open in…',
+      'aria-label': `Open ${title}`, 'aria-haspopup': 'menu', onclick: () => openMenu(go, { key, s, unsaved, onResume }) }, icon('external', 14));
+    const more = h('button', { class: 'btn icon', title: 'More actions', 'aria-label': `More actions for ${title}`, 'aria-haspopup': 'menu',
+      onclick: () => moreMenu(more, { key, s, index, onForget }) }, icon('more', 14));
+    const last = updated ? (updated[s.id] ? agoLabel(updated[s.id]) : null) : '…';
+    const live = termIsLive(s.id);
+    return h('li', { class: `cs-item surface-card hover-host${s.main ? ' main' : ''}${live ? ' live' : ''}` },
+      icon(SOURCE_ICON[s.source] || 'terminal', 14),
+      h('div', { class: 'cs-item-text', title: [title, `${platform} · Updated ${updated?.[s.id] ? when(updated[s.id]) : '—'} · Started ${when(s.at)}`, s.cwd, s.id].join('\n') },
+        h('span', { class: 'cs-item-title' }, live ? h('span', { class: 'cs-live', title: 'Running in the dock', 'aria-label': 'Running in the dock' }) : null,
+          s.main ? h('span', { class: 'cs-main', 'aria-label': 'Main session' }, icon('star', 12)) : null, cut(title)),
+        h('span', { class: 'cs-item-meta muted' }, ...[folderName(s.cwd) || basename(s.cwd), platform, last].filter(Boolean)
+          .flatMap((part, i) => [i ? ' · ' : null, h('span', { class: 'nowrap' }, part)]),
+          unsaved ? h('span', { class: 'chip warn', title: 'Claude Code has no conversation saved for this session: it cannot be resumed' }, 'not saved') : null)),
+      h('div', { class: 'cs-item-actions hover-reveal' }, go, more));
+  };
   const render = () => {
+    if (where === 'item') {
+      const by = (x) => (updated?.[x.s.id] || x.s.at || '');
+      const sorted = list.slice().sort((a, b) => (by(a) < by(b) ? 1 : by(a) > by(b) ? -1 : 0));
+      const page = paged({ key: 'history.item', at: `history.item.${key}`, rows: sorted, size: DETAIL_PAGE, onChange: render });
+      box.replaceChildren(h('ul', { class: 'cs-list', 'aria-label': 'Claude sessions' }, page.rows.map(itemRow)), ...(page.pager ? [page.pager] : []));
+      return;
+    }
     const col = cols.find((c) => c.key === sort.col) || cols[0];
     const sorted = list.slice().sort((a, b) => {
       const x = col.get(a.s, updated); const y = col.get(b.s, updated);
@@ -169,6 +251,138 @@ export function sessionList(entries, { key = null, onForget = null, onResume = n
   // Unknown if the server cannot say (left as "…", Resume still offered), never taken as "not saved".
   api.claudeUpdated(list.map((x) => x.s)).then((r) => { updated = r.updated || {}; render(); }, () => {});
   return box;
+}
+
+// ── Add existing session (the AI tab): a conversation started elsewhere — Terminal, Claude Desktop, the VS Code / Cursor
+// extension — listed on the item so it resumes from here like one launched here. A popover: a folder (All folders:
+// the newest ones on this computer; or one folder Claude Code has run in, with all its conversations, however old),
+// then its conversations, searchable by title, folder or origin; or a session id pasted in. The server reads its folder and
+// title from its transcript (server.py add_existing_claude).
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+let picking = null;
+
+function closeSessionPicker() {
+  if (!picking) return;
+  picking.el.remove();
+  document.removeEventListener('mousedown', picking.outside, true);
+  picking.anchor.setAttribute('aria-expanded', 'false');
+  picking = null;
+}
+
+/** Open under (or above) `anchor`, for the item `key`; adding one closes it (the card re-renders with it listed). */
+export function addSessionPicker(anchor, key) {
+  if (picking?.anchor === anchor) { closeSessionPicker(); return; }
+  closeSessionPicker();
+  const input = h('input', { type: 'search', class: 'ip-search', autocomplete: 'off', spellcheck: 'false' });
+  const list = h('div', { class: 'ip-list', role: 'listbox' });
+  // The folder: the app's select button; it turns the list below into the folders, searched with the same box (a menu
+  // of its own would open outside this popover, which closes on a click outside it).
+  const folderLabel = h('span', { class: 'select-label' });
+  const folderBtn = h('button', { type: 'button', class: 'select-btn sp-folder', 'aria-haspopup': 'listbox', 'aria-expanded': 'false',
+    onclick: () => setMode(mode === 'folders' ? 'sessions' : 'folders') }, folderLabel);
+  const el = h('div', { class: 'menu ip sp', role: 'dialog', 'aria-label': 'Add a Claude session to this item' }, folderBtn, input, list);
+  let mode = 'sessions';
+  let cwd = ''; // '' is All folders: the newest conversations on this computer
+  let found = null; // the sessions on disk (of the folder picked), once the server answers
+  let folders = null; // every folder Claude Code has run in, once the server answers
+  let rows = []; // { el, act }: what the row does on a click or Enter (none: not pickable)
+  let at = 0;
+  const nameOf = (path) => folderName(path) || basename(path);
+  const paintFolder = () => folderLabel.replaceChildren(icon('folder', 14), cwd ? nameOf(cwd) : 'All folders — the newest conversations');
+  const add = async (id) => {
+    closeSessionPicker();
+    anchor.focus();
+    try { await claudeAdd(key, id); toast('Session added — resume it from here'); } catch { /* toasted */ }
+  };
+  const mark = (i) => {
+    at = Math.max(0, Math.min(rows.length - 1, i));
+    rows.forEach((r, k) => r.el.classList.toggle('active', k === at));
+    rows[at]?.el.scrollIntoView({ block: 'nearest' });
+  };
+  const item = ({ ico, title, meta, tip, on = false, disabled = false, act }) => {
+    const b = h('button', { type: 'button', class: 'menu-item ip-row sp-row', role: 'option', title: tip || null,
+      'aria-selected': on ? 'true' : null, 'aria-disabled': disabled ? 'true' : null, onclick: () => { if (!disabled) act(); } },
+    icon(ico, 14), h('span', { class: 'ip-text sp-text' }, h('span', { class: 'sp-title' }, title), meta ? h('span', { class: 'sp-meta muted' }, meta) : null),
+    on ? icon('check', 14) : null);
+    b.addEventListener('mousemove', () => mark(rows.findIndex((r) => r.el === b)));
+    return { el: b, act: disabled ? null : act };
+  };
+  const sessionRow = (f) => {
+    const here = f.listed_on === key;
+    const elsewhere = f.listed_on && !here ? state.items.find((it) => it.key === f.listed_on) : null;
+    return item({ ico: TARGET_ICON[SOURCE_TARGET[f.source]] || 'terminal', title: f.title || 'Untitled conversation',
+      meta: [sourceLabel(f.source || 'other'), nameOf(f.cwd), when(f.updated), elsewhere ? `on ${refOf(elsewhere) || elsewhere.title}` : null].filter(Boolean).join(' · '),
+      tip: here ? 'Already listed on this item' : `${f.cwd}\n${f.id}`, on: here, disabled: here, act: () => add(f.id) });
+  };
+  const pickFolder = (path) => { cwd = path; paintFolder(); setMode('sessions'); load(path); };
+  const folderRow = (f) => item({ ico: 'folder', title: nameOf(f.cwd), meta: `${f.count} conversation${f.count === 1 ? '' : 's'} · ${f.cwd}`,
+    tip: f.cwd, on: f.cwd === cwd, act: () => pickFolder(f.cwd) });
+  const empty = (text) => h('div', { class: 'menu-empty' }, text);
+  const paint = () => {
+    const q = input.value.trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
+    const matches = (text) => words.every((w) => text.toLowerCase().includes(w));
+    if (mode === 'folders') {
+      if (!folders) { rows = []; list.replaceChildren(empty('Reading the folders…')); return; }
+      const all = item({ ico: 'clock', title: 'All folders', meta: 'The newest conversations on this computer', on: !cwd, act: () => pickFolder('') });
+      rows = [...(q ? [] : [all]), ...folders.filter((f) => matches(`${nameOf(f.cwd)} ${f.cwd}`)).map(folderRow)];
+      list.replaceChildren(...rows.map((r) => r.el), ...(!rows.length ? [empty('No folder matches')] : []));
+      mark(0);
+      return;
+    }
+    if (!found) { rows = []; list.replaceChildren(empty('Reading Claude Code\'s conversations…')); return; }
+    const shown = found.filter((f) => matches(`${f.title} ${f.cwd} ${sourceLabel(f.source || 'other')} ${f.id}`));
+    rows = shown.slice(0, cwd ? 200 : 40).map(sessionRow);
+    // A pasted id not among them: added all the same, if Claude Code has it anywhere on this computer.
+    if (SESSION_ID.test(q) && !shown.some((f) => f.id === q)) {
+      rows.unshift(item({ ico: 'plus', title: `Add the session ${q}`, act: () => add(q) }));
+    }
+    list.replaceChildren(...rows.map((r) => r.el), ...(!rows.length ? [empty(q ? 'No conversation matches' : 'No Claude Code conversation here yet')] : []));
+    mark(0);
+  };
+  const setMode = (m) => {
+    mode = m;
+    folderBtn.setAttribute('aria-expanded', String(m === 'folders'));
+    input.value = '';
+    input.placeholder = m === 'folders' ? 'Find a folder by name or path' : 'Find by title, folder or app — or paste a session id';
+    input.setAttribute('aria-label', m === 'folders' ? 'Find a folder' : 'Find a Claude session');
+    list.setAttribute('aria-label', m === 'folders' ? 'Folders Claude Code has run in' : 'Claude sessions');
+    paint();
+    input.focus();
+  };
+  input.addEventListener('input', paint);
+  el.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mark(at + (e.key === 'ArrowDown' ? 1 : -1)); }
+    else if (e.key === 'Enter' && e.target !== folderBtn && rows[at]?.act) { e.preventDefault(); rows[at].act(); }
+    else if (e.key === 'Escape') { // the folders back to the sessions, else closed
+      e.preventDefault();
+      if (mode === 'folders') setMode('sessions');
+      else { closeSessionPicker(); anchor.focus(); }
+    }
+  });
+  const load = (path) => {
+    found = null;
+    paint();
+    api.claudeRecent(path).then((r) => { if (cwd === path) { found = r.sessions || []; if (mode === 'sessions') paint(); } },
+      (e) => list.replaceChildren(empty(e.message)));
+  };
+  // The folders, the last written first (server.py session_folders): its name (Settings' or its own) over its path.
+  api.claudeFolders().then((r) => { folders = r.folders || []; if (mode === 'folders') paint(); }, () => { folders = []; });
+  paintFolder();
+  setMode('sessions');
+  load('');
+
+  document.body.append(sideSized(el, anchor));
+  const r = anchor.getBoundingClientRect();
+  el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8))}px`;
+  if (r.bottom + 6 + 360 > innerHeight - 8) el.style.bottom = `${innerHeight - r.top + 6}px`;
+  else el.style.top = `${r.bottom + 6}px`;
+  const outside = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) closeSessionPicker(); };
+  document.addEventListener('mousedown', outside, true);
+  anchor.setAttribute('aria-expanded', 'true');
+  picking = { el, anchor, outside };
+  input.focus();
 }
 
 /** The request itself: where it runs, model / effort, a saved prompt, the instruction, the preview, and the buttons.
@@ -265,7 +479,7 @@ function requestPane(item, close) {
   });
 
   const nodes = [
-    item ? h('p', { class: 'claude-item' }, h('span', { class: 'mono' }, item.id || item.type), ' ', item.title) : null,
+    item ? h('p', { class: 'claude-item' }, h('span', { class: 'mono' }, refOf(item) || item.type), ' ', item.title) : null,
     folderSel ? h('div', { class: 'field claude-folder' }, h('span', {}, 'Folder'), folderSel) : null,
     where,
     h('div', { class: 'claude-opts' },

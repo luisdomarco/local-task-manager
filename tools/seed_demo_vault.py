@@ -41,9 +41,9 @@ def default_target():
     cfg = os.path.join(APP_DIR, 'config.json')
     if os.path.exists(cfg):
         with open(cfg, encoding='utf-8') as f:
-            root = json.load(f).get('root') or 'sample-vault'
+            root = json.load(f).get('root') or 'sample-vault-legacy'
     else:
-        root = 'sample-vault'
+        root = 'sample-vault-legacy'  # a folder-per-type vault: what this demo writes
     return os.path.realpath(os.path.join(APP_DIR, os.path.expanduser(root)))
 
 
@@ -114,7 +114,7 @@ def build(s):
     # ── initiatives ──────────────────────────────────────────────────────────────────────────────────
     mk('checkout', 'initiative', 'Checkout redesign', {
         'status': 'InProgress', 'priority': 'High', 'plan_week': week(), 'labels': ['ux', 'q4', 'payments'],
-        'redmine_id': '4521', 'redmine_url': 'https://redmine.acme-shop.com/issues/4521', 'local_path': '~/work/storefront',
+        'ticket_id': '4521', 'ticket_url': 'https://redmine.acme-shop.com/issues/4521', 'local_path': '~/work/storefront',
         'url': 'https://www.notion.so/acme/Checkout-redesign-8f2c', 'url_label': 'Notion',
         'links': [{'label': 'Figma', 'url': 'https://www.figma.com/file/Zk3p9/Checkout-v3'},
                   {'label': 'G. Sheet', 'url': 'https://docs.google.com/spreadsheets/d/1aBcD/edit'}]},
@@ -129,7 +129,7 @@ def build(s):
         '- [x] Compare provider fees\n- [ ] Pick the provider with finance\n- [ ] Sandbox accounts for each method\n', created=-12, updated=-3)
     mk('analytics', 'initiative', 'Analytics dashboard v2', {
         'status': 'Review', 'priority': 'High', 'plan_week': week(), 'labels': ['frontend', 'q4'],
-        'redmine_id': '4388', 'redmine_url': 'https://redmine.acme-shop.com/issues/4388',
+        'ticket_id': '4388', 'ticket_url': 'https://redmine.acme-shop.com/issues/4388',
         'url': 'https://www.figma.com/file/Qx81/Analytics-v2', 'url_label': 'Other'},
         '## Goal\n\nReplace the spreadsheet reports with a self-serve dashboard for the commercial team.\n\n'
         '## Status\n\nCharts and filters are built; waiting for the team to review the revenue-by-channel numbers against finance.\n',
@@ -138,8 +138,8 @@ def build(s):
         'status': 'ToDo', 'priority': 'Normal', 'plan_week': week(1), 'labels': ['email', 'customer']},
         'A 4-email sequence for new accounts: welcome, first order tips, reviews request and win-back after 30 days.\n', created=-9, updated=-2)
     mk('seo', 'initiative', 'SEO migration to the new URL structure', {
-        'status': 'Blocked', 'priority': 'High', 'labels': ['seo', 'infra'], 'redmine_id': '4410',
-        'redmine_url': 'https://redmine.acme-shop.com/issues/4410'},
+        'status': 'Blocked', 'priority': 'High', 'labels': ['seo', 'infra'], 'ticket_id': '4410',
+        'ticket_url': 'https://redmine.acme-shop.com/issues/4410'},
         '## Why\n\nThe new URL structure (`/c/<category>/<slug>`) must go live with 301 redirects for every old URL, or we lose organic traffic.\n\n'
         '## Blocked\n\nDevOps has to enable the redirect map at the CDN. Waiting for their window (see the meeting with DevOps).\n', created=-20, updated=-4)
     mk('mobile', 'initiative', 'Mobile app beta', {'status': 'OnHold', 'priority': 'Low', 'labels': ['frontend']},
@@ -154,7 +154,7 @@ def build(s):
     # ── user stories ─────────────────────────────────────────────────────────────────────────────────
     mk('us_applepay', 'story', 'As a shopper I can pay with Apple Pay', {
         'status': 'InProgress', 'priority': 'High', 'related_to': made['checkout'], 'labels': ['payments', 'frontend'],
-        'redmine_id': '4522', 'redmine_url': 'https://redmine.acme-shop.com/issues/4522', 'plan_week': week()},
+        'ticket_id': '4522', 'ticket_url': 'https://redmine.acme-shop.com/issues/4522', 'plan_week': week()},
         '**Acceptance**\n\n- Apple Pay button on the payment step (Safari / iOS only)\n- Fallback to card form elsewhere\n- Order confirmation email unchanged\n',
         created=-22, updated=0)
     mk('us_delivery', 'story', 'As a shopper I see delivery estimates before paying', {
@@ -181,7 +181,7 @@ def build(s):
         'Stands on its own: not tied to an initiative yet.\n', created=-11, updated=-11)
 
     # ── tasks ────────────────────────────────────────────────────────────────────────────────────────
-    # (Today, carried-over, tomorrow, this week, next week, closed: every part of the planning views has something to show.)
+    # (Today, carried-over, this week, next week, closed: every part of the planning views has something to show.)
     mk('t_merchant', 'task', 'Register the Apple Pay merchant ID', {
         'status': 'Done', 'priority': 'High', 'related_to': made['us_applepay'], 'labels': ['payments'], 'session_name': 'checkout-applepay'},
         '- [x] Create the merchant ID in the Apple developer account\n- [x] Upload the payment-processing certificate\n- [x] Verify the domain file\n',

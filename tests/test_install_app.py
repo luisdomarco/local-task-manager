@@ -77,6 +77,13 @@ class InstallAppTest(unittest.TestCase):
             self.assertEqual(f.read(), 'v2')
         self.assertEqual(self.calls[-1], ['launchctl', 'kill'])
 
+    def test_update_removes_what_an_older_version_installed_and_this_one_has_not(self):
+        ia.install(self.src, self.home, '/usr/bin/python3', self.run, wait=self.wait)
+        write(self.where['app'], os.path.join('sample-vault-ticketing', 'x.md'), 'old')  # the Projects sample's old place
+        ia.update(self.src, self.home, self.run)
+        self.assertFalse(os.path.exists(os.path.join(self.where['app'], 'sample-vault-ticketing')))
+        self.assertTrue(os.path.exists(os.path.join(self.where['app'], 'config.json')))
+
     def test_uninstall_takes_the_code_and_the_agent_and_keeps_its_config(self):
         ia.install(self.src, self.home, '/usr/bin/python3', self.run, wait=self.wait)
         ia.uninstall(self.home, self.run)

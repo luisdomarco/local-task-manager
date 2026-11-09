@@ -1,9 +1,9 @@
 ---
 fileClass: Ticket Error
-id: "{{id}}"                           # KEY-ERR-NNN
+id: "{{id}}"                           # its number, drawn ERR-<n>
 aliases: []
 project: "[[00 {{project}}]]"
-item: ""                               # "[[KEY-INI|SUP|HFX-NNN …]]" during which it was found
+item: ""                               # "[[INI|SUP|HFX-<n> …]]" during which it was found
 fixed_by: ""                           # the item that resolved it
 severity: medium                       # low · medium · high · critical
 impact: 3                              # 1–5
@@ -15,7 +15,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 ## Symptom
 

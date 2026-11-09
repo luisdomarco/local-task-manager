@@ -15,7 +15,7 @@ import server
 from tm import journal
 from tm.store import META_DIR, Store
 
-SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample-vault')
+SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample-vault-legacy')
 
 
 class JournalTest(unittest.TestCase):

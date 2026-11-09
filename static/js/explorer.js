@@ -2,10 +2,12 @@
 // with a filter. A file opens in the middle (#/files/<path>, views/files.js); a folder folds and shows what it holds
 // there too. Which folders are open is remembered per vault (explorer.open). The list comes from the server
 // (/api/files) whenever the page reloads its items, and only while the Explorer is shown (Docs, views/docs.js, asks for
-// it itself and draws its own pane from the same list).
+// it itself and draws its own pane from the same list). Hidden files come too while Show hidden files is on (the eye by
+// the filter, files.hidden, per vault): one list, so one switch for the Explorer and Docs.
 import { api } from './api.js';
 import { buildTree } from './filetree.js';
 import { onSidebarMode, sidebarMode } from './sidebar.js';
+import { pref } from './prefs.js';
 import { firstLoad, onChange } from './state.js';
 import { h, icon } from './ui.js';
 import { currentPath, treePane } from './treepane.js';
@@ -14,6 +16,7 @@ let tree = null;      // buildTree of the latest list
 let truncated = false;
 let sig = '';         // that list, to skip a redraw when nothing changed
 let loading = null;
+let again = null; // the fetch queued behind the one in flight (loadFiles)
 
 /** The vault's tree as the latest load left it (views/files.js lists a folder from it), or null before one. */
 export const fileTree = () => tree;
@@ -25,6 +28,7 @@ const box = () => document.getElementById('side-explorer');
 const pane = treePane({
   box, tree: fileTree, openKey: 'explorer.open', label: 'Vault files', rootDrop: true, empty: 'This vault is empty.',
   truncated: () => truncated,
+  reload: () => loadFiles(),
   sections: (t) => [{ id: '', path: '', node: t }],
   bar: [
     h('button', { class: 'btn icon', title: 'New file in the vault (.md if no extension)', 'aria-label': 'New file', onclick: () => pane.startNew('', 'file') }, icon('file', 15)),
@@ -32,11 +36,16 @@ const pane = treePane({
   ],
 });
 
-/** Fetches the list again; draws the tree when it changed. */
+/** Fetches the list again; draws the tree when it changed. A call while one is on its way gets a fetch started after
+ *  that one, never its answer: the request in flight may predate what the caller just changed (a file just created
+ *  would be missing from it). */
 export function loadFiles() {
-  if (loading) return loading;
+  if (loading) {
+    again = again || loading.then(() => { again = null; return loadFiles(); });
+    return again;
+  }
   // Not before the page knows its vault (every request names it): the first load waits for it.
-  loading = firstLoad.then(() => api.files()).then((res) => {
+  loading = firstLoad.then(() => api.files(!!pref('files.hidden'))).then((res) => {
     const next = JSON.stringify(res);
     if (next === sig) return;
     sig = next;

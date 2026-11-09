@@ -16,18 +16,22 @@ import threading
 import unicodedata
 from datetime import datetime
 
+from . import agentsmd
 from . import attachments
 from . import frontmatter as fm
+from . import graph as tm_graph
+from . import history
 from . import people
-from .fsutil import atomic_write
+from .fsutil import VaultBusy, atomic_write, vault_lock
 from .launch import SESSION_RE
-from .structures import GROUPS, StatusConfigError
+from .structures import GROUPS, StatusConfigError, relations
 from .structures import get as get_structure
 from .structures.folders import (FOLDER_PER_TYPE, CLOSED, DEFAULT_FOLDERS, ID_RE, ITEM_TYPES, PARENT_TYPES, PRIORITIES,  # noqa: F401
                                 STATUSES, TYPE_FIELDS)
 from .structures.check import IGNORED_FILES
 from .structures.check import check as check_structure
 from .structures.ticketing import wikilinks
+from .structures.traits import RENAMED_KEYS
 
 # ITEM_TYPES, DEFAULT_FOLDERS, STATUSES, CLOSED, PRIORITIES, TYPE_FIELDS, PARENT_TYPES and ID_RE are the folder-per-type
 # structure's (tm/structures/folders.py), under the names they have always had here: the server, the tools and the
@@ -65,6 +69,7 @@ PROTECTED = {'id', 'type', 'created_at', 'completed_at', 'resolved_at'}
 # tm/structures/folders.py (EXTRA_FIELDS).
 ALLOWED_FIELDS = {t: FOLDER_PER_TYPE.allowed_fields(t) for t in FOLDER_PER_TYPE.types}
 IDS_FILE = 'ids.json'  # in META_DIR: the highest number ever handed out per prefix
+NUMBER_MARK = 'number'  # its key for short ids: the highest number handed out in the vault (a prefix is in capitals)
 TENTATIVE = 'tentative'  # a work-log entry's `status` while it is only proposed: not counted until confirmed
 META_DIR = '.task-manager'
 ORDER_FILE = '.order'  # in a Docs folder: its entries' names in the order dragged (Store.set_order)
@@ -151,7 +156,7 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'priority must be one of {priorities}')
     if values.get('source') and values['source'] not in ACTIVITY_SOURCES:
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
-    for key in ('plan_order', 'week_order'):  # a card's place on Today and Week (TSK-053), on the Free board: a number, or none
+    for key in ('plan_order', 'week_order', 'goal_order'):  # a card's place on Today and Week (TSK-053), the Free board, its goal: a number, or none
         if key in values:
             v = values[key]
             if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
@@ -283,7 +288,8 @@ def clean_instruction(text):
 
 def clean_claude_sessions(raw):
     """Claude sessions as stored: id (a UUID, or the entry is refused), at, cwd (required: a resume runs there),
-    the first line of the instruction, and the model / effort flags if any. Anything else is dropped."""
+    the first line of the instruction, the model / effort flags if any, where one added by hand came from (source)
+    and whether it is the main one. Anything else is dropped."""
     out = []
     for s in raw or []:
         if not isinstance(s, dict):
@@ -295,9 +301,11 @@ def clean_claude_sessions(raw):
         if not cwd:
             raise StoreError(400, 'a Claude session needs the folder it ran in')
         entry = {'id': sid, 'at': str(s.get('at') or now_stamp()), 'cwd': cwd, 'instruction': clean_instruction(s.get('instruction'))}
-        for k in ('model', 'effort'):
+        for k in ('model', 'effort', 'source'):  # source: where one added by hand was started (launch.SESSION_SOURCES)
             if s.get(k):
-                entry[k] = str(s[k]).strip()
+                entry[k] = str(s[k]).strip()[:40]
+        if s.get('main') is True:  # the one the AI tab stars: at most one (set_main_claude_session)
+            entry['main'] = True
         out.append(entry)
     return out
 
@@ -310,6 +318,8 @@ def allowed_values(item_type, values, structure=FOLDER_PER_TYPE):
     One exception, kept from before: asking to relate an inbox item or a prompt to something is an
     explicit request that cannot be honoured, so it is a 400, not a silent no-op (an empty one is fine)."""
     keep = structure.allowed_fields(item_type)
+    # A key asked for under its first name (a script still sending `redmine_id`) is the new one's.
+    values = {(RENAMED_KEYS[k] if k in RENAMED_KEYS and RENAMED_KEYS[k] in keep else k): v for k, v in (values or {}).items()}
     for key in ('related_to', 'relations'):
         if (values or {}).get(key) and key not in keep:
             raise StoreError(400, f'a {item_type} cannot be related to anything')
@@ -327,6 +337,9 @@ class StoreError(Exception):
 # vault's structure is checked once, by the outermost one, which leaves here whether it matched for the inner ones.
 _writing = threading.local()
 
+# How long a write waits for another process (tools/vault.py, a sync) to finish its own before giving up (503).
+VAULT_LOCK_TIMEOUT = 10.0
+
 READ_ONLY_MESSAGE = 'This vault does not match its structure, so it is read-only until it does (see the notice in the app).'
 
 
@@ -342,7 +355,16 @@ def _write_guard(method, refuse_unmatched):
             raise StoreError(409, READ_ONLY_MESSAGE, check=result or self.check())
         _writing.depth = depth + 1
         try:
-            return method(self, *args, **kwargs)
+            if depth:  # an inner call: the outermost one holds both locks
+                return method(self, *args, **kwargs)
+            # One writer at a time: this process's threads (the RLock), then every other process on the vault (the
+            # app, tools/vault.py, a sync: the flock). Always in that order, so two threads never wait on each other.
+            with self._lock:
+                try:
+                    with vault_lock(os.path.join(self.root, META_DIR), VAULT_LOCK_TIMEOUT):
+                        return method(self, *args, **kwargs)
+                except VaultBusy as e:
+                    raise StoreError(503, f'{e}. Try again in a moment.') from None
         finally:
             _writing.depth = depth
     return guarded
@@ -366,6 +388,12 @@ def writes_files(method):
 
 def now_stamp():
     return datetime.now().strftime('%Y-%m-%dT%H:%M')
+
+
+def now_moment():
+    """now_stamp() to the second: when a comment was added or a field changed, so that two in the same minute keep
+    their order in Activity, which interleaves both."""
+    return datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
 
 def shown_body(body):
@@ -406,7 +434,7 @@ class Store:
         # its files; they stay on disk, valid, and come back when it is turned on again.
         self.full_structure = get_structure(structure) if isinstance(structure, str) else structure
         # `structure` also carries how the vault arranged its statuses in the three groups (statuses.json, Settings →
-        # Item type status); `base_structure` is it before that, what an arrangement is checked against.
+        # Statuses); `base_structure` is it before that, what an arrangement is checked against.
         self.base_structure = self.full_structure.without(disabled_types)
         self.status_error = ''  # why statuses.json was set aside (shown in Settings), '' when it was not
         self.structure = self._arranged(self.base_structure)
@@ -419,6 +447,9 @@ class Store:
         # here replaces the file (a new inode): ToDo→Done keeps the size, and on a coarse-clock file
         # system it can keep the mtime too, so (mtime, size) alone would hand back the old content.
         self._cache = {}
+        # abs path -> (the same key, [stems its body links to]): the graph's mentions (graph()), kept apart from
+        # _cache because a doc's entry there is dropped by every scan (docs are no items).
+        self._links_cache = {}
         # A leaf lock: held only around the dict operations, never during I/O and never while taking
         # another lock. Order is always _lock → _cache_lock. Not around scan's loop: it calls _load.
         self._cache_lock = threading.Lock()
@@ -477,6 +508,137 @@ class Store:
     def _read(self, path):
         return self._load(path)[1:3]
 
+    def _body_links(self, path):
+        """The stems a file's body links to (wikilinks.targets), read again only when the file changed (the key is
+        _load's: inode, mtime, size). [] for a file that cannot be read."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return []
+        with self._cache_lock:
+            hit = self._links_cache.get(path)
+        if hit and hit[0] == (st.st_ino, st.st_mtime_ns, st.st_size):
+            return hit[1]
+        try:
+            key, _, body, _ = self._load(path)
+        except OSError:
+            return []
+        stems = wikilinks.targets(body)
+        with self._cache_lock:
+            self._links_cache[path] = (key, stems)
+        return stems
+
+    def graph(self):
+        """The vault as a graph (tm/graph.py): its items and docs, and every link between them — their fields, their
+        typed relations and the wikilinks in their bodies. → {nodes, edges}."""
+        items = self.items()
+        docs, mentions, live = [], {}, set()
+        for it in items:
+            path = os.path.join(self.root, it['path'])
+            live.add(path)
+            mentions[tm_graph.node_id(it)] = self._body_links(path)
+        for path in self._walk_md(docs=True):
+            rel = self.rel(path).replace(os.sep, '/')
+            if self.full_structure.in_docs(rel):
+                live.add(path)
+                docs.append(rel)
+                mentions[rel] = self._body_links(path)
+        with self._cache_lock:  # what is gone from the vault is gone from the cache
+            for stale in [p for p in self._links_cache if p not in live]:
+                self._links_cache.pop(stale, None)
+        return tm_graph.build(items, self.structure, docs=docs, mentions=mentions)
+
+    # ── the vault's guide for agents (tm/agentsmd.py) ────────────────────────
+    def agents_info(self):
+        """What AGENTS.md is written from: the structure's types (their ref, folder, statuses, parents, link fields),
+        the projects, the relation kinds and the docs folders, as this vault has them."""
+        items = self.items()
+        pub = self.structure.public()
+        scoped = set(pub.get('project_scoped') or ())
+        numbered = self.numbered()
+        types = []
+        for name, t in self.structure.types.items():
+            links = [(p['key'], list(p.get('types') or [])) for p in t.props or () if p.get('kind') in ('link', 'links')]
+            types.append({'name': name, 'label': t.label, 'folder': t.folder or '', 'statuses': list(t.statuses),
+                          'closed': list(self.structure.closed_of(name)), 'parents': list(t.parents), 'links': links,
+                          'example': agentsmd._example_ref(items, name, t.prefix if t.has_id else '', numbered)})
+        projects = [{'key': it['id'] or it['fields'].get('project_key') or it['title'], 'name': it['title'],
+                     'folder': os.path.dirname(it['path']) if scoped else ''}
+                    for it in items if it['type'] == 'project']
+        return {'structure': self.structure.id, 'label': self.structure.label, 'types': types, 'projects': projects,
+                'project_scoped': sorted(scoped), 'relation_kinds': self.structure.extras.get('relation_kinds') or {},
+                'docs': [r['path'] for r in self.docs_roots() if r.get('exists')]}
+
+    def agents_status(self):
+        """Whether this vault keeps its guide for agents (AGENTS.md with the generated block), and its CLAUDE.md."""
+        return {'on': agentsmd.is_on(self.root), 'file': agentsmd.FILE,
+                'claude': os.path.exists(os.path.join(self.root, agentsmd.CLAUDE_FILE))}
+
+    def _guide_path(self, name):
+        """AGENTS.md or CLAUDE.md at the vault's top, or None when it is a link: atomic_write writes through links (an
+        item's file may be one, on purpose), and a guide merged into whatever a link points at could land outside the
+        vault. A linked guide is the owner's own business: never read, written, merged or trashed here."""
+        path = os.path.join(self.root, name)
+        return None if os.path.islink(path) else path
+
+    def _read_root_file(self, name):
+        path = self._guide_path(name)
+        if path is None:
+            return ''
+        try:
+            with open(path, encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            return ''
+
+    @writes
+    def set_agents_md(self, on, app_dir):
+        """Turn the guide on (AGENTS.md gets the generated block, its own text kept; CLAUDE.md gets `@AGENTS.md` when
+        the vault has none) or off (the block goes; a file left empty goes to the files' trash, and so does a CLAUDE.md
+        that only pointed at it). `app_dir` is where tools/vault.py is, written into the guide."""
+        path = self._guide_path(agentsmd.FILE)
+        if path is None:  # not the vault's own file: on is refused, off has nothing of ours to take away
+            if on:
+                raise StoreError(409, f'{agentsmd.FILE} at the top of this vault is a link: the app does not write through it')
+            return self.agents_status()
+        existing = self._read_root_file(agentsmd.FILE)
+        if on:
+            text = agentsmd.merge(existing, agentsmd.render(self.agents_info(), app_dir))
+            if text != existing:
+                atomic_write(path, text)
+            claude = os.path.join(self.root, agentsmd.CLAUDE_FILE)
+            # lexists, not exists: a link whose target is missing counts too. atomic_write resolves the path first, so
+            # such a link would make it create the target, wherever it points (outside the vault).
+            if not os.path.lexists(claude):
+                try:
+                    atomic_write(claude, agentsmd.CLAUDE_LINE + '\n', exclusive=True)
+                except FileExistsError:
+                    pass  # made by someone else in between: theirs, never touched
+        elif agentsmd.block_of(existing) is not None:
+            rest = agentsmd.strip(existing)
+            if rest.strip():
+                atomic_write(path, rest)
+            else:
+                self.delete_path(agentsmd.FILE)
+            if self._guide_path(agentsmd.CLAUDE_FILE) and self._read_root_file(agentsmd.CLAUDE_FILE).strip() == agentsmd.CLAUDE_LINE:
+                self.delete_path(agentsmd.CLAUDE_FILE)
+        return self.agents_status()
+
+    @writes
+    def refresh_agents_md(self, app_dir):
+        """Write the guide again when what it says changed (a project, a type, a status, where the app is). Nothing
+        when the vault keeps none, or nothing changed. → whether it wrote."""
+        path = self._guide_path(agentsmd.FILE)
+        existing = self._read_root_file(agentsmd.FILE)
+        old = agentsmd.block_of(existing)
+        if path is None or old is None:
+            return False
+        new = agentsmd.render(self.agents_info(), app_dir)
+        if new == old:
+            return False
+        atomic_write(path, agentsmd.merge(existing, new))
+        return True
+
     # ── structure ────────────────────────────────────────────────────────────
     def check(self):
         """Whether the vault matches its structure (tm/structures/check.py, or the structure's own checker), read
@@ -494,9 +656,19 @@ class Store:
         return codec.classify(rel, fields) if codec else fields.get('type')
 
     def _decoded(self, rel, fields):
-        """A file's fields as the app's: as they are, or through the structure's codec (links still unresolved)."""
+        """A file's fields as the app's: as they are, or through the structure's codec (links still unresolved). A
+        folder-per-type file still naming a key by its first name (`redmine_id`) is read under its new one
+        (traits.RENAMED_KEYS); the file is renamed on its next save, or by tools/migrate_ticket_keys.py."""
         codec = self.structure.codec
-        return codec.decode(rel, fields) if codec else fields
+        if codec:
+            return codec.decode(rel, fields)
+        old = [k for k in RENAMED_KEYS if k in fields and RENAMED_KEYS[k] not in fields]
+        if not old:
+            return fields
+        fields = dict(fields)
+        for k in old:
+            fields[RENAMED_KEYS[k]] = fields.pop(k)
+        return fields
 
     def _resolver(self):
         """Who is who in the vault right now (the codec's stems ↔ keys, projects): a fresh scan's."""
@@ -555,9 +727,17 @@ class Store:
     def _item(self, path, key, fields, body, brev):
         marks = CHECK_RE.findall(body)
         stem = os.path.splitext(os.path.basename(path))[0]
+        # A project without an id of its own (Ticketing: its note has none) is known by its key (ACME): its work log,
+        # its relations and its pins name it by that. Its item key stays its path, as before.
+        ident = fields.get('id') or (str(fields.get('project_key') or '').strip() or None if fields['type'] == 'project' else None)
+        aliases = fields.get('aliases')
         return {
-            'id': fields.get('id'),
+            'id': ident,
             'key': fields.get('id') or self.rel(path),
+            # How the page draws the id: a short id with its type's prefix (TSK-482), any other as it is.
+            'ref': self.structure.ref(fields['type'], ident),
+            # Its ids from before (short ids, a structure's migration): an old link or branch still finds it (find).
+            'aliases': [str(a) for a in aliases if a] if isinstance(aliases, list) else [],
             'type': fields['type'],
             'title': str(fields.get('subject') or fields.get('title') or stem),
             'path': self.rel(path),
@@ -613,9 +793,23 @@ class Store:
         return self.scan()[0]
 
     def find(self, key):
-        for it in self.items():
+        """The item of `key`: its id or path (its key); else its ref as drawn (TSK-482), else one of its old ids
+        (aliases: ACME-INI-001). A ref whose prefix is not its type's is a 404 that names the right one."""
+        items = self.items()
+        for it in items:
             if it['id'] == key or it['path'] == key:
                 return it
+        k = str(key or '').strip()
+        for it in items:
+            if it['ref'] == k:
+                return it
+        for it in items:
+            if k in it['aliases']:
+                return it
+        number = self.structure.number_of(k)
+        same = next((it for it in items if number and it['id'] == number), None)
+        if same:
+            raise StoreError(404, f"item not found: {k} ({number} is {same['ref']})")
         raise StoreError(404, f'item not found: {key}')
 
     def next_id(self, item_type, items=None, days=None, project=None):
@@ -624,13 +818,19 @@ class Store:
         kept in converted_from (a converted inbox item), the trash (a restore must find its id free),
         the work log, and the high-water mark in ids.json, which remembers what was purged from the
         trash or deleted by hand. Callers hold the lock and record the new id with _mark_ids."""
-        prefix = self.structure.prefix_for(item_type, project)  # HB-SUP in a Ticketing project, TSK otherwise
         if items is None:
             items, days = self.scan()
         elif days is None:
             days = self.scan()[1]
         used = [*(it['id'] for it in items), *(it['fields'].get('converted_from') for it in items), *self._trashed_ids(), *self._hidden_ids(),
                 *(e.get('id') for _, f in days.values() for e in f.get('entries') or [] if isinstance(e, dict))]
+        if self._numbered(used):  # short ids: one counter for the whole vault, whatever the type
+            top = self._id_marks().get(NUMBER_MARK, 0)
+            for u in used:
+                if self.structure.is_number(u):
+                    top = max(top, int(u))
+            return str(top + 1)
+        prefix = self.structure.prefix_for(item_type, project)  # HB-SUP in a Ticketing project, TSK otherwise
         top = self._id_marks().get(prefix, 0)
         for u in used:
             parsed = self.structure.parse_id(u)
@@ -640,6 +840,23 @@ class Store:
 
     def _ids_path(self):
         return os.path.join(self.root, META_DIR, IDS_FILE)
+
+    def numbered(self):
+        """Whether this vault gives short ids (a number per item, plans/short-ids.md)."""
+        items, days = self.scan()
+        return self._numbered([*(it['id'] for it in items), *self._trashed_ids(),
+                               *(e.get('id') for _, f in days.values() for e in f.get('entries') or [] if isinstance(e, dict))])
+
+    def _numbered(self, used):
+        """Short ids or long ones, from `used` (every id the vault has handed out). A vault numbers its items when its
+        structure does and: ids.json keeps the number's mark, or it already has a numbered item, or it is new (no
+        ids.json, no long id anywhere). A vault with long ids keeps them until tools/migrate_short_ids.py moves it."""
+        if not self.structure.numbered:
+            return False
+        marks, _ = self._read_id_marks()
+        if NUMBER_MARK in marks or any(self.structure.is_number(u) for u in used):
+            return True
+        return not os.path.exists(self._ids_path()) and not any(self.structure.parse_id(u) for u in used)
 
     def _id_marks(self):
         """{prefix: highest number used}. Missing or unreadable means {}: next_id still counts every
@@ -668,7 +885,7 @@ class Store:
                 *(e.get('id') for _, f in days.values() for e in f.get('entries') or [] if isinstance(e, dict))]
         marks = {}
         for u in used:
-            parsed = self.structure.parse_id(u)
+            parsed = (NUMBER_MARK, int(u)) if self.structure.is_number(u) else self.structure.parse_id(u)
             if parsed and parsed[1] > marks.get(parsed[0], 0):
                 marks[parsed[0]] = parsed[1]
         return marks
@@ -687,7 +904,7 @@ class Store:
             except OSError:
                 pass
         for used in ids:
-            parsed = self.structure.parse_id(used)
+            parsed = (NUMBER_MARK, int(used)) if self.structure.is_number(used) else self.structure.parse_id(used)
             if parsed and parsed[1] > marks.get(parsed[0], 0):
                 marks[parsed[0]] = parsed[1]
                 changed = True
@@ -704,8 +921,9 @@ class Store:
         k, fields, body, brev = self._load(path)
         if self._type_of(it['path'], fields) not in self.structure.types:  # changed into something else since the scan
             raise StoreError(404, f'item not found: {key}')
+        fields = self._decoded(it['path'], fields)
         if self.structure.codec:
-            fields = self.structure.codec.apply(self._decoded(it['path'], fields), self._resolver())
+            fields = self.structure.codec.apply(fields, self._resolver())
         return {**self._item(path, k, fields, body, brev), 'body': shown_body(body)}
 
     @writes
@@ -724,6 +942,7 @@ class Store:
         if self.structure.codec:
             return self._create_coded(item_type, subject, values, body, given)
         with self._lock:
+            self._check_project(item_type, values, new=True)
             if values.get('related_to'):
                 self._check_relation({'id': None, 'type': item_type}, values['related_to'])
             if values.get('relations'):
@@ -754,14 +973,15 @@ class Store:
         return self.read(item_id)
 
     # ── writes in a structure with its own file format (Structure.codec) ─────
-    def _create_coded(self, item_type, subject, values, body, given=None):
-        """A new item as its structure's template, filled in (a Ticketing ticket: `<ID> <Title>.md` in its project)."""
+    def _create_coded(self, item_type, subject, values, body, given=None, number=None):
+        """A new item as its structure's template, filled in (a Ticketing ticket: `<ID> <Title>.md` in its project).
+        `number`: the short id it keeps (an inbox item converted), instead of a new one."""
         codec = self.structure.codec
         tdef = self.structure.types[item_type]
         with self._lock:
             r = self._resolver()
             if item_type == 'project':
-                return self._create_project(subject, given or {}, r, body)
+                return self._create_project(subject, given or {}, r, body, values)
             project = values.get('project') or None
             scoped = item_type in self.structure.extras.get('project_scoped', ())
             parent = None
@@ -777,13 +997,15 @@ class Store:
             if scoped and not project:
                 known = ', '.join(sorted(r.projects)) or 'none yet: create one first'
                 raise StoreError(400, f'a {tdef.label.lower()} lives in a project: choose one ({known})')
-            if item_type == 'plan' and not parent:
-                raise StoreError(400, 'a plan executes an initiative or a support ticket: choose it in Related to')
+            if scoped:
+                self._check_project_has(item_type, project, r)
+            if item_type in self.structure.extras.get('needs_parent', ()) and not parent:
+                raise StoreError(400, f'a {tdef.label.lower()} hangs from {self._parents_text(item_type)}: choose it in Parent')
             values = {**values, 'project': project} if project else values
             dup = self._rule('duplicate_of', item_type, values, self.items())
             if dup:  # the same problem again (an open support ticket with this signature): one more occurrence
                 return self.read(self._rule('add_occurrence', dup, body, r, now_stamp()))
-            item_id = self.next_id(item_type, project=project) if tdef.has_id else None
+            item_id = (number or self.next_id(item_type, project=project)) if tdef.has_id else None
             if item_id:
                 self._mark_ids([item_id])
             stamp = now_stamp()
@@ -801,25 +1023,43 @@ class Store:
             atomic_write(path, text, exclusive=True)
         return self.read(item_id or rel)
 
-    def _create_project(self, name, given, r, body=''):
-        """A project: its folder, its note (`00 <Name>.md`, fileClass Ticket Project) and its type folders."""
+    def _parents_text(self, item_type):
+        """What a type may hang from, in words: 'an initiative', 'an initiative, a story or a support'."""
+        names = [self.structure.types[t].label.lower() for t in self.structure.types[item_type].parents if t in self.structure.types]
+        named = [f"{'an' if n[0] in 'aeiou' else 'a'} {n}" for n in names] or ['another item']
+        return named[0] if len(named) == 1 else f"{', '.join(named[:-1])} or {named[-1]}"
+
+    def _create_project(self, name, given, r, body='', values=None):
+        """A project: its folder, its note (`00 <Name>.md`, fileClass Ticket Project) and its type folders. What the
+        create form filled in (its settings, sessions, labels, links…: `values`, validated) is written in its note; the
+        types it turns on are those it names, else its kind's, and they decide its folders."""
         codec = self.structure.codec
         key = str(given.get('project_key') or '').strip().upper()
-        kind = str(given.get('project_kind') or 'product').strip()
+        kinds = self.structure.kinds  # what a project may be (tm/structures/kinds.py); the first when it does not say
+        kind = str(given.get('project_kind') or next(iter(kinds))).strip()
         if not re.match(r'^[A-Z]{2,4}$', key):
             raise StoreError(400, 'a project needs a key of 2 to 4 capital letters (project_key)')
         if key in r.projects:
             raise StoreError(409, f'the key {key} is taken by the project {r.projects[key]["name"]}')
-        if kind not in ('system', 'product'):
-            raise StoreError(400, 'project_kind must be system or product')
+        if kind not in kinds:
+            raise StoreError(400, f"project_kind must be {' or '.join(kinds)}")
         stamp = now_stamp()
-        rel, text = codec.new_file('project', name, {}, body, r, None, stamp)
+        vals = {k: v for k, v in (values or {}).items() if k not in ('project', 'project_key', 'project_kind')}
+        vals.setdefault('enabled_types', codec.enabled_types(kind))
+        # Its rules read its kind (the settings it has); the kind itself is written below, with its key.
+        vals = self._ticket_rules_on_create('project', {**vals, 'project_kind': kind}, r, stamp)
+        vals.pop('project_kind', None)
+        self._remember_labels(vals.get('labels'))
+        rel, text = codec.new_file('project', name, vals, body, r, None, stamp)
         folder = self.abs(os.path.dirname(rel))
         if os.path.lexists(folder):
             raise StoreError(409, f'already exists: {os.path.dirname(rel)}')
-        text = fm.patch(text, {'project_key': key, 'project_kind': kind, 'enabled_types': codec.enabled_types(kind)})
+        text = fm.patch(text, {'project_key': key, 'project_kind': kind})
+        # The settings its kind has no use for are not written, not even the template's placeholders: once made, they
+        # could not be edited (a simple project's repo, execution, support due days).
+        text = fm.drop(text, self.structure.kind(kind).hidden.get('project', ()))
         os.mkdir(folder)
-        for sub in codec.project_folders(kind):
+        for sub in codec.project_folders(kind, vals['enabled_types']):
             os.makedirs(os.path.join(folder, sub), exist_ok=True)
         atomic_write(self.abs(rel), text, exclusive=True)
         return self.read(rel)
@@ -840,9 +1080,34 @@ class Store:
                 body = ''  # an inbox note's template body is its title: nothing more was written
             if it['id']:
                 self._mark_ids([it['id']])
-            new = self._create_coded(new_type, it['title'], {**carried, **values, 'converted_from': it['id']}, body)
-            os.remove(src)
+            if self.structure.is_number(it['id']):  # a short id stays: INB-482 becomes TSK-482, its old ref an alias
+                aside = src + '.converting'  # out of the scan while its number moves to the new file; back if that fails
+                os.replace(src, aside)
+                try:
+                    new = self._create_coded(new_type, it['title'], {**carried, **values, 'aliases': [it['ref']]}, body, number=it['id'])
+                except BaseException:
+                    os.replace(aside, src)
+                    raise
+                os.remove(aside)
+            else:
+                new = self._create_coded(new_type, it['title'], {**carried, **values, 'converted_from': it['id']}, body)
+                os.remove(src)
         return new
+
+    def _check_project_has(self, item_type, project, r):
+        """A ticket of a project's own folders is made only in a project that has its type: one its kind gives it
+        (tm/structures/kinds.py) and, when optional, its enabled_types turns on. A 400 that says which."""
+        fields = r.projects[project]['fields']
+        kind = self.structure.kind(fields.get(self.structure.kind_key))
+        # A note without enabled_types (from before it) has its kind's default ones, as the page reads it; the vault
+        # check requires only the folders a note names.
+        enabled = fields.get('enabled_types') if isinstance(fields.get('enabled_types'), list) else None
+        if item_type in kind.project_types(enabled):
+            return
+        plural = self.structure.types[item_type].plural
+        if item_type in kind.optional:
+            raise StoreError(400, f'project {project} has {plural} turned off: turn them on in its settings (Types) first')
+        raise StoreError(400, f'project {project} is of kind {kind.id}, which has no {plural}')
 
     def _rule(self, name, *args):
         """Run one of the structure's own rules (its codec's hook `name`), if it has it; a rule that says no is a 400."""
@@ -880,7 +1145,9 @@ class Store:
             values = {**(extra or {}), 'status': status, 'updated_at': stamp}
             disk = self.structure.codec.encode(it['type'], values, raw, self._resolver(), stamp=stamp, by='rule', current=it['fields'])
             atomic_write(path, fm.patch(text, disk, None))
-        return self.read(it['key'])
+        out = self.read(it['key'])
+        self._record_history(it['fields'], out, stamp, 'rule')
+        return out
 
     @writes
     def item_action(self, name, key):
@@ -898,11 +1165,12 @@ class Store:
         """Patch the item's file through the codec; a new title renames the file (and every link to it). → its key."""
         r = self._resolver()
         scoped = it['type'] in self.structure.extras.get('project_scoped', ())
+        moving = []
         if 'project' in values and (values['project'] or None) != (it['fields'].get('project') or None):
-            if scoped:
-                raise StoreError(400, 'a ticket cannot move to another project: its id carries the project key')
             if values['project'] and values['project'] not in r.projects:
                 raise StoreError(400, f"unknown project: {values['project']}")
+            if scoped:  # its folder is its project's: the file moves, and what hangs from it in that project with it
+                moving = self._project_move_plan(it, values['project'], r)
         if it['type'] == 'project':  # its key names every id of the project
             values = {k: v for k, v in values.items() if k not in ('project_key', 'project')}
         values = self._ticket_rules_on_update(it, values, r, stamp, by)
@@ -910,6 +1178,9 @@ class Store:
         disk = self.structure.codec.encode(it['type'], values, raw, r, stamp=stamp, by=by, current=it['fields'])
         atomic_write(path, fm.patch(text, disk, body))
         key = it['key']
+        if moving:
+            self._move_to_project(moving, values['project'], r, stamp, text)
+            it = {**it, 'path': moving[0][1]}
         if it['type'] == 'project' and 'enabled_types' in values:  # a type it turns on gets its folder (vault check)
             for sub in self.structure.codec.project_folders(it['fields'].get('project_kind'), values['enabled_types']):
                 os.makedirs(os.path.join(os.path.dirname(path), sub), exist_ok=True)
@@ -917,6 +1188,62 @@ class Store:
             key = self._rename_coded(it, values['subject'], stamp)
         self._rule('after_update', it, values, stamp)
         return key
+
+    def _project_move_plan(self, it, to, r):
+        """A ticket going to project `to`: the files that move, [(from, to)] relative to the vault, the ticket first,
+        then what hangs from it (`related_to`, all the way down) in its project's own folders — an initiative takes
+        its stories, plans and analyses. Only with short ids (a long id carries its project's key), only into a project
+        that holds each type, and never over a file already there. Nothing is moved here."""
+        if not to:
+            raise StoreError(400, 'a ticket is always in a project: pick the one it moves to')
+        if not self.structure.is_number(it['fields'].get('id') or it.get('id') or ''):
+            raise StoreError(400, 'a ticket with a long id cannot move to another project: its id carries the project '
+                                  'key (docs/migrate-short-ids.md moves the vault to short ids)')
+        scoped = set(self.structure.extras.get('project_scoped', ()))
+        items, _ = self.scan()
+        under = {}
+        for x in items:
+            under.setdefault(x['fields'].get('related_to'), []).append(x)
+        home = it['fields'].get('project')
+        plan, todo, seen = [], [it], set()
+        while todo:
+            x = todo.pop(0)
+            if x['key'] in seen or x['type'] not in scoped or x['fields'].get('project') != home:
+                continue
+            seen.add(x['key'])
+            self._check_project_has(x['type'], to, r)
+            dst = f"{self.structure.codec.folder_of(x['type'], to, r)}/{os.path.basename(x['path'])}"
+            if os.path.lexists(self.abs(dst)):
+                raise StoreError(409, f'another file already has that name: {dst}')
+            plan.append((x['path'], dst))
+            todo.extend(under.get(x['key'], []))
+        return plan
+
+    def _move_to_project(self, plan, to, r, stamp, was):
+        """Move the files of `plan` (_project_move_plan), patching the `project:` of each one after the first (the
+        ticket's own was written with its change; `was`, its text before, puts it back). Undone, and refused, when it
+        would leave the vault out of its structure."""
+        codec = self.structure.codec
+        texts = {}
+        for src, _ in plan[1:]:
+            with open(self.abs(src), encoding='utf-8') as f:
+                texts[src] = f.read()
+
+        def do():
+            for src, text in texts.items():
+                raw = fm.parse(fm.split(text)[0])
+                if 'project' in raw:
+                    atomic_write(self.abs(src), fm.patch(text, codec.encode(codec.classify(src, raw), {'project': to}, raw, r, stamp=stamp), None))
+            for src, dst in plan:
+                os.makedirs(os.path.dirname(self.abs(dst)), exist_ok=True)
+                shutil.move(self.abs(src), self.abs(dst))
+
+        def undo():
+            for src, dst in reversed(plan):
+                shutil.move(self.abs(dst), self.abs(src))
+            for src, text in {plan[0][0]: was, **texts}.items():
+                atomic_write(self.abs(src), text)
+        self._keeping_structure(do, undo)
 
     def _rename_coded(self, it, subject, stamp):
         """The title is the file name: rename the file and rewrite every `[[old]]` in the vault to `[[new]]`. Each
@@ -989,7 +1316,7 @@ class Store:
             if 'status' in values:  # completed_at follows status; never set by hand
                 closed = self.structure.closed_of(it['type'])
                 was = it['fields'].get('status')
-                # A status this vault no longer has (renamed in Settings → Item type status): its completed_at says
+                # A status this vault no longer has (renamed in Settings → Statuses): its completed_at says
                 # whether it was closed, so a renamed Done keeps the day it was done.
                 was_closed = was in closed or (was not in self.structure.statuses_of(it['type']) and bool(it['fields'].get('completed_at')))
                 if values['status'] in closed and not was_closed:
@@ -1009,6 +1336,10 @@ class Store:
                 values['resolved_at'] = (it['fields'].get('resolved_at') or stamp) if resolved else None
             if 'related_to' in values and values['related_to']:
                 self._check_relation(it, values['related_to'])
+            elif 'related_to' in values and it['fields'].get('related_to') and it['type'] in self.structure.extras.get('needs_parent', ()):
+                # One that always hangs from another item (a story, a plan…) moves to another, never to none.
+                raise StoreError(400, f"a {self.structure.types[it['type']].label.lower()} hangs from "
+                                      f"{self._parents_text(it['type'])}: pick another one instead of none")
             if values.get('relations'):
                 self._check_relations(it, values['relations'])
             self._settle_relation_kinds(it, values)
@@ -1018,10 +1349,32 @@ class Store:
             values['updated_at'] = stamp
             self._remember_people(values)
             self._remember_labels(values.get('labels'))
+            before = dict(it['fields'])
             if self.structure.codec:
-                return self.read(self._write_coded(it, values, body, text, path, stamp, by))
-            atomic_write(path, fm.patch(text, values, body))
-        return self.read(it['key'])
+                key = self._write_coded(it, values, body, text, path, stamp, by)
+            else:
+                self._check_project(it['type'], values)
+                text = fm.rename_keys(text, RENAMED_KEYS)[0]  # a key under its first name gets its new one (redmine_id)
+                atomic_write(path, fm.patch(text, values, body))
+                key = it['key']
+        out = self.read(key)
+        self._record_history(before, out, stamp, by)
+        return out
+
+    def _record_history(self, before, after, stamp, by):
+        """What a change did to the fields an item's Activity follows, in its history (tm/history.py). A history that
+        cannot be written loses that line, never the change."""
+        try:
+            found = history.changes(before, after['fields'], history.tracked(self.structure))
+            if found:
+                history.record(os.path.join(self.root, META_DIR), after.get('id') or after['key'], found, now_moment(), by)
+        except Exception:  # noqa: BLE001 — the change is made; only its line in the history is lost
+            pass
+
+    def item_history(self, key):
+        """An item's history, oldest first: [{at, by, field, from, to}] (tm/history.py)."""
+        it = self.find(key)
+        return history.read(os.path.join(self.root, META_DIR), it.get('id') or it['key'])
 
     @writes
     def convert(self, key, new_type, values=None):
@@ -1043,6 +1396,7 @@ class Store:
             it = self.find(key)
             if it['type'] != 'inbox':
                 raise StoreError(400, f"only inbox items convert, not a {it['type']}")
+            self._check_project(new_type, values)
             if values.get('related_to'):
                 self._check_relation({**it, 'type': new_type}, values['related_to'])
             if values.get('relations'):
@@ -1087,7 +1441,7 @@ class Store:
             it = self.find(key)
             if 'comments' not in self.structure.allowed_fields(it['type']):  # update() would drop it without a word
                 raise StoreError(400, f"a {it['type']} has no comments")
-            comments = list(it['fields'].get('comments') or []) + [{'at': now_stamp(), 'text': text}]
+            comments = list(it['fields'].get('comments') or []) + [{'at': now_moment(), 'text': text}]
             return self.update(it['key'], {'comments': comments})
 
     @writes
@@ -1129,6 +1483,30 @@ class Store:
             if 'claude_sessions' not in self.structure.allowed_fields(it['type']):  # update() would drop it without a word
                 raise StoreError(400, f"a {it['type']} keeps no Claude sessions")
             sessions = list(it['fields'].get('claude_sessions') or []) + [entry]  # validate() checks its shape
+            return self.update(it['key'], {'claude_sessions': sessions})
+
+    @writes
+    def add_existing_claude_session(self, key, entry):
+        """A conversation started elsewhere (Terminal, Claude Desktop, Cursor…), added to the item's list by hand so it
+        is resumed from the card like one launched here. Once per item. → the item."""
+        with self._lock:
+            listed = self.find(key)['fields'].get('claude_sessions') or []
+            if any(s.get('id') == entry.get('id') for s in listed):
+                raise StoreError(409, 'that session is already listed here')
+            return self.add_claude_session(key, entry)
+
+    @writes
+    def set_main_claude_session(self, key, session_id):
+        """Star one of the item's sessions as its main one (the others lose it). → the item."""
+        with self._lock:
+            it = self.find(key)
+            sessions = [dict(s) for s in it['fields'].get('claude_sessions') or []]
+            if not any(s.get('id') == session_id for s in sessions):
+                raise StoreError(404, 'Claude session not found')
+            for s in sessions:
+                s.pop('main', None)
+                if s.get('id') == session_id:
+                    s['main'] = True
             return self.update(it['key'], {'claude_sessions': sessions})
 
     @writes
@@ -1230,16 +1608,70 @@ class Store:
             if 'relations' not in self.structure.allowed_fields(target['type']):
                 raise StoreError(400, f"nothing can be related to a {target['type']}")
 
+    def _field_relations(self, item, items):
+        """The relations a structure keeps in a field of their own (Projects: "Blocked by" in `depends_on`), both
+        ways: [(other, what `item` is to it)] — `item` is the kind when `other` is in its field, the inverse when
+        `item` is in `other`'s."""
+        rk = self.structure.extras.get('relation_kinds') or {}
+        out = []
+        mine = {item['id'], item.get('key')} - {None}
+        for kind, field in (rk.get('fields') or {}).items():
+            own = set(item['fields'].get(field) or [])
+            for i in items:
+                if not i['id'] or i['id'] == item['id']:
+                    continue
+                if i['id'] in own or i.get('key') in own:
+                    out.append((i, kind))
+                elif mine & set(i['fields'].get(field) or []):
+                    out.append((i, rk['inverse'].get(kind, 'relates')))
+        return out
+
     def related_of(self, item, items=None):
-        """The items linked to `item` as equals, both ways: the ones it lists and the ones that list it."""
+        """The items linked to `item` as equals, both ways: the ones it lists and the ones that list it, in
+        `relations` or in a kind's own field (`depends_on`)."""
         items = self.items() if items is None else items
         own = set(item['fields'].get('relations') or [])
-        return [i for i in items if i['id'] and i['id'] != item['id']
-                and (i['id'] in own or item['id'] in (i['fields'].get('relations') or []))]
+        listed = [i for i in items if i['id'] and i['id'] != item['id']
+                  and (i['id'] in own or item['id'] in (i['fields'].get('relations') or []))]
+        seen = {i['id'] for i in listed}
+        return listed + [i for i, _ in self._field_relations(item, items) if not (i['id'] in seen or seen.add(i['id']))]
+
+    @writes
+    def relate(self, key, kind, other_key, by='agent'):
+        """Make the item `key` be `kind` to `other_key` (a relation kind of the structure: relates, blocked, precedes…),
+        or no longer related with `kind` None, wherever the structure keeps it (relations.relation_writes: the panel's
+        relationWrites, so it lands where the app would put it; Projects keeps Blocked by in `depends_on`). Every item
+        that changes is written under one hold. → the items written, as read() returns them."""
+        rk = self.structure.extras.get('relation_kinds') or {}
+        if kind is not None and kind not in (rk.get('inverse') or {}):
+            known = ', '.join(rk.get('inverse') or {}) or 'none'
+            raise StoreError(400, f'unknown relation kind: {kind} (this vault has: {known})')
+        with self._lock:
+            item, other = self.find(key), self.find(other_key)
+            if item['key'] == other['key']:
+                raise StoreError(400, 'an item cannot be related to itself')
+            if not item['id'] or not other['id']:
+                raise StoreError(400, 'only items with an id can be related as equals')
+            writes = relations.relation_writes(item, other, kind, rk, self._can_link)
+            for holder, values, _ in writes:
+                allowed = self.structure.allowed_fields(holder['type'])
+                missing = [k for k in values if k not in allowed]
+                if missing:  # update() would drop the key without a word
+                    raise StoreError(400, f"a {holder['type']} cannot keep this relation ({', '.join(missing)})")
+            return [self.update(holder['key'], values, by=by) for holder, values, _ in writes]
+
+    def _can_link(self, item_type, field, other_type):
+        """Whether an item of `item_type` can name one of `other_type` in its link field `field` (the panel's canLink)."""
+        t = self.structure.types.get(item_type)
+        prop = next((p for p in (t.props if t else ()) if p['key'] == field), None)
+        return prop is not None and (not prop.get('types') or other_type in prop['types'])
 
     def relation_kind(self, item, other):
-        """What `other` is to `item` (a relation kind of the structure, 'relates' by default), whichever of the two
-        keeps the relation: its own kind when `item` keeps it, the inverse of `other`'s when `other` does."""
+        """What `item` is to `other` (a relation kind of the structure, 'relates' by default), whichever of the two
+        keeps the relation: its own kind when `item` keeps it, the inverse of `other`'s when `other` does; a kind kept
+        in its own field (`depends_on`) first."""
+        for _, kind in self._field_relations(item, [other]):
+            return kind
         if other['id'] in (item['fields'].get('relations') or []):
             return (item['fields'].get('relation_kinds') or {}).get(other['id'], 'relates')
         kind = (other['fields'].get('relation_kinds') or {}).get(item['id'], 'relates')
@@ -1248,7 +1680,7 @@ class Store:
     def _settle_relation_kinds(self, item, values):
         """The `relation_kinds` an item is left with when `values` change its relations or their kinds: only those of
         relations it keeps (a relation removed takes its kind with it), and a kind other than `relates` only towards a
-        type whose relations have kinds (initiative, story, task in the folder-per-type structure)."""
+        type whose relations have kinds (every type that can be related, relations.py)."""
         if 'relation_kinds' not in self.structure.types[item['type']].fields:
             values.pop('relation_kinds', None)
             return
@@ -1266,6 +1698,29 @@ class Store:
                     raise StoreError(400, f'{rid}: a relation with a {by_id.get(rid, {}).get("type", "missing item")} can only be "relates"')
         if kept != had or 'relation_kinds' in values:
             values['relation_kinds'] = kept
+
+    def _check_project(self, item_type, values, new=False):
+        """A structure of one folder per type with projects (Tasks), in place in `values`: a new project's key, 2 to 4
+        capital letters no other project has, fixed once made (every item of it names it: a later one is dropped);
+        and an item's `project`, the key of a project of the vault, or none."""
+        fields = self.structure.types[item_type].fields
+        if 'project_key' not in fields and 'project' not in fields:
+            return
+        keys = {i['fields'].get('project_key') for i in self.items() if i['type'] == 'project'}
+        if 'project_key' in fields:
+            if not new:
+                values.pop('project_key', None)
+                return
+            key = str(values.get('project_key') or '').strip().upper()
+            if not re.match(r'^[A-Z]{2,4}$', key):
+                raise StoreError(400, 'a project needs a key of 2 to 4 capital letters (project_key)')
+            if key in keys:
+                raise StoreError(409, f'the key {key} is taken by another project')
+            values['project_key'] = key
+        if 'project' in values:
+            values['project'] = str(values['project'] or '').strip() or None
+            if values['project'] and values['project'] not in keys:
+                raise StoreError(400, f"unknown project: {values['project']}")
 
     def _check_relation(self, item, target_id):
         allowed = self.structure.types[item['type']].parents
@@ -1304,11 +1759,12 @@ class Store:
             for st in legacy:
                 if not isinstance(st, dict) or not st.get('subject') or st.get('id') in done:
                     continue
-                values = {k: st[k] for k in ('status', 'redmine_url', 'local_path') if st.get(k)}
+                # An embedded story kept its ticket as `redmine_url`: the story item has it as `ticket_url`.
+                values = {RENAMED_KEYS.get(k, k): st[k] for k in ('status', 'redmine_url', 'local_path') if st.get(k)}
                 try:
                     made = self.create('story', st['subject'], {**values, 'related_to': ini['id'], 'legacy_id': st.get('id')})
                 except StoreError:  # an old value the validator now refuses (a broken URL): keep the story, drop that value
-                    made = self.create('story', st['subject'], {**{k: v for k, v in values.items() if k != 'redmine_url'},
+                    made = self.create('story', st['subject'], {**{k: v for k, v in values.items() if k != 'ticket_url'},
                                                                 'related_to': ini['id'], 'legacy_id': st.get('id')})
                 moved.append({'initiative': ini['id'], 'story': made['id'], 'was': st.get('id')})
             with self._lock:  # the stories now live as items; the list stays, empty, for old readers
@@ -1324,7 +1780,7 @@ class Store:
         body = (it.get('body') or '').strip()
         comments = [c.get('text') for c in f.get('comments') or [] if isinstance(c, dict)]
         tail_people = self.watchers_note(f.get('watchers')) + self.mentions_note(body, *comments, instruction)
-        head = f"I want to work on this item from my task manager.\n\n# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
+        head = f"I want to work on this item from my task manager.\n\n# {it.get('ref') or it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
         tail = f"{tail_people}\n\n## What I want\n\n{(instruction or '').strip() or CLAUDE_DEFAULT_INSTRUCTION}\n"
         room = CLAUDE_MAX_PROMPT - len((head + tail).encode('utf-8')) - 200
         if body:
@@ -1338,7 +1794,7 @@ class Store:
         """An item attached to a chat message: what claude_prompt says of it (its facts, its description, cut to `room`
         bytes) without the request around it — the message is the request."""
         it = self.read(key)
-        out = f"# {it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(self._claude_facts(it))
+        out = f"# {it.get('ref') or it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(self._claude_facts(it))
         body = (it.get('body') or '').strip()
         if body:
             raw = body.encode('utf-8')
@@ -1362,18 +1818,19 @@ class Store:
         add('Priority', f.get('priority'))
         add('Priority reason', f.get('priority_reason'))
         add('Planned', f.get('plan_day') or f.get('plan_week') or f.get('plan_month'))
+        add('Start', f.get('start'))
         add('Due', f.get('due'))
         add('Date', f.get('date'))
         add('Time', f.get('time'))
         add('Attendees', ', '.join(f.get('attendees') or []))
         add('Source', f.get('source'))
         add('From', ', '.join(f.get('from') or []) if isinstance(f.get('from'), list) else f.get('from'))
-        add('Related to', f"{parent['id']} · {parent['title']}" if parent else f.get('related_to'))
+        add('Related to', f"{parent.get('ref') or parent['id']} · {parent['title']}" if parent else f.get('related_to'))
         kind_names = dict((self.structure.extras.get('relation_kinds') or {}).get('kinds', []))  # Redmine's names
 
         def related(r):
             kind = self.relation_kind(it, r)
-            return f"{r['id']} · {r['title']}" + (f' ({kind_names.get(kind, kind)})' if kind != 'relates' else '')
+            return f"{r.get('ref') or r['id']} · {r['title']}" + (f' — {kind_names.get(kind, kind)}' if kind != 'relates' else '')
         add('Related', ', '.join(related(r) for r in self.related_of(it)) if it['id'] else None)
         add('Labels', ', '.join(f.get('labels') or []))
         add('Watchers', ', '.join(f.get('watchers') or []))
@@ -1575,8 +2032,9 @@ class Store:
             if not deleted_at and stamp:
                 deleted_at = datetime.strptime(stamp.group(1) + stamp.group(2), '%Y%m%d%H%M%S').strftime('%Y-%m-%dT%H:%M:%S')
             original = meta.get('path') or os.path.join(self.folders.get(kind, ''), stamp.group(3) if stamp else name)
+            tid = str(fields['id']) if fields.get('id') not in (None, '') else None
             out.append({
-                'trashed': self.rel(path), 'id': fields.get('id'), 'type': kind,
+                'trashed': self.rel(path), 'id': tid, 'ref': self.structure.ref(kind, tid), 'type': kind,
                 'title': str(fields.get('subject') or fields.get('title') or os.path.splitext(name)[0]),
                 'original_path': original, 'deleted_at': deleted_at or '',
                 'related_to': fields.get('related_to'), 'unlinked': len(meta.get('children') or []),
@@ -1614,7 +2072,7 @@ class Store:
             it = self.find(key)
             current = list(it['fields'].get('attachments') or [])
             if path not in current:
-                raise StoreError(404, f'{it["id"] or it["title"]} has no attachment {path}')
+                raise StoreError(404, f'{it.get("ref") or it["id"] or it["title"]} has no attachment {path}')
             src = self.abs(path)
             dst = None
             if os.path.isfile(src):
@@ -1661,22 +2119,36 @@ class Store:
     # ── the vault as files (the sidebar's Explorer) ──────────────────────────
     FILES_MAX = 5000  # entries listed; a vault with more says it was cut (truncated)
     FILES_SKIP = {'node_modules', '__pycache__'}  # unlike SKIP_DIRS, Attachments/ is listed: it holds real files
+    # Hidden folders the Explorer never opens nor touches, shown or not: the app's own (ids, trash, the lock) and git's.
+    # Matched case aside: on a Mac's disk `.GIT` is `.git`.
+    FILES_PROTECTED = ('.git', '.task-manager')
 
     @classmethod
-    def _listable(cls, rel):
-        """Whether the Explorer shows `rel`: no part of it hidden (.task-manager, .obsidian, .git…) or skipped."""
-        parts = [p for p in re.split(r'[\\/]+', str(rel or '')) if p not in ('', '.')]
-        return bool(parts) and not any(p.startswith('.') or p in cls.FILES_SKIP for p in parts)
+    def _protected(cls, name):
+        return name.casefold() in cls.FILES_PROTECTED
 
-    def files(self):
+    @classmethod
+    def _listable(cls, rel, hidden=False):
+        """Whether the Explorer shows `rel`: nothing skipped in it (node_modules…), and no hidden part (.obsidian,
+        .DS_Store…) — or, with `hidden` (Show hidden files), none protected (.git, .task-manager)."""
+        parts = [p for p in re.split(r'[\\/]+', str(rel or '')) if p not in ('', '.')]
+        if not parts or any(p in cls.FILES_SKIP for p in parts):
+            return False
+        return not any(cls._protected(p) if hidden else p.startswith('.') for p in parts)
+
+    def files(self, hidden=False):
         """Every folder and file of the vault, as a flat list of {path, kind: dir|file, size, mtime, item?}, sorted
-        by path. A file that is an item carries {key, type, status, title}; hidden folders are left out."""
+        by path. A file that is an item carries {key, type, status, title}. Hidden ones (a name starting with '.') only
+        with `hidden`; then .git and .task-manager are listed as folders `sealed`, never walked into (git alone would
+        fill FILES_MAX)."""
         items = {it['path']: it for it in self.items()}
         out, truncated = [], False
         for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = sorted(d for d in dirnames if not d.startswith('.') and d not in self.FILES_SKIP)
-            for name, kind in [*((d, 'dir') for d in dirnames), *((f, 'file') for f in sorted(filenames))]:
-                if name.startswith('.'):
+            shown = sorted(d for d in dirnames if (hidden or not d.startswith('.')) and d not in self.FILES_SKIP)
+            sealed = {d for d in shown if self._protected(d)}
+            dirnames[:] = [d for d in shown if d not in sealed]
+            for name, kind in [*((d, 'dir') for d in shown), *((f, 'file') for f in sorted(filenames))]:
+                if name.startswith('.') and not hidden:
                     continue
                 full = os.path.join(dirpath, name)
                 try:
@@ -1688,6 +2160,8 @@ class Store:
                     break
                 rel = self.rel(full).replace(os.sep, '/')
                 entry = {'path': rel, 'kind': kind, 'mtime': int(st.st_mtime)}
+                if kind == 'dir' and name in sealed:
+                    entry['sealed'] = True
                 if kind == 'dir' and self.full_structure.in_docs(rel):
                     order = self._read_order(rel)
                     if order:
@@ -1774,13 +2248,13 @@ class Store:
         return 'title' if codec.title_is_name(item_type) else None
 
     def vault_file(self, path):
-        """The file on disk of a vault-relative path, for serving: inside the vault (symlinks followed), under no hidden
-        folder, and a file."""
+        """The file on disk of a vault-relative path, for serving: inside the vault (symlinks followed), under no
+        protected folder (a hidden one is fine: .obsidian/app.json), and a file."""
         rel = str(path or '').strip().replace('\\', '/').lstrip('/')
-        if not self._listable(rel) or any(p == '..' for p in rel.split('/')):
+        if not self._listable(rel, hidden=True) or any(p == '..' for p in rel.split('/')):
             raise StoreError(400, f'not a vault file: {path}')
         full = self.abs(rel)
-        if not os.path.isfile(full) or not self._listable(self.rel(full)):
+        if not os.path.isfile(full) or not self._listable(self.rel(full), hidden=True):
             raise StoreError(404, f'no such file: {rel}')
         return full
 
@@ -1796,20 +2270,22 @@ class Store:
         return os.path.join(self._trash_dir(), 'files')
 
     def _rel_path(self, path, allow_root=False):
-        """A vault-relative path the Explorer may touch, as given (no '..', no hidden part); '' only with allow_root."""
+        """A vault-relative path the Explorer may touch, as given (no '..', nothing under .git or .task-manager; a hidden
+        file or folder is fine: Show hidden files edits them); '' only with allow_root."""
         rel = str(path or '').strip().replace('\\', '/').strip('/')
         if not rel and allow_root:
             return ''
-        if not self._listable(rel) or any(p in ('', '.', '..') for p in rel.split('/')):
+        if not self._listable(rel, hidden=True) or any(p in ('', '.', '..') for p in rel.split('/')):
             raise StoreError(400, f'not a vault path: {path}')
         self.abs(rel)  # stays inside the root
         return rel
 
-    @staticmethod
-    def _new_name(name):
-        """A name for a file or folder: one part, not hidden, nothing a disk or Obsidian refuses."""
+    @classmethod
+    def _new_name(cls, name):
+        """A name for a file or folder: one part, nothing a disk or Obsidian refuses, never .git or .task-manager (a
+        hidden name is fine: .gitignore, .obsidian)."""
         name = unicodedata.normalize('NFC', str(name or '')).strip()
-        if not name or name in ('.', '..') or name.startswith('.') or re.search(r'[\x00-\x1f\x7f/\\:*?"<>|]', name):
+        if not name or set(name) == {'.'} or cls._protected(name) or re.search(r'[\x00-\x1f\x7f/\\:*?"<>|]', name):
             raise StoreError(400, f'not a usable name: {name or "(empty)"}')
         return name
 
@@ -1826,8 +2302,46 @@ class Store:
         hit = [self._item_at(rel)] if os.path.isfile(self.abs(rel)) else self._items_under(rel)
         hit = [it for it in hit if it]
         if hit:
-            raise StoreError(409, f'{hit[0]["id"] or hit[0]["path"]} is an item: a Docs folder holds documents, and the app would '
+            raise StoreError(409, f'{hit[0]["ref"] or hit[0]["path"]} is an item: a Docs folder holds documents, and the app would '
                              'stop seeing it there' + (f' (and {len(hit) - 1} more)' if len(hit) > 1 else ''))
+
+    def _refuse_items_into_hidden(self, rel, new_rel):
+        """An item never goes under a hidden name: hidden files are not scanned, so it would vanish from the app."""
+        if not any(p.startswith('.') for p in new_rel.split('/')) or any(p.startswith('.') for p in rel.split('/')):
+            return
+        hit = [self._item_at(rel)] if os.path.isfile(self.abs(rel)) else self._items_under(rel)
+        hit = [it for it in hit if it]
+        if hit:
+            raise StoreError(409, f'{hit[0]["ref"] or hit[0]["path"]} is an item: under a hidden name the app would stop '
+                             'seeing it' + (f' (and {len(hit) - 1} more)' if len(hit) > 1 else ''))
+
+    # ── canvases ─────────────────────────────────────────────────────────────
+    CANVAS_SUFFIX = '.excalidraw.md'
+    _CANVAS_HOST = re.compile(r'^[A-Za-z][A-Za-z0-9 _-]{0,40}$')
+
+    def canvas_folder(self, host):
+        """Where a page's canvases live: `<Docs>/Canvases/<host>` (inside Docs, so no scan or check takes them for
+        items, and they show in Docs and the Explorer as the files they are)."""
+        host = str(host or '').strip()
+        if not self._CANVAS_HOST.match(host):
+            raise StoreError(400, f'not a canvas host: {host!r}')
+        return f'{self.full_structure.docs_folder}/Canvases/{host}'
+
+    def canvases(self, host):
+        """A page's canvases (Goals', later others'): each an Obsidian Excalidraw file `<name>.excalidraw.md` in
+        canvas_folder(host), read and written as any vault file (/api/files/raw, /api/files/save with its rev).
+        → {folder, canvases: [{name, path, rev, mtime}]} by name; none while the folder does not exist."""
+        folder = self.canvas_folder(host)
+        full = self.abs(folder)
+        out = []
+        if os.path.isdir(full):
+            for name in sorted(os.listdir(full), key=str.lower):
+                path = os.path.join(full, name)
+                if name.startswith('.') or not name.endswith(self.CANVAS_SUFFIX) or not os.path.isfile(path):
+                    continue
+                out.append({'name': name[:-len(self.CANVAS_SUFFIX)], 'path': f'{folder}/{name}',
+                            'rev': self.disk_rev(path), 'mtime': int(os.stat(path).st_mtime)})
+        return {'folder': folder, 'canvases': out}
 
     # ── docs (TSK-039) ───────────────────────────────────────────────────────
     def docs_roots(self):
@@ -2040,6 +2554,17 @@ class Store:
             raise StoreError(409, f'That would leave the vault out of its structure, so nothing was changed. {found}',
                              check=after)
 
+    def _missing_folders(self, rel, parents):
+        """The folders above `rel` that are not there, deepest first: [] when its folder exists; with `parents` they are
+        what a write makes along with it, without it a missing one is refused (404)."""
+        made, up = [], os.path.dirname(self.abs(rel))
+        while not os.path.isdir(up):
+            if os.path.lexists(up) or not parents:
+                raise StoreError(404, f'no such folder: {os.path.dirname(rel) or "(the vault)"}')
+            made.append(up)
+            up = os.path.dirname(up)
+        return made
+
     @writes_files
     def make_folder(self, path, parents=False):
         """A new empty folder at `path`, inside one that exists — or, with `parents`, along with the ones above it that
@@ -2049,12 +2574,7 @@ class Store:
             full = self.abs(rel)
             if os.path.lexists(full):
                 raise StoreError(409, f'already exists: {rel}')
-            made, up = [], full  # the folders this creates, deepest first: what an undo removes
-            while not os.path.isdir(up):
-                if os.path.lexists(up) or (up != full and not parents):
-                    raise StoreError(404, f'no such folder: {os.path.dirname(rel) or "(the vault)"}')
-                made.append(up)
-                up = os.path.dirname(up)
+            made = [full, *self._missing_folders(rel, parents)]  # deepest first: what an undo removes
 
             def do():
                 for d in reversed(made):
@@ -2133,9 +2653,10 @@ class Store:
         return rel, full
 
     @writes_files
-    def create_file(self, path, text=''):
-        """A new file at `path`, in a folder that exists, with `text` (a Markdown file with nothing given starts with
-        its name as a heading). Never over an existing one. → {path}."""
+    def create_file(self, path, text='', parents=False):
+        """A new file at `path`, in a folder that exists — or, with `parents`, along with the folders above it that do
+        not (a project's first doc: `<Project>/Docs/<Doc>.md` in one go) — with `text` (a Markdown file with nothing
+        given starts with its name as a heading). Never over an existing one. → {path}."""
         if not isinstance(text, str):
             raise StoreError(400, 'text must be a string')
         with self._lock:
@@ -2144,11 +2665,20 @@ class Store:
             full = self.abs(rel)
             if os.path.lexists(full):
                 raise StoreError(409, f'already exists: {rel}')
-            if not os.path.isdir(os.path.dirname(full)):
-                raise StoreError(404, f'no such folder: {os.path.dirname(rel) or "(the vault)"}')
+            made = self._missing_folders(rel, parents)
             if not text and rel.lower().endswith('.md'):
                 text = f'# {os.path.splitext(os.path.basename(rel))[0]}\n'
-            self._keeping_structure(lambda: atomic_write(full, text, exclusive=True), lambda: os.remove(full))
+
+            def do():
+                for d in reversed(made):
+                    os.mkdir(d)
+                atomic_write(full, text, exclusive=True)
+
+            def undo():
+                os.remove(full)
+                for d in made:
+                    os.rmdir(d)
+            self._keeping_structure(do, undo)
             return {'path': rel}
 
     @writes_files
@@ -2201,8 +2731,9 @@ class Store:
                 raise StoreError(409, f'already exists: {new_rel}')
             it = self._item_at(rel)
             if it and self.structure.codec:
-                raise StoreError(409, f'{it["id"] or it["title"]} is named after its title: change its title instead')
+                raise StoreError(409, f'{it.get("ref") or it["id"] or it["title"]} is named after its title: change its title instead')
             self._refuse_attachments(rel, 'rename')
+            self._refuse_items_into_hidden(rel, new_rel)
             self._keeping_structure(lambda: os.rename(src, dst), lambda: os.rename(dst, src))
             if os.path.isdir(dst):
                 self._relink_docs_folder(rel, new_rel)
@@ -2242,6 +2773,7 @@ class Store:
                     raise StoreError(409, f'already exists: {new_rel}')
                 self._refuse_attachments(rel, 'move')
                 self._refuse_items_into_docs(rel, new_rel)
+                self._refuse_items_into_hidden(rel, new_rel)
                 self._keeping_structure(lambda: shutil.move(src, dst), lambda: shutil.move(dst, src))
                 if os.path.isdir(dst):
                     self._relink_docs_folder(rel, new_rel)
@@ -2361,7 +2893,10 @@ class Store:
         with self._lock:
             it = self.find(key)
             # Every child, the hidden ones too (a type this vault turned off): none may keep pointing at a deleted item.
-            children = [c for c in self._scan(hidden_too=True)[0] if it['id'] and c['id'] != it['id'] and c['fields'].get('related_to') == it['id']]
+            scanned = self._scan(hidden_too=True)[0]
+            children = [c for c in scanned if it['id'] and c['id'] != it['id'] and c['fields'].get('related_to') == it['id']]
+            # A goal's items name it in `goal:`: they leave it too, and the trash keeps each one's place for a restore.
+            members = [c for c in scanned if it['type'] == 'goal' and it['id'] and c['fields'].get('goal') == it['id']]
             src = self.abs(it['path'])
             trash = self._trash_dir()
             os.makedirs(trash, exist_ok=True)
@@ -2373,10 +2908,14 @@ class Store:
             shutil.move(src, dst)
             for c in children:  # a relation is not an edit of the item: updated_at stays
                 self._patch_fields(c, {'related_to': None})
+            for c in members:
+                self._patch_fields(c, {'goal': None, 'goal_order': None})
             atomic_write(dst + '.meta.json', json.dumps({
                 'id': it['id'], 'type': it['type'], 'path': it['path'], 'deleted_at': f'{when:%Y-%m-%dT%H:%M:%S}',
-                'children': [c['id'] for c in children if c['id']]}, ensure_ascii=False))
-        return {'trashed': self.rel(dst), 'restore_to': it['path'], 'unlinked': len(children)}
+                'children': [c['id'] for c in children if c['id']],
+                **({'members': [[c['id'], c['fields'].get('goal_order')] for c in members if c['id']]} if members else {})},
+                ensure_ascii=False))
+        return {'trashed': self.rel(dst), 'restore_to': it['path'], 'unlinked': len(children) + len(members)}
 
     @writes
     def restore(self, trashed, to):
@@ -2396,6 +2935,10 @@ class Store:
                 for c in self._scan(hidden_too=True)[0]:  # the hidden ones too: the delete detached them as well
                     if c['id'] == child_id and not c['fields'].get('related_to'):
                         self._patch_fields(c, {'related_to': meta.get('id')})
+            places = dict((m[0], m[1]) for m in meta.get('members') or [])  # a goal's items, back in it unless in another since
+            for c in self._scan(hidden_too=True)[0] if places else []:
+                if c['id'] in places and not c['fields'].get('goal'):
+                    self._patch_fields(c, {'goal': meta.get('id'), 'goal_order': places[c['id']]})
             self._drop_sidecars(src)
             item = self.find(self.rel(dst))
             parent = item['fields'].get('related_to')  # what it hung from may be gone since
@@ -2447,7 +2990,8 @@ class Store:
     @writes
     def assign_missing_ids(self):
         """Give an id/created/updated to items found without one (e.g. hand-written)."""
-        if self.structure.codec:  # Ticketing: a plan or an analysis has no id by design; a ticket without one is a check finding
+        if self.structure.codec:  # Ticketing: a ticket without one is a check finding; a plan or an analysis from before they
+            # had ids keeps its old name without one, and tools/migrate_short_ids.py numbers it (a patched id alone would not rename it)
             return []
         assigned = []
         with self._lock:
@@ -2512,7 +3056,7 @@ class Store:
         return counts
 
     def status_config(self):
-        """Settings → Item type status: each type with statuses, its statuses by group with how many items have each,
+        """Settings → Statuses: each type with statuses, its statuses by group with how many items have each,
         and any status items have that the type does not (written by hand, or left by an older arrangement)."""
         counts = self._status_counts()
         arranged = self.structure.status_config()['types']
@@ -2530,7 +3074,7 @@ class Store:
 
     @writes
     def save_status_config(self, cfg, remap=None):
-        """Arranges the types' statuses (Settings → Item type status). `remap` {type: {old: new}} moves the items (and
+        """Arranges the types' statuses (Settings → Statuses). `remap` {type: {old: new}} moves the items (and
         the board's lists) off a status the new arrangement drops or renames; without it, a status still in use cannot go
         (409, with how many items have it). A remapped item keeps its completed_at when it stays closed."""
         base = self.base_structure
@@ -3193,17 +3737,17 @@ class Store:
         clean, seen = [], set()
         for i in ids:
             i = str(i or '').strip()
-            if not self.structure.parse_id(i):
+            if not (self.structure.parse_id(i) or self.structure.is_number(i)):
                 raise StoreError(400, f'not an item id: {i}')
             if i not in seen:
                 seen.add(i)
                 clean.append(i)
         name, heading, about = self.ID_LISTS[kind]
-        titles = {it['id']: it['title'] for it in self.items() if it['id']}
+        known = {it['id']: it for it in self.items() if it['id']}
         path = os.path.join(self.root, META_DIR, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         body = f'{heading}\n\n{about}\n\n' + \
-            ''.join(f"- {i} {titles.get(i, '')}\n".replace(' \n', '\n') for i in clean)
+            ''.join(f"- {known[i]['ref'] if i in known else i} {known[i]['title'] if i in known else ''}\n".replace(' \n', '\n') for i in clean)
         atomic_write(path, fm.build({'type': kind, 'items': clean, 'updated_at': now_stamp()}, body))
         return {'items': clean}
 
@@ -3262,14 +3806,15 @@ class Store:
 
     # ── worklog: one .md per day, entries in the frontmatter ─────────────────
     def worklog(self, date_from=None, date_to=None):
-        _, days = self.scan()
+        items, days = self.scan()
+        refs = {it['id']: it['ref'] for it in items if it['id']}  # how each entry's item is drawn (TSK-482)
         out = []
         for date, (_, fields) in sorted(days.items()):
             if (date_from and date < date_from) or (date_to and date > date_to):
                 continue
             for i, e in enumerate(fields.get('entries') or []):
                 if isinstance(e, dict):
-                    out.append({**e, 'time': e.get('time') or '00:00', 'date': date, 'index': i})
+                    out.append({**e, 'ref': refs.get(e.get('id'), e.get('id')), 'time': e.get('time') or '00:00', 'date': date, 'index': i})
         return out
 
     def _day_path(self, date, days):
@@ -3283,13 +3828,14 @@ class Store:
         # The path comes from os.walk, which does not resolve symlinks: resolve it (and keep it inside
         # the root) so a day file that is a link is written through, not swapped for a plain file.
         path = self.abs(self.rel(path))
-        titles = {it['id']: it['title'] for it in self.items() if it['id']}
+        known = {it['id']: it for it in self.items() if it['id']}
+        titles = {i: it['title'] for i, it in known.items()}
         lines = [f'# Work log — {date}', '']
         for e in entries:
             note = f" — {e['note']}" if e.get('note') else ''
             title = titles.get(e.get('id')) or e.get('title') or ''  # the item may be gone: its title as logged
             lines.append(f"- {e.get('at', '')} · **{e.get('kind')}** · {e.get('time') or '00:00'} · "
-                         f"{e.get('id')} {title}{note}".rstrip() + (' _(tentative)_' if e.get('status') == TENTATIVE else ''))
+                         f"{known[e.get('id')]['ref'] if e.get('id') in known else e.get('id')} {title}{note}".rstrip() + (' _(tentative)_' if e.get('status') == TENTATIVE else ''))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         text = fm.build({'type': 'worklog', 'date': date, 'entries': entries,
                          'updated_at': now_stamp()}, '\n'.join(lines) + '\n')
@@ -3312,7 +3858,8 @@ class Store:
             entries = list(days[date][1].get('entries') or []) if date in days else []
             # The title as it was when logged: once the item is deleted for good, the work log can still
             # say what the time went on. Older entries have none; update_log keeps whatever is there.
-            entry = {'at': datetime.now().strftime('%H:%M'), 'id': item_id, 'title': it['title'], 'kind': kind, 'time': time}
+            # By its id, however it was named (TSK-482, an old id): what the history and the counts look up.
+            entry = {'at': datetime.now().strftime('%H:%M'), 'id': it['id'] or item_id, 'title': it['title'], 'kind': kind, 'time': time}
             if note:
                 entry['note'] = note
             if tentative:

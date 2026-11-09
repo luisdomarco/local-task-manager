@@ -140,6 +140,61 @@ class ConfigTest(VaultsBase):
         self.assertEqual(tree_hash(legacy), before)
 
 
+class LegacyStructuresTest(VaultsBase):
+    """Projects is the structure a new vault gets; Initiatives and Tasks stay for the folders that already are theirs."""
+
+    def test_what_a_config_that_names_no_structure_meant_is_kept(self):
+        self.write_config({'root': self.a, 'default_vault': 'old', 'vaults': [{'id': 'old', 'name': 'Old', 'path': self.a}]})
+        self.assertEqual(server.load_config()['vaults'][0]['structure'], 'folders')  # saved before structures were picked
+        self.write_config({'root': self.a})
+        self.assertEqual(server.load_config()['vaults'][0]['structure'], 'folders')  # a root from before vaults
+        os.remove(self.cfg)
+        cfg = server.load_config()  # no config at all: the bundled sample, a Projects vault
+        self.assertEqual([(v['path'], v['structure']) for v in cfg['vaults']], [('sample-vault', 'ticketing')])
+
+    def test_the_page_is_told_which_structures_are_legacy(self):
+        self.write_config({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'}]})
+        c = server.App().public_config()
+        self.assertEqual((c['default_structure'], c['legacy_structures']), ('ticketing', ['folders', 'tasks']))
+        self.assertEqual(c['structures'], {'folders': 'Initiatives', 'tasks': 'Tasks', 'ticketing': 'Projects'})
+
+    def test_an_empty_folder_starts_a_projects_vault_never_a_legacy_one(self):
+        self.write_config({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'}]})
+        app = server.App()
+        empty = os.path.join(self.tmp, 'empty')
+        os.makedirs(os.path.join(empty, '.obsidian'))  # hidden files do not make it a vault
+        for structure in ('folders', 'tasks'):
+            with self.assertRaises(server.StoreError) as cm:
+                app.set_config({'vaults': [app.config['vaults'][0], {'name': 'New', 'path': empty, 'structure': structure}]})
+            self.assertIn('a new vault starts as Projects', str(cm.exception))
+        self.assertEqual([v['id'] for v in app.config['vaults']], ['a'])  # nothing saved
+        app.set_config({'vaults': [app.config['vaults'][0], {'name': 'New', 'path': empty}]})  # no structure: Projects
+        self.assertEqual([v['structure'] for v in app.config['vaults']], ['folders', 'ticketing'])
+
+    def test_a_folder_that_already_is_a_legacy_vault_can_still_be_added_and_kept(self):
+        self.write_config({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'}]})
+        app = server.App()
+        Store(self.b).create('task', 'Already here')
+        app.set_config({'vaults': [app.config['vaults'][0], {'name': 'Old one', 'path': self.b, 'structure': 'folders'}]})
+        self.assertEqual([v['structure'] for v in app.config['vaults']], ['folders', 'folders'])
+        # sent again without a structure (a tool, an older page), each keeps its own
+        app.set_config({'vaults': [{k: x for k, x in v.items() if k != 'structure'} for v in app.config['vaults']]})
+        self.assertEqual([v['structure'] for v in app.config['vaults']], ['folders', 'folders'])
+
+
+    def test_a_folder_that_cannot_be_read_is_not_refused_as_empty(self):
+        self.write_config({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'}]})
+        app = server.App()
+        locked = os.path.join(self.tmp, 'locked')
+        os.makedirs(os.path.join(locked, 'tasks'))
+        os.chmod(locked, 0)  # as iCloud is to a process macOS has not let in
+        self.addCleanup(os.chmod, locked, 0o755)
+        try:
+            app.set_config({'vaults': [app.config['vaults'][0], {'name': 'Locked', 'path': locked, 'structure': 'folders'}]})
+        except server.StoreError as e:
+            self.assertNotIn('a new vault starts as Projects', str(e))
+
+
 class OtherShapeTest(VaultsBase):
     """A folder that holds a vault of another structure: never saved as this one, and its notice says which it is."""
 
@@ -150,9 +205,11 @@ class OtherShapeTest(VaultsBase):
         os.makedirs(self.empty)
 
     def crossed(self):
+        # The Projects one first: its folder (another structure's vault) is what is refused, before the legacy one is
+        # refused for its empty folder (a new vault starts as Projects).
         return [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'},
-                {'name': 'Second folder vault', 'path': self.empty, 'structure': 'folders'},
-                {'name': 'Projects & Tickets', 'path': self.b, 'structure': 'ticketing'}]
+                {'name': 'Projects & Tickets', 'path': self.b, 'structure': 'ticketing'},
+                {'name': 'Second folder vault', 'path': self.empty, 'structure': 'folders'}]
 
     def test_two_new_vaults_with_their_folders_swapped_are_refused(self):
         self.write_config({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'}], 'default_vault': 'a'})
@@ -161,13 +218,13 @@ class OtherShapeTest(VaultsBase):
             before = f.read()
         with self.assertRaises(server.StoreError) as cm:
             app.set_config({'vaults': self.crossed(), 'default_vault': 'a'})
-        self.assertIn('Folder per type', str(cm.exception))
+        self.assertIn('Initiatives', str(cm.exception))
         self.assertIn('Projects & Tickets', str(cm.exception))
         with open(self.cfg, 'rb') as f:
             self.assertEqual(f.read(), before)  # nothing saved
-        right = [self.crossed()[0], {**self.crossed()[1], 'path': self.b}, {**self.crossed()[2], 'path': self.empty}]
-        app.set_config({'vaults': right, 'default_vault': 'a'})  # the right way round: an empty folder is any structure's start
-        self.assertEqual([v['structure'] for v in app.config['vaults']], ['folders', 'folders', 'ticketing'])
+        right = [self.crossed()[0], {**self.crossed()[1], 'path': self.empty}, {**self.crossed()[2], 'path': self.b}]
+        app.set_config({'vaults': right, 'default_vault': 'a'})  # the right way round: an empty folder starts a Projects vault
+        self.assertEqual([v['structure'] for v in app.config['vaults']], ['folders', 'ticketing', 'folders'])
 
     def test_a_vault_already_saved_that_way_does_not_block_other_saves_and_its_notice_says_why(self):
         crossed = [{**v, 'id': v.get('id') or ('x' if v['structure'] == 'folders' else 'y')} for v in self.crossed()]
@@ -180,7 +237,7 @@ class OtherShapeTest(VaultsBase):
         self.assertEqual(app.config['work_kinds'], ['Analysis', 'Coding'])
         status = server.vault_status(app.store_for('y'), 'y')
         self.assertFalse(status['check']['ok'])
-        self.assertEqual(status['matches'], [{'id': 'folders', 'label': 'Folder per type'}])
+        self.assertEqual(status['matches'], [{'id': 'folders', 'label': 'Initiatives'}])
         self.assertEqual(server.vault_status(app.store_for('x'), 'x')['matches'], [])  # empty: nothing to say but "create"
 
 

@@ -1,9 +1,9 @@
 // Quick add, Todoist-style: one line, tokens become fields.
 //   /note /meeting /initiative   type (default: task)
 //   #INI-0003                    related_to
-//   !1 … !4 | !urgent !high !normal !low   priority Urgent…Low
+//   !1 … !4 | !urgent !high !normal !low   priority, by rank: Urgent…Low (Initiatives), P0…P3 (Projects)
 //   https://… | www.…            main url (a second one goes to links)
-//   @today @tomorrow @week @nextweek @month @mon…@sun   plan
+//   @today @week @nextweek @month @mon…@sun   plan (a weekday: its next date)
 //   due:2026-10-20 | due:today | due:tomorrow | due:fri
 //   +label                       label
 //   session:name                 session_name (the Claude session handling it)
@@ -12,6 +12,7 @@ import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './r
 import { createItem, state, toast } from './state.js';
 import { h, icon, labelChip, priorityChip } from './ui.js';
 import { withMic } from './dictation.js';
+import { refOf } from './shownid.js';
 
 // '/task' → 'task': each type of the vault's structure brings its own tokens (none for a type that has none).
 let TYPE_TOKENS = {};
@@ -33,7 +34,7 @@ export function parseQuick(text, defaults = {}) {
     if (TYPE_TOKENS[lw]) out.type = TYPE_TOKENS[lw];
     else if ((m = w.match(/^#([A-Za-z]+-\d+)$/))) out.values.related_to = m[1].toUpperCase();
     else if ((m = w.match(/^!([1-4])$/))) out.values.priority = PRIORITIES[m[1] - 1];
-    else if ((m = lw.match(/^!(urgent|high|normal|low)$/))) out.values.priority = PRIORITIES.find((p) => p.toLowerCase() === m[1]);
+    else if ((m = lw.match(/^!(urgent|high|normal|low)$/))) out.values.priority = PRIORITIES[['urgent', 'high', 'normal', 'low'].indexOf(m[1])];
     else if (/^(https?:\/\/|www\.)\S+$/i.test(w)) {
       const url = /^www\./i.test(w) ? `https://${w}` : w;
       if (!out.values.url) out.values.url = url;
@@ -42,7 +43,7 @@ export function parseQuick(text, defaults = {}) {
     else if (lw === '@week') { out.values.plan_week = thisWeek(); out.values.plan_day = null; }
     else if (lw === '@nextweek') { out.values.plan_week = shiftWeek(thisWeek(), 1); out.values.plan_day = null; }
     else if (lw === '@month') { out.values.plan_month = thisMonth(); out.values.plan_week = null; out.values.plan_day = null; }
-    else if ((m = lw.match(/^@(\w[\w-]*)$/)) && resolveDay(m[1])) {
+    else if ((m = lw.match(/^@(\w[\w-]*)$/)) && m[1] !== 'tomorrow' && resolveDay(m[1])) { // no Tomorrow to plan for
       out.values.plan_day = resolveDay(m[1]);
       out.values.plan_week = isoWeek(out.values.plan_day);
     } else if ((m = lw.match(/^due:(\S+)$/)) && resolveDay(m[1])) out.values.due = resolveDay(m[1]);
@@ -97,7 +98,7 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     if (p.errors.length) return toast(p.errors[0], true);
     let item;
     try { item = await createItem(p.type, p.title, p.values); } catch { return; } // already toasted
-    toast(`Created ${item.id}`);
+    toast(`Created ${refOf(item)}`);
     input.value = '';
     refresh();
     onCreated && onCreated(item);

@@ -6,12 +6,20 @@ async function call(method, url, body, file = null) {
   // A file goes as its own bytes (an attachment), its name URI-encoded in a header; anything else as JSON.
   const type = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-TM-Filename': encodeURIComponent(file.name) }
     : { 'Content-Type': 'application/json' };
-  const res = await fetch(url, {
-    method,
-    // X-TM-Actor: what the page does is yours, in the activity journal (tm/journal.py); a script says who it is.
-    headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', ...vault } : vault,
-    body: file || (body ? JSON.stringify(body) : undefined),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      // X-TM-Actor: what the page does is yours, in the activity journal (tm/journal.py); a script says who it is.
+      headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', ...vault } : vault,
+      body: file || (body ? JSON.stringify(body) : undefined),
+    });
+  } catch {
+    // No answer at all (the server stopped, the Mac asleep): say so, not the browser's "Failed to fetch".
+    const err = new Error("Can't reach the app's server: is it running?");
+    err.status = 0;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `${res.status} ${res.statusText}`);
@@ -32,18 +40,24 @@ export const api = {
   // The vault this page shows and whether its folder matches its structure; the fix the app may offer.
   vaultStatus: () => get('/api/vault/status'),
   createVaultFolders: () => post('/api/vault/create-folders'),
+  vaultAgents: (on) => post('/api/vault/agents', { on }),
   // Its structure: the types, statuses, priorities and lists the page builds itself from (rules.js setStructure).
   structure: () => get('/api/structure'),
-  // Each type's statuses in the three groups, with colours (Settings → Item type status); `remap` {type: {old: new}}
+  // Each type's statuses in the three groups, with colours (Settings → Statuses); `remap` {type: {old: new}}
   // moves the items of a status renamed or removed.
   statuses: () => get('/api/statuses'),
   saveStatuses: (types, colors, remap) => post('/api/statuses', { types, colors, remap }),
   items: () => get('/api/items'),
+  // The vault as a graph (tm/graph.py): { nodes: [{ id, ref, type, title, path, status, done, project }], edges: [{ source, target, kind, field?, relation? }] }.
+  graph: () => get('/api/graph'),
   // The vault as files, for the sidebar's Explorer: { entries: [{ path, kind, size, mtime, item? }], truncated }.
-  files: () => get('/api/files'),
+  // The vault's folders and files; `hidden`: dotfiles too (.obsidian, .gitignore), .git and .task-manager sealed.
+  files: (hidden = false) => get(`/api/files${hidden ? '?hidden=1' : ''}`),
   // The Explorer's operations (Store.make_folder…): each answers { path } (the new one), a delete { trashed, path, item? }.
   makeFolder: (path, parents = false) => post('/api/files/mkdir', { path, parents }),
   docsRoots: () => get('/api/docs/roots'),
+  // A page's canvases (canvas/): Obsidian Excalidraw files in <Docs>/Canvases/<host>, read and saved as any file.
+  canvases: (host) => get(`/api/canvases?host=${encodeURIComponent(host)}`),
   noteToDoc: (key, folder) => post('/api/docs/from-note', { key, folder }),
   docProps: (path, values, rev) => post('/api/docs/props', { path, values, rev }),
   renamePath: (path, name) => post('/api/files/rename', { path, name }),
@@ -54,13 +68,19 @@ export const api = {
   // The Explorer's editor: a file's new text, against the version it was opened at (`rev`, the X-TM-Rev of its raw
   // file); a 409 means it changed on disk since. → { path, rev, size, mtime }.
   saveFile: (path, text, baseRev, force = false) => post('/api/files/save', { path, text, base_rev: baseRev, force }),
-  createFile: (path, text = '') => post('/api/files/create', { path, text }),
+  createFile: (path, text = '', parents = false) => post('/api/files/create', { path, text, parents }),
   // The lines of the vault's text files that hold `q`. → { results: [{ path, line, text }], files, truncated }
   searchFiles: (q) => get(`/api/files/search?q=${encodeURIComponent(q)}`),
   // The Markdown files that link to `path` with a [[wikilink]]. → { links: [{ path, line, text, count }] }
   backlinks: (path) => get(`/api/files/backlinks?path=${encodeURIComponent(path)}`),
+  // What changed on an item's followed fields (tm/history.py). → { entries: [{ at, by, field, from, to }] }, oldest first
+  itemHistory: (key) => get(`/api/item/history?key=${encodeURIComponent(key)}`),
   // A vault file or folder handed to the editor of Settings (Cursor by default) to edit there.
   openInEditor: (path) => post('/api/files/open-in-editor', { path }),
+  // The app this Mac opens a vault file with, and whether it will here (server.py opener_policy). → { app, ok, why? }
+  opener: (path) => get(`/api/files/opener?path=${encodeURIComponent(path)}`),
+  // A vault file opened in that app. → { opened, app }
+  openDefault: (path) => post('/api/files/open-default', { path }),
   duplicateFile: (path) => post('/api/files/duplicate', { path }),
   // A file from the computer into a vault folder, as its own bytes (like an attachment). → { path }
   uploadFile: (folder, file) => call('POST', `/api/files/upload?folder=${encodeURIComponent(folder)}`, null, file),
@@ -99,6 +119,12 @@ export const api = {
   chatClose: (id) => post('/api/chat/close', { id }),
   claudeResume: (key, sessionId, target = 'terminal') => post('/api/claude/resume', { key, session_id: sessionId, target }),
   claudeForget: (key, index) => post('/api/claude/forget', { key, index }),
+  // The AI tab's Add existing session: the newest conversations on this computer (Terminal, Claude Desktop, Cursor…), and adding
+  // one to an item by its id (the server reads its folder from its transcript); main stars one of an item's sessions.
+  claudeRecent: (cwd = '') => get(`/api/claude/recent${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`),
+  claudeFolders: () => get('/api/claude/folders'),
+  claudeAdd: (key, sessionId) => post('/api/claude/add', { key, session_id: sessionId }),
+  claudeMain: (key, sessionId) => post('/api/claude/main', { key, session_id: sessionId }),
   // Moves a session's record to another item (toKey) or to the general history (null); a live one takes its name.
   claudeAssociate: (sessionId, fromKey, toKey) => post('/api/claude/associate', { session_id: sessionId, from_key: fromKey, to_key: toKey }),
   // Versions of the system as zips (Settings → Export, tm/export.py); the download is a plain link to /api/exports/file.

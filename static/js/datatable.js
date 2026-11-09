@@ -2,13 +2,15 @@
 // column definitions they have in common. A column is
 //   { key, label, get(item) → sort value, cell(item) → node/string, cls? }
 import { relDay, shortDate } from './dates.js';
+import { idSortKey, idTip, refOf, shownId } from './shownid.js';
 import { peopleOf } from './people.js';
 import { EXTERNAL_REF, PRIORITIES, PRIORITY_RANK, defaultOf, isDone, isOverdue, statusesOf } from './rules.js';
 import { pref, setPref } from './prefs.js';
 import { planControl, planKey, planValues } from './itemform.js';
-import { noMonth, progress, setStatus, state, updateItem } from './state.js';
+import { noMonth, progressOf, setStatus, state, updateItem } from './state.js';
 import { itemHref, opener } from './links.js';
-import { cssKey, h, icon, labelChip, select } from './ui.js';
+import { cssKey, h, icon, labelChip, select, typeIcon } from './ui.js';
+import { planText } from './viewmodel.js';
 
 export { pageHref } from './links.js'; // the types with a page (rules.js hasPage); everything else opens as a card modal
 
@@ -17,21 +19,32 @@ export { pageHref } from './links.js'; // the types with a page (rules.js hasPag
 // log's notes) have none: they take what is left, at least their FLEX minimum, and wrap. Wider
 // content is cut, with the full text on hover.
 const WIDTH = {
-  check: 44, id: 100, type: 130, status: 136, priority: 112, labels: 170, parent: 220, related: 220, initiative: 220,
-  progress: 150, plan: 150, due: 108, session: 160, project: 180,
+  goal: 160,
+  check: 44, pick: 40, id: 100, type: 130, status: 136, priority: 112, labels: 170, parent: 220, related: 220, initiative: 220,
+  progress: 150, plan: 150, start: 108, due: 108, session: 160, project: 180,
   created_at: 108, updated_at: 108, date: 108, duration: 96, attendees: 220, source: 180,
   resolved: 116, state: 100,
   deleted_at: 108, path: 260, unlinked: 96, count: 96, edit: 96, actions: 150,
   day: 84, time: 72, kind: 116, item: 320,
   exported: 140, vault: 160, host: 150, version: 230, size: 90, calendar_name: 220, emails: 280, redmine: 140, extref: 140, tracker: 120, slack: 160,
-  started: 140, when: 96, folder: 140, model: 80, effort: 80, cs_actions: 196, cs_actions_compact: 132, last: 140, last_short: 96, // Claude sessions (claude.js)
+  started: 140, when: 96, folder: 140, model: 80, effort: 80, cs_actions: 196, cs_actions_compact: 108, last: 140, last_short: 96, // Claude sessions (claude.js)
 };
 const FLEX = { subject: 480, note: 100, name: 200 }; // name: a person's or label's, beside its own columns
 
-/** The <colgroup> and min-width that fix a table's columns to WIDTH (see .grid.fixed). */
-export function fixedColumns(columns) {
-  const w = (c) => (c.key in FLEX ? 0 : WIDTH[c.key] || 120);
-  const min = columns.reduce((sum, c) => sum + (w(c) || FLEX[c.key]), 0);
+/** A column's width in a fixed table: a flexible one's least (FLEX, or `flex` over it: null makes it fixed), or its
+ *  own (WIDTH, or `widths` over it). */
+export const columnWidth = (c, flex = {}, widths = {}) => ({ ...FLEX, ...flex })[c.key] ?? widths[c.key] ?? WIDTH[c.key] ?? 120;
+
+/** A last column with no head and no cells, taking what the others leave, so a table wider than its columns keeps
+ *  them at their widths (an issue kind's table: its subject as wide as the other kinds'). Its least is 0 (`flex`). */
+export const FILL_COLUMN = { key: 'fill', label: '', blank: true, get: () => 0, cell: () => '' };
+
+/** The <colgroup> and min-width that fix a table's columns to WIDTH (see .grid.fixed); `flex` overrides FLEX's
+ *  least widths (a table in a narrow place: the subject takes less before it scrolls sideways), `widths` WIDTH's. */
+export function fixedColumns(columns, flex = {}, widths = {}) {
+  const least = { ...FLEX, fill: 0, ...flex };
+  const w = (c) => (least[c.key] != null ? 0 : columnWidth(c, { fill: 0, ...flex }, widths));
+  const min = columns.reduce((sum, c) => sum + columnWidth(c, { fill: 0, ...flex }, widths), 0);
   return {
     colgroup: h('colgroup', {}, columns.map((c) => h('col', { class: `c-${c.key}`, style: w(c) ? `width:${w(c)}px` : null }))),
     style: `min-width:${min}px`,
@@ -54,7 +67,7 @@ const pageAt = new Map(); // `at` → { index, total }
  *   size     the size when none is remembered
  *   onChange re-renders the table after a page or size change
  * The page goes back to the first when the number of rows changes (a filter, a search). No bar while
- * everything fits in the smallest page.
+ * everything fits in one page.
  */
 export function paged({ key, at = key, rows, size: fallback, onChange }) {
   const saved = pref(`page.${key}`);
@@ -66,7 +79,7 @@ export function paged({ key, at = key, rows, size: fallback, onChange }) {
   pageAt.set(at, { index, total });
   const from = index * size;
   const go = (i) => { pageAt.set(at, { index: i, total }); onChange(); };
-  const pager = total > PAGE_SIZES[0] ? h('div', { class: 'pager', role: 'navigation', 'aria-label': 'Pages' },
+  const pager = pages > 1 ? h('div', { class: 'pager', role: 'navigation', 'aria-label': 'Pages' },
     h('span', { class: 'muted small pager-range' }, `${from + 1}–${Math.min(from + size, total)} of ${total}`),
     h('button', { class: 'btn icon', type: 'button', title: 'Previous page', 'aria-label': 'Previous page', 'data-pg': 'prev', disabled: index === 0, onclick: () => go(index - 1) }, icon('left', 15)),
     h('span', { class: 'small pager-page' }, `${index + 1} / ${pages}`),
@@ -99,38 +112,48 @@ export function pagedBox(build) {
 /**
  * dataTable({ columns, rows, sort, onSort, onRow, empty, label, rowClass, group, paging })
  * `group` (optional) arranges the rows under headers: { by(row) → key, header(key, rows) → node,
- * order(a, b)?, lead(key, row)?, collapsed: Set of keys, onToggle(key) }. The sort still applies inside each group,
- * after the rows `lead` picks (the one the group is: an initiative above its epics).
+ * order(a, b)?, lead(key, row)?, collapsed: Set of keys, onToggle(key), action(key)? }. The sort still applies inside
+ * each group, after the rows `lead` picks (the one the group is: an initiative above its epics). Or `list`, the groups
+ * made already ([[key, rows]], each in its order: viewmodel.js groupItems), in place of by / order / lead: a row may
+ * then sit in several groups, and a group may have none. `action` is drawn beside a header (a list's "+").
  * `paging` (optional) shows the rows a page at a time: { key, at?, size } as in paged(). The table
  * then turns its own pages, without its caller re-rendering it.
+ * `doneLast` puts the closed rows after the open ones, each in the sort; `flex` and `widths` as in fixedColumns.
  */
-export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null }) {
+export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {} }) {
   const col = columns.find((c) => c.key === sort.col) || columns[0];
   const sorted = rows.slice().sort((a, b) => {
     const x = col.get(a); const y = col.get(b);
     return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
   });
+  if (doneLast) sorted.sort((a, b) => Number(isDone(a)) - Number(isDone(b))); // stable: each keeps the sort
   const ariaSort = (c) => (sort.col === c.key ? (sort.dir > 0 ? 'ascending' : 'descending') : null);
   // Rows are focusable and open on Enter / Space, like the click.
   const row = (i) => h('tr', {
-    class: rowClass ? rowClass(i) : (isDone(i) ? 'done' : ''), tabindex: '0', 'aria-label': `${i.id || ''} ${i.title ?? i.subject ?? ''}`.trim(),
+    class: rowClass ? rowClass(i) : (isDone(i) ? 'done' : ''), tabindex: '0', 'data-key': i.key || null, // the item the one-key shortcuts act on (itemkeys.js)
+    'aria-label': `${refOf(i) || ''} ${i.title ?? i.subject ?? ''}`.trim(),
     ...opener(i, onRow), // ⌘/Ctrl or middle click: in a new tab
     onkeydown: (e) => {
       if (e.target !== e.currentTarget) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRow(i); }
     },
-  }, columns.map((c) => h('td', { class: c.cls ? `c-${c.key} ${c.cls}` : `c-${c.key}` }, c.cell(i)))); // cls: as its header (num: right-aligned)
-  const fixed = fixedColumns(columns);
-  const groups = group ? groupsOf(sorted, group) : null;
+  }, columns.map((c) => {
+    const td = h('td', { class: c.cls ? `c-${c.key} ${c.cls}` : `c-${c.key}` }, c.cell(i)); // cls: as its header (num: right-aligned)
+    // Nothing to say ("Not planned" neither): a phone's two-line row leaves it out (app.css)
+    if ((/^[—–-]?$/.test(td.textContent.trim()) && !td.querySelector('button, input, a')) || td.querySelector(':scope > .plan-none')) td.classList.add('blank');
+    return td;
+  }));
+  const fixed = fixedColumns(columns, flex, widths);
+  const groups = group ? (group.list || groupsOf(sorted, group)) : null;
   // What pages through: the rows in display order (grouped, the unfolded groups' rows).
   const flow = groups ? groups.flatMap(([k, members]) => (group.collapsed.has(k) ? [] : members)) : sorted;
   const table = (page) => h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed', style: fixed.style, 'aria-label': label },
     fixed.colgroup.cloneNode(true),
-    h('thead', {}, h('tr', {}, columns.map((c) => h('th', { class: `${sort.col === c.key ? 'sorted' : ''} ${c.cls || ''}`, 'aria-sort': ariaSort(c), scope: 'col' },
+    h('thead', {}, h('tr', {}, columns.map((c) => h('th', { class: `c-${c.key} ${sort.col === c.key ? 'sorted' : ''} ${c.cls || ''}`, 'aria-sort': ariaSort(c), scope: 'col' },
       c.label ? h('button', {
         class: 'th-btn', onclick: () => onSort({ col: c.key, dir: sort.col === c.key ? -sort.dir : 1 }),
-      }, c.label, sort.col === c.key ? icon(sort.dir > 0 ? 'up' : 'down', 13) : null) : h('span', { class: 'sr-only' }, 'Done'))))),
-    h('tbody', {}, !sorted.length ? h('tr', {}, h('td', { colspan: columns.length, class: 'empty' }, empty))
+      }, c.label, sort.col === c.key ? icon(sort.dir > 0 ? 'up' : 'down', 13) : null) : c.blank ? null : h('span', { class: 'sr-only' }, 'Done'))))),
+    h('tbody', {}, !sorted.length && !groups?.length ? h('tr', {}, h('td', { colspan: columns.length, class: 'empty' }, empty))
       : groups ? groupedRows(groups, columns.length, group, row, page) : page.rows.map(row))));
   if (!paging) return table({ rows: flow, from: 0, size: Infinity });
   return pagedBox((rerender) => {
@@ -165,12 +188,12 @@ function groupedRows(groups, span, group, row, page) {
     if (!folded) at += members.length;
     const shown = folded ? [] : members.slice(Math.max(0, page.from - start), Math.max(0, end - start));
     // A folded group sits where its rows would start; one after the last row, on the last page.
-    const here = folded ? start >= page.from && (start < end || end >= total) : shown.length > 0;
+    const here = folded || !members.length ? start >= page.from && (start < end || end >= total) : shown.length > 0;
     if (!here) return [];
     const head = h('tr', { class: 'group-head', 'aria-expanded': String(!folded) },
-      h('td', { colspan: span }, h('button', {
+      h('td', { colspan: span }, h('div', { class: 'group-line' }, h('button', {
         class: 'group-toggle', type: 'button', 'aria-expanded': String(!folded), onclick: () => group.onToggle(key),
-      }, icon(folded ? 'right' : 'down', 14), group.header(key, members))));
+      }, icon(folded ? 'right' : 'down', 14), group.header(key, members)), group.action ? group.action(key) : null)));
     return [head, ...shown.map(row)];
   });
 }
@@ -180,11 +203,15 @@ function groupedRows(groups, span, group, row, page) {
 const subjectLink = (i) => h('a', { class: 'item-link', href: itemHref(i), tabindex: '-1' }, i.title);
 const title = (i) => i.fields.related_to ? state.byId.get(i.fields.related_to)?.title || i.fields.related_to : '';
 const isInitiative = (i) => state.byId.get(i.fields.related_to)?.type === 'initiative';
+/** What a row hangs from or belongs to (its initiative, parent, meeting, project), as grey text after its type's icon:
+ *  no chip (design.md §3). Nothing for none: the cell stays blank. */
+const refText = (type, text, tip = text) => h('span', { class: 'ref-text', title: tip }, type ? typeIcon(type, 13) : null, h('span', {}, text));
+const parentText = (i) => refText(state.byId.get(i.fields.related_to)?.type, title(i));
 /** A Ticketing project's name, from its key; a key with no project note is its own name. */
 export const projectName = (key) => state.all.find((p) => p.type === 'project' && p.fields.project_key === key)?.title || key;
 
 export const COL = {
-  id: { key: 'id', label: 'ID', get: (i) => i.id || '', cell: (i) => h('span', { class: 'mono' }, i.id || '—') },
+  id: { key: 'id', label: 'ID', get: idSortKey, cell: (i) => h('span', { class: 'mono', title: idTip(i) }, shownId(i) || '—') },
   // Labels have their own column (COL.labels), next to Priority where there is one.
   subject: {
     key: 'subject', label: 'Subject', get: (i) => i.title.toLowerCase(),
@@ -207,42 +234,61 @@ export const COL = {
   // A transcription's meeting; one without it is flagged (it hangs from nothing).
   meetingOf: {
     key: 'parent', label: 'Meeting', get: (i) => title(i).toLowerCase(),
-    cell: (i) => (i.fields.related_to ? h('span', { class: 'chip parent', title: title(i) }, title(i)) : h('span', { class: 'chip warn' }, 'no meeting')),
+    cell: (i) => (i.fields.related_to ? parentText(i) : h('span', { class: 'chip warn' }, 'no meeting')),
   },
   parent: (label) => ({
     key: 'parent', label, get: (i) => title(i).toLowerCase(),
-    cell: (i) => (i.fields.related_to ? h('span', { class: 'chip parent', title: title(i) }, title(i)) : h('span', { class: 'muted' }, '—')),
+    cell: (i) => (i.fields.related_to ? parentText(i) : ''),
   }),
   // Ticketing's two parent columns, as its forms split them (rules.js splitsInitiative): the initiative it hangs from,
   // and (`related:<heading>`) a parent of any other type.
   initiative: {
     key: 'initiative', label: 'Initiative', get: (i) => (isInitiative(i) ? title(i).toLowerCase() : '~'),
-    cell: (i) => (isInitiative(i) ? h('span', { class: 'chip parent', title: title(i) }, title(i)) : h('span', { class: 'muted' }, '—')),
+    cell: (i) => (isInitiative(i) ? parentText(i) : ''),
+  },
+  // The goal an item names (Projects), as its parent is drawn: the goal's icon and its title. Off until picked (viewmodel COLUMNS_OFF).
+  goal: {
+    key: 'goal', label: 'Goal', get: (i) => (state.byId.get(i.fields.goal)?.title || '~').toLowerCase(),
+    cell: (i) => { const g = state.byId.get(i.fields.goal); return g ? refText('goal', g.title, `${refOf(g)} · ${g.title}`) : ''; },
   },
   parentOther: (label) => ({
     key: 'parent', label, get: (i) => (i.fields.related_to && !isInitiative(i) ? title(i).toLowerCase() : '~'),
-    cell: (i) => (i.fields.related_to && !isInitiative(i) ? h('span', { class: 'chip parent', title: title(i) }, title(i)) : h('span', { class: 'muted' }, '—')),
+    cell: (i) => (i.fields.related_to && !isInitiative(i) ? parentText(i) : ''),
   }),
   // Edited in place like Status: the same Planned select as the item's card (itemform.js).
   plan: {
     key: 'plan', label: 'Planned', get: (i) => i.fields.plan_day || i.fields.plan_week || i.fields.plan_month || '~',
+    // Red when late (planText), with when it was planned for on hover; "Not planned" grey (the select's is-empty).
     cell: (i) => {
       let current = planKey(i.fields);
+      const p = planText(i.fields);
       return h('span', { onclick: (e) => e.stopPropagation() }, planControl(() => current, (v) => {
         current = planKey(planValues(v)); // a picked date that is today reads back as "Today"
         updateItem(i.key, { plan_day: null, plan_week: null, ...noMonth(i), ...planValues(v) }).catch(() => {});
-      }, { class: 'small', 'aria-label': `Planned for ${i.title}` }, { short: true }));
+      }, { class: `small ${p.late ? 'late' : ''}`, title: p.late ? `Planned ${p.since}` : null, 'aria-label': `Planned for ${i.title}` }, { short: true }));
     },
+  },
+  start: {
+    key: 'start', label: 'Start', get: (i) => i.fields.start || '~',
+    cell: (i) => (i.fields.start ? relDay(i.fields.start) : ''),
   },
   due: {
     key: 'due', label: 'Due date', get: (i) => i.fields.due || '~',
-    cell: (i) => (i.fields.due ? h('span', { class: isOverdue(i) ? 'chip late' : '' }, relDay(i.fields.due)) : ''),
+    cell: (i) => (i.fields.due ? h('span', { class: isOverdue(i) ? 'late-text' : '', title: isOverdue(i) ? 'Overdue' : null }, relDay(i.fields.due)) : ''),
+  },
+  // Planned to read, not to edit (a type's list: its quiet rows; the bulk bar plans): "Tue 20", "W45", "19 d late" in red.
+  planned: {
+    key: 'plan', label: 'Planned', get: (i) => i.fields.plan_day || i.fields.plan_week || i.fields.plan_month || '~',
+    cell: (i) => {
+      const p = planText(i.fields);
+      return h('span', { class: p.late ? 'late-text' : p.none ? 'muted plan-none' : '', title: p.late ? `Planned ${p.since}` : null }, p.text);
+    },
   },
   progress: {
-    key: 'progress', label: 'Progress', get: (i) => progress(i.id).pct,
+    key: 'progress', label: 'Progress', get: (i) => progressOf(i).pct,
     cell: (i) => {
-      const p = progress(i.id);
-      return h('div', { class: 'cell-progress', title: `${p.done}/${p.total} tasks closed` },
+      const p = progressOf(i);
+      return h('div', { class: 'cell-progress', title: `${p.done}/${p.total} ${i.type === 'goal' ? 'items' : 'tasks'} closed` },
         h('div', { class: 'progress' }, h('div', { style: `width:${p.pct}%` })), h('span', {}, `${p.done}/${p.total}`));
     },
   },
@@ -251,9 +297,7 @@ export const COL = {
   // A Ticketing item's project: the field holds its key; the column shows the project's name, cut to the
   // column's width, with "KEY · Name" on hover. A key with no project note shows as itself.
   project: { key: 'project', label: 'Project', get: (i) => (i.fields.project ? projectName(i.fields.project).toLowerCase() : '~'),
-    cell: (i) => (i.fields.project
-      ? h('span', { class: 'chip parent project-name', title: `${i.fields.project} · ${projectName(i.fields.project)}` }, projectName(i.fields.project))
-      : h('span', { class: 'muted' }, '—')) },
+    cell: (i) => (i.fields.project ? refText('project', projectName(i.fields.project), `${i.fields.project} · ${projectName(i.fields.project)}`) : '') },
   // One of a type's own fields (TypeDef.props), as text.
   prop: (key, label) => ({ key: `prop:${key}`, label, get: (i) => String(i.fields[key] ?? '~'),
     cell: (i) => {
@@ -307,7 +351,7 @@ export const COL = {
     key: 'labels', label: 'Labels', get: (i) => (i.fields.labels || []).join(' ').toLowerCase(),
     cell: (i) => ((i.fields.labels || []).length
       ? h('span', { class: 'chips-inline', title: (i.fields.labels || []).map((l) => `#${l}`).join('  ') }, (i.fields.labels || []).map((l) => labelChip(l)))
-      : h('span', { class: 'muted' }, '—')),
+      : ''),
   },
   // Active until archived (notes and prompts have no status).
   state: { key: 'state', label: 'State', get: (i) => (i.fields.archived === true ? 1 : 0), cell: (i) => (i.fields.archived === true ? h('span', { class: 'chip warn' }, 'archived') : h('span', { class: 'chip ok' }, 'active')) },

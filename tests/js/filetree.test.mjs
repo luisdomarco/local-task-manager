@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, linkWikilinks, pathOfParam, splitFrontmatter,
+  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, linkWikilinks, pathOfParam, splitFrontmatter,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -163,5 +163,21 @@ describe('CSV / TSV', () => {
     const out = parseTable('h\n1\n2\n3\n', 'csv', 2);
     assert.deepEqual(out.rows, [['h'], ['1']]);
     assert.equal(out.more, true);
+  });
+});
+
+describe('hidden files (Show hidden files)', () => {
+  it('a path is hidden when any part of it starts with a dot', () => {
+    assert.equal(isHiddenPath('.obsidian/app.json'), true);
+    assert.equal(isHiddenPath('Docs/.order'), true);
+    assert.equal(isHiddenPath('notes/a.b.md'), false);
+    assert.equal(isHiddenPath(''), false);
+  });
+
+  it('a sealed folder (.git, .task-manager) keeps its mark in the tree, with nothing under it', () => {
+    const tree = buildTree([{ path: '.git', kind: 'dir', sealed: true }, { path: '.obsidian', kind: 'dir' }, { path: '.obsidian/app.json', kind: 'file' }]);
+    assert.equal(findNode(tree, '.git').sealed, true);
+    assert.deepEqual(findNode(tree, '.git').children, []);
+    assert.equal(findNode(tree, '.obsidian').sealed, undefined);
   });
 });

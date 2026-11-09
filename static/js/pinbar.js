@@ -2,6 +2,8 @@
 // <root>/.task-manager/pins.md. A chip opens its item; drag a chip to reorder; drop a card from any
 // view on the bar to pin it; × (or Delete on a focused chip) unpins. Items that no longer exist are
 // skipped, not shown as broken chips. Right, fixed: the Claude terminal (a prompt with no item).
+// On a phone (app.css, ≤ 640px) a list's page moves its head up here: ☰, its title, search and its Add as "+" — the
+// pins give way.
 import { openClaudeDialog } from './claude.js';
 import { pageHref } from './datatable.js';
 import { openPalette } from './palette.js';
@@ -10,6 +12,7 @@ import { discardMinimized, minimizedList, openItem, restoreItem } from './panel.
 import { toggleSidebar } from './sidebar.js';
 import { pin, state, unpin } from './state.js';
 import { h, icon, typeIcon } from './ui.js';
+import { refOf } from './shownid.js';
 
 const PIN_MIME = 'application/x-tm-pin';
 const bar = () => document.getElementById('pinbar');
@@ -29,7 +32,7 @@ function slot(e) {
 function chip(item, idx, total) {
   const move = (to) => pin(item.id, Math.max(0, Math.min(to, total - 1)));
   const open = h('button', {
-    class: 'pin-open', title: `${item.id} · ${item.title}`,
+    class: 'pin-open', title: `${refOf(item)} · ${item.title}`,
     ...opener(item, openItem),
     onkeydown: (e) => {
       // Keyboard alternative to dragging: Shift+←/→ reorders, Delete unpins.
@@ -59,11 +62,18 @@ function wire(el) {
   const expand = h('button', { class: 'btn icon', id: 'side-expand', title: 'Show the sidebar (⌘\\)', 'aria-label': 'Show the sidebar',
     'aria-controls': 'sidebar', 'aria-expanded': 'false', onclick: () => toggleSidebar(false) }, icon('sidebar', 16));
   addEventListener('tm:minimized', () => renderPinbar());
-  el.replaceChildren(expand, chips, mins,
+  // A list's title and Add, shown on a phone only (app.css): "+" is the page's own Add button, clicked.
+  const title = h('span', { class: 'bar-title', id: 'pinbar-title' });
+  const add = h('button', {
+    class: 'btn icon', id: 'pinbar-add', title: 'Add', 'aria-label': 'Add',
+    onclick: () => document.querySelector('#view > .view-head .btn.primary')?.click(),
+  }, icon('plus', 18));
+  el.replaceChildren(expand, title, chips, mins,
     h('button', {
       class: 'btn icon', id: 'pinbar-search', title: 'Search — items by id, title or text, views, files (⌘K)',
       'aria-label': 'Search', onclick: () => openPalette(),
     }, icon('search', 16)),
+    add,
     h('button', {
       class: 'btn icon', id: 'pinbar-claude', title: 'Claude terminal — a prompt with no item, in the default folder',
       'aria-label': 'Claude terminal', onclick: () => openClaudeDialog(null),
@@ -91,7 +101,20 @@ function wire(el) {
       : state.all.find((i) => i.key === e.dataTransfer.getData('text/plain'))?.id;
     if (id) pin(id, index);
   });
-  document.addEventListener('dragend', () => { marker.remove(); el.classList.remove('drop-over'); });
+  document.addEventListener('dragend', () => { marker.remove(); el.classList.remove('drop-over'); document.body.classList.remove('card-drag'); });
+  document.addEventListener('drop', () => document.body.classList.remove('card-drag'));
+  // "Drop a card here to pin it" shows only while a card is being dragged: the bar stays quiet the rest of the time.
+  document.addEventListener('dragstart', (e) => { if (isCardDrag(e)) document.body.classList.add('card-drag'); });
+}
+
+/** The page's title in the bar (a phone shows it there, app.css), and its Add's name on "+". */
+export function setBarTitle(text) {
+  const el = document.getElementById('pinbar-title');
+  if (el) el.textContent = text || '';
+  const add = document.querySelector('#view > .view-head .btn.primary');
+  const btn = document.getElementById('pinbar-add');
+  if (btn) btn.setAttribute('aria-label', add?.textContent.trim() || 'Add');
+  if (btn) btn.title = add?.textContent.trim() || 'Add';
 }
 
 export function renderPinbar() {
@@ -111,7 +134,7 @@ export function renderPinbar() {
   // Minimized cards: a click brings one back as it was; × forgets it. Items that no longer exist are skipped.
   const mins = minimizedList().map((m) => [m, state.all.find((i) => i.key === m.key) || state.byId.get(m.key)]).filter(([, it]) => it);
   bar().querySelector('.min-chips').replaceChildren(...mins.map(([m, it]) => h('div', { class: `min-chip t-${it.type}` },
-    h('button', { class: 'pin-open', title: `Restore ${it.id || ''} · ${it.title}`.trim(), ...opener(it, () => restoreItem(m.key)) },
+    h('button', { class: 'pin-open', title: `Restore ${refOf(it)} · ${it.title}`.trim(), ...opener(it, () => restoreItem(m.key)) },
       icon('minimize', 13), typeIcon(it.type, 13), h('span', { class: 'pin-title' }, it.title)),
     h('button', { class: 'pin-x', title: `Forget ${it.title}`, onclick: () => discardMinimized(m.key) }, icon('x', 12)))));
 }

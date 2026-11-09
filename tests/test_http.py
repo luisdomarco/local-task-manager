@@ -333,10 +333,12 @@ class HttpTest(unittest.TestCase):
                 self.assertEqual(self.call('/api/chat/control', {'id': cid, 'effort': 'low'})['effort'], 'low')
                 # A vault item attached: its context is built from its file, in the vault the page names.
                 self.call('/api/chat/send', {'id': cid, 'text': 'see this', 'items': [task['id']], 'vault': server.APP.config['default_vault']})
+                def ours(m):  # this message's own event: the one for "tool now" may still come after claude's reply
+                    return m.get('type') == 'tm_user' and m.get('text') == 'see this'
                 msgs = []
-                while not any(m.get('type') == 'tm_user' for m in msgs):
+                while not any(ours(m) for m in msgs):
                     msgs += [p for n, p in self._sse(res, 'msg') if n == 'msg']
-                user = next(m for m in msgs if m.get('type') == 'tm_user')
+                user = next(m for m in msgs if ours(m))
                 self.assertEqual(user['items'], [{'id': task['id'], 'title': 'Chat me', 'type': 'task'}])
                 self.assertEqual(self.request('/api/chat/send', {'id': cid, 'text': 'x', 'items': ['TSK-9999'], 'vault': server.APP.config['default_vault']})[0], 404)
                 # An image: as blocks for claude, a thumbnail for the chat; then a question answered from its card.
@@ -590,7 +592,7 @@ class HttpTest(unittest.TestCase):
             self.assertIn('could not hand it to Claude Desktop', out['error'])
 
     def test_statuses_round_trip(self):
-        # Mirrors api.statuses() / api.saveStatuses(types, colors, remap) in Settings → Item type status
+        # Mirrors api.statuses() / api.saveStatuses(types, colors, remap) in Settings → Statuses
         cfg = self.call('/api/statuses')
         task = next(t for t in cfg['types'] if t['type'] == 'task')
         self.assertEqual([g for g, _ in cfg['groups']], ['not_started', 'in_progress', 'closed'])

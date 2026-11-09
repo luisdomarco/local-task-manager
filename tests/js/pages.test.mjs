@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { findByPageRef, hasPage, pageRef, propsIn, setStructure, tabOf } from '../../static/js/rules.js';
+import { askedOnCreate, findByPageRef, hasPage, pageRef, propsIn, setStructure, tabOf } from '../../static/js/rules.js';
 import { itemHref, pageHref } from '../../static/js/links.js';
-import { FOLDER_PER_TYPE } from '../../static/js/structure.js';
+import { FOLDER_PER_TYPE, PROJECTS } from '../../static/js/structure.js';
 
 // The folder-per-type structure plus two Ticketing-like types: a project (a page, named by its key: it has no id) and a ticket whose own
 // fields sit in different places (its properties, the Delivery tab, Relations).
@@ -50,6 +50,15 @@ describe('pages', () => {
     assert.equal(findByPageRef('ticket', 'HB-TKT-001', [hb]), null);
   });
 
+  it('a short id is addressed by its ref, and an old address still finds it', () => {
+    setStructure(WITH_PROJECTS);
+    const ini = { ...item('initiative', '482'), ref: 'INI-482', aliases: ['ACME-INI-001'] };
+    const task = { ...item('task', '483'), ref: 'TSK-483' };
+    assert.equal(pageRef(ini), 'INI-482');
+    assert.equal(itemHref(task), '#/item/TSK-483');
+    for (const ref of ['INI-482', '482', 'ACME-INI-001']) assert.equal(findByPageRef('initiative', ref, [task, ini]), ini, ref);
+  });
+
   it("puts each of a type's own fields where it says, and every link in Relations", () => {
     setStructure(WITH_PROJECTS);
     assert.deepEqual(propsIn('ticket', 'main').map((p) => p.key), ['size']);
@@ -59,5 +68,20 @@ describe('pages', () => {
     assert.equal(tabOf({ kind: 'link' }), 'relations');
     assert.equal(tabOf({ kind: 'link', tab: 'main' }), 'main'); // a link may say otherwise
     assert.deepEqual(propsIn('task', 'delivery'), []); // the folder-per-type structure's types have none: no Delivery tab
+  });
+
+  it('asks on create for what is known when a ticket is opened, not what a later step writes', () => {
+    setStructure(PROJECTS);
+    const asked = (type, tab) => propsIn(type, tab).filter(askedOnCreate).map((p) => p.key);
+    assert.deepEqual(asked('support', 'main'), ['level', 'level_reason', 'origin', 'area']);
+    assert.deepEqual(asked('support', 'delivery'), []); // executor, branch, signature, on hold…: the delivery cycle's
+    assert.deepEqual(asked('story', 'delivery'), ['size']);
+    assert.deepEqual(asked('initiative', 'delivery'), ['regime', 'size']); // its premise is verified later
+    assert.deepEqual(asked('hotfix', 'relations'), []); // its post-mortem comes after it
+    assert.deepEqual(asked('prd', 'relations'), ['supersedes']);
+    assert.ok(asked('project', 'settings').includes('project_kind')); // chosen once, on creation
+    assert.equal(askedOnCreate({ key: 'level_base', kind: 'readonly' }), false); // set by the app
+    assert.equal(askedOnCreate({ key: 'x', kind: 'text' }), true);
+    setStructure(WITH_PROJECTS);
   });
 });

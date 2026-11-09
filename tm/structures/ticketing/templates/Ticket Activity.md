@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Activity
-id: "{{id}}"                           # ACT-NNN: an incoming message, pasted as it came
+id: "{{id}}"                           # its number, drawn ACT-<n>: an incoming message, pasted as it came
 name: "{{slug}}"
 project: ""                            # "[[00 <Project>]]", optional
 source: Email                          # Email · Slack · Comment · Other

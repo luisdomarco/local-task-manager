@@ -1,6 +1,6 @@
 ---
 fileClass: Ticket Meeting
-id: "{{id}}"                           # MTG-NNN
+id: "{{id}}"                           # its number, drawn MTG-<n>
 name: "{{slug}}"
 project: ""                            # "[[00 <Project>]]", optional
 date: {{date}}

@@ -1,16 +1,16 @@
 ---
 fileClass: Ticket Story
-id: "{{id}}"                           # KEY-STY-NNN
+id: "{{id}}"                           # its number, drawn STY-<n>
 name: "{{slug}}"
 project: "[[00 {{project}}]]"
-initiative: ""                         # "[[KEY-INI-NNN …]]" it delivers a part of
+initiative: ""                         # "[[INI-<n> …]]" it delivers a part of
 status_ticket: "1. Backlog"
 status_log: []                         # [{date, from, to, by}]
 priority: P2                           # P0 · P1 · P2 · P3
 size: S                                # S · M · L — an L is two stories
-spec_impact: ""                        # the specs it changes ("[[KEY-SPEC-NNN …]]"), or "none: <why>"
-origin: ""                             # "[[KEY-SUP-NNN …]]" or "[[TSK-NNN …]]" it came from
-plan: ""                               # "[[{{id}} Plan]]" when it needs one
+spec_impact: ""                        # the specs it changes ("[[SPEC-<n> …]]"), or "none: <why>"
+origin: ""                             # "[[SUP-<n> …]]" or "[[TSK-<n> …]]" it came from
+plan: ""                               # "[[PLN-<n> …]]" when it needs one
 depends_on: []
 on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
@@ -24,7 +24,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 > [!owner] Frozen at 2. ToDo
 > The agent may draft these sections; the owner approves them. After approval nobody edits them.
@@ -44,7 +44,7 @@ As <who>, I want <what>, so that <why>.
 What changes in the specs, grouped by spec, or exactly one line: `No behavior change: <why>`. When the story
 ships, each delta is merged into its spec (a spec it names that does not exist yet is created).
 
-### [[KEY-SPEC-NNN <Capability>]]
+### [[SPEC-<n> <Capability>]]
 
 #### ADDED Requirements
 

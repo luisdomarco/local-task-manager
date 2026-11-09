@@ -3,7 +3,7 @@
 // Nobody is notified: a mention is for you, and for Claude, whose prompt lists who is mentioned and how to reach them.
 // One listener for the whole document, so every textarea has it, including those made later.
 import { state } from './state.js';
-import { GROUP_ICON, h, icon } from './ui.js';
+import { GROUP_ICON, h, icon, sideSized } from './ui.js';
 
 const MAX = 8;
 const norm = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -65,7 +65,7 @@ function open(ta, start, matches) {
       type: 'button', class: 'menu-item', role: 'option', tabindex: '-1',
       onmousedown: (e) => { e.preventDefault(); menu.active = i; pick(i); }, // mousedown: the textarea keeps the focus
     }, icon(p.channel ? GROUP_ICON[p.channel] || 'users' : 'users', 14), h('span', {}, p.name), p.calendar_name && p.calendar_name !== p.name ? h('span', { class: 'muted small' }, p.calendar_name) : null)));
-  document.body.append(el);
+  document.body.append(sideSized(el, ta));
   menu = { el, ta, start, matches, active: 0 };
   paint();
   const { x, y } = caretPoint(ta);

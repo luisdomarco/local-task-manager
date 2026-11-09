@@ -8,16 +8,12 @@
 // shows what its folder holds; index.html applies it before first paint too, from the vault the address names.
 // (Docs is a view with its own tree, views/docs.js, reached from its link in Project.)
 import { pref, setPref } from './prefs.js';
+import { cssWidth, wireResizer } from './resizer.js';
 import { h, icon } from './ui.js';
 
-const DEFAULT_W = 248;
-const MIN_W = 180;
-const MAX_W = 420;
 const root = document.documentElement;
-const clamp = (w) => Math.max(MIN_W, Math.min(MAX_W, Math.round(w)));
-
-const setWidth = (w) => root.style.setProperty('--sidebar-w', `${clamp(w)}px`);
-const width = () => document.getElementById('sidebar').getBoundingClientRect().width;
+const width = cssWidth({ cssVar: '--sidebar-w', key: 'sidebar.w', def: 248, min: 180, max: 420,
+  measure: () => document.getElementById('sidebar').getBoundingClientRect().width });
 export const sidebarCollapsed = () => root.classList.contains('side-collapsed');
 
 const MODES = [['project', 'project', 'Project', 'The views of the vault'], ['explorer', 'foldertree', 'Explorer', 'The vault\'s folders and files']];
@@ -85,8 +81,27 @@ function syncButtons() {
   if (btn && !btn.firstChild) btn.append(icon('sidebar', 15));
 }
 
+// The nav's folding groups (index.html: Plan, Items, More), open or folded as last left; More starts folded.
+const GROUPS_OPEN = { plan: true, items: true, more: false };
+function initGroups() {
+  const open = { ...GROUPS_OPEN, ...pref('side.groups', {}) };
+  for (const d of document.querySelectorAll('#sidebar details.side-group')) {
+    d.open = !!open[d.dataset.group];
+    d.addEventListener('toggle', () => {
+      if (d.dataset.revealed) { delete d.dataset.revealed; return; } // opened to show the current view: not a choice to remember
+      setPref('side.groups', { ...pref('side.groups', {}), [d.dataset.group]: d.open });
+    });
+  }
+}
+/** Opens the folded group that holds the current view's link, so the page always has its link in sight. */
+export function revealActiveLink() {
+  const d = document.querySelector('#sidebar details.side-group:not([open]) a.active')?.closest('details');
+  if (d) { d.dataset.revealed = '1'; d.open = true; }
+}
+
 export function initSidebar() {
-  setWidth(pref('sidebar.w', DEFAULT_W));
+  width.apply();
+  initGroups();
   document.getElementById('side-collapse').addEventListener('click', () => toggleSidebar(true));
   document.getElementById('side-backdrop').addEventListener('click', () => setDrawer(false));
   addEventListener('hashchange', () => setDrawer(false)); // a link followed, a file opened: the page is what you wanted
@@ -97,33 +112,5 @@ export function initSidebar() {
   syncButtons();
   renderModes();
 
-  const grip = document.getElementById('side-resizer');
-  const save = () => setPref('sidebar.w', clamp(width()));
-  grip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    try { grip.setPointerCapture(e.pointerId); } catch { /* the moves still arrive while the pointer stays on it */ }
-    const startX = e.clientX;
-    const startW = width();
-    root.classList.add('side-resizing');
-    const move = (ev) => setWidth(startW + ev.clientX - startX);
-    const up = () => {
-      grip.removeEventListener('pointermove', move);
-      grip.removeEventListener('pointerup', up);
-      grip.removeEventListener('pointercancel', up);
-      root.classList.remove('side-resizing');
-      save();
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', up);
-    grip.addEventListener('pointercancel', up);
-  });
-  grip.addEventListener('dblclick', () => { setWidth(DEFAULT_W); setPref('sidebar.w', null); });
-  grip.addEventListener('keydown', (e) => {
-    const step = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
-    if (!step) return;
-    e.preventDefault();
-    setWidth(width() + step);
-    save();
-  });
+  wireResizer(document.getElementById('side-resizer'), { ...width, cls: 'side-resizing' });
 }

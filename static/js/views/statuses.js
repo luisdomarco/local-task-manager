@@ -1,4 +1,4 @@
-// Settings → Item type status (TSK-037): each type's statuses, in the three fixed groups — Not started, In progress,
+// Settings → Statuses (TSK-037): each type's statuses, in the three fixed groups — Not started, In progress,
 // Closed — with their colour. Open is the first two groups, closed the last: every list, the Board and the counts
 // read it from here. Saved per vault, in <vault>/.task-manager/statuses.json (tm/store.py save_status_config).
 //
@@ -69,7 +69,7 @@ export function statusPanel() {
     if (r.removed) {
       // Removed while no item has it (one with items goes through the dialog, and is saved there): gone on Save.
       return h('div', { class: 'status-row removed' },
-        h('span', { class: 'status-name' }, statusChip(r.from || r.name)),
+        h('span', { class: 'status-name' }, statusChip(r.from || r.name, { raw: true })),
         h('span', { class: 'small muted' }, 'removed'),
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn icon', title: 'Keep it', onclick: () => { r.removed = false; r.to = null; render(); } }, icon('back', 14)));
@@ -173,7 +173,7 @@ export function statusPanel() {
     modal.className = 'tag-modal remap-modal';
     modal.setAttribute('aria-label', `Delete status ${r.from}`);
     modal.replaceChildren(...[
-      h('div', { class: 'modal-head' }, h('h2', {}, icon('trash', 18), 'Delete status ', statusChip(r.from)),
+      h('div', { class: 'modal-head' }, h('h2', {}, icon('trash', 18), 'Delete status ', statusChip(r.from, { raw: true })),
         h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: close }, icon('x', 16))),
       h('p', {}, `${n} of ${label} ${r.count > 1 ? 'have it. Where do they go?' : 'has it. Where does it go?'}`),
       h('label', { class: 'field' }, h('span', {}, 'Move them to'), pick),

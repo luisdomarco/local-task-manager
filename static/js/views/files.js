@@ -1,7 +1,8 @@
 // A vault file or folder, as the sidebar's Explorer opens it: #/files/<path> (#/files alone: the vault itself). A folder
 // lists what it holds; a Markdown file shows rendered (Preview) or as it is written (Source), the choice remembered;
 // code and text show as text, code coloured (highlight.js); an image (to zoom into) or a PDF shows in the attachments'
-// viewer; anything else offers a download. Edit opens a text file (Markdown, code, plain text) in the editor of the
+// viewer; anything else offers to open it in its own app ("Open in Numbers": the app this Mac opens it with), to show
+// it in Finder or to download it. Edit opens a text file (Markdown, code, plain text) in the editor of the
 // descriptions, coloured as it is typed, saved as you type against the version it was opened at (a file changed on
 // disk meanwhile asks which text wins). An item's file can be edited too, as Obsidian would; its card stays the
 // place for its fields.
@@ -82,13 +83,40 @@ function reveal(path) {
     onclick: () => api.openInEditor(path).catch((e) => toast(e.message, true)) }, icon('code', 13), `Open in ${editor}`)];
 }
 
+/** A file the page cannot show (a spreadsheet, a slide deck, an archive…): opened in the app this Mac opens it with,
+ *  named once the server has looked it up — or, when that app would run it rather than show it, why not (Show in
+ *  Finder is beside it). Download is in the head, as for every file. */
+function externalView(node) {
+  const button = h('button', { class: 'btn primary', disabled: true }, icon('external', 14), 'Open in its app…');
+  const why = h('p', { class: 'muted small', hidden: true });
+  api.opener(node.path).then((o) => {
+    if (o.ok) {
+      button.replaceChildren(icon('external', 14), `Open in ${o.app}`);
+      button.disabled = false;
+      button.onclick = () => api.openDefault(node.path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true));
+    } else {
+      button.hidden = true;
+      why.hidden = false;
+      why.textContent = `It doesn’t open from here: ${o.why}.`;
+    }
+  }, (e) => { button.hidden = true; why.hidden = false; why.textContent = e.status === 501 ? 'Opening a file in its app needs macOS.' : `Could not look up its app (${e.message}).`; });
+  return h('div', { class: 'files-external' }, icon('file', 28), h('p', {}, 'This file can’t be shown here.'), button, why);
+}
+
 function folderView(node, href = filesHref) {
-  const rows = node.children.map((c) => h('tr', { onclick: (e) => { if (!e.target.closest('a')) location.hash = href(c.path); } },
+  if (node.sealed) {
+    return [h('div', { class: 'files-head' }, h('h1', {}, icon('lock', 20), node.name), h('span', { class: 'spacer' }), reveal(node.path)),
+      h('p', { class: 'muted' }, `${node.name} is ${node.name.toLowerCase() === '.git' ? 'git’s' : 'the app’s'} own: it is not opened or changed here.`)];
+  }
+  // .git and .task-manager (sealed, Show hidden files) are listed, never opened.
+  const rows = node.children.map((c) => (c.sealed ? h('tr', { class: 'is-sealed' },
+    h('td', { class: 'files-name' }, icon('lock', 15), h('span', {}, c.name)), h('td', { class: 'muted' }, 'Protected'), h('td', { class: 'muted' }, when(c.mtime)), h('td', { class: 'muted files-size' }, '—'))
+    : h('tr', { onclick: (e) => { if (!e.target.closest('a')) location.hash = href(c.path); } },
     h('td', { class: 'files-name' }, c.kind === 'dir' ? icon('folder', 15) : c.item ? typeIcon(c.item.type, 15) : icon('file', 15),
       h('a', { href: href(c.path) }, c.name)),
     h('td', { class: 'muted' }, c.kind === 'dir' ? 'Folder' : c.item ? (TYPE_DEFS[c.item.type]?.label || c.item.type) : (c.name.match(/\.([^.]+)$/)?.[1] || 'File').toUpperCase()),
     h('td', { class: 'muted' }, when(c.mtime)),
-    h('td', { class: 'muted files-size' }, c.kind === 'dir' ? `${c.children.length}` : size(c.size))));
+    h('td', { class: 'muted files-size' }, c.kind === 'dir' ? `${c.children.length}` : size(c.size)))));
   // Files dropped from the computer anywhere on the folder come into it (explorer.js dropTarget).
   const zone = h('div', { class: 'files-drop' },
     node.children.length
@@ -406,6 +434,8 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
         : text === null ? h('p', { class: 'muted' }, 'Loading…')
           : table && mode === 'preview' ? tableBody(table)
             : codeBlock(lang, !lang); // code scrolls sideways; prose wraps
+    } else if (kind === 'other') {
+      body = externalView(node);
     } else {
       body = h('div', { class: 'files-view' }, fileViewer(fileUrl(node.path), node.name, kind));
     }

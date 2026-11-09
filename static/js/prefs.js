@@ -3,10 +3,10 @@
 // data: if the browser forgets, everything falls back to its default.
 const NS = 'tm.ui.';
 
-// Some preferences hold one vault's own things: a list's filters name its items and labels, the cards
+// Some preferences hold one vault's own things: a list's filters name its items and labels, the graph's its types and projects, the cards
 // minimized to the top bar are its items, the dismissed work-log suggestions its ids, the Explorer's open folders, the sidebar's
 // mode. Those are kept per vault (tm.v.<vault>.<key>), so another vault never sees them; the rest (sorts, sizes, tabs) is shared.
-const VAULT_KEYS = [/^list\./, /^minimized$/, /^logDismissed$/, /^explorer\./, /^sidebar\.mode$/];
+const VAULT_KEYS = [/^list\./, /^graph\./, /^minimized$/, /^logDismissed$/, /^explorer\./, /^sidebar\.mode$/, /^files\.hidden$/];
 // Where those lived before there were vaults: copied (never moved) into the first vault this browser uses.
 const LEGACY = { logDismissed: 'tm.logDismissed' };
 const OWNER = 'tm.v.legacyOwner';

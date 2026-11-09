@@ -15,8 +15,9 @@ import re
 from datetime import date, timedelta
 
 from ...frontmatter import split as fm_split
+from ..kinds import KINDS, kind_of
 from . import specs
-from .definition import CLOSED, CORE_PROJECT_TYPES, EXECUTION_MODES, LEVELS, PROJECT_TYPES
+from .definition import CLOSED, EXECUTION_MODES, LEVELS
 
 DEFAULT_DUE_DAYS = {'C1': 0, 'C2': 7, 'C3': 30}
 LEVEL_PRIORITY = {'C1': 'P0', 'C2': 'P1', 'C3': 'P2'}  # a promoted support ticket's initiative
@@ -52,6 +53,11 @@ def _project(r, key):
     return (r.projects.get(key) or {}).get('fields') or {}
 
 
+def _kind(r, key):
+    """The kind of project `key` (tm/structures/kinds.py): what it has decides which of these rules apply."""
+    return kind_of(_project(r, key).get('project_kind'))
+
+
 def due_for(r, project, level, due_from):
     days = _project(r, project).get('support_due_days')
     days = days if isinstance(days, dict) else DEFAULT_DUE_DAYS
@@ -76,6 +82,9 @@ def _err(msg):
 
 # ── create ───────────────────────────────────────────────────────────────────
 def on_create(store, t, values, r, stamp):
+    if t == 'project':  # its settings, as the create form fills them in: checked as an edit of them is, less those
+        kind = kind_of(values.get('project_kind'))  # its kind has no use for (the form fills in every one it shows)
+        return _project_settings({k: v for k, v in values.items() if not kind.hides('project', k)}, kind)
     if t == 'support':
         level = values.get('level') or 'C2'
         if level not in LEVELS:
@@ -137,7 +146,18 @@ def on_update(store, it, values, r, stamp, by='agent'):
     support ticket's resolution) is everyone's."""
     t, f = it['type'], it['fields']
     if t == 'project':
-        return _project_settings(values)
+        old, new = str(f.get('project_kind') or '').strip(), str(values.get('project_kind') or '').strip()
+        # Its kind is fixed once it says one; a note that names none, or one not known (written by hand), may be given one.
+        if 'project_kind' in values and new != old:
+            if old in KINDS:
+                raise _err('a project keeps the kind it was made with: its types and folders follow from it')
+            if new not in KINDS:
+                raise _err(f"project_kind must be {' or '.join(KINDS)}")
+        kind = kind_of(f.get('project_kind'))
+        hidden = [k for k in values if kind.hides('project', k)]
+        if hidden:
+            raise _err(f'a project of kind {kind.id} has no {hidden[0]}')
+        return _project_settings(values, kind)
     if t == 'support' and 'level' in values and values['level'] != f.get('level'):
         new, old, base = _rank(values['level']), _rank(f.get('level')), _rank(f.get('level_base'))
         if new is None:
@@ -161,17 +181,17 @@ def on_update(store, it, values, r, stamp, by='agent'):
     return values
 
 
-def _project_settings(values):
+def _project_settings(values, kind):
     """A project's settings as its card edits them: a known execution mode; enabled types in their order, the core
-    ones always in; a whole number of days (0 or more) per level; the repo and its system as text."""
+    ones always in, only those its `kind` has (kinds.Kind.enabled); a whole number of days (0 or more) per level; the
+    repo and its system as text."""
     if 'execution_mode' in values and values['execution_mode'] not in EXECUTION_MODES:
         raise _err(f'execution_mode must be one of {list(EXECUTION_MODES)}')
     if 'enabled_types' in values:
-        given = values['enabled_types'] or []
-        unknown = [x for x in given if x not in PROJECT_TYPES]
-        if unknown:
-            raise _err(f'enabled_types: unknown type {unknown[0]} (one of {list(PROJECT_TYPES)})')
-        values['enabled_types'] = [x for x in PROJECT_TYPES if x in CORE_PROJECT_TYPES or x in given]
+        try:
+            values['enabled_types'] = kind.enabled(values['enabled_types'])
+        except ValueError as e:
+            raise _err(str(e)) from None
     if 'support_due_days' in values:
         days = {}
         for level, n in (values['support_due_days'] or {}).items():
@@ -208,13 +228,15 @@ def _check_transition(store, it, new, f, r):
         raise _err('a hotfix needs its rollback plan before work starts')
     if t == 'hotfix' and new == 'Done' and not f.get('postmortem'):
         raise _err('a hotfix closes with its post-mortem: link the error record (Post-mortem)')
-    if t == 'initiative' and old == 'Backlog' and new == 'ToDo':
-        missing = [label for key, label in (('size', 'size'), ('regime', 'regime')) if not f.get(key)]
-        if not stories_of(store, it['key']):
+    if t == 'initiative' and old == 'Backlog' and new == 'ToDo':  # what its kind has of it: a simple one, nothing
+        kind = _kind(r, f.get('project'))
+        missing = [key for key in ('size', 'regime') if not kind.hides('initiative', key) and not f.get(key)]
+        if 'story' in kind.types and not stories_of(store, it['key']):
             missing.append('at least one story')
         if missing:
             raise _err(f"an initiative is ready (ToDo) only with {', '.join(missing)}")
-        _check_premise(f, r)
+        if not kind.hides('initiative', 'premise'):
+            _check_premise(f, r)
     if t == 'initiative' and new in ('Review', 'Done'):
         open_ = [s['key'] for s in stories_of(store, it['key']) if s['fields'].get('status') not in CLOSED]
         if open_:
@@ -224,7 +246,7 @@ def _check_transition(store, it, new, f, r):
         _check_story_ready(f, ini, store.read(it['key'])['body'])  # the body as saved: a status changes on its own
     if new == 'InProgress' and t in SERIAL:
         p = _project(r, f.get('project'))
-        if p.get('execution_mode') == 'serial':
+        if p.get('execution_mode') == 'serial' and not _kind(r, f.get('project')).hides('project', 'execution_mode'):
             busy = [i for i in store.items() if i['key'] != it['key'] and i['fields'].get('project') == f.get('project')
                     and i['type'] in SERIAL and i['fields'].get('status') == 'InProgress']
             if busy:

@@ -6,15 +6,16 @@ import { CREATE_TYPES, TYPE_LABEL, openCreateModal } from './create.js';
 import { openClaudeDialog } from './claude.js';
 import { openItem, openItemKey } from './panel.js';
 import { openQuickModal } from './quickadd.js';
-import { STRUCTURE, TYPE_DEFS, findByPageRef, isDone } from './rules.js';
+import { STRUCTURE, TYPE_DEFS, findByPageRef, inSomeProject, isDone } from './rules.js';
 import { bodyHits, groupByType, matches, norm, typeOrder } from './search.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, filesHref } from './filetree.js';
 import { state } from './state.js';
 import { TYPE_ICON_NAME, h, icon, typeIcon } from './ui.js';
+import { refOf } from './shownid.js';
 
 // The views every vault has (main.js FIXED_VIEWS); each type's list joins them from the vault's structure (views()).
-const DAYS = [['today', 'Today', 'sun'], ['tomorrow', 'Tomorrow', 'sun'], ['week', 'Week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'Month', 'calendardays'], ['board', 'Board', 'kanban'], ['table', 'All items', 'table']];
+const DAYS = [['today', 'Today', 'sun'], ['week', 'Week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'Month', 'calendardays'], ['board', 'Board', 'kanban'], ['table', 'List', 'table'], ['graph', 'Graph', 'graph']];
 const TOOLS = [['log', 'Work log', 'clock'], ['labels', 'Labels', 'tag'], ['contacts', 'Contacts', 'user']];
 const LAST = [['trash', 'Trash', 'trash'], ['settings', 'Settings', 'settings']];
 const PER_TYPE = 5; // items shown of each type until its "Show all"
@@ -44,7 +45,7 @@ function results(query) {
       const name = TYPE_DEFS[g.type]?.plural || g.type;
       for (const i of g.items) {
         shown.add(i.key);
-        out.push({ group: name, label: i.title, meta: `${i.id || ''}${isDone(i) ? ' · closed' : ''}`, type: i.type, run: () => openItem(i) });
+        out.push({ group: name, label: i.title, meta: `${refOf(i)}${isDone(i) ? ' · closed' : ''}`, type: i.type, run: () => openItem(i) });
       }
       if (g.total > g.items.length) {
         out.push({ group: name, label: `Show all ${g.total}`, icon: 'down', keep: true, run: () => expanded.add(g.type) });
@@ -52,7 +53,7 @@ function results(query) {
     }
     if (body.q === q) {
       for (const b of bodyHits(q, body.hits, state.items, shown).slice(0, 8)) {
-        out.push({ group: 'In the text', label: b.item.title, meta: `${b.item.id || ''} · “${b.text.slice(0, 80)}”`, type: b.item.type, run: () => openItem(b.item) });
+        out.push({ group: 'In the text', label: b.item.title, meta: `${refOf(b.item)} · “${b.text.slice(0, 80)}”`, type: b.item.type, run: () => openItem(b.item) });
       }
     }
   }
@@ -77,7 +78,11 @@ function results(query) {
   const open = here ? state.byId.get(here) || state.all.find((i) => i.key === here)
     : TYPE_DEFS[pageType]?.page ? findByPageRef(pageType, decodeURIComponent(ref), state.all) : null;
   if (open && open.id && (!q || /claude|terminal|work/.test(q))) {
-    out.push({ group: 'This item', label: `Work on ${open.id} with Claude`, meta: open.title, icon: 'terminal', run: () => openClaudeDialog(open) });
+    out.push({ group: 'This item', label: `Work on ${refOf(open)} with Claude`, meta: open.title, icon: 'terminal', run: () => openClaudeDialog(open) });
+  }
+  // …or seen in the Graph view, centred on it.
+  if (open && (!q || /graph|link|map/.test(q))) {
+    out.push({ group: 'This item', label: `Show ${refOf(open) || open.title} in the graph`, meta: open.title, icon: 'graph', run: () => { location.hash = `#/graph/${encodeURIComponent(open.ref || open.id || open.key)}`; } });
   }
   // The top bar's terminal: a prompt with no item, in the default folder.
   if (!q || /claude|terminal/.test(q)) {
@@ -92,7 +97,7 @@ function results(query) {
   }
   if (q.length >= 2) out.push({ group: 'Files', label: `Search “${query.trim()}” in files`, icon: 'search', run: () => { location.hash = `#/find/${encodeURIComponent(query.trim())}`; } });
   const newQ = q.replace(/^(new|create|add)\s*/, '');
-  for (const t of CREATE_TYPES) {
+  for (const t of CREATE_TYPES.filter((k) => inSomeProject(k, state.all))) { // the types with a place in this vault
     if (!q || norm(`new ${TYPE_LABEL[t]}`).includes(q) || norm(TYPE_LABEL[t]).startsWith(newQ)) {
       out.push({ group: 'Create', label: `New ${TYPE_LABEL[t].toLowerCase()}`, icon: TYPE_ICON_NAME[t], run: () => openCreateModal(t) });
     }

@@ -6,14 +6,15 @@ structures (§5), development (§6) and the reference of every screen (§7). Thi
 ## Commands
 
 ```bash
-python3 tools/serve_sample.py [--ticketing]    # try a change: temp copy of sample-vault/ (+ sample-vault-ticketing/) on :3101
+python3 tools/serve_sample.py [--legacy]       # try a change: temp copy of sample-vault/ (+ sample-vault-legacy/) on :3101
 python3 -m unittest discover -s tests -t .     # Python suite (~30 s)
 TZ=UTC node --test tests/js/*.test.mjs         # frontend logic (Node 20+)
+python3 tools/vault.py -C <vault> overview     # a vault from the shell (README §7 "The vault from the shell")
 python3 server.py                              # the user's own config.json and vaults on :3100 — not for testing
 ```
 
 Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and `task-manager-sample-3103`
-(`--ticketing`) are the safe ones; `task-manager` (3100) and `task-manager-3102` serve the user's real vaults.
+(`--legacy`: plus the legacy Initiatives sample) are the safe ones; `task-manager` (3100) and `task-manager-3102` serve the user's real vaults.
 
 ## Invariants
 
@@ -32,10 +33,18 @@ Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and 
 - **Ticketing writes only changed keys.** `tm/structures/ticketing/codec.py` `encode` patches just the keys the app
   changed; key order, comments, unknown keys and the body stay byte for byte (these files are also edited in
   Obsidian). Keep it that way; `tests/test_ticketing.py` checks it.
-- **A change to the folder-per-type structure is mirrored in `static/js/structure.js`.** It is that structure's
-  `Structure.public()`, verbatim (`python3 tools/sync_structure_js.py` rewrites it; `--check` only checks). `tests/test_structures.py` fails until both agree.
-- **Writes are atomic** (`tm/fsutil.atomic_write`), deletes go to the trash, ids are never reused, and a
+- **Projects (`ticketing`) is the structure; Initiatives (`folders`) and Tasks (`tasks`) are legacy.** A new vault
+  gets Projects (an empty folder is refused as legacy); a legacy vault keeps working until it is moved
+  (docs/migrate-structures.md). New behaviour is built for Projects; `sample-vault/` is a Projects vault and
+  `sample-vault-legacy/` the Initiatives one the legacy tests read.
+- **A change to a structure is mirrored in `static/js/structure.js`.** It holds Projects' and the folder-per-type
+  structure's `Structure.public()`, verbatim (`python3 tools/sync_structure_js.py` rewrites it; `--check` only checks). `tests/test_structures.py` fails until both agree.
+- **Writes are atomic** (`tm/fsutil.atomic_write`) **and one at a time across processes**: the outermost `@writes` /
+  `@writes_files` call takes the Store's RLock, then `fsutil.vault_lock` (flock on `.task-manager/.lock`), always in that
+  order. A new write path goes through a decorated Store method, never around it. Deletes go to the trash, ids are never reused, and a
   description save carries `body_rev` so an outside edit is never overwritten (README → *Safe against edits*).
+- **`relations.relation_writes` mirrors `static/js/relkinds.js` `relationWrites`** (where a relation is kept): change both;
+  `tests/test_vault_cli.py` runs the JS cases against the Python one.
 - The server listens on 127.0.0.1 only and every POST needs the `X-Task-Manager` header (`static/js/api.js` adds it).
 
 ## Where things go
@@ -43,13 +52,26 @@ Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and 
 | Change | Goes in |
 |---|---|
 | An HTTP route | `server.py` (`ROUTES`); the vault logic it calls in `tm/store.py` |
-| A type, field, folder or status | `tm/structures/…` (+ `static/js/structure.js` for folder per type) |
+| A type, field, folder or status | `tm/structures/…` (+ `python3 tools/sync_structure_js.py` for `static/js/structure.js`) |
 | Ticketing file format or rules | `tm/structures/ticketing/` (`codec.py`, `rules.py`, `check.py`, `templates/`) |
 | A view | `static/js/views/<view>.js`; state and mutations in `static/js/state.js`; API calls in `api.js` |
 | Pure logic of the page | its own module, tested in `tests/js/<module>.test.mjs` |
 | A script run by hand or by a command | `tools/`; the Claude Code commands in `.claude/commands/` |
+| What the vault's AGENTS.md says | `tm/agentsmd.py` `render` (from `Store.agents_info`): never text about one vault |
 | A design note of work in progress | `plans/` |
 | A test | `tests/test_<area>.py` (stdlib `unittest`, temp folders) |
+
+**How the app looks is in [docs/design.md](docs/design.md)**: read it before touching anything a user sees, and reuse the
+classes and helpers it names (`prop-rows`, `quiet`, `cards rows`, `statusChip`, `select`, `foldEmptyFields`…) before
+writing new ones. A new pattern that will repeat goes in that file in the same PR.
+
+**Ids in Projects are short**: `id: 482` on disk, one counter per vault, drawn `STY-482` (the server's `ref`; the page
+shows `refOf(item)`, never `item.id`). A vault from before keeps its long ids (`ACME-STY-001`) until
+[docs/migrate-short-ids.md](docs/migrate-short-ids.md) moves it (`tools/migrate_short_ids.py`).
+
+**Moving an Initiatives or Tasks vault to Projects follows [docs/migrate-structures.md](docs/migrate-structures.md)**
+(`tools/migrate_structures.py`): it writes a new folder, and each proposed project and open question goes to the user
+before `--apply`.
 
 Behaviour a user sees is documented in README §7 in the same PR; a new top-level file that must travel with the
 system zip goes in `tm/export.py` `INCLUDE`.
@@ -58,7 +80,7 @@ system zip goes in `tm/export.py` `INCLUDE`.
 
 1. Both suites green: `python3 -m unittest discover -s tests -t .` and `TZ=UTC node --test tests/js/*.test.mjs`.
 2. Seen in the browser on a sample server (3101 / 3103): the change works, no console errors, and for CSS the
-   widths in README §6 *Checking a layout change*.
+   widths in README §6 *Checking a layout change*, light and dark (docs/design.md §5).
 
 ## PR flow
 

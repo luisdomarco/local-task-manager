@@ -1,9 +1,9 @@
 ---
 fileClass: Ticket Learning
-id: "{{id}}"                           # KEY-LRN-NNN
+id: "{{id}}"                           # its number, drawn LRN-<n>
 aliases: []
 project: "[[00 {{project}}]]"
-item: ""                               # "[[KEY-INI|SUP|HFX-NNN …]]" that produced it
+item: ""                               # "[[INI|SUP|HFX-<n> …]]" that produced it
 area: ""
 impact: 3                              # 1–5
 applies_to: project                    # project · all-projects — the second ones are candidates for the Knowledge base
@@ -13,7 +13,7 @@ creation_date: {{date}}
 updated_date: {{date}}
 ---
 
-# {{id}} — {{title}}
+# {{ref}} — {{title}}
 
 ## Context
 

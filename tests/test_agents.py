@@ -16,14 +16,18 @@ def read(root, rel):
 
 
 def sidebar(structure):
-    """The 'types' group of the sidebar as the page draws it: plurals in order, '|' where the section changes."""
-    types = sorted((t for t in structure.types.values() if t.nav and t.nav['group'] == 'types'), key=lambda t: t.nav['order'])
+    """The 'types' group of the sidebar as the page draws it (static/js/main.js renderNav): plurals in order, '|' where
+    the section changes, a type in one of the structure's `sections` left for its tab; then those sections' names."""
+    sections = structure.extras.get('sections', [])
+    tabs = {name for s in sections for name in s['types']}
+    types = sorted((t for t in structure.types.values() if t.nav and t.nav['group'] == 'types' and t.name not in tabs),
+                   key=lambda t: t.nav['order'])
     out = []
     for i, t in enumerate(types):
         if i and t.nav['section'] != types[i - 1].nav['section']:
             out.append('|')
         out.append(t.plural)
-    return out
+    return out + (['|', *(s['label'] for s in sections)] if sections else [])
 
 
 class SidebarTest(unittest.TestCase):
@@ -32,12 +36,14 @@ class SidebarTest(unittest.TestCase):
                                            '|', 'Agents'])
 
     def test_ticketing_in_sections(self):
-        self.assertEqual(sidebar(get('ticketing')), ['Projects', 'Initiatives', 'Stories', 'Tasks', '|', 'Support', 'Hotfixes', '|', 'Specs', '|',
-                                                     'PRDs', 'Plans', 'Analyses', '|', 'Meetings', 'Notes', '|',
-                                                     'Errors', 'Learnings', '|', 'Agents'])
+        # Agents sit with the tools, under More; the rest are tabs of Meetings, Brief, Issues and Records
+        self.assertEqual(sidebar(get('ticketing')), ['Projects', 'Initiatives', 'Tasks', '|', 'Notes', '|',
+                                                     'Meetings', 'Brief', 'Issues', 'Records'])
 
-    def test_a_type_turned_off_leaves_no_section_of_its_own(self):
-        self.assertEqual(sidebar(get('ticketing').without(['agent', 'hotfix']))[-3:], ['|', 'Errors', 'Learnings'])
+    def test_a_type_turned_off_leaves_no_tab_and_a_section_with_none_no_link(self):
+        off = get('ticketing').without(['hotfix', 'error', 'learning'])
+        self.assertEqual(sidebar(off)[-4:], ['|', 'Meetings', 'Brief', 'Issues'])
+        self.assertEqual(next(s for s in off.public()['sections'] if s['key'] == 'issues')['types'], ['story', 'support'])
 
 
 class FolderPerTypeAgentTest(unittest.TestCase):
@@ -91,8 +97,8 @@ class TicketingAgentTest(unittest.TestCase):
     def test_a_vault_without_agents_matches_and_the_first_agent_makes_the_folder(self):
         self.assertTrue(self.s.check()['ok'], self.s.check())
         a = self.s.create('agent', 'Inbox triage', {'model': 'claude-sonnet-5-5', 'tools': 'Gmail MCP'})
-        self.assertEqual(a['path'], f"Agents/{a['id']} Inbox triage.md")
-        self.assertRegex(a['id'], r'^AGT-\d{3}$')
+        self.assertEqual(a['path'], f"Agents/{a['ref']} Inbox triage.md")
+        self.assertEqual((a['id'], a['ref']), ('1', 'AGT-1'))  # a new vault numbers its items
         self.assertEqual(a['fields']['status'], 'Idea')
         text = read(self.root, a['path'])
         self.assertIn('fileClass: Ticket Agent', text)

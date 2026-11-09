@@ -37,6 +37,9 @@ class TicketingBase(unittest.TestCase):
         self.root = tmp.name
         for d in ROOT_FOLDERS:
             os.makedirs(os.path.join(self.root, d))
+        # A vault from before short ids (an ids.json without the number's mark): these tests are of its long ids,
+        # KEY-TYPE-NNN. A new vault numbers its items: tests/test_short_ids.py.
+        write(self.root, '.task-manager/ids.json', '{}\n')
         self.s = Store(self.root, structure='ticketing', enforce_structure=True)
         self.hb = self.s.create('project', 'Internal Tools', {'project_key': 'HB', 'project_kind': 'system'})
         self.ecd = self.s.create('project', 'Acme Web', {'project_key': 'ECD', 'project_kind': 'product'})
@@ -91,16 +94,37 @@ class LayoutTest(TicketingBase):
         self.assertIn('## Related', text)
         self.assertIn('# C1 · C2 · C3', text)  # the template's comments stay
 
-    def test_plans_and_analyses_have_no_id(self):
+    def test_plans_and_analyses_have_an_id_as_every_ticket(self):
         ini = self.s.create('initiative', 'Curación de decisions', {'project': 'HB'})
-        plan = self.s.create('plan', 'Plan', {'related_to': ini['id']})
-        self.assertEqual(plan['path'], 'Internal Tools/Plans/HB-INI-001 Plan.md')
-        self.assertIsNone(plan['id'])
+        plan = self.s.create('plan', 'Curar en dos pasos', {'related_to': ini['id']})
+        self.assertEqual((plan['id'], plan['path']), ('HB-PLN-001', 'Internal Tools/Plans/HB-PLN-001 Curar en dos pasos.md'))
         self.assertEqual(plan['fields']['related_to'], ini['id'])
+        text = read(self.root, plan['path'])
+        self.assertIn('item: "[[HB-INI-001 Curación de decisions]]"', text)  # what it executes
+        self.assertIn('\n# HB-PLN-001 — Curar en dos pasos\n', text)
+        self.assertIn('The *why* is in what it executes ([[HB-INI-001 Curación de decisions]])', text)
         an = self.s.create('analysis', 'Revisión P1', {'project': 'HB', 'kind': 'review'})
-        self.assertTrue(an['path'].startswith(f"Internal Tools/Analyses/{date.today().isoformat()} Revisión P1"))
-        self.assertEqual(self.s.assign_missing_ids(), [])  # never gives them one
-        self.assertTrue(self.s.check()['ok'])
+        self.assertEqual((an['id'], an['path']), ('HB-ANL-001', 'Internal Tools/Analyses/HB-ANL-001 Revisión P1.md'))
+        self.assertIn('\n# HB-ANL-001 — Revisión P1\n', read(self.root, an['path']))
+        renamed = self.s.update(an['key'], {'subject': 'Revisión P2'})
+        self.assertEqual(renamed['path'], 'Internal Tools/Analyses/HB-ANL-001 Revisión P2.md')  # named by its title, as a ticket
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_a_plan_or_an_analysis_from_before_ids_keeps_its_name(self):
+        ini = self.s.create('initiative', 'Curación de decisions', {'project': 'HB'})
+        plan_rel, an_rel = 'Internal Tools/Plans/HB-INI-001 Plan.md', 'Internal Tools/Analyses/2026-10-12 Revisión P1.md'
+        write(self.root, plan_rel, '---\nfileClass: Ticket Plan\nitem: "[[HB-INI-001 Curación de decisions]]"\n'
+              'project: "[[00 Internal Tools]]"\ncreation_date: 2026-10-01\nupdated_date: 2026-10-01\n---\n\n# Plan\n')
+        write(self.root, an_rel, '---\nfileClass: Ticket Analysis\ntitle: "Revisión: P1"\nproject: "[[00 Internal Tools]]"\n'
+              'creation_date: 2026-10-12\nupdated_date: 2026-10-12\n---\n\n# Revisión: P1\n')
+        plan, an = self.s.read(plan_rel), self.s.read(an_rel)
+        self.assertEqual((plan['id'], plan['key'], plan['title'], plan['fields']['related_to']), (None, plan_rel, 'HB-INI-001 Plan', ini['id']))
+        self.assertEqual((an['id'], an['key'], an['title']), (None, an_rel, 'Revisión: P1'))
+        self.assertTrue(self.s.check()['ok'], self.s.check())  # no id, and named as it was: not a finding
+        self.assertEqual(self.s.assign_missing_ids(), [])  # the app never numbers one (tools/migrate_short_ids.py does)
+        self.assertEqual(self.s.update(an_rel, {'subject': 'Revisión P2'})['path'], 'Internal Tools/Analyses/2026-10-12 Revisión P2.md')
+        self.assertEqual(self.s.update(plan_rel, {'subject': 'Otro'})['path'], plan_rel)  # named after its item, not its title
+        self.assertEqual(self.s.create('plan', 'Nuevo', {'related_to': ini['id']})['id'], 'HB-PLN-001')  # a new one has an id
 
 
 class ProjectNoteTest(TicketingBase):
@@ -327,6 +351,25 @@ class RulesTest(TicketingBase):
             with self.subTest(bad), self.assertRaises(StoreError):
                 self.s.update(self.hb['key'], bad)
 
+    def test_a_new_project_keeps_what_the_create_form_filled_in(self):
+        p = self.s.create('project', 'Ops', {
+            'project_key': 'OPS', 'project_kind': 'product', 'execution_mode': 'serial', 'enabled_types': ['prd'],
+            'support_due_days': {'C1': '1', 'C2': '', 'C3': 10}, 'repo': ' ~/github/ops ', 'managed_by': '~/github/ops/.claude',
+            'session_name': 'ops-main', 'labels': ['infra'], 'url': 'ops.example.com', 'url_label': 'Wiki'})
+        f = p['fields']
+        self.assertEqual((f['project_key'], f['project_kind'], f['execution_mode'], f['repo'], f['managed_by']),
+                         ('OPS', 'product', 'serial', '~/github/ops', '~/github/ops/.claude'))
+        self.assertEqual(f['support_due_days'], {'C1': 1, 'C2': 7, 'C3': 10})  # a blank one is its default
+        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec', 'prd'])  # the ones it names, not its kind's
+        self.assertEqual((f['session_name'], f['labels']), ('ops-main', ['infra']))
+        self.assertEqual((f['url'], f['url_label']), ('https://ops.example.com', 'Wiki'))
+        self.assertTrue(os.path.isdir(os.path.join(self.root, 'Ops', 'PRDs')))  # its folders follow its types
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Ops', 'Hotfixes')))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+        with self.assertRaises(StoreError):  # checked as an edit of its settings is
+            self.s.create('project', 'Bad', {'project_key': 'BAD', 'execution_mode': 'fast'})
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Bad')))  # refused before anything is written
+
     def test_claude_starts_in_the_project_s_local_path(self):
         repo = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(os.rmdir, repo)
@@ -341,16 +384,21 @@ class RulesTest(TicketingBase):
         self.assertEqual(self.s.claude_cwd(self.s.create('support', 'Otro', {'project': 'ECD'})['key'])['source'], 'home')
 
     def test_turning_a_type_on_gives_the_project_its_folder(self):
-        hotfixes = os.path.join(self.root, 'Internal Tools', 'Hotfixes')
-        self.assertFalse(os.path.exists(hotfixes))  # a system project starts without them
-        f = self.s.update(self.hb['key'], {'enabled_types': ['hotfix']})['fields']
+        p = self.s.create('project', 'Lean Shop', {'project_key': 'LS', 'project_kind': 'product', 'enabled_types': []})
+        hotfixes = os.path.join(self.root, 'Lean Shop', 'Hotfixes')
+        self.assertFalse(os.path.exists(hotfixes))  # a product made with its optional types off
+        with self.assertRaises(StoreError):  # off: none of its tickets
+            self.s.create('hotfix', 'Caída', {'project': 'LS'})
+        f = self.s.update(p['key'], {'enabled_types': ['hotfix']})['fields']
         self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec', 'hotfix'])  # the core ones stay, in order
         self.assertTrue(os.path.isdir(hotfixes))
         self.assertTrue(self.s.check()['ok'], self.s.check())
-        self.s.create('hotfix', 'Caída', {'project': 'HB'})  # its tickets can be made now
-        f = self.s.update(self.hb['key'], {'enabled_types': []})['fields']  # turned off: the folder and its tickets stay
+        sup = self.s.create('support', 'Rota', {'project': 'LS'})
+        self.s.create('hotfix', 'Caída', {'project': 'LS', 'related_to': sup['id']})  # its tickets can be made now
+        f = self.s.update(p['key'], {'enabled_types': []})['fields']  # turned off: the folder and its tickets stay
         self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec'])
         self.assertTrue(os.path.isdir(hotfixes))
+        self.assertEqual(len([i for i in self.s.items() if i['type'] == 'hotfix' and i['fields'].get('project') == 'LS']), 1)
 
 
 class StoryTest(TicketingBase):
@@ -365,6 +413,23 @@ class StoryTest(TicketingBase):
 
     def status(self, key):
         return self.s.read(key)['fields']['status']
+
+    def test_what_always_hangs_from_an_item_is_made_under_it_and_moved_never_let_go(self):
+        ini, (story,) = self.ready_initiative()
+        sup = self.s.create('support', 'Broken', {'project': 'ECD'})
+        for kind, parents in (('story', 'an initiative'), ('prd', 'an initiative'), ('hotfix', 'a support'),
+                              ('plan', 'an initiative, a story or a support')):
+            with self.assertRaises(StoreError) as cm:
+                self.s.create(kind, 'Loose', {'project': 'ECD'})
+            self.assertEqual(cm.exception.status, 400, kind)
+            self.assertIn(f'hangs from {parents}', str(cm.exception))
+        fix = self.s.create('hotfix', 'Patch', {'project': 'ECD', 'related_to': sup['id']})
+        for key in (story['id'], fix['id']):
+            with self.assertRaises(StoreError) as cm:
+                self.s.update(key, {'related_to': None})
+            self.assertIn('pick another one instead of none', str(cm.exception))
+        other = self.s.create('initiative', 'Payments', {'project': 'ECD'})
+        self.assertEqual(self.s.update(story['id'], {'related_to': other['id']})['fields']['related_to'], other['id'])
 
     def test_a_story_is_a_file_of_its_project_linked_to_its_initiative(self):
         ini, (story,) = self.ready_initiative()
@@ -389,10 +454,9 @@ class StoryTest(TicketingBase):
         self.assertIn('a written acceptance scenario', str(cm.exception))  # "- **WHEN** …" is the template's, not one written
         self.s.update(story['id'], {}, body=READY_BODY)
         self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
-        loose = self.s.create('story', 'Loose', {'project': 'ECD', **READY}, READY_BODY)
-        with self.assertRaises(StoreError) as cm:
-            self.s.update(loose['id'], {'status': 'ToDo'})
-        self.assertIn('only with its initiative', str(cm.exception))
+        with self.assertRaises(StoreError) as cm:  # a story is made under its initiative, never loose
+            self.s.create('story', 'Loose', {'project': 'ECD', **READY}, READY_BODY)
+        self.assertIn('hangs from an initiative', str(cm.exception))
 
     def test_the_initiative_follows_its_stories(self):
         ini, (a, b) = self.ready_initiative(stories=2)
@@ -445,10 +509,15 @@ class StoryTest(TicketingBase):
               '---\nfileClass: Ticket PRD\nid: "ECD-PRD-001"\nproject: "[[00 Acme Web]]"\nstatus_ticket: "1. Backlog"\n'
               'umbrella: "[[ECD-INI-001 Checkout]]"\n---\n\n# Old\n')
         self.assertEqual(self.s.read('ECD-PRD-001')['fields']['related_to'], ini['id'])
-        self.s.update('ECD-PRD-001', {'related_to': None})
+        with self.assertRaises(StoreError) as cm:  # a PRD always hangs from an initiative: moved, never let go
+            self.s.update('ECD-PRD-001', {'related_to': None})
+        self.assertIn('pick another one instead of none', str(cm.exception))
+        other = self.s.create('initiative', 'Payments', {'project': 'ECD'})
+        self.s.update('ECD-PRD-001', {'related_to': other['id']})
         raw = fm.parse(fm.split(read(self.root, 'Acme Web/PRDs/ECD-PRD-001 Old.md'))[0])
-        self.assertEqual((raw['initiative'], raw['umbrella']), ('', ''))
-        self.assertIsNone(self.s.read('ECD-PRD-001')['fields']['related_to'])
+        self.assertEqual(raw['umbrella'], '')
+        self.assertIn(other['id'], raw['initiative'])
+        self.assertEqual(self.s.read('ECD-PRD-001')['fields']['related_to'], other['id'])
 
 
 VALID_SPEC = ('## Purpose\n\nPay.\n\n## Requirements\n\n### Requirement: Cart is kept\nThe system SHALL keep the cart.\n\n'
@@ -535,9 +604,9 @@ class StructureTest(unittest.TestCase):
     def test_the_activity_list_leads_with_where_it_came_from_and_its_priority(self):
         from tm.structures import REGISTRY
         for sid, columns in {
-            'ticketing': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'related:About', 'project',
+            'ticketing': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'related:Parent', 'project',
                           'initiative', 'resolved', 'updated', 'created'],
-            'folders': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'parent:About', 'resolved',
+            'folders': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'parent:Parent', 'resolved',
                        'updated', 'created'],
         }.items():
             with self.subTest(sid):
@@ -582,6 +651,128 @@ class FavouritesTest(TicketingBase):
         self.assertIs(self.s.read(ini['path'])['fields']['sidebar'], False)
         starred = self.s.create('initiative', 'Starred', {'project': 'HB', 'sidebar': True})
         self.assertIs(starred['fields']['sidebar'], True)
+
+
+class ProjectStatusTest(TicketingBase):
+    """A Projects project is the same container a Tasks project is: the shared project statuses, Planned · Start · Due,
+    related to equals. Its status is `status_project`, the format's key, written as it is."""
+
+    def test_a_project_takes_the_project_statuses_under_status_project(self):
+        from tm.structures.traits import PROJECT_STATUSES
+        self.assertEqual(tuple(self.s.structure.statuses_of('project')), PROJECT_STATUSES)
+        before = read(self.root, self.ecd['path'])
+        out = self.s.update(self.ecd['id'], {'status': 'InProgress', 'start': '2026-11-09', 'due': '2026-12-31'})
+        after = read(self.root, out['path'])
+        self.assertIn('\nstatus_project: InProgress', after)
+        self.assertIn('\nstart: 2026-11-09', after)
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'status_project', 'status_log', 'start', 'due'})  # status_log: the format's record of each move
+        self.assertEqual(self.s.read(self.ecd['id'])['fields']['status'], 'InProgress')
+        with self.assertRaises(StoreError):
+            self.s.update(self.ecd['id'], {'status': 'Review'})  # a work item's, not a project's
+
+    def test_a_project_can_be_related_and_planned(self):
+        fields = self.s.structure.allowed_fields('project')
+        self.assertIn('relations', fields)
+        self.assertLessEqual({'plan_week', 'start', 'due'}, fields)
+        self.assertTrue(self.s.structure.types['project'].plannable)
+        out = self.s.update(self.ecd['id'], {'plan_week': '2026-W46'})
+        self.assertEqual(self.s.read(out['id'])['fields']['plan_week'], '2026-W46')
+
+
+class GoalTest(TicketingBase):
+    """A goal (Goals/ at the vault's root) crosses projects: it hangs from nothing, has the basic statuses, closed by hand,
+    and a plain-text description. A project, an initiative, a story or a task names it in its own `goal:`."""
+
+    def test_a_goal_lives_at_the_root_with_its_own_statuses_and_description(self):
+        self.assertEqual(tuple(self.s.structure.statuses_of('goal')), ('ToDo', 'InProgress', 'Done', 'Discarded'))
+        goal = self.s.create('goal', 'Launch the new checkout', {'description': 'Pay on one page.\nDrop-off under 40%.', 'priority': 'P1'})
+        self.assertEqual(goal['path'], f"Goals/{goal['ref']} Launch the new checkout.md")
+        self.assertTrue(goal['ref'].startswith('GOL-'))
+        text = read(self.root, goal['path'])
+        self.assertIn('\nfileClass: Ticket Goal', text)
+        self.assertIn("\nstatus_goal: ToDo", text)
+        self.assertNotIn('project:', text)
+        self.assertEqual(self.s.read(goal['key'])['fields']['description'], 'Pay on one page.\nDrop-off under 40%.')
+        before = text
+        out = self.s.update(goal['key'], {'status': 'Done'})
+        self.assertEqual(self.changed_keys(before, read(self.root, out['path'])) - {'updated_date'}, {'status_goal', 'status_log'})
+        self.assertTrue(out['fields']['completed_at'])
+        with self.assertRaises(StoreError):
+            self.s.update(goal['key'], {'status': 'Review'})  # a ticket's, not a goal's
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_an_item_joins_a_goal_with_only_its_goal_keys_written(self):
+        goal = self.s.create('goal', 'Ship faster', {})
+        task = self.s.create('task', 'Cache the deps', {'project': 'HB'})
+        before = read(self.root, task['path'])
+        out = self.s.update(task['key'], {'goal': goal['key'], 'goal_order': 1})
+        after = read(self.root, out['path'])
+        self.assertIn(f'\ngoal: "[[{goal["ref"]} Ship faster]]"', after)  # a wikilink, as every link of the format
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'goal', 'goal_order'})
+        self.assertEqual((out['fields']['goal'], out['fields']['goal_order']), (goal['key'], 1))
+        before = read(self.root, self.ecd['path'])
+        out = self.s.update(self.ecd['id'], {'goal': goal['key'], 'goal_order': 2})  # a project too
+        self.assertEqual(self.changed_keys(before, read(self.root, out['path'])) - {'updated_date'}, {'goal', 'goal_order'})
+        with self.assertRaises(StoreError):
+            self.s.update(task['key'], {'goal_order': 'first'})
+
+    def test_deleting_a_goal_lets_its_items_go_and_a_restore_takes_them_back(self):
+        goal = self.s.create('goal', 'Ship faster', {})
+        ini = self.s.create('initiative', 'Faster deploys', {'project': 'HB', 'goal': goal['key'], 'goal_order': 2})
+        task = self.s.create('task', 'Cache the deps', {'goal': goal['key'], 'goal_order': 1})
+        out = self.s.delete(goal['key'])
+        self.assertEqual(out['unlinked'], 2)
+        for it in (ini, task):
+            self.assertFalse(self.s.read(it['key'])['fields'].get('goal'), it['key'])
+        self.s.restore_trashed(out['trashed'])
+        self.assertEqual([(self.s.read(it['key'])['fields']['goal'], self.s.read(it['key'])['fields']['goal_order']) for it in (ini, task)],
+                         [(goal['key'], 2), (goal['key'], 1)])
+
+
+class RelationKindsTest(TicketingBase):
+    """The relation kinds every structure has; here "Blocked by" is `depends_on`, which templates and devflow read."""
+
+    def test_depends_on_is_blocked_by_seen_both_ways(self):
+        ini = self.s.create('initiative', 'Pay', {'project': 'ECD'})
+        a = self.s.create('story', 'One', {'project': 'ECD', 'related_to': ini['id']})
+        b = self.s.create('story', 'Two', {'project': 'ECD', 'related_to': ini['id'], 'depends_on': [a['id']]})
+        a, b = self.s.read(a['id']), self.s.read(b['id'])
+        self.assertEqual((self.s.relation_kind(b, a), self.s.relation_kind(a, b)), ('blocked', 'blocks'))
+        self.assertEqual([i['id'] for i in self.s.related_of(a)], [b['id']])
+        self.assertIn(f"{b['id']} · Two — Blocks", self.s.claude_prompt(a['id']))
+
+    def test_any_other_kind_is_kept_in_relation_kinds_and_only_that_key_is_written(self):
+        sup = self.s.create('support', 'Broken', {'project': 'ECD'})
+        hfx = self.s.create('hotfix', 'Patch', {'project': 'ECD', 'related_to': sup['id']})
+        before = read(self.root, sup['path'])
+        out = self.s.update(sup['id'], {'relations': [hfx['id']], 'relation_kinds': {hfx['id']: 'precedes'}})
+        self.assertEqual(out['fields']['relation_kinds'], {hfx['id']: 'precedes'})
+        self.assertEqual(self.changed_keys(before, read(self.root, out['path'])) - {'updated_date'}, {'relations', 'relation_kinds'})
+        self.assertEqual(self.s.relation_kind(self.s.read(hfx['id']), self.s.read(sup['id'])), 'follows')
+
+    def test_a_project_has_watchers_and_docs_written_only_once_used(self):
+        path = os.path.join(self.root, self.ecd['path'])
+        self.assertNotIn('watchers', read(self.root, self.ecd['path']))
+        self.assertNotIn('\ndocs:', read(self.root, self.ecd['path']))
+        before = read(self.root, self.ecd['path'])
+        out = self.s.update(self.ecd['path'], {'watchers': ['Ana']})
+        self.assertEqual(out['fields']['watchers'], ['Ana'])
+        self.assertEqual(self.changed_keys(before, read(self.root, self.ecd['path'])) - {'updated_date'}, {'watchers'})
+        self.assertTrue(os.path.exists(path))
+
+    def test_a_project_is_known_by_its_key_for_its_work_log_and_relations(self):
+        prj = self.s.read('ECD')  # its key, as an id; its item key is still its note's path
+        self.assertEqual((prj['id'], prj['key']), ('ECD', self.ecd['path']))
+        self.s.log_work('ECD', 'dev', 'Planning', '2026-11-07', time='01:00')
+        days = self.s.scan()[1]
+        self.assertEqual([e['id'] for e in days['2026-11-07'][1]['entries']], ['ECD'])
+        sup = self.s.create('support', 'Broken', {'project': 'ECD'})
+        self.s.update(sup['id'], {'relations': ['ECD'], 'relation_kinds': {'ECD': 'follows'}})
+        self.assertIn('relations: ["[[00 Acme Web]]"]', read(self.root, sup['path']))  # a wikilink to its note, read back as its key
+        self.assertEqual(self.s.read(sup['id'])['fields']['relations'], ['ECD'])
+        self.assertEqual(self.s.relation_kind(self.s.read('ECD'), self.s.read(sup['id'])), 'precedes')
+        self.assertEqual([i['id'] for i in self.s.related_of(self.s.read('ECD'))], [sup['id']])
+        self.assertTrue(self.s.check()['ok'])
 
 
 if __name__ == '__main__':

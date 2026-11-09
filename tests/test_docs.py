@@ -82,7 +82,7 @@ class TicketingDocsTest(unittest.TestCase):
         with self.assertRaises(StoreError) as cm:
             self.s.move_path(self.task['path'], 'Internal Tools/Docs/Producto')
         self.assertEqual(cm.exception.status, 409)
-        self.assertIn('TSK-001', str(cm.exception))
+        self.assertIn(self.task['ref'], str(cm.exception))  # as it is drawn: TSK-1
         self.assertTrue(os.path.isfile(os.path.join(self.root, self.task['path'])))  # nothing moved
         write(self.root, 'Docs/Suelto.md', '# suelto')
         self.assertEqual(self.s.move_path('Docs/Suelto.md', 'Internal Tools/Docs/Producto')['path'],
@@ -96,6 +96,20 @@ class TicketingDocsTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.root, 'Internal Tools/Docs/Producto')))
         with self.assertRaises(StoreError):  # anywhere the structure does not allow: refused, and nothing is left behind
             self.s.make_folder('Otra/Cosa', parents=True)
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Otra')))
+
+    def test_a_project_s_first_doc_is_made_in_one_go(self):
+        """"+" → New doc on a section whose Docs folder is not there yet: the folder comes with the doc."""
+        with self.assertRaises(StoreError) as cm:
+            self.s.create_file('Internal Tools/Docs/Visión.md', '# Visión\n')
+        self.assertEqual(cm.exception.status, 404)  # without parents, as before
+        self.assertEqual(self.s.create_file('Internal Tools/Docs/Visión.md', '# Visión\n', parents=True),
+                         {'path': 'Internal Tools/Docs/Visión.md'})
+        with open(os.path.join(self.root, 'Internal Tools/Docs/Visión.md'), encoding='utf-8') as f:
+            self.assertEqual(f.read(), '# Visión\n')
+        self.assertEqual(self.s.create_file('Docs/Ideas.md', parents=True), {'path': 'Docs/Ideas.md'})  # No project's
+        with self.assertRaises(StoreError):  # anywhere the structure does not allow: refused, and nothing is left behind
+            self.s.create_file('Otra/Cosa/Nota.md', parents=True)
         self.assertFalse(os.path.exists(os.path.join(self.root, 'Otra')))
 
     def test_docs_roots_lists_each_project_and_the_vault(self):

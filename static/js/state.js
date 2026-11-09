@@ -5,6 +5,8 @@ import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
 import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
 import { pickVault } from './vault.js';
 import { isTentative } from './worktime.js';
+import { refOf } from './shownid.js';
+import { goalProgress } from './goals.js';
 
 export const state = {
   all: [],      // every item, archived included (Table "Show archived")
@@ -24,6 +26,7 @@ export const state = {
   groups: [], // [{ name, channel, address, members, notes, when_to_use }], by name (Contacts → Groups, TSK-050)
   labels: [], // [{ name, count, types }], most used first
   vault: null,      // { id, name, structure, path, root }: the vault this page shows (vault.js)
+  vaultAgents: null, // the vault's guide for agents (Settings → Vaults)
   vaultCheck: null, // whether its folder matches its structure (tm/structures/check.py); when not, nothing else is loaded
   vaultMatches: [], // when it does not: the other structures its folder does match, if any [{ id, label }]
   claudeModels: [], // the models claude offers ({ value, label, description, resolved, efforts }), as the latest chat to
@@ -76,6 +79,7 @@ export async function reload() {
     const status = await api.vaultStatus();
     state.vault = status.vault;
     state.vaultCheck = status.check;
+    state.vaultAgents = status.agents || null; // its guide for agents (AGENTS.md, tm/agentsmd.py): {on, file, claude}
     state.vaultMatches = status.matches || []; // other structures its folder does have the shape of (a vault given the wrong one)
     if (!status.check.ok) {
       forgetVaultData();
@@ -158,6 +162,9 @@ export function progress(id) {
   return { done, total: tasks.length, pct: tasks.length ? Math.round((100 * done) / tasks.length) : 0 };
 }
 
+/** How far along an item is: a goal, its items closed (goals.js); anything else, its tasks (progress). */
+export const progressOf = (i) => (i.type === 'goal' ? goalProgress(state.items, i.id, isDone) : progress(i.id));
+
 // An item's work log: what was logged, without what is only proposed (tentative, until confirmed in the Work log).
 export const logOf = (id) => state.worklog.filter((e) => e.id === id && !isTentative(e));
 
@@ -195,6 +202,21 @@ export async function deleteItem(key) {
   toast(out.unlinked ? `Moved to the trash · ${out.unlinked} related item${out.unlinked > 1 ? 's' : ''} unlinked` : 'Moved to the trash', false, { label: 'Undo', run: () => mutate(() => api.restore(out.trashed, out.restore_to)) });
   return out;
 }
+/** Several items to the trash (a list's bulk bar), one by one; one toast whose Undo restores every one that went. A
+ *  refusal part way stops there and says so: the ones already trashed stay undoable. */
+export async function deleteMany(keys) {
+  const done = [];
+  let error = null;
+  for (const key of keys) {
+    try { done.push(await api.remove(key)); } catch (e) { error = e; break; }
+  }
+  await reload();
+  const n = done.length;
+  const undo = n ? { label: 'Undo', run: () => mutate(async () => { for (const o of [...done].reverse()) await api.restore(o.trashed, o.restore_to); }) } : null;
+  if (error) toast(n ? `${error.message} · ${n} moved to the trash` : error.message, true, undo);
+  else toast(`${n} moved to the trash`, false, undo);
+  return done;
+}
 /** Inbox item → task / initiative / note / meeting (new id, new folder). */
 export const convertItem = (key, type, values = {}) => mutate(() => api.convert(key, type, values));
 export const addComment = (key, text) => mutate(() => api.addComment(key, text));
@@ -203,6 +225,9 @@ export const editComment = (key, index, text, was) => mutate(() => api.editComme
 /** Open Terminal with claude on the item (or on a bare prompt, key null); the launch is recorded, so the state reloads. */
 export const claudeLaunch = (key, instruction, model, effort, cwd, target) => mutate(() => api.claudeLaunch(key, instruction, model, effort, cwd, target));
 export const claudeForget = (key, index) => mutate(() => api.claudeForget(key, index));
+/** A conversation started elsewhere, added to the item's list by its id; and the item's main one. The state reloads. */
+export const claudeAdd = (key, sessionId) => mutate(() => api.claudeAdd(key, sessionId));
+export const claudeMain = (key, sessionId) => mutate(() => api.claudeMain(key, sessionId));
 /** A session's record to another item's list (toKey), or to the general one (null): the state reloads, so an open
  * card's AI tab shows it there. → { session_id, session? } (session: the dock's chat or terminal of it, renamed). */
 export const claudeAssociate = (sessionId, fromKey, toKey) => mutate(() => api.claudeAssociate(sessionId, fromKey, toKey));
@@ -222,7 +247,7 @@ export async function setCompleted(item, done) {
   const was = item.fields.status || 'Backlog';
   // Its type's first closed status (Done), or its last not started one (ToDo): an agent closes as Retired, an error as resolved.
   const out = await setStatus(item, statusFor(item.type, done) || (done ? 'Done' : 'ToDo'));
-  toast(done ? `Completed ${item.id || item.title}` : `Reopened ${item.id || item.title}`, false,
+  toast(done ? `Completed ${refOf(item) || item.title}` : `Reopened ${refOf(item) || item.title}`, false,
     { label: 'Undo', run: () => updateItem(item.key, item.type === 'task' ? { status: was, list: null } : { status: was }) });
   return out;
 }
@@ -230,7 +255,7 @@ export async function setCompleted(item, done) {
 /** Archive / unarchive with Undo. */
 export async function setArchived(item, archived) {
   const out = await updateItem(item.key, { archived });
-  toast(archived ? `Archived ${item.id || item.title}` : `Unarchived ${item.id || item.title}`, false,
+  toast(archived ? `Archived ${refOf(item) || item.title}` : `Unarchived ${refOf(item) || item.title}`, false,
     { label: 'Undo', run: () => updateItem(item.key, { archived: !archived }) });
   return out;
 }
@@ -346,7 +371,7 @@ export const restoreFromTrash = (trashed) => mutate(() => api.restoreTrashed(tra
 export const makeFolder = (path, parents = false) => mutate(() => api.makeFolder(path, parents));
 export const renamePath = (path, name) => mutate(() => api.renamePath(path, name));
 export const movePath = (path, to, order) => mutate(() => api.movePath(path, to, order));
-export const createFile = (path, text) => mutate(() => api.createFile(path, text));
+export const createFile = (path, text, parents = false) => mutate(() => api.createFile(path, text, parents));
 // A note turned into a doc (TSK-039): its text in a Docs folder, its links following it, the note in the trash.
 export const noteToDoc = (key, folder) => mutate(() => api.noteToDoc(key, folder));
 export const duplicateFile = (path) => mutate(() => api.duplicateFile(path));

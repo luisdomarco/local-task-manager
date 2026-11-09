@@ -4,7 +4,7 @@ tools/probe_chat_protocol.py recorded from the real CLI, scripted by what the us
 
   any text      → init, a hook line (noise), a partial text delta, the full answer "echo: <text>", result
   "tool …"      → a Bash tool_use, then a can_use_tool request; waits for its control_response and answers
-                  "ran" (allow) or the deny message, then result
+                  "ran" (allow) or the deny message, then result; an interrupt instead ends the turn, interrupted
   "slow …"      → starts a turn and waits for an interrupt control request, then an interrupted result
   "ask …"       → an AskUserQuestion (two options) asked with can_use_tool; answers "you chose <answer>"
   "plan …"      → an ExitPlanMode asked with can_use_tool; "approved" (allow) or "planning: <message>" (deny)
@@ -193,6 +193,14 @@ while True:
                 sys.exit(0)
             if ans.get('type') == 'control_response':
                 break
+            if ans.get('type') == 'control_request' and ans['request'].get('subtype') == 'interrupt':
+                break
+        if ans.get('type') == 'control_request':  # interrupted while asking, as the real one: the request is dropped
+            out({'type': 'control_response', 'response': {'subtype': 'success', 'request_id': ans['request_id'], 'response': {}}})
+            out({'type': 'user', 'session_id': SID, 'message': {'role': 'user', 'content': [
+                {'type': 'text', 'text': '[Request interrupted by user]'}]}})
+            result('error_during_execution')
+            continue
         r = ans['response']['response']
         allowed = r.get('behavior') == 'allow'
         out({'type': 'user', 'session_id': SID, 'parent_tool_use_id': None, 'message': {'role': 'user', 'content': [

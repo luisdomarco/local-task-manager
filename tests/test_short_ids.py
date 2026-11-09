@@ -1,0 +1,240 @@
+"""Short ids (plans/short-ids.md): a Projects vault numbers its items with one counter shared by every type, and the
+app draws a number with its type's prefix (TSK-482). A vault with long ids (ACME-INI-001) keeps them."""
+
+import json
+import os
+import tempfile
+import unittest
+
+from tm.store import Store, StoreError
+from tm.structures.ticketing.definition import ROOT_FOLDERS, WORKLOG_FOLDER
+
+
+def read(root, rel):
+    with open(os.path.join(root, rel), encoding='utf-8') as f:
+        return f.read()
+
+
+def write(root, rel, text):
+    path = os.path.join(root, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(text)
+
+
+class ShortIdsBase(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = tmp.name
+        for d in [*ROOT_FOLDERS.values(), WORKLOG_FOLDER]:
+            os.makedirs(os.path.join(self.root, d))
+        self.s = Store(self.root, structure='ticketing', enforce_structure=True)
+        self.s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'})
+        self.s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'})
+
+    def marks(self):
+        return json.loads(read(self.root, '.task-manager/ids.json'))
+
+
+class NumberingTest(ShortIdsBase):
+    def test_one_counter_for_every_type_and_project(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        ops = self.s.create('initiative', 'Faster deploys', {'project': 'OPS'})
+        task = self.s.create('task', 'Map it', {'project': 'ACME'})
+        self.assertEqual([(i['id'], i['ref']) for i in (ini, sty, ops, task)],
+                         [('1', 'INI-1'), ('2', 'STY-2'), ('3', 'INI-3'), ('4', 'TSK-4')])
+        self.assertEqual(self.marks(), {'number': 4})
+        self.assertTrue(self.s.numbered())
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_the_file_stores_the_number_and_is_named_by_its_ref(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        plan = self.s.create('plan', 'Ship it', {'project': 'ACME', 'related_to': sty['id']})
+        self.assertEqual(sty['path'], 'Acme Web/Stories/STY-2 One page.md')
+        self.assertEqual((plan['ref'], plan['path']), ('PLN-3', 'Acme Web/Plans/PLN-3 Ship it.md'))
+        self.assertRegex(read(self.root, plan['path']), r'\nid: 3 +# its number, drawn PLN-<n>\n')
+        text = read(self.root, sty['path'])
+        self.assertRegex(text, r'\nid: 2 +# its number, drawn STY-<n>\n')
+        self.assertIn('initiative: "[[INI-1 Checkout]]"', text)
+        self.assertIn('\n# STY-2 — One page\n', text)
+        self.assertIn('item: "[[STY-2 One page]]"', read(self.root, plan['path']))
+        self.assertEqual(self.s.read(sty['id'])['fields']['related_to'], '1')  # its initiative's link, as that item's key
+
+    def test_a_number_is_never_handed_out_twice(self):
+        a = self.s.create('task', 'One', {})
+        b = self.s.create('task', 'Two', {})
+        self.s.delete(b['key'])
+        self.assertEqual(self.s.create('note', 'Three', {})['id'], '3')  # the trash still holds 2
+        self.s.empty_trash()
+        os.remove(os.path.join(self.root, '.task-manager', 'ids.json'))  # lost: the live items still say 3
+        self.assertEqual(self.s.create('task', 'Four', {})['id'], '4')
+        self.assertEqual(a['id'], '1')
+
+    def test_a_new_title_renames_the_file_by_its_ref_and_relinks(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        self.s.update(ini['key'], {'subject': 'Checkout redesign'})
+        self.assertTrue(os.path.isfile(os.path.join(self.root, 'Acme Web/Initiatives/INI-1 Checkout redesign.md')))
+        self.assertIn('[[INI-1 Checkout redesign]]', read(self.root, sty['path']))
+
+
+class SchemeTest(unittest.TestCase):
+    def vault(self, ids_json=None, files=()):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for d in [*ROOT_FOLDERS.values(), WORKLOG_FOLDER]:
+            os.makedirs(os.path.join(tmp.name, d))
+        if ids_json is not None:
+            write(tmp.name, '.task-manager/ids.json', ids_json)
+        for rel, text in files:
+            write(tmp.name, rel, text)
+        return Store(tmp.name, structure='ticketing', enforce_structure=True)
+
+    def test_a_vault_with_long_ids_keeps_them(self):
+        s = self.vault(ids_json='{"TSK": 7}\n')
+        self.assertFalse(s.numbered())
+        self.assertEqual(s.create('task', 'Next', {})['id'], 'TSK-008')
+
+    def test_long_ids_on_disk_without_an_ids_json_keep_them_too(self):
+        s = self.vault(files=[('Tasks/TSK-003 Old.md', '---\nfileClass: Ticket Task\nid: "TSK-003"\nstatus_ticket: "1. Backlog"\n---\n')])
+        t = s.create('task', 'Next', {})
+        self.assertEqual((t['id'], t['ref']), ('TSK-004', 'TSK-004'))  # a long id is drawn as it is
+
+    def test_a_numbered_vault_stays_numbered_when_its_ids_json_is_lost(self):
+        s = self.vault(files=[('Tasks/TSK-5 Old.md', '---\nfileClass: Ticket Task\nid: 5\nstatus_ticket: "1. Backlog"\n---\n')])
+        self.assertEqual(s.create('note', 'Next', {})['ref'], 'NOTE-6')
+
+    def test_the_folder_per_type_structure_is_not_numbered(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        s = Store(tmp.name, structure='folders')
+        self.assertEqual(s.create('task', 'One', {})['id'], 'TSK-0001')
+
+
+class FindTest(ShortIdsBase):
+    def setUp(self):
+        super().setUp()
+        self.ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        self.task = self.s.create('task', 'Map it', {'project': 'ACME'})
+
+    def test_by_number_by_ref_and_by_an_old_id(self):
+        path = os.path.join(self.root, self.ini['path'])
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text.replace('aliases: []', 'aliases: ["INI-0001", "ACME-INI-001"]'))
+        for key in ('1', 'INI-1', 'ACME-INI-001', 'INI-0001', self.ini['path']):
+            self.assertEqual(self.s.find(key)['id'], '1', key)
+        self.assertEqual(self.s.read('ACME-INI-001')['aliases'], ['INI-0001', 'ACME-INI-001'])
+
+    def test_a_ref_with_another_type_s_prefix_says_the_right_one(self):
+        with self.assertRaises(StoreError) as cm:
+            self.s.find('INI-2')
+        self.assertEqual(cm.exception.status, 404)
+        self.assertIn('2 is TSK-2', str(cm.exception))
+        with self.assertRaises(StoreError):
+            self.s.find('TSK-002')  # never zero-padded: not this item
+
+    def test_the_api_s_writes_take_a_ref(self):
+        self.s.update('TSK-2', {'priority': 'P1'})
+        self.assertEqual(self.s.read('2')['fields']['priority'], 'P1')
+
+
+class AppFilesTest(ShortIdsBase):
+    def test_the_work_log_keeps_the_number_and_draws_the_ref(self):
+        task = self.s.create('task', 'Map it', {})
+        entry = self.s.log_work('TSK-1', 'Analysis', '', '2026-11-08', time='00:30')
+        self.assertEqual(entry['id'], '1')
+        self.assertIn('· 00:30 · TSK-1 Map it', read(self.root, 'Work log/2026/2026-11-08.md'))
+        self.assertEqual(task['id'], '1')
+
+    def test_pins_are_numbers_drawn_as_refs(self):
+        self.s.create('task', 'Map it', {})
+        self.s.save_pins(['1'])
+        self.assertEqual(self.s.pins(), {'items': ['1']})
+        self.assertIn('- TSK-1 Map it', read(self.root, '.task-manager/pins.md'))
+        with self.assertRaises(StoreError):
+            self.s.save_pins(['01'])
+
+    def test_claude_is_told_the_ref_not_the_bare_number(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        story = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        prompt = self.s.claude_prompt(story['key'])
+        self.assertIn('# STY-2 · One page', prompt)
+        self.assertIn('- Related to: INI-1 · Checkout', prompt)
+        self.assertTrue(self.s.claude_item_context(ini['key']).startswith('# INI-1 · Checkout'))
+
+
+class ConvertTest(ShortIdsBase):
+    def test_an_inbox_item_keeps_its_number(self):
+        inb = self.s.create('inbox', 'Try passkeys', {})
+        task = self.s.convert(inb['id'], 'task', {})
+        self.assertEqual((task['id'], task['ref'], task['path']), ('1', 'TSK-1', 'Tasks/TSK-1 Try passkeys.md'))
+        self.assertEqual(task['aliases'], ['INB-1'])
+        self.assertFalse(os.path.exists(os.path.join(self.root, inb['path'])))
+        self.assertEqual(self.s.find('INB-1')['id'], '1')
+        self.assertEqual(self.s.create('task', 'Next', {})['id'], '2')
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+
+class ProjectMoveTest(ShortIdsBase):
+    """With short ids a ticket can change project: its file moves to that project's folder, and what hangs from it in
+    its project goes with it. A long id carries its project's key, so there it is still refused."""
+
+    def test_an_initiative_moves_with_its_stories_and_plans(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': ini['id']})
+        plan = self.s.create('plan', 'Ship it', {'project': 'ACME', 'related_to': sty['id']})
+        task = self.s.create('task', 'Map it', {'project': 'ACME', 'related_to': ini['id']})
+        out = self.s.update(ini['key'], {'project': 'OPS'})
+        self.assertEqual((out['path'], out['fields']['project']), ('Internal Tools/Initiatives/INI-1 Checkout.md', 'OPS'))
+        self.assertIn('\nproject: "[[00 Internal Tools]]"', read(self.root, out['path']))
+        for it, path in ((sty, 'Internal Tools/Stories/STY-2 One page.md'), (plan, 'Internal Tools/Plans/PLN-3 Ship it.md')):
+            now = self.s.read(it['key'])
+            self.assertEqual((now['path'], now['fields']['project']), (path, 'OPS'))
+            self.assertFalse(os.path.exists(os.path.join(self.root, it['path'])))
+        self.assertEqual(self.s.read(sty['key'])['fields']['related_to'], ini['id'])  # links by name: still there
+        self.assertEqual(self.s.read(task['key'])['path'], task['path'])  # a task is the vault's own: it stays
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_never_into_a_project_without_its_type_nor_out_of_every_project(self):
+        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': self.s.create('initiative', 'Checkout', {'project': 'ACME'})['id']})
+        self.s.create('project', 'Office', {'project_key': 'OFF', 'project_kind': 'simple'})
+        for to in ('OFF', None):  # a simple project has no stories; a ticket is always in one
+            with self.assertRaises(StoreError):
+                self.s.update(sty['key'], {'project': to})
+        self.assertEqual(self.s.read(sty['key'])['path'], sty['path'])
+
+    def test_a_long_id_cannot_move(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for d in [*ROOT_FOLDERS.values(), WORKLOG_FOLDER]:
+            os.makedirs(os.path.join(tmp.name, d))
+        write(tmp.name, '.task-manager/ids.json', '{}\n')
+        s = Store(tmp.name, structure='ticketing', enforce_structure=True)
+        s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'})
+        s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'})
+        ini = s.create('initiative', 'Checkout', {'project': 'ACME'})
+        with self.assertRaises(StoreError):
+            s.update(ini['key'], {'project': 'OPS'})
+
+
+class CheckTest(ShortIdsBase):
+    def test_a_numbered_file_must_be_named_by_its_ref_and_numbers_are_unique(self):
+        write(self.root, 'Tasks/7 Wrong name.md', '---\nfileClass: Ticket Task\nid: 7\nstatus_ticket: "1. Backlog"\n---\n')
+        write(self.root, 'Notes/NOTE-8 One.md', '---\nfileClass: Ticket Note\nid: 8\n---\n')
+        write(self.root, 'Tasks/TSK-8 Two.md', '---\nfileClass: Ticket Task\nid: 8\nstatus_ticket: "1. Backlog"\n---\n')
+        kinds = {(f['kind'], f['path']) for f in self.s.check()['blocking']}
+        self.assertIn(('bad_name', 'Tasks/7 Wrong name.md'), kinds)
+        self.assertIn(('duplicate_id', 'Tasks/TSK-8 Two.md'), kinds)
+
+    def test_zero_padded_is_not_a_number(self):
+        write(self.root, 'Tasks/TSK-07 Padded.md', '---\nfileClass: Ticket Task\nid: "07"\nstatus_ticket: "1. Backlog"\n---\n')
+        self.assertIn('bad_id', {f['kind'] for f in self.s.check()['blocking']})
+
+
+if __name__ == '__main__':
+    unittest.main()
