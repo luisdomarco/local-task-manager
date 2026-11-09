@@ -58,8 +58,14 @@ class InstallAppTest(unittest.TestCase):
         self.assertEqual(agent['Sockets']['Listeners'], {'SockNodeName': '127.0.0.1', 'SockServiceName': '3200',
                                                          'SockType': 'stream', 'SockFamily': 'IPv4'})
         self.assertIn(f'{self.home}/.local/bin', agent['EnvironmentVariables']['PATH'])
-        self.assertEqual(self.calls, [['launchctl', 'bootout'], ['launchctl', 'bootstrap']])
+        self.assertEqual(self.calls, [['launchctl', 'bootout'], ['launchctl', 'bootstrap']] * 2)  # the app, then its wake
         self.assertEqual(self.waited, [3200])  # the old agent let go of its port before the new one takes it
+        # The wake agent: every 5 minutes, tools/agents_wake.py — which connects only when a scheduled run is due.
+        with open(self.where['wake_plist'], 'rb') as f:
+            wake = plistlib.load(f)
+        self.assertEqual((wake['Label'], wake['StartInterval']), (ia.WAKE_LABEL, 300))
+        self.assertEqual(wake['ProgramArguments'], ['/usr/bin/python3', os.path.join(app, 'tools', 'agents_wake.py')])
+        self.assertNotIn('Sockets', wake)
         # Settings → Export in the app exports this checkout, not the copy (tm/export.py home())
         with open(os.path.join(app, 'install.json'), encoding='utf-8') as f:
             self.assertEqual(json.load(f), {'source': os.path.realpath(self.src)})
@@ -76,6 +82,9 @@ class InstallAppTest(unittest.TestCase):
         with open(os.path.join(self.where['app'], 'server.py'), encoding='utf-8') as f:
             self.assertEqual(f.read(), 'v2')
         self.assertEqual(self.calls[-1], ['launchctl', 'kill'])
+        os.remove(self.where['wake_plist'])  # an app installed before the wake agent existed: --update brings it
+        ia.update(self.src, self.home, self.run)
+        self.assertTrue(os.path.exists(self.where['wake_plist']))
 
     def test_update_removes_what_an_older_version_installed_and_this_one_has_not(self):
         ia.install(self.src, self.home, '/usr/bin/python3', self.run, wait=self.wait)
@@ -88,6 +97,7 @@ class InstallAppTest(unittest.TestCase):
         ia.install(self.src, self.home, '/usr/bin/python3', self.run, wait=self.wait)
         ia.uninstall(self.home, self.run)
         self.assertFalse(os.path.exists(self.where['plist']))
+        self.assertFalse(os.path.exists(self.where['wake_plist']))
         self.assertFalse(os.path.exists(os.path.join(self.where['app'], 'server.py')))
         self.assertFalse(os.path.exists(os.path.join(self.where['app'], 'install.json')))
         self.assertTrue(os.path.exists(os.path.join(self.where['app'], 'config.json')))

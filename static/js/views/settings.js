@@ -4,6 +4,8 @@
 // kinds), Claude, Maintenance, Keyboard, Export (the system, the agents or a vault, as zips), App and Documentation (the
 // user guide, docs/user-guide.md). Vaults, General and
 // Claude are one config form: Save, at the foot of any of them, saves all three.
+import { scheduleList } from '../agentschedules.js';
+import { agentHref } from '../agentsmodel.js';
 import { api } from '../api.js';
 import { fixedColumns } from '../datatable.js';
 import { folderButton } from '../folderpick.js';
@@ -232,6 +234,7 @@ export function mount(root, param) {
   const appTab = appPanel();
   const guideTab = guidePanel();
   const statusesTab = statusPanel();
+  const schedTab = schedulesPanel();
   // The vault list being edited outlives a re-render (coming back to the window reloads everything): a vault
   // half added is not lost. It starts again from the config only when the saved vaults change (a save).
   let edit = null;
@@ -381,6 +384,10 @@ export function mount(root, param) {
           h('p', { class: 'muted' }, 'The folders the sidebar\'s Agents mode reads (⌘⇧E goes round the modes). Every command in a folder\'s .claude/commands is an agent, run from its page as a chat in the dock, in that folder, so Claude loads that folder\'s commands, settings and CLAUDE.md. A folder may be anywhere: a repository, a system, outside every vault. Taking one out of the list leaves its files as they are.'),
           h('div', { class: 'field claude-paths-field' }, h('span', {}, 'Folders'), agentsBox)),
         saveBar(),
+        h('section', { class: 'group' },
+          h('header', {}, h('h3', {}, 'Scheduled runs')),
+          h('p', { class: 'muted' }, 'Every agent\'s schedules (Schedule… on an agent\'s page). They run in the app whether it is open or not: the installed app is woken a few minutes before one is due. A run that comes due while the Mac is off runs once when it is back, within 12 hours.'),
+          schedTab.el),
       ];
       const maintenance = [
         h('section', { class: 'group' },
@@ -405,13 +412,31 @@ export function mount(root, param) {
         if (key === 'app') appTab.load();
         if (key === 'statuses') statusesTab.load();
         if (key === 'documentation') guideTab.load();
+        if (key === 'agents') schedTab.load();
       }));
       if (tab === 'export') exportsTab.load();
       if (tab === 'app') appTab.load();
       if (tab === 'statuses') statusesTab.load();
       if (tab === 'documentation') guideTab.load();
+      if (tab === 'agents') schedTab.load();
     },
   };
+}
+
+// ── Agents → Scheduled runs: every agent's schedules (agentschedules.js), read apart from the save above ──
+function schedulesPanel() {
+  const el = h('div', { class: 'agents-sched-all' }, h('p', { class: 'muted small' }, 'Reading…'));
+  let stamp = 0;
+  const load = async () => {
+    const mine = ++stamp;
+    let items;
+    try { items = (await api.agentSchedules()).schedules || []; } catch (e) { el.replaceChildren(h('p', { class: 'muted small' }, e.message)); return; }
+    if (mine !== stamp) return;
+    el.replaceChildren(items.length
+      ? scheduleList(items, { showAgent: true, changed: load, openAgent: (x) => { location.hash = agentHref(x.dir, x.cmd); } })
+      : h('p', { class: 'muted small' }, 'None yet.'));
+  };
+  return { el, load };
 }
 
 // ── Export: versions as zips in versions/, of three kinds, each with its own button and list ──

@@ -241,8 +241,8 @@ export const claudeChatOpen = (key, instruction, model, effort, cwd, mode, empty
 /** An agent of an agent folder (views/runs.js), run as a chat in the dock in that folder: recorded like the dock's
  *  sessions, so the state reloads. → { chat, session_id, cwd, command } */
 /** An agent run in the dock. Nothing of the vault changes (the run is on this computer's list), so nothing is reloaded. */
-export async function agentRun(dir, cmd, args, mode, model, effort) {
-  try { return await api.agentRun(dir, cmd, args, mode, model, effort); } catch (e) { toast(e.message, true); throw e; }
+export async function agentRun(dir, cmd, args, mode, model, effort, where = 'here') {
+  try { return await api.agentRun(dir, cmd, args, mode, model, effort, where); } catch (e) { toast(e.message, true); throw e; }
 }
 
 /** Status is the single source of truth; clearing `list` lets listOf() re-place the card. */

@@ -28,7 +28,7 @@ import errno
 import queue
 import signal
 
-from tm import agentruns, agentsmd, attachments, commands, export, journal
+from tm import agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
@@ -1221,7 +1221,7 @@ def resume_chat(store, key, session_id, mode=''):
     live = CHATS.live(found['id'])
     if live:
         return {'chat': live.info(), 'cwd': found['cwd'], 'session_id': found['id']}
-    label = found.get('instruction') or 'Claude'
+    label = found.get('instruction') or (agent_message(found['cmd'], found.get('args')) if found.get('cmd') else 'Claude')
     if key:
         it = store.find(key)
         label = f"{it.get('ref') or it['id'] or it['type']} · {it['title']}"
@@ -1231,6 +1231,8 @@ def resume_chat(store, key, session_id, mode=''):
     chat = _spawn_chat(found['id'], flags, found['cwd'], label, key or None, mode, found.get('model') or '', history=past,
                        effort=found.get('effort') or '')
     chat.vault = getattr(store, 'vault_id', None)
+    if found.get('cmd'):  # an agent run, resumed: its new turns keep its record up to date
+        _watch_run(chat, found['id'])
     return {'chat': chat.info(), 'cwd': found['cwd'], 'session_id': found['id']}
 
 
@@ -1256,8 +1258,10 @@ def agent_dir(dir_id):
 
 
 def list_agents():
-    """Every agent folder with its commands (none for a folder that is gone: it is still listed, to be removed)."""
-    return {'dirs': [{**d, 'commands': commands.scan(d['path']) if d['exists'] else []} for d in agent_dirs()]}
+    """Every agent folder with its commands (none for a folder that is gone: it is still listed, to be removed), and
+    whether it is in a git repository (`git`: its runs can have a worktree of their own)."""
+    return {'dirs': [{**d, 'commands': commands.scan(d['path']) if d['exists'] else [],
+                      'git': bool(d['exists'] and runworktree.toplevel(d['path']))} for d in agent_dirs()]}
 
 
 def agent_command(dir_id, name):
@@ -1267,6 +1271,25 @@ def agent_command(dir_id, name):
     if not found:
         raise StoreError(404, f'{folder["name"]} has no command /{name}')
     return {'dir': folder, 'command': found}
+
+
+def agent_related(dir_id, name):
+    """What an agent works with, for its page's tabs: the skills, subagents and commands of its folder its prompt names
+    (and theirs, one step on), and the folder's files it points at (tm/agentlinks.py)."""
+    folder = agent_dir(dir_id)
+    found = agentlinks.related(folder['path'], name)
+    if found is None:
+        raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    return found
+
+
+def agent_related_file(dir_id, name, path):
+    """One of those, read for its tab: only a path agent_related lists."""
+    folder = agent_dir(dir_id)
+    found = agentlinks.read_related(folder['path'], name, str(path or ''))
+    if found is None:
+        raise StoreError(404, f'/{name} does not work with {path}')
+    return found
 
 
 def agent_message(name, args=''):
@@ -1282,12 +1305,21 @@ def runs_path():
     return os.path.join(os.path.dirname(CONFIG_PATH), AGENT_RUNS)
 
 
-def _agent_plan(dir_id, name, args, mode, model, effort):
+AGENT_WHERE = ('here', 'worktree')  # a run starts in the agent's folder, or in a new worktree of it (tm/runworktree.py)
+
+
+def _agent_plan(dir_id, name, args, mode, model, effort, where='here'):
     """What a run needs before anything starts: the folder and the command (looked up here, never taken from the
-    request), the message, a fresh session id, the flags, and the entry for the list of runs (agentruns)."""
+    request), the message, a fresh session id, the flags, and the entry for the list of runs (agentruns). With
+    where='worktree', a new worktree of the folder is made last, once everything else is known to be right, and the
+    run starts there."""
     folder = agent_dir(dir_id)
-    if not commands.find(folder['path'], name):
+    found = commands.find(folder['path'], name)
+    if not found:
         raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    where = (where or 'here').strip()
+    if where not in AGENT_WHERE:
+        raise StoreError(400, f"where must be one of {', '.join(AGENT_WHERE)}")
     mode = (mode or '').strip()
     if mode and mode not in CHAT_MODES:
         raise StoreError(400, f"mode must be one of {', '.join(CHAT_MODES)}")
@@ -1302,47 +1334,387 @@ def _agent_plan(dir_id, name, args, mode, model, effort):
     cwd = os.path.realpath(folder['path'])
     entry = {'id': session_id, 'at': now_stamp(), 'cwd': cwd, 'dir': folder['id'], 'cmd': name, 'args': ' '.join(str(args or '').split()),
              'mode': mode or 'default', 'model': model, 'effort': effort}
+    if where == 'worktree':
+        try:
+            wt = runworktree.create(folder['path'], found, name)
+        except runworktree.WorktreeError as e:
+            raise StoreError(409, str(e))
+        cwd = entry['cwd'] = wt['cwd']
+        entry.update(worktree=wt['worktree'], branch=wt['branch'])
     return prompt, cwd, [*flags, *session_flags(session_id, prompt)], entry
 
 
-def run_agent(store, dir_id, name, args='', mode='', model=None, effort=None):
-    """Run a command of an agent folder as a chat in the dock: claude -p started in that folder (so it loads that
-    folder's commands), with `/<name> <args>` as its first message. Recorded in the list of runs (agentruns), so the
-    agent's page lists it and it can be resumed like any other session."""
-    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort)
-    chat = _spawn_chat(entry['id'], flags, cwd, prompt, None, entry['mode'], entry['model'], prompt, effort=entry['effort'])
+def _drop_worktree(entry):
+    """A run that could not start after its worktree was made: the worktree goes (its branch, empty, stays)."""
+    if entry.get('worktree'):
+        try:
+            runworktree.remove(entry['worktree'], force=True)
+        except runworktree.WorktreeError:
+            pass
+
+
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+def _close_quietly(chat_id):
+    try:
+        CHATS.close(chat_id)
+    except StoreError:
+        pass
+
+
+def _watch_run(chat, run_id, close_after=False):
+    """An agent run's outcome onto its record as it comes: each turn's `result` (its cost, turns, whether it erred —
+    and unread again: there is something new to see), and the end of its process (exit code, closed by the user).
+    `close_after` (a scheduled run): once its turn is over, its claude ends unless the dock has it open — nobody is
+    there to go on with it, and Open in dock resumes it from its transcript."""
+    path = runs_path()
+
+    def on_result(msg):
+        agentruns.update(path, run_id, outcome='error' if msg.get('is_error') else 'success', ended_ts=_now_ms(),
+                         cost=msg.get('total_cost_usd') if isinstance(msg.get('total_cost_usd'), (int, float)) else None,
+                         turns=msg.get('num_turns') if isinstance(msg.get('num_turns'), int) else None,
+                         stopped=True if chat.stopped else None, read_at=None)
+        if close_after and not chat.pending and not chat.watched:
+            # Not from here: this runs on the chat's own reader thread, which kill() waits for.
+            threading.Thread(target=_close_quietly, args=(run_id,), daemon=True).start()
+
+    def on_exit(code):
+        agentruns.update(path, run_id, exit_code=code, closed_ts=_now_ms(), stopped=True if chat.stopped else None)
+
+    chat.on_result, chat.on_exit = on_result, on_exit
+    if chat.last_result is not None:  # a turn already over before the hooks were on (a very quick one)
+        on_result(chat.last_result)
+
+
+def start_agent_run(dir_id, name, args='', mode='', model=None, effort=None, source='here', vault=None, where='here', schedule=None):
+    """A run as a chat inside this server, from the page (`here`) or from a schedule (`schedule`, its id: no page
+    needed): claude -p started in the agent's folder (so it loads that folder's commands), with `/<name> <args>` as its
+    first message, recorded in the list of runs (agentruns) and watched until it ends (_watch_run)."""
+    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort, where)
+    if schedule:
+        entry['schedule'] = schedule
+    before = runchanges.snapshot(cwd)  # where the folder stood: its Changes compare with it
+    try:
+        chat = _spawn_chat(entry['id'], flags, cwd, prompt, None, entry['mode'], entry['model'], None, effort=entry['effort'])
+    except Exception:
+        _drop_worktree(entry)
+        raise
+    chat.vault = vault
+    agentruns.add(runs_path(), {**entry, **before, 'target': 'here', 'source': source, 'started_ts': _now_ms()})
+    _watch_run(chat, entry['id'], close_after=source == 'schedule')
+    chat.send(prompt)  # once recorded and watched: its first result always finds its record
+    return {'chat': chat.info(), 'cwd': cwd, 'command': _command_line([*chat_flags(entry['mode']), *flags]), 'session_id': entry['id'],
+            **{k: entry[k] for k in ('worktree', 'branch') if k in entry}}
+
+
+def run_agent(store, dir_id, name, args='', mode='', model=None, effort=None, where='here'):
+    """Run a command of an agent folder as a chat in the dock (start_agent_run), its vault the one the page is in."""
+    return start_agent_run(dir_id, name, args, mode, model, effort, 'here', getattr(store, 'vault_id', None), where)
+
+
+def open_agent_chat(store, dir_id, name, args='', mode='', model=None, effort=None, where='here'):
+    """Run, on an agent's page: a chat in the dock, in the agent's folder (or a new worktree of it), with nothing sent
+    yet. The dock's composer is handed `/<name> <args>` (`draft`): the arguments, mode, model and effort are settled
+    there, and the run is recorded and watched when its first message goes (chat_send → _start_agent_draft). Closed
+    unsent, nothing is recorded and its worktree, if any, goes."""
+    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort, where)
+    try:
+        chat = _spawn_chat(entry['id'], flags, cwd, f'/{name}', None, entry['mode'], entry['model'], None, effort=entry['effort'])
+    except Exception:
+        _drop_worktree(entry)
+        raise
     chat.vault = getattr(store, 'vault_id', None)
-    agentruns.add(runs_path(), {**entry, 'target': 'here'})
-    return {'chat': chat.info(), 'cwd': cwd, 'command': _command_line([*chat_flags(entry['mode']), *flags]), 'session_id': entry['id']}
+    chat.agent_draft = entry
+    chat.on_exit = lambda code: _drop_worktree(chat.agent_draft) if getattr(chat, 'agent_draft', None) else None
+    return {'chat': chat.info(), 'cwd': cwd, 'draft': prompt if entry['args'] else f'{prompt} ', 'session_id': entry['id'],
+            **{k: entry[k] for k in ('worktree', 'branch') if k in entry}}
 
 
-def launch_agent(dir_id, name, args='', mode='', model=None, effort=None, target='terminal'):
+def draft_args(name, text):
+    """The arguments of a first message that runs `/<name>` (the command alone, or followed by a space and them), on one
+    line; None when the message is something else."""
+    line = ' '.join(str(text or '').split())
+    head = f'/{name}'
+    if line == head:
+        return ''
+    return line[len(head) + 1:] if line.startswith(f'{head} ') else None
+
+
+def _start_agent_draft(chat, entry, text):
+    """The first message of a chat opened by open_agent_chat: from now on it is a run, recorded with the arguments it
+    was sent with and the mode, model and effort the composer holds, where the folder stands now (its Changes compare
+    with it), and watched until it ends. A first message that is not the command is still that agent's run in that
+    folder (its worktree has to be listed somewhere to be removed), with no arguments."""
+    args = draft_args(entry['cmd'], text)
+    before = runchanges.snapshot(chat.cwd)
+    agentruns.add(runs_path(), {**entry, 'at': now_stamp(), 'args': args or '', 'mode': chat.mode or entry['mode'], 'model': chat.model or entry['model'],
+                                'effort': chat.effort or entry['effort'], **before, 'target': 'here', 'source': 'here', 'started_ts': _now_ms()})
+    _watch_run(chat, entry['id'])
+    chat.rename(agent_message(entry['cmd'], args) if args is not None else f'/{entry["cmd"]}')
+
+
+def launch_agent(dir_id, name, args='', mode='', model=None, effort=None, target='terminal', where='here'):
     """Open in ▾ of an agent's page: the same run somewhere else. Terminal: `claude` in the folder under a fresh session
     id, the message as its first one and the mode as --permission-mode, recorded like a run in the dock. Claude
     Desktop, Cursor or Antigravity: a new session there, in that folder, the message written and not sent (Enter,
     there), not recorded (the app picks its own id), as the Claude terminal's Open in ▾ does."""
     target = _target(target)
-    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort)
+    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort, where)
     if target != 'terminal':
-        return _open_elsewhere(target, cwd, prompt=prompt)
+        try:
+            return {**_open_elsewhere(target, cwd, prompt=prompt), **{k: entry[k] for k in ('worktree', 'branch') if k in entry}}
+        except Exception:
+            _drop_worktree(entry)
+            raise
     if entry['mode'] != 'default':
         flags = [*flags, '--permission-mode', entry['mode']]
-    out = _open_terminal(cwd, flags, prompt)
-    agentruns.add(runs_path(), {**entry, 'target': 'terminal'})
+    before = runchanges.snapshot(cwd)
+    try:
+        out = _open_terminal(cwd, flags, prompt)
+    except Exception:
+        _drop_worktree(entry)
+        raise
+    agentruns.add(runs_path(), {**entry, **before, 'target': 'terminal', 'source': 'terminal', 'started_ts': _now_ms()})
     return {**out, 'session_id': entry['id'], 'recorded': True}
 
 
+def _run_now(r):
+    """A run as listed: its record, and what its chat in this server is doing now — `live` (running in the dock or as a
+    terminal there), `busy` (a turn under way), `pending` (requests waiting for an answer) and `waiting_for` (what the
+    first one asks: a tool's name, 'question' or 'plan')."""
+    chat = CHATS.live(r['id'])
+    out = {**r, 'live': bool(chat or TERMS.live(r['id'])), 'busy': bool(chat and chat.busy), 'pending': len(chat.pending) if chat else 0}
+    out.pop('untracked', None)  # the Changes' business, not a list's
+    if chat and chat.pending:
+        out['waiting_for'] = chat.waiting_for()
+    return out
+
+
 def agent_runs(dir_id=None, name=None):
-    """The runs on record, newest first: of one agent (its page's Runs panel), of one folder, or all. `live`: running
-    in the dock now."""
-    return {'runs': [{**r, 'live': bool(CHATS.live(r['id']) or TERMS.live(r['id']))}
-                     for r in agentruns.of(agentruns.load(runs_path()), dir_id or None, name or None)]}
+    """The runs on record, newest first: of one agent (its page's Runs panel), of one folder, or all."""
+    return {'runs': [_run_now(r) for r in agentruns.of(agentruns.load(runs_path()), dir_id or None, name or None)]}
+
+
+ACTIVITY_MAX = 200  # runs the Activity page and the Inbox are given: the newest
+
+
+def agent_activity():
+    """Every agent's runs for the Activity page, the sidebar's Inbox and its dots: the newest ACTIVITY_MAX, each with its
+    folder's name, and the counts — waiting for an answer, running, finished and not looked at yet."""
+    names = {d['id']: d['name'] for d in agent_dirs()}
+    runs = [{**_run_now(r), 'dir_name': names.get(r.get('dir'), '')} for r in agentruns.of(agentruns.load(runs_path()))][:ACTIVITY_MAX]
+    # As static/js/runmodel.js runStatus reads them: a run whose turn is over has ended, even with its chat still open.
+    working = lambda r: r['live'] and (r['busy'] or not r.get('outcome'))  # noqa: E731
+    return {'runs': runs, 'counts': {
+        'needs_you': sum(1 for r in runs if r['pending']),
+        'running': sum(1 for r in runs if working(r) and not r['pending']),
+        'unread': sum(1 for r in runs if r.get('outcome') and not r.get('read_at') and not working(r) and not r['pending']),
+    }}
+
+
+def read_agent_runs(ids):
+    if not isinstance(ids, list):
+        raise StoreError(400, 'ids must be a list')
+    return {'read': agentruns.mark_read(runs_path(), ids[:500], now_stamp())}
+
+
+def _run_on_record(session_id):
+    r = agentruns.find(runs_path(), session_id)
+    if not r:
+        raise StoreError(404, 'that run is not on record')
+    return r
+
+
+def agent_run_changes(session_id):
+    """What a run changed in its folder (tm/runchanges.py): its files with their lines added and deleted. `git` false:
+    it did not start in a git work tree (or before this app noted where it stood), so there is nothing to compare with."""
+    r = _run_on_record(session_id)
+    if not r.get('base'):
+        return {'git': False, 'files': []}
+    files = runchanges.changes(r['cwd'], r['base'], r.get('untracked'))
+    if files is None:
+        return {'git': True, 'files': [], 'error': 'git cannot compare with where the folder stood: the folder or its snapshot is gone'}
+    return {'git': True, 'files': files, 'base': r['base'][:12]}
+
+
+def agent_run_diff(session_id, path):
+    """One changed file's diff — only a file its Changes list."""
+    r = _run_on_record(session_id)
+    out = runchanges.diff(r['cwd'], r.get('base'), r.get('untracked'), str(path or '')) if r.get('base') else None
+    if out is None:
+        raise StoreError(404, 'that file is not among the run\'s changes')
+    return out
+
+
+def remove_run_worktree(session_id, force=False):
+    """Takes a run's worktree away (tm/runworktree.py); its branch stays, with what the run committed. One with changes
+    nobody committed is kept unless `force`: the answer says so (`dirty`) for the page to ask first."""
+    r = _run_on_record(session_id)
+    if not r.get('worktree'):
+        raise StoreError(400, 'this run has no worktree of its own')
+    if CHATS.live(r['id']) or TERMS.live(r['id']):
+        raise StoreError(409, 'it is still running here: close it in the dock first')
+    try:
+        runworktree.remove(r['worktree'], force=bool(force))
+    except runworktree.WorktreeError as e:
+        if e.dirty and not force:
+            return {'removed': False, 'dirty': True, 'message': str(e)}
+        raise StoreError(409, str(e))
+    agentruns.update(runs_path(), r['id'], removed_ts=_now_ms())
+    return {'removed': True, 'branch': r.get('branch')}
 
 
 def forget_agent_run(session_id):
     if not agentruns.forget(runs_path(), session_id):
         raise StoreError(404, 'that run is not on record')
     return {'forgotten': str(session_id).strip().lower()}
+
+
+# ── Agents: scheduled runs (tm/schedules.py) ──
+AGENT_SCHEDULES = 'agent-schedules.json'
+SCHEDULER_EVERY = 30  # seconds between the scheduler's looks
+_tick_lock = threading.Lock()
+
+
+def schedules_path():
+    return os.path.join(os.path.dirname(CONFIG_PATH), AGENT_SCHEDULES)
+
+
+def _schedule_out(s, names):
+    return {**s, 'label': schedules.label(s['rule']), 'dir_name': names.get(s['dir'], '')}
+
+
+def agent_schedules(dir_id=None, name=None):
+    """The schedules, of one agent (its page's Schedules tab) or all (Settings → Agents), each with its rule in words."""
+    names = {d['id']: d['name'] for d in agent_dirs()}
+    items = [s for s in schedules.load(schedules_path()) if (not dir_id or s['dir'] == dir_id) and (not name or s['cmd'] == name)]
+    return {'schedules': [_schedule_out(s, names) for s in items], 'catch_up_hours': schedules.CATCH_UP_MS // 3_600_000}
+
+
+def save_agent_schedule(body):
+    """A new schedule, or one changed (`id`): checked as a run would be — the folder and its command, the arguments,
+    mode, model, effort and where — and its next fire worked out from now."""
+    body = body if isinstance(body, dict) else {}
+    folder = agent_dir(body.get('dir'))
+    name = str(body.get('cmd') or '').strip()
+    if not name or not commands.find(folder['path'], name):
+        raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    agent_message(name, body.get('args'))  # its length
+    try:
+        rule = schedules.normalize(body.get('rule'))
+    except ValueError as e:
+        raise StoreError(400, str(e))
+    mode = str(body.get('mode') or 'default').strip()
+    if mode not in CHAT_MODES:
+        raise StoreError(400, f"mode must be one of {', '.join(CHAT_MODES)}")
+    where = str(body.get('where') or 'here').strip()
+    if where not in AGENT_WHERE:
+        raise StoreError(400, f"where must be one of {', '.join(AGENT_WHERE)}")
+    model, effort = str(body.get('model') or '').strip(), str(body.get('effort') or '').strip()  # empty: the app's own
+    try:
+        claude_flags(model, effort)
+    except ValueError as e:
+        raise StoreError(400, str(e))
+    fields = {'dir': folder['id'], 'cmd': name, 'args': ' '.join(str(body.get('args') or '').split()), 'mode': mode,
+              'model': model or None, 'effort': effort or None, 'where': where, 'rule': rule,
+              'next_ts': schedules.next_ts(rule, _now_ms())}
+    path = schedules_path()
+    if body.get('id'):
+        out = schedules.update(path, str(body['id']), **fields, error=None, error_ts=None)
+        if not out:
+            raise StoreError(404, 'no such schedule')
+    else:
+        try:
+            out = schedules.add(path, {**fields, 'created_at': now_stamp(), 'paused': False})
+        except ValueError as e:
+            raise StoreError(409, str(e))
+    return {'schedule': _schedule_out(out, {folder['id']: folder['name']})}
+
+
+def _schedule(sid):
+    s = next((x for x in schedules.load(schedules_path()) if x['id'] == str(sid or '')), None)
+    if not s:
+        raise StoreError(404, 'no such schedule')
+    return s
+
+
+def pause_agent_schedule(sid, paused):
+    """Paused, it never fires; on again, it fires next at its next time from now (what it missed meanwhile, it skips)."""
+    s = _schedule(sid)
+    out = schedules.update(schedules_path(), s['id'], paused=bool(paused),
+                           next_ts=None if paused else schedules.next_ts(s['rule'], _now_ms()))
+    return {'schedule': _schedule_out(out, {d['id']: d['name'] for d in agent_dirs()})}
+
+
+def delete_agent_schedule(sid):
+    """The schedule goes; the runs it made stay in the list of runs."""
+    if not schedules.remove(schedules_path(), str(sid or '')):
+        raise StoreError(404, 'no such schedule')
+    return {'deleted': sid}
+
+
+def _fire(s, now):
+    """Starts one run of a schedule → its session id, or None. Not while its last run is still going here (one at a
+    time: an hourly one slower than an hour would pile up); a run that cannot start is noted on the schedule."""
+    path = schedules_path()
+    if s.get('last_run') and CHATS.live(s['last_run']):
+        schedules.update(path, s['id'], skipped_ts=now)
+        return None
+    try:
+        out = start_agent_run(s['dir'], s['cmd'], s.get('args', ''), s.get('mode') or '', s.get('model'), s.get('effort'),
+                              'schedule', None, s.get('where') or 'here', schedule=s['id'])
+    except Exception as e:  # a folder gone, claude missing, a command not committed for its worktree…
+        schedules.update(path, s['id'], error=str(e) or type(e).__name__, error_ts=now)
+        return None
+    schedules.update(path, s['id'], last_run=out['session_id'], last_ts=now, error=None, error_ts=None)
+    return out['session_id']
+
+
+def run_agent_schedule_now(sid):
+    """Run now: one run of the schedule at once; its next fire stays as it was."""
+    s = _schedule(sid)
+    run = _fire(s, _now_ms())
+    after = _schedule(sid)
+    if not run:
+        raise StoreError(409, after.get('error') or 'its last run is still going: wait for it, or close it in the dock')
+    return {'session_id': run}
+
+
+def tick(now_ms=None):
+    """The scheduler's look (every SCHEDULER_EVERY seconds, and once as the server starts): each schedule not paused
+    whose time has come runs once — moved on to its next time first, so one that cannot start is not retried every
+    look. One whose time came more than CATCH_UP_MS ago (the app off, the Mac asleep) does not run: it is marked
+    missed. → the session ids started."""
+    now = _now_ms() if now_ms is None else now_ms
+    started = []
+    with _tick_lock:
+        path = schedules_path()
+        for s in schedules.load(path):
+            if s['paused'] or 'next_ts' not in s or s['next_ts'] > now:
+                continue
+            nxt = schedules.next_ts(s['rule'], now)
+            if now - s['next_ts'] > schedules.CATCH_UP_MS:
+                schedules.update(path, s['id'], missed_ts=s['next_ts'], next_ts=nxt)
+                continue
+            schedules.update(path, s['id'], next_ts=nxt)
+            run = _fire(s, now)
+            if run:
+                started.append(run)
+    return started
+
+
+def start_scheduler(every=SCHEDULER_EVERY):
+    """The scheduler's thread (main(); tests call tick themselves)."""
+    def loop():
+        while True:
+            try:
+                tick()
+            except Exception:  # never the end of the scheduler
+                traceback.print_exc()
+            time.sleep(every)
+    threading.Thread(target=loop, name='agent-schedules', daemon=True).start()
 
 
 def open_agent_file(dir_id, name):
@@ -1421,6 +1793,10 @@ def chat_send(chat_id, text, keys=None, vault_id=None, images=None):
         for key in dict.fromkeys(keys):
             it = store.read(key)
             items.append({'id': it.get('ref') or it['id'], 'title': it['title'], 'type': it['type'], 'context': store.claude_item_context(key)})
+    draft = getattr(chat, 'agent_draft', None)
+    if draft and str(text or '').strip():  # an agent's chat, opened unsent: this message makes it a run
+        chat.agent_draft = None
+        _start_agent_draft(chat, draft, text)
     chat.send(text, items, images or [])
     if chat.untitled and str(text or '').strip():
         _name_untitled(chat, text)
@@ -1701,11 +2077,26 @@ ROUTES = {
     ('GET', '/api/agents'): lambda s, q, b: list_agents(),
     ('GET', '/api/agents/command'): lambda s, q, b: agent_command(q.get('dir'), q.get('cmd')),
     ('POST', '/api/agents/run'): lambda s, q, b: run_agent(s, b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
-                                                           b.get('model'), b.get('effort')),
+                                                           b.get('model'), b.get('effort'), b.get('where') or 'here'),
+    ('GET', '/api/agents/related'): lambda s, q, b: agent_related(q.get('dir'), q.get('cmd')),
+    ('GET', '/api/agents/related/file'): lambda s, q, b: agent_related_file(q.get('dir'), q.get('cmd'), q.get('path')),
+    ('POST', '/api/agents/open'): lambda s, q, b: open_agent_chat(s, b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
+                                                                  b.get('model'), b.get('effort'), b.get('where') or 'here'),
     ('POST', '/api/agents/launch'): lambda s, q, b: launch_agent(b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
-                                                                 b.get('model'), b.get('effort'), b.get('target') or 'terminal'),
+                                                                 b.get('model'), b.get('effort'), b.get('target') or 'terminal',
+                                                                 b.get('where') or 'here'),
+    ('POST', '/api/agents/runs/worktree/remove'): lambda s, q, b: remove_run_worktree(b.get('id'), b.get('force')),
     ('GET', '/api/agents/runs'): lambda s, q, b: agent_runs(q.get('dir'), q.get('cmd')),
     ('POST', '/api/agents/runs/forget'): lambda s, q, b: forget_agent_run(b.get('session_id')),
+    ('GET', '/api/agents/activity'): lambda s, q, b: agent_activity(),
+    ('POST', '/api/agents/runs/read'): lambda s, q, b: read_agent_runs(b.get('ids')),
+    ('GET', '/api/agents/runs/changes'): lambda s, q, b: agent_run_changes(q.get('id')),
+    ('GET', '/api/agents/runs/diff'): lambda s, q, b: agent_run_diff(q.get('id'), q.get('path')),
+    ('GET', '/api/agents/schedules'): lambda s, q, b: agent_schedules(q.get('dir'), q.get('cmd')),
+    ('POST', '/api/agents/schedules'): lambda s, q, b: save_agent_schedule(b),
+    ('POST', '/api/agents/schedules/pause'): lambda s, q, b: pause_agent_schedule(b.get('id'), b.get('paused')),
+    ('POST', '/api/agents/schedules/delete'): lambda s, q, b: delete_agent_schedule(b.get('id')),
+    ('POST', '/api/agents/schedules/run'): lambda s, q, b: run_agent_schedule_now(b.get('id')),
     ('POST', '/api/agents/open-file'): lambda s, q, b: open_agent_file(b.get('dir'), b.get('cmd')),
     ('POST', '/api/agents/reveal'): lambda s, q, b: open_local(agent_dir(b.get('dir'))['path']),
 }
@@ -1719,8 +2110,11 @@ GLOBAL_ROUTES = {
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
     ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('POST', '/api/folder/pick'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
-    ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
+    ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('GET', '/api/agents/related'), ('GET', '/api/agents/related/file'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
     ('POST', '/api/agents/launch'), ('GET', '/api/agents/runs'), ('POST', '/api/agents/runs/forget'),
+    ('GET', '/api/agents/activity'), ('POST', '/api/agents/runs/read'), ('GET', '/api/agents/runs/changes'), ('GET', '/api/agents/runs/diff'),
+    ('POST', '/api/agents/runs/worktree/remove'), ('GET', '/api/agents/schedules'), ('POST', '/api/agents/schedules'),
+    ('POST', '/api/agents/schedules/pause'), ('POST', '/api/agents/schedules/delete'), ('POST', '/api/agents/schedules/run'),
 }
 
 
@@ -1766,6 +2160,7 @@ def main():
         os._exit(0)
     signal.signal(signal.SIGTERM, stop)
     SERVER.update(on_demand=bool(listeners), started_at=time.time(), port=port, stop=stop)
+    start_scheduler()  # its first look now: what came due while the app was off
     try:
         server.serve_forever()
     except KeyboardInterrupt:

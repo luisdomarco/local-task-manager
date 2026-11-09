@@ -220,6 +220,12 @@ class Chat:
         self.models = []  # what claude offers, from its `initialize` answer: [{value, label, description, resolved, efforts}]
         # Called with (model, effort) once claude has confirmed a change of either: the server keeps the record in step.
         self.on_settings = None
+        # Called with the `result` of each turn, and once the process has ended: the server keeps an agent run's outcome
+        # (server.py _watch_run). What they do is the server's business: an error there never stops the chat.
+        self.on_result = None
+        self.on_exit = None
+        self.last_result = None  # the latest turn's `result`: cost, turns, is_error
+        self.stopped = False  # interrupted or closed by the user (a turn cut short is not a failure)
         self._asked = {}  # request_id → (subtype, what it was asked with), for our control requests whose answer we read
         self.started = self.activity = time.time()
         self.exit_code = None
@@ -265,7 +271,9 @@ class Chat:
                 self.pending[msg.get('request_id')] = msg['request']
             elif t == 'result':
                 self.busy = False
+                self.last_result = msg
                 self._ask_context()
+                self._hook(self.on_result, msg)
             elif t == 'system' and msg.get('subtype') == 'compact_boundary':
                 self._ask_context()
             elif t == 'system' and msg.get('subtype') == 'init':
@@ -278,6 +286,15 @@ class Chat:
         self.pending.clear()
         self._emit({'type': 'tm_exit', 'exit_code': self.exit_code, 'stderr': '\n'.join(self._stderr)})
         self._emit(None, keep=False)  # the sentinel: nothing more will come (in order, so after tm_exit)
+        self._hook(self.on_exit, self.exit_code)
+
+    @staticmethod
+    def _hook(fn, *args):
+        if fn:
+            try:
+                fn(*args)
+            except Exception:  # the record is the server's business: the chat goes on whatever it does
+                pass
 
     def _answered(self, response):
         """claude's answer to one of our control requests: the models it offers (`initialize`), a change of model or
@@ -436,6 +453,7 @@ class Chat:
         thumbnail. Not kept if it could not be sent (the StoreError goes up)."""
         text = str(text or '').strip()
         items = list(items or [])
+        self.stopped = False  # a new turn: whatever was cut short before is behind it
         blocks, kept = image_blocks(images)
         if not text and not items and not blocks:
             raise StoreError(400, 'an empty message')
@@ -516,6 +534,7 @@ class Chat:
         interrupted before claude's interrupted result (_say). The ones dropped are those pending when it is asked: a
         request claude makes meanwhile is held until then, so it is not marked answered before its card is shown."""
         rids = list(self.pending)
+        self.stopped = True
 
         def dropped():
             for rid in rids:
@@ -578,6 +597,8 @@ class Chat:
         """Closing stdin ends claude cleanly (it saves the transcript); then SIGTERM, then SIGKILL if it lingers."""
         if not self.alive:
             return
+        # Closed mid-turn (working, or waiting for an answer) cuts it short; closed once its turn is over stops nothing.
+        self.stopped = self.stopped or self.busy or bool(self.pending)
         try:
             self._proc.stdin.close()
         except OSError:
@@ -624,6 +645,19 @@ class Chat:
                 'exit_code': self.exit_code, 'busy': self.busy and self.alive, 'pending': len(self.pending),
                 'mode': self.mode, 'model': self.model, 'effort': self.effort, 'models': self.models, 'window': self.window,
                 'started': self.started, 'activity': self.activity}
+
+    @property
+    def watched(self):
+        """Whether a page follows it now: the dock has it open."""
+        return bool(self._subs)
+
+    def waiting_for(self):
+        """What the first unanswered request asks: a tool's name ('Bash'), 'question' or 'plan'; None when none."""
+        req = next(iter(list(self.pending.values())), None)
+        if not req:
+            return None
+        tool = req.get('tool_name') or ''
+        return {'AskUserQuestion': 'question', 'ExitPlanMode': 'plan'}.get(tool, tool or 'permission')
 
 
 class Chats:

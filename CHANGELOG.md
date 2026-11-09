@@ -22,6 +22,32 @@ All notable changes to this project are written down here. Versions follow [Sema
   (`INI-001` in a vault with long ids). A plan still always hangs from an item, and a plan, analysis, error or learning
   follows its item's project. Long ids still cannot move (docs/migrate-short-ids.md). No project can be named after
   one of these folders.
+- **A run's ending reads truer.** A run whose turn finished is *Done* even if its process then ends with an error code
+  (closing it in the dock may end it with one), and a run that never finished a turn is no longer *Done*: *Failed* if
+  its process crashed, *Stopped* otherwise (it ended cleanly, or the app lost sight of it). Stop is still *Stopped*.
+- **An agent's page, rebuilt, and one place to run it.** Run now opens the agent in the dock with `/<name> ` written
+  and nothing sent: you type its arguments, pick the mode and model there and send — the page has no composer of its
+  own any more, so a run no longer shows two. It starts with what the agent last ran with; the run is listed when its
+  first message goes, and closed unsent it leaves nothing (nor its worktree). The page is a head (where it lives, its
+  name and description, Run · Schedule… · Open in ▾ · ⋯), a row of figures for the last 30 days (last run, runs,
+  success, usual time, cost) and tabs: **Instructions**, then **Skills**, **Subagents**, **Commands** and **Files** —
+  what its prompt names in its folder, and what those name in turn, each tab only when it has some, each row unfolding
+  into the file — and **Details**. The Home has no launcher any more: an agent starts from its page, or from ▷ in *Your agents*. Also: an `argument-hint` written
+  `[topic]` shows as written, not as `['topic']`.
+- **Agents has a Home.** `#/runs` opens on one screen of what needs you and what happened: the runs that need you while
+  there are any, what runs now (with Stop), the schedules that fire next (with Run now), your agents — the pinned ones,
+  then the most run lately — and the latest results, with the last 7 days in one line. The Inbox moves to
+  `#/runs/inbox`; the tabs are Home · Inbox · All agents, and the sidebar has a Home row above the Inbox.
+- **Agents, made for watching many at once.** `#/runs` is now an **Inbox**: every run of every agent grouped by what
+  it asks of you — Needs you, Running, Unread, Earlier — with a search, filters and *Mark all read*. The sidebar's
+  Inbox row, the agents' rows and the Agents mode's button show what needs you, and a run that waits for you or ends
+  is told (a toast, or a system notification when the tab is behind). An agent's page has a **composer** like a
+  chat's: the command and its arguments in one box, Mode · Model · Effort · Where as pickers, then Schedule…, Open in
+  ▾ and Run. A run opens **its detail** in the side panel — status, cost, turns, where it ran, Stop, Open in dock — with
+  its **Changes**: the files its folder changed since it started, each with its diff. **New worktree** runs an agent
+  in a git worktree of its own, on a new branch, so your folder stays as it is (*Remove worktree* keeps the branch).
+  And agents can be **scheduled**: every day, every weekday, on some days or every few hours, run by the app whether
+  it is open or not (the installed app is woken for them), each run unread in the Inbox when it ends.
 - **Agents: run your Claude Code commands from the app.** A third sidebar mode (⌘⇧E goes round Project, Explorer and
   Agents) lists the commands in the `.claude/commands` of any folder you add — a repository, a system, outside every
   vault — by folder and namespace, with a filter, pinned agents on top and hidden ones out of the way. Each agent has a

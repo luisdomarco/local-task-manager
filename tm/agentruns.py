@@ -10,7 +10,10 @@ from tm.launch import SESSION_RE
 
 MAX = 500
 TEXT_MAX = 300  # characters of a run's arguments kept (the message itself is cut at server.py AGENT_ARGS_MAX)
-SHORT = ('dir', 'cmd', 'mode', 'model', 'effort', 'target')  # short words: at most 80 characters each
+SHORT = ('dir', 'cmd', 'mode', 'model', 'effort', 'target', 'source', 'schedule', 'outcome', 'branch', 'base', 'read_at')
+LONG = ('worktree',)  # paths
+INTS = ('started_ts', 'ended_ts', 'closed_ts', 'removed_ts', 'exit_code', 'turns')  # whole numbers (the times in ms; removed: its worktree)
+UNTRACKED_MAX = 2000  # files not tracked by git when a run started (its Changes leave them out): at most these
 _lock = threading.Lock()
 
 
@@ -30,6 +33,18 @@ def clean(raw):
         for k in SHORT:
             if r.get(k):
                 entry[k] = str(r[k]).strip()[:80]
+        for k in LONG:
+            if r.get(k):
+                entry[k] = str(r[k]).strip()[:1000]
+        for k in INTS:
+            if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool):
+                entry[k] = int(r[k])
+        if isinstance(r.get('cost'), (int, float)) and not isinstance(r.get('cost'), bool) and r['cost'] >= 0:
+            entry['cost'] = round(float(r['cost']), 6)
+        if r.get('stopped') is True:
+            entry['stopped'] = True
+        if isinstance(r.get('untracked'), list):
+            entry['untracked'] = [str(x)[:1000] for x in r['untracked'][:UNTRACKED_MAX] if isinstance(x, str)]
         out.pop(sid, None)
         out[sid] = entry
     return list(out.values())[-MAX:]
@@ -53,6 +68,36 @@ def add(path, entry):
     with _lock:
         _save(path, load(path) + [entry])
     return entry
+
+
+def update(path, session_id, **fields):
+    """Sets fields on one run (None removes one). → the run as stored, or None when it is not on record."""
+    sid = str(session_id or '').strip().lower()
+    with _lock:
+        runs = load(path)
+        hit = next((r for r in runs if r['id'] == sid), None)
+        if not hit:
+            return None
+        for k, v in fields.items():
+            if v is None:
+                hit.pop(k, None)
+            else:
+                hit[k] = v
+        _save(path, runs)
+    return find(path, sid)
+
+
+def mark_read(path, ids, at):
+    """The runs of `ids` read at `at` (the Inbox's unread go). → how many changed."""
+    wanted = {str(i or '').strip().lower() for i in ids or []}
+    with _lock:
+        runs = load(path)
+        hits = [r for r in runs if r['id'] in wanted and not r.get('read_at')]
+        for r in hits:
+            r['read_at'] = at
+        if hits:
+            _save(path, runs)
+    return len(hits)
 
 
 def find(path, session_id):

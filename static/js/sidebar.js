@@ -47,13 +47,28 @@ export function syncSidebarMode() {
   if (saved !== sidebarMode()) showMode(saved);
 }
 
+// A mode's badge: a count in a tone (Agents: the runs that wait for you or ended unread, agentactivity.js).
+const badges = {};
+/** Puts `count` on a mode's button (none at 0), in `tone` ('warning' while something waits for you, else 'accent'). */
+export function setModeBadge(mode, count, tone = 'accent') {
+  const next = count > 0 ? { count, tone } : null;
+  if (JSON.stringify(next) === JSON.stringify(badges[mode] || null)) return;
+  badges[mode] = next;
+  renderModes();
+}
+
 function renderModes() {
   const box = document.getElementById('side-mode');
+  if (!box) return;
   const mode = sidebarMode();
-  box.replaceChildren(...MODES.map(([m, ico, label, hint]) => h('button', {
-    class: `btn icon ${mode === m ? 'active' : ''}`, title: `${label} — ${hint} (⌘⇧E)`, 'aria-label': label, 'aria-pressed': String(mode === m),
-    onclick: () => { if (sidebarMode() !== m) setSidebarMode(m); },
-  }, icon(ico, 14))));
+  box.replaceChildren(...MODES.map(([m, ico, label, hint]) => {
+    const b = badges[m];
+    const what = b ? ` · ${b.count} ${b.tone === 'warning' ? 'need you' : 'new'}` : '';
+    return h('button', {
+      class: `btn icon ${mode === m ? 'active' : ''}`, title: `${label} — ${hint}${what} (⌘⇧E)`, 'aria-label': `${label}${what}`, 'aria-pressed': String(mode === m),
+      onclick: () => { if (sidebarMode() !== m) setSidebarMode(m); },
+    }, icon(ico, 14), b ? h('span', { class: `side-mode-badge tone-${b.tone}`, 'aria-hidden': 'true' }, b.count > 9 ? '9+' : String(b.count)) : null);
+  }));
 }
 
 // A phone (CSS: max-width 760px): the sidebar is a drawer over the page, opened from ☰ and closed by its backdrop, Esc,

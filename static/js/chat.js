@@ -6,6 +6,7 @@
 import { api } from './api.js';
 import { STATUSES, apply, currentModel, editDiff, effortLabel, emptyChat, kTokens, modelName, modelOptions, questionAnswers, sessionStatus, shortEffort, shortModel, shortPath,
   subagentSummary, toolTarget } from './chat-model.js';
+import { diffBlock } from './diffview.js';
 import { IMAGE_TYPES, dropToken, imageFit, insertPick, matchCommands, matchFiles, matchItems, tokenAt } from './composer.js';
 import { isDone } from './rules.js';
 import { state, toast } from './state.js';
@@ -39,10 +40,6 @@ function copyButton(text, title = 'Copy') {
 }
 
 // ── one item of the thread ───────────────────────────────────────────────────
-function diffBlock(diff) {
-  return h('div', { class: 'cv-diff' }, diff.lines.map((l) => h('div', { class: `cv-dl ${l.sign === '+' ? 'add' : l.sign === '-' ? 'del' : ''}` },
-    h('span', { class: 'cv-sign' }, l.sign), l.text)));
-}
 
 /** A subagent's own steps, one short line each, under its call. */
 function childLines(children, cwd) {
@@ -251,7 +248,8 @@ const sig = (it) => (it.kind === 'text' ? `${it.text.length}${it.partial}`
 // ── the view ─────────────────────────────────────────────────────────────────
 /**
  * A chat's pane. `info` is the server's (tm/chat.py Chat.info); `onChange(view)` runs whenever its status may have
- * changed, for the dock's list. → { id, el, info, chat, status(), focus(), destroy(), attachItem(item), resume }
+ * changed, for the dock's list. → { id, el, info, chat, status(), focus(), destroy(), attachItem(item), setDraft(text), resume,
+ * onSent (a function called once, after the next message sent) }
  */
 export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
   let chat = emptyChat();
@@ -389,7 +387,12 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     fit();
     hidePicker();
     paintChips();
-    try { await api.chatSend(info.id, text, items.map((it) => it.key), pics.map(({ data, thumb }) => ({ data, thumb }))); } catch (e) {
+    try {
+      await api.chatSend(info.id, text, items.map((it) => it.key), pics.map(({ data, thumb }) => ({ data, thumb })));
+      const sent = view.onSent;
+      view.onSent = null; // once: the first message after it was set
+      sent?.();
+    } catch (e) {
       input.value = text; attached.push(...items); images.push(...pics); fit(); paintChips(); toast(e.message, true);
     }
   }
@@ -657,6 +660,8 @@ export function chatView(info, { onChange = () => {}, onResume = null } = {}) {
     focus: () => { const card = thread.querySelector('.cv-perm button.cv-opt, .cv-perm button.primary'); (card || input).focus({ preventScroll: true }); },
     destroy: () => { source.close(); el.remove(); },
     attachItem,
+    /** Text written in the composer, not sent, the caret after it (an agent's Run: `/<name> ` to finish and send). */
+    setDraft: (text) => { input.value = text; fit(); input.focus({ preventScroll: true }); input.setSelectionRange(text.length, text.length); },
     cwdLabel: () => shortPath(info.cwd, ''),
   });
   return view;

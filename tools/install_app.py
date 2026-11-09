@@ -12,7 +12,8 @@ connection, which is opening the app — and opened from the Dock as a web app (
 Its own folder, so nothing of this checkout is touched: ~/Library/Application Support/TaskManager/app holds the code
 (copied, never linked: work in progress here never reaches the app until --update) and its own config.json, made once
 from this checkout's with its own port (3200, so both can run at once) and never overwritten after. The vaults stay
-where they are: both see the same files. Logs: ~/Library/Logs/TaskManager/.
+where they are: both see the same files. A second LaunchAgent wakes it for the Agents section's scheduled runs
+(tools/agents_wake.py, every 5 minutes, only when one is due). Logs: ~/Library/Logs/TaskManager/.
 """
 import argparse
 import json
@@ -29,6 +30,7 @@ sys.path.insert(0, HERE)
 from tm import export  # noqa: E402  (its exclusions: what never travels with the code)
 
 LABEL = 'com.taskmanager.app'
+WAKE_LABEL = 'com.taskmanager.app.wake'  # its scheduled agent runs: tools/agents_wake.py every few minutes
 PORT = 3200
 # What the app needs to run: the server, the page, the tools it may call, and the sample vault (the default root).
 APP_FILES = ('server.py', 'tm', 'static', 'docs', 'tools', 'sample-vault', 'sample-vault-legacy', 'README.md', 'package.json', 'config.example.json')
@@ -42,6 +44,7 @@ def locations(home):
     return {
         'app': os.path.join(base, 'app'),
         'plist': os.path.join(home, 'Library', 'LaunchAgents', f'{LABEL}.plist'),
+        'wake_plist': os.path.join(home, 'Library', 'LaunchAgents', f'{WAKE_LABEL}.plist'),
         'logs': os.path.join(home, 'Library', 'Logs', 'TaskManager'),
     }
 
@@ -136,6 +139,29 @@ def agent(python, app, logs, home, port=PORT):
     }
 
 
+def wake_agent(python, app, logs):
+    """The second LaunchAgent: every 5 minutes, tools/agents_wake.py looks at the app's schedules and connects to it —
+    starting it — only when one is due (Settings → Agents → Schedules). With none due it does nothing and the app
+    stays off."""
+    return {
+        'Label': WAKE_LABEL,
+        'ProgramArguments': [python, os.path.join(app, 'tools', 'agents_wake.py')],
+        'WorkingDirectory': app,
+        'StartInterval': 300,
+        'ProcessType': 'Background',
+        'StandardOutPath': os.path.join(logs, 'wake.log'),
+        'StandardErrorPath': os.path.join(logs, 'wake.log'),
+    }
+
+
+def start_wake(where, python, run):
+    """Writes the wake agent and (re)loads it: on install, and on --update for an app installed before it existed."""
+    with open(where['wake_plist'], 'wb') as f:
+        plistlib.dump(wake_agent(python, where['app'], where['logs']), f)
+    run(['launchctl', 'bootout', f'{_domain()}/{WAKE_LABEL}'], check=False)
+    run(['launchctl', 'bootstrap', _domain(), where['wake_plist']], check=False)  # a missed one only delays schedules
+
+
 def _domain():
     return f'gui/{os.getuid()}'
 
@@ -177,6 +203,7 @@ def install(src, home, python, run, port=PORT, wait=settle):
         time.sleep(2)
         wait(app_port)
         run(['launchctl', 'bootstrap', _domain(), where['plist']], check=True)
+    start_wake(where, python, run)
     return {'app': where['app'], 'config_made': made, 'plist': where['plist'], 'port': app_port}
 
 
@@ -186,6 +213,10 @@ def update(src, home, run):
         raise SystemExit('Not installed yet: run it without --update first.')
     copy_code(src, where['app'])
     mark_source(src, where['app'])
+    with open(where['plist'], 'rb') as f:  # the Python the app runs with, as installed
+        python = plistlib.load(f)['ProgramArguments'][0]
+    os.makedirs(where['logs'], exist_ok=True)
+    start_wake(where, python, run)
     # Running: stopped, so the next opening starts the new code. Off: nothing to do, it starts on the next opening.
     run(['launchctl', 'kill', 'SIGTERM', f'{_domain()}/{LABEL}'], check=False)
     return {'app': where['app']}
@@ -193,9 +224,10 @@ def update(src, home, run):
 
 def uninstall(home, run):
     where = locations(home)
-    run(['launchctl', 'bootout', f'{_domain()}/{LABEL}'], check=False)
-    if os.path.exists(where['plist']):
-        os.remove(where['plist'])
+    for label, plist in ((LABEL, where['plist']), (WAKE_LABEL, where['wake_plist'])):
+        run(['launchctl', 'bootout', f'{_domain()}/{label}'], check=False)
+        if os.path.exists(plist):
+            os.remove(plist)
     for name in (*APP_FILES, *RETIRED_FILES, export.INSTALL_FILE):  # the code goes; its config.json (and backups) stay
         _remove(os.path.join(where['app'], name))
     return {'kept': os.path.join(where['app'], 'config.json')}
@@ -216,7 +248,8 @@ def main(argv=None):
     where = locations(home)
     if a.dry_run:
         what = 'update' if a.update else 'uninstall' if a.uninstall else 'install'
-        print(f'Would {what}:\n  code    {where["app"]}\n  agent   {where["plist"]} ({LABEL})\n  logs    {where["logs"]}\n'
+        print(f'Would {what}:\n  code    {where["app"]}\n  agent   {where["plist"]} ({LABEL})\n'
+              f'  wake    {where["wake_plist"]} ({WAKE_LABEL}, every 5 min: scheduled agent runs)\n  logs    {where["logs"]}\n'
               f'  python  {python}\n  url     http://localhost:{a.port}')
         return
     run = subprocess.run

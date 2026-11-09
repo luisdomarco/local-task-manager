@@ -53,7 +53,10 @@ def _meta(fields):
     def text(key):
         v = fields.get(key)
         return ' '.join(str(v).split()) if v not in (None, '') else ''
-    return {'description': text('description'), 'argument_hint': text('argument-hint'),
+    hint = fields.get('argument-hint')
+    if isinstance(hint, list):  # `argument-hint: [topic]` is a list to YAML; Claude Code shows it as written
+        hint = ' '.join(f'[{x}]' for x in hint)
+    return {'description': text('description'), 'argument_hint': ' '.join(str(hint).split()) if hint not in (None, '') else '',
             'allowed_tools': split_tools(fields.get('allowed-tools')), 'model': text('model'),
             'disable_model_invocation': fields.get('disable-model-invocation') in (True, 'true')}
 

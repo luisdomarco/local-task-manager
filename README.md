@@ -216,6 +216,10 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
   launchd starts the server and hands it that socket (`tm/launchd.py`). It runs with the `python3` that ran the
   installer, and a PATH that includes `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin` (where `claude` usually
   is).
+- **Woken for scheduled agent runs.** A second LaunchAgent (`com.taskmanager.app.wake`) runs `tools/agents_wake.py`
+  every 5 minutes: when an agent's schedule is due (§7 *Agents*), it connects to the app, which starts it; with none
+  due it does nothing and the app stays off. `--update` adds it to an app installed before it existed; its log is
+  `~/Library/Logs/TaskManager/wake.log`.
 - **Settings → App** shows how the server runs (on demand or by hand, since when, which port) with **Stop server** and
   **Restart**. Once stopped, nothing runs until the next opening starts it again.
 - **In the Dock.** Open `http://localhost:3200` in Safari and choose *File → Add to Dock*, or in Chrome *⋮ → Cast,
@@ -1535,7 +1539,7 @@ Ideas, each one command:
 #### Agents
 
 **The sidebar's third mode lists your agents, and runs them without opening Claude Code** (`agentspane.js`,
-`views/runs.js`; the server's `list_agents`, `run_agent` and `launch_agent`, `tm/commands.py`, `tm/agentruns.py`).
+`views/runs.js`, `views/agentshome.js`; the server's `list_agents`, `run_agent` and `launch_agent`, `tm/commands.py`, `tm/agentruns.py`).
 
 - **An agent folder is any folder**: a repository, a system, outside every vault. Add one with **+** in the mode's bar
   (or *+ Add folder* while there is none): its absolute path (typed, or on a Mac picked with *Choose…* in a Finder
@@ -1550,29 +1554,86 @@ Ideas, each one command:
   Finder, shows its hidden agents, or opens Settings. *Filter agents…* finds them by name or description. An agent's ⋯
   (or a right-click) **pins** it to a *Pinned* section on top, **hides** it, opens its file in the editor of Settings,
   or copies its command. Pinned, hidden, folded and open are this browser's.
-- **`#/runs`** lists every folder's agents as rows: name, what it does, the arguments it expects.
-- **An agent's page** (`#/runs/<folder>/<name>`): its name, folder and file (a click opens it in the editor of
-  Settings), its description, **Open in ▾** and **Run**, two tabs, and its **Runs** on the right.
-  **Run** — *Arguments* (its `argument-hint` as the placeholder), *Mode* (Ask before edits, Accept edits, Plan first,
-  Auto; never bypass), *Model*, *Effort* and the folder it runs in, then the exact message it sends (`/dev:start
-  STY-12`) and **Run** (⌘↵, or Enter in the arguments). What it last ran with is remembered per agent. **Definition**
-  — its frontmatter as properties (description, arguments, its allowed tools, model, whether Claude may start it
-  itself, the file) and its prompt as Markdown.
-- **Running one starts a chat in the dock**, in the agent's own folder, so Claude loads that folder's commands,
-  settings and `CLAUDE.md`; the message is `/<name> <arguments>`, the arguments as text on one line (never a shell).
-  Claude runs the command itself, with its own `allowed-tools`; whatever else it asks for — a permission, a question —
-  is a card in the chat, answered with a click.
-- **Open in ▾ starts the same run elsewhere**, with the Run tab's choices: **Terminal** (`claude` in the agent's folder,
-  the message as its first one, the mode as `--permission-mode`), or **Claude Desktop**, **Cursor** or **Antigravity**
-  when they are installed (a new session there, in that folder, the message written and not sent: press Enter there),
-  as the Claude terminal's Open in ▾ does.
+- **`#/runs` is the Home**, the section's front page: what needs you and what happened, on one screen (two columns,
+  one on a phone). On top, the last 7 days in one line (*23 runs · 20 done · 2 failed · $4.10*). Then, only while there is one, an amber box of the runs that **need you** (three at
+  most, *Open the Inbox →* for the rest); **Running now**, each with how long it has run and *Stop* while its turn goes on; **Up next**, the
+  schedules that fire next (five at most) with *Run now*; **Your agents** — the pinned ones, then the most run in the
+  last 30 days (six in all, every pinned one even past six), each with how its last run went; ▷ runs it (in the dock), a
+  click opens its page —; and **Recent results**, the runs that ended last, a click opening each where the
+  Inbox would. The tabs on top of every page of the section: **Home**, **Inbox** (with its count) and **All agents**.
+- **`#/runs/inbox` is the Inbox**: every run of every agent on this computer, grouped by what it asks of you — *Needs you*
+  (waiting for a permission, a question or a plan), *Running*, *Unread* (ended, its result not seen yet) and *Earlier*
+  (paged). A row is the run's status dot, what it sent (`/dev:start STY-12`), its status and how it went (*Needs your OK
+  to run Bash*, *Done in 3m 10s · $0.42*, *Failed after 41s*), its folder, when, and *Scheduled* when a schedule
+  started it. How a run ended: *Stopped* when you cut it short (Stop, or closed mid-turn), else as its last turn went —
+  *Done* once a turn finished (even if its process then ends with an error code), *Failed* if it erred; one that never
+  finished a turn is *Failed* if its process crashed and *Stopped* otherwise, never *Done*. A search and filters by
+  status, folder and where it came from (*In the app*, *Terminal*, *Scheduled*),
+  kept by this browser, and **Mark all read**. A row opens the run where it is useful: in the dock while it waits for
+  you or works, its detail on its agent's page once it ended (which marks it read). Its ⋯: show its detail, go to its
+  agent, mark it read, copy its session id, forget it. The **All agents** tab lists every folder's agents as rows.
+- **The sidebar tells what needs you**: a **Home** row and an **Inbox** row on top, the Inbox with its count (needs you + unread; amber while one
+  needs you) and a dot while one runs, and on each agent's row a dot when one of its runs needs you, runs, or is
+  unread. The Agents mode's button carries the same count. A run that starts waiting for you, or ends, is told — a
+  toast with *Open* when the tab is in front, a system notification otherwise, and the tab's title marked — unless the
+  dock shows it (the dock tells about its own chats). The page looks every 5 s while one runs, every minute otherwise
+  (`GET /api/agents/activity`).
+- **An agent's page** (`#/runs/<folder>/<name>`): where it lives (its folder, and its namespace: `Demo repo / qa`), its
+  name as typed, its description, and at the right **Run**, **Schedule…**, **Open in ▾** and ⋯ (open its file in the
+  editor of Settings, copy the command, show its folder in Finder), with *Where* before Run in a git repository. Under
+  them, how it has gone the last 30 days, in one row of figures: its **last run** (its status, and when; a click shows its
+  detail), **runs**, **success** (done of those that ended done or failed), its **usual time** and its **cost**. Then
+  its tabs, and on the right its **Runs** and **Schedules**.
+- **Its tabs**: **Instructions** — its prompt, as the document it is, its file at the top (*Open in …*) —, then one
+  tab for each kind of thing it works with, only when it has some: **Skills**, **Subagents**, **Commands** and **Files**
+  — and **Details** (its arguments, the tools it allows itself, its model, whether Claude may start it itself, its file
+  and folder). What it works with is not declared anywhere, so it is read from its folder (`tm/agentlinks.py`): the
+  skills (`.claude/skills/<name>/SKILL.md`), subagents (`.claude/agents/**/*.md`) and commands of that folder whose name
+  its prompt says as a whole word (a command as `/name`), and what those skills and subagents name in turn, one step
+  further — marked *via* the one that names it. A file is a path in its prompt (`docs/guide.md`) that is a file of the
+  folder. A row unfolds into the file (a command's opens its page); only what is listed is ever read.
+- **Run opens it in the dock, not sent**: a chat in the agent's own folder (so Claude loads that folder's commands,
+  settings and `CLAUDE.md`), with `/<name> ` written in the dock's composer and the caret after it. Its arguments, mode,
+  model and effort are settled there — the dock's composer is the only one —, and it starts with what the agent last ran
+  with (or Settings'). The run begins, and is listed, when that first message goes: its arguments are what follows
+  `/<name>`, as text on one line (never a shell). Closed unsent, nothing is listed and its worktree, if one was made, is
+  taken away. Claude runs the command itself, with its own `allowed-tools`; whatever else it asks for — a permission, a
+  question — is a card in the chat, answered with a click. A run's *Run again* (its ⋯) opens it the same way with its
+  arguments written.
+- **Where: This folder or New worktree** (a folder in a git repository). *New worktree* runs it in a git worktree of
+  its own — `.claude/worktrees/agents-<6 hex>` of the repository, on a new branch `agents/<command>-<6 hex>` from
+  `HEAD` — so nothing in the folder you work in changes. A worktree has only what is committed, so the command's file
+  must be committed as it is (else the run is refused, and says why). **Remove worktree…** (a run's ⋯) takes it away
+  and keeps its branch with whatever the run committed; one with changes nobody committed asks first. The app never
+  commits, pushes or opens a pull request.
+- **Open in ▾ starts the same run elsewhere**, with what it last ran with (a new worktree too): **Terminal** (`claude`
+  in the agent's folder, the message as its first one, the mode as `--permission-mode`; a command that takes arguments
+  asks for them first, as Terminal sends it at once), or **Claude Desktop**,
+  **Cursor** or **Antigravity** when they are installed (a new session there, in that folder, the message written and
+  not sent: press Enter there), as the Claude terminal's Open in ▾ does.
 - **Runs**, the panel on the right (it folds away, as an item's page's does), lists every run of that agent, newest
-  first: what it sent, where it ran (*In the app* or *Terminal*), the mode, model and effort when they were not the
-  default, and when Claude Code last wrote it; a dot while it runs in the dock. A row's arrow opens it again — in this
-  app (the dock), Terminal, Claude Desktop, Cursor or Antigravity — and its ⋯ puts its arguments back into the Run tab,
-  copies its session id, or forgets it (the conversation stays in Claude Code). The runs are this computer's, not a
-  vault's: they are kept in `agent-runs.json` next to `config.json` (never versioned, never exported), so every vault
-  shows the same ones. A run opened in Claude Desktop, Cursor or Antigravity is not listed: that app picks its own session.
+  first, with its status and how it went. A row opens **its detail** in the panel (*‹ Runs* goes back; the Inbox opens
+  it with `?run=<id>`): its status, what it sent, when it started, where (its folder or worktree and branch), mode,
+  model, turns and cost; **Open in dock** (*Show in dock* while it is there), **Stop** while it works or waits, Open in
+  ▾, and ⋯ (its arguments back into the composer, copy its session id or branch, Remove worktree…, Forget). Then its
+  **Changes**: the files of its folder that differ from where the folder stood when the run started — noted then with
+  `git stash create`, which writes no file and no stash —, each with its lines added and removed and, on a click, its
+  diff. It is the folder's difference, not the run's alone: what you changed there meanwhile shows too. Outside a git
+  repository there is nothing to compare with. The runs are this computer's, not a vault's: they are kept in
+  `agent-runs.json` next to `config.json` (never versioned, never exported), so every vault shows the same ones. A run
+  opened in Claude Desktop, Cursor or Antigravity is not listed: that app picks its own session.
+- **Schedules: an agent that runs on its own.** **Schedule…** opens a dialog — *Repeats* (every day, every weekday, on
+  some days, every few hours), *At* (this Mac's time), the arguments and the choices it runs with, filled from its
+  last run. A scheduled run is a run like any other: in the app (whether the page is open or not), unread when it
+  ends, told by the Inbox; its chat ends once its turn is over unless the dock has it open (*Open in dock* resumes it).
+  Nobody is there to answer it, so what it asks waits in *Needs you* — the dialog says so unless the mode is Plan or
+  Auto or the command allows its tools itself. One whose time comes while the app is off or the Mac asleep runs once
+  when it is back, within 12 hours; later than that it is marked missed. One whose last run is still going is skipped.
+  The installed app (`tools/install_app.py`) has a second LaunchAgent, `com.taskmanager.app.wake`, that runs
+  `tools/agents_wake.py` every 5 minutes: it wakes the app only when a schedule is due, so the app stays off
+  otherwise. An agent's **Schedules** tab lists its own, **Settings → Agents** all of them, each with when it fires
+  next and last ran, **Run now** (its next time unchanged), Edit…, Pause/Resume and Delete (its runs stay). They are
+  kept in `agent-schedules.json` next to `config.json` (never versioned, never exported).
 
 #### Safe against edits from outside
 

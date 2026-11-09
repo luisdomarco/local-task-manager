@@ -11,9 +11,11 @@ export const agentHref = (dirId = '', name = '') => (dirId && name ? `#/runs/${d
 
 /** #/runs/<param> → { dir, name } ('' when not there). */
 export function parseRunsParam(param) {
-  const [dir = '', ...rest] = String(param || '').split('/');
+  const [path, query = ''] = String(param || '').split('?');
+  const [dir = '', ...rest] = path.split('/');
   const name = rest.length ? decodeURIComponent(rest.join('/')) : '';
-  return { dir, name };
+  const run = new URLSearchParams(query).get('run') || '';
+  return { dir, name, run };
 }
 
 /** The tree path of the agent the address shows (null when none): what the sidebar lights up. */
@@ -72,6 +74,12 @@ export const RUN_MODES = [
   ['auto', 'Auto', 'target'],
 ];
 
+// Where a run starts (server.py AGENT_WHERE): in the agent's folder, or in a new worktree of it on a branch of its own.
+export const RUN_PLACES = [
+  ['here', 'This folder', 'folder'],
+  ['worktree', 'New worktree', 'branch'],
+];
+
 /** Toggles `key` in a list kept as a pref (pinned or hidden agents): the new list, null when empty. */
 export function toggled(list, key) {
   const set = new Set(list || []);
@@ -86,5 +94,5 @@ const RUN_WHERE = { here: 'In the app', terminal: 'Terminal' };
  *  (a mode other than Ask before edits, a model, an effort). The time is the panel's (it comes from Claude Code). */
 export function runMeta(run) {
   const mode = run.mode && run.mode !== 'default' ? RUN_MODES.find(([m]) => m === run.mode)?.[1] || run.mode : null;
-  return [RUN_WHERE[run.target] || run.target || null, mode, run.model || null, run.effort ? `${run.effort} effort` : null].filter(Boolean);
+  return [RUN_WHERE[run.target] || run.target || null, run.worktree ? 'Worktree' : null, mode, run.model || null, run.effort ? `${run.effort} effort` : null].filter(Boolean);
 }

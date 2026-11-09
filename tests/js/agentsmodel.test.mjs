@@ -52,7 +52,9 @@ describe('agentsmodel', () => {
   it('round-trips the address of an agent', () => {
     const href = agentHref('ab12cd34', 'dev:start');
     assert.equal(href, '#/runs/ab12cd34/dev%3Astart');
-    assert.deepEqual(parseRunsParam(href.replace('#/runs/', '')), { dir: 'ab12cd34', name: 'dev:start' });
+    assert.deepEqual(parseRunsParam(href.replace('#/runs/', '')), { dir: 'ab12cd34', name: 'dev:start', run: '' });
+    assert.deepEqual(parseRunsParam('ab12cd34/dev%3Astart?run=abc'), { dir: 'ab12cd34', name: 'dev:start', run: 'abc' });
+    assert.equal(agentPathOfHash(`${href}?run=abc`), 'ab12cd34/dev/start');
     assert.equal(agentPathOfHash(href), 'ab12cd34/dev/start');
     assert.equal(agentPathOfHash('#/runs/ab12cd34/dev:start'), 'ab12cd34/dev/start'); // typed by hand
     assert.equal(agentPathOfHash('#/runs'), null);

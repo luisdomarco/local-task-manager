@@ -4,6 +4,7 @@
 // dragged or renamed: the files are the folders' own). An agent opens its page in the middle (#/runs/<folder>/<name>,
 // views/runs.js), where it is run. Pinned and hidden agents, folded and open folders are this browser's (prefs.js): the
 // folders are the same in every vault, so these are too. "+ Add folder" adds one to the list Settings edits.
+import { activity, initActivity, onActivity } from './agentactivity.js';
 import { api } from './api.js';
 import { agentEntries, agentHref, agentKey, agentPath, agentPathOfHash, folderCounts, pinnedAgents, runMessage, toggled } from './agentsmodel.js';
 import { trapFocus } from './create.js';
@@ -12,6 +13,7 @@ import { folderButton } from './folderpick.js';
 import { pref, setPref } from './prefs.js';
 import { onSidebarMode, sidebarMode } from './sidebar.js';
 import { onChange, saveConfig, state, toast } from './state.js';
+import { agentMarks, inboxCount, RUN_STATUSES } from './runmodel.js';
 import { treePane } from './treepane.js';
 import { dropdown, h, icon } from './ui.js';
 
@@ -72,7 +74,9 @@ function sections(t) {
   if (!dirs?.length) return [{ id: 'none', path: '', head: emptyHead(), node: null }];
   const pins = pinnedNode();
   const fold = folded();
+  marks = agentMarks(activity()?.runs);
   return [
+    { id: '~inbox', path: '', head: inboxRow(), node: null },
     ...(pins ? [{ id: PINNED, path: '', head: head({ id: PINNED, name: 'Pinned', exists: true, pinned: true }, pins.children.length), node: fold.has(PINNED) ? null : pins }] : []),
     ...dirs.map((d) => ({ id: d.id, path: d.id, head: head(d, folderCounts(d, hidden()).shown), node: fold.has(d.id) ? null : findNode(t, d.id) })),
   ];
@@ -89,6 +93,25 @@ function head(d, count) {
     h('span', { class: 'agents-count' }, gone ? 'not found' : String(count))),
     d.pinned ? null : h('button', { class: 'btn icon docs-add', title: `${d.name}: actions`, 'aria-label': `Actions on ${d.name}`, 'aria-haspopup': 'menu',
       onclick: (e) => folderMenu(e.currentTarget, d) }, icon('more', 14)));
+}
+
+let marks = {}; // agentKey → 'needs_you' | 'working' | 'unread' (runmodel.js agentMarks), as the tree was last drawn
+const MARK_TIP = { needs_you: 'A run waits for you', working: 'Running', unread: 'A run ended: not seen yet' };
+
+/** Home and Inbox, above the folders (views/agentshome.js #/runs, views/runs.js #/runs/inbox): the Inbox with how many
+ *  runs wait for you or ended unread, and a dot while one runs. */
+function inboxRow() {
+  const counts = activity()?.counts || {};
+  const n = inboxCount(counts);
+  const at = location.hash.split('?')[0];
+  const link = (href, ico, name, lit, title, ...after) => h('a', { class: `agents-inbox${lit ? ' active' : ''}`, href, 'aria-current': lit ? 'page' : null, title },
+    icon(ico, 15), h('span', { class: 'agents-inbox-name' }, name), ...after);
+  return h('div', { class: 'agents-nav' },
+    link('#/runs', 'home', 'Home', at === '#/runs', 'Start an agent, and what runs, waits and ended'),
+    link('#/runs/inbox', 'inbox', 'Inbox', at === '#/runs/inbox',
+      n ? `${counts.needs_you || 0} waiting for you · ${counts.unread || 0} ended, not seen yet` : 'Every run of your agents',
+      counts.running ? h('span', { class: 'td-dot tone-accent', title: `${counts.running} running`, 'aria-label': `${counts.running} running` }) : null,
+      n ? h('span', { class: `agents-inbox-count${counts.needs_you ? ' warn' : ''}` }, String(n)) : null));
 }
 
 /** No folder yet: what the section is for, and the way to add the first one. */
@@ -147,6 +170,12 @@ const pane = treePane({
   },
   decorate: (node, row) => {
     if (node.agent?.hidden) row.classList.add('is-hidden'); // a namespace has no href (above): it only folds
+    const mark = node.agent && marks[agentKey(node.agent.dir, node.agent.name)];
+    if (mark) {
+      const tone = mark === 'unread' ? 'success' : RUN_STATUSES[mark].tone;
+      row.querySelector('.tree-more')?.before(h('span', { class: `td-dot agents-mark tone-${tone}${mark === 'unread' ? ' unread' : ''}`,
+        title: MARK_TIP[mark], 'aria-label': MARK_TIP[mark] }));
+    }
   },
   menu: agentMenu,
   bar: [
@@ -208,6 +237,9 @@ export function initAgents() {
   onSidebarMode((mode) => { if (mode === 'agents') loadAgents().then(() => pane.reveal(agentPathOfHash(location.hash))); });
   // A save in Settings (a folder added, renamed or removed) reloads the page's state: the list follows.
   onChange(() => { if (listed() || dirs) loadAgents(); });
-  window.addEventListener('hashchange', () => { if (listed() && tree) pane.reveal(agentPathOfHash(location.hash)); });
+  window.addEventListener('hashchange', () => { if (listed() && tree) { pane.render(); pane.reveal(agentPathOfHash(location.hash)); } });
   if (listed()) loadAgents().then(() => pane.reveal(agentPathOfHash(location.hash)));
+  // The Inbox's count and each agent's mark follow the runs.
+  onActivity(() => { if (tree) pane.render(); });
+  initActivity();
 }

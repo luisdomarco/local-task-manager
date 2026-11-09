@@ -394,14 +394,24 @@ function tell(t, st, prev) {
   const what = st === 'needs_you' ? 'needs you' : prev === 'working' && st === 'idle' ? 'finished' : '';
   const seen = !document.hidden && !dock.classList.contains('collapsed') && active === t.id;
   if (!what || seen) return;
-  setAlertTitle(`${t.label} ${what}`);
-  if (!document.hidden) { toast(`Claude · ${t.label} ${what}`); return; }
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  const n = new Notification(`Claude ${what}`, { body: t.label, tag: `tm-chat-${t.id}` });
-  n.onclick = () => {
-    window.focus();
+  notify(t.label, what, t.id, () => {
     if (dock.classList.contains('collapsed')) collapseBtn.click();
     if (tabs.has(t.id)) activate(t.id);
+  });
+}
+
+/** Tells you that `label` (a session, a run) `what` ("needs you", "finished", "failed"): the tab's title says so until
+ *  you come back, and a toast with Open while you look at the page, else a notification of the system (if allowed) that
+ *  opens it when clicked. `id` keeps one notification per session. Also for the agent runs not in the dock
+ *  (agentactivity.js). */
+export function notify(label, what, id, open) {
+  setAlertTitle(`${label} ${what}`);
+  if (!document.hidden) { toast(`Claude · ${label} ${what}`, false, open ? { label: 'Open', run: open } : null); return; }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const n = new Notification(`Claude ${what}`, { body: label, tag: `tm-chat-${id}` });
+  n.onclick = () => {
+    window.focus();
+    open?.();
     n.close();
   };
 }
@@ -512,10 +522,15 @@ export async function openClaudeHere({ key = null, instruction = '', model = '',
   }
 }
 
-/** A chat the server has just started elsewhere (an agent run, server.py run_agent), shown in the dock and brought to
- *  the front. */
-export function showChatHere(info) {
-  return attachChat(info).id;
+/** A chat the server has just started elsewhere (an agent run, server.py run_agent / open_agent_chat), shown in the
+ *  dock and brought to the front; `draft`: text left in its composer, unsent; `onSent`: called once its next message
+ *  has gone. */
+export function showChatHere(info, draft = '', onSent = null) {
+  const t = attachChat(info);
+  if (dock.classList.contains('collapsed')) collapseBtn.click(); // folded: unfolded, the chat is where to go on
+  if (draft) t.view.setDraft(draft);
+  if (onSent) t.view.onSent = onSent;
+  return t.id;
 }
 
 const NEW_TITLE = 'New session — empty, about the item open in the card (if any); the top bar\'s Claude button has the full dialog';
@@ -592,3 +607,5 @@ export async function restoreTerms() {
 export const termIsOpen = () => Boolean(dock && !dock.hidden);
 /** Whether the session `id` is running in the dock, as a chat or a terminal (an ended one is not): Claude Desktop cannot take it then. */
 export const termIsLive = (id) => Boolean(tabs.get(id)?.alive);
+/** Whether session `id` is in sight: its tab the one shown, in the dock unfolded, on the page you look at. */
+export const termShowing = (id) => Boolean(dock && !dock.hidden && !dock.classList.contains('collapsed') && !document.hidden && active === id);

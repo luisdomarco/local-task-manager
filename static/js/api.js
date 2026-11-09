@@ -113,12 +113,28 @@ export const api = {
   // running one as a chat in the dock, and its file or folder opened. A folder is named by its id, never by its path.
   agents: () => get('/api/agents'),
   agentCommand: (dir, cmd) => get(`/api/agents/command?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
-  agentRun: (dir, cmd, args, mode, model, effort) => post('/api/agents/run', { dir, cmd, args, mode, model, effort }),
+  agentRun: (dir, cmd, args, mode, model, effort, where = 'here') => post('/api/agents/run', { dir, cmd, args, mode, model, effort, where }),
+  // Run on an agent's page: its chat in the dock, nothing sent (server.py open_agent_chat) → { chat, draft, … }
+  agentOpen: (dir, cmd, args, mode, model, effort, where = 'here') => post('/api/agents/open', { dir, cmd, args, mode, model, effort, where }),
+  agentRelated: (dir, cmd) => get(`/api/agents/related?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
+  agentRelatedFile: (dir, cmd, path) => get(`/api/agents/related/file?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}&path=${encodeURIComponent(path)}`),
   // Open in ▾ of an agent's page: Terminal (recorded) or Claude Desktop, Cursor, Antigravity (server.py launch_agent).
-  agentLaunch: (dir, cmd, args, mode, model, effort, target) => post('/api/agents/launch', { dir, cmd, args, mode, model, effort, target }),
+  agentLaunch: (dir, cmd, args, mode, model, effort, target, where = 'here') => post('/api/agents/launch', { dir, cmd, args, mode, model, effort, target, where }),
   // Its Runs panel: the runs on record (this computer's list, tm/agentruns.py), newest first; resumed like any session.
   agentRuns: (dir = '', cmd = '') => get(`/api/agents/runs?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
   agentRunForget: (sessionId) => post('/api/agents/runs/forget', { session_id: sessionId }),
+  agentRunRemoveWorktree: (id, force = false) => post('/api/agents/runs/worktree/remove', { id, force }),
+  agentRunChanges: (id) => get(`/api/agents/runs/changes?id=${encodeURIComponent(id)}`),
+  agentRunDiff: (id, path) => get(`/api/agents/runs/diff?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`),
+  // Activity and the sidebar's Inbox: every agent's runs (the newest), and what needs you / runs / is unread.
+  agentActivity: () => get('/api/agents/activity'),
+  agentRunsRead: (ids) => post('/api/agents/runs/read', { ids }),
+  // Scheduled runs (server.py tick, tm/schedules.py): of one agent, or all; saved (new, or changed by id), paused, run now.
+  agentSchedules: (dir = '', cmd = '') => get(`/api/agents/schedules?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
+  agentScheduleSave: (body) => post('/api/agents/schedules', body),
+  agentSchedulePause: (id, paused) => post('/api/agents/schedules/pause', { id, paused }),
+  agentScheduleDelete: (id) => post('/api/agents/schedules/delete', { id }),
+  agentScheduleRun: (id) => post('/api/agents/schedules/run', { id }),
   agentOpenFile: (dir, cmd) => post('/api/agents/open-file', { dir, cmd }),
   agentReveal: (dir) => post('/api/agents/reveal', { dir }),
   chatResume: (key, sessionId, mode) => post('/api/chat/resume', { key, session_id: sessionId, mode }),

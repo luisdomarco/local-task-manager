@@ -387,7 +387,7 @@ of a name and the list's switch (`.gp-switch` + `.vb-switch`, the whole row flip
 groups as a colour swatch that cycles `GROUP_COLORS` and a search box (`.gp-group`), and sliders (`.gp-range`: a thin
 track filled with the accent up to the thumb, its value at its left). Everything in it is kept per vault (`graph.view`).
 
-### Agents (`agentspane.js`, `views/runs.js`)
+### Agents (`agentspane.js`, `views/runs.js`, `views/agentshome.js`)
 
 **A list that is not the vault's files reuses the Explorer's tree read-only**: `treePane({ readonly: true, … })` keeps
 the filter, folding, keyboard and lit row, and drops dragging, renaming, deleting, *Search in files* and the eye; its
@@ -395,20 +395,52 @@ rows take `nameOf`, `iconOf`, `tipOf`, `decorate` and a `menu(node)` of their ow
 Docs' heads (`.docs-head`, the title folds it) with its count at the right (`.agents-count`). An agent's name is
 monospace (it is what you type), with the `slash` icon; a namespace is a plain folder row.
 
-In the middle: **`#/runs` is rows, not cards** (`.agents-row`: icon · name in monospace · description, muted ·
-argument hint, monospace and muted), a thin line under each folder's head. **An agent's page** is a head (its name as
-the `h1`, in monospace; folder · file in a muted line, the file a quiet link to the editor; the description as a
-sentence; **Open in ▾** secondary — the Claude terminal's own menu, `openInMenu`, opening below — and **Run** primary at
-the right) and `tabPanels` with Run and Definition, on the page's own padding (`.agents-page .tab-panel`). It is laid
-out as an item's page is (`.page.two-panel` > `.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that
-`sideFold` folds; 360px wide here, `.agents-body`): the side panel is its **Runs**, drawn as an item's AI tab draws its
-conversations (`.cs-list` of `.cs-item` cards: what it sent in monospace over a muted meta line, the live dot, the
-arrow and ⋯ on hover). A list that polls redraws only when what it shows changed, so a hovered row or an open menu
-stays put.
-Run's choices are quiet property rows (`.prop-rows.quiet`), a help line under a choice when it needs one, then the
-exact message it sends in a monospace pill with **Run** at its right, after a line. Definition is property rows too,
-the allowed tools as monospace chips, then *Prompt* and the body as Markdown. No tiles, no status colours: what runs is
-a chat in the dock, drawn as every chat is.
+**`#/runs` is the Home** (`.agents-home`): the week's line on top, then a grid of two columns
+(`.agents-home-grid`, one at 900px and below) of sections titled as the Inbox's groups (`.agents-section-title`, no
+line under them; a quiet *… →* link at their right, `.agents-home-more`), each a list of `.cs-item` cards: a dot or an
+icon, the title in monospace, one muted meta line with the status word first, and at most one quiet icon button at
+the right (Stop, Run now, ▷ Run — which opens it in the dock, as on its page). **What needs you is the one box with a tint**
+(`.agents-home-alert`, the warning tone), and only while there is something in it — an empty Home is calm. The week is
+a muted line, not a row of figures. In the sidebar, Home and Inbox are two rows on top
+(`.agents-nav`), lit as the Explorer's views are.
+
+In the middle, **`#/runs/inbox` is the Inbox** (`.section-tabs` Home · Inbox · All agents, a `view-bar` of search and selects,
+then groups — Needs you · Running · Unread · Earlier — of `.cs-item` cards, `.agents-inbox-row`): a status dot
+(`.td-dot.tone-*`, the tones of `runmodel.js RUN_STATUSES`), what it sent in monospace, and one muted meta line with the
+status word first. **The status is a dot and a word, never a filled chip**: amber needs you, blue works, green done, red
+failed, grey stopped; the same dot marks an agent's row in the sidebar and the Inbox row's count turns amber while one
+needs you. *All agents* is rows, not cards (`.agents-row`: icon · name in monospace · description, muted · argument
+hint, monospace and muted), a thin line under each folder's head.
+
+**An agent's page** is a head, a row of figures and tabs. **The head** (`.agents-head-page`): crumbs (`.agents-crumbs`:
+folder icon, the folder as a link to *All agents*, its namespace after a `/`, muted and small), then a row of the name
+(the `h1`, in monospace) with the description under it as muted text (`.agents-title-col`), and at its right the
+actions (`.agents-actions`, 32px high, wrapping under the name when short of room): *Where* as a small `select`,
+**Run** primary, **Schedule…** secondary, **Open in ▾** ghost and ⋯. **There is no composer on the page**: Run opens
+the dock's chat with the command written, and that composer is the only one. **The figures** (`.agents-stats`): one
+bordered card of five cells in a row that wraps (`flex: 1 1 100px`), a line between cells drawn by each cell's own left
+and top shadow and clipped at the card's edge; each cell an uppercase muted label, a figure (1.05rem, 650) and a muted
+line under it. **The tabs** (`tabPanels`, `.agents-tabs`, as wide as their names and scrolling sideways, never cut):
+*Instructions* is the prompt as a document (`.agents-doc`: a bordered card, a muted head with the file in monospace and
+*Open in …* at its right, the Markdown under it with its headings brought down to h4 size); *Skills*, *Subagents*,
+*Commands* and *Files* only when there is something in them, each a bordered list (`.agents-rel-list`) of rows that
+unfold — icon, name in monospace with a *via …* chip when it came through another, its description clamped to two
+lines, a chevron that turns —; *Details* the property rows. It is laid out as an item's page is (`.page.two-panel` >
+`.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that `sideFold` folds; 360px wide here,
+`.agents-body`): the side panel's tabs are **Runs** and **Schedules**, drawn as an item's AI tab draws its
+conversations (`.cs-list` of `.cs-item` cards, the arrow and ⋯ on hover).
+
+**A run's detail replaces the list in the panel** (no new page, no modal): *‹ Runs*, then the status dot and word over
+what it sent, a row of actions (the primary one first, ⋯ last at the right, `.agents-run-actions`), its facts as
+`prop-rows quiet`, then **Changes** — `.agents-change` rows of path, `+n −n` in the diff colours and a toggle that
+unfolds the file's diff, drawn by `diffview.js diffBlock` as the dock's chat draws an edit (hunks as a muted line). A
+list that polls redraws only when what it shows changed, so a hovered row or an open menu stays put.
+
+**A schedule is a `.cs-item` too**: its rule in words as the title (`tm/schedules.py label`, never worked out in the
+page), *Next tomorrow 9:00 (in 19 h) · last ran today 14:27* as the meta, a green / grey / red dot for on / paused /
+could not start, ▷ Run now and ⋯ on hover. **The Schedule dialog** is the Add-folder dialog's frame (`.agents-modal`):
+property rows whose pickers keep their own width side by side (`.agents-sched-inline`), the days as toggle pills
+(`.agents-sched-day`), and a muted warning with the `alert` icon when nobody would be there to answer a permission.
 
 ### Resizing a panel
 
