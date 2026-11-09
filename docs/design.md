@@ -377,6 +377,29 @@ of a name and the list's switch (`.gp-switch` + `.vb-switch`, the whole row flip
 groups as a colour swatch that cycles `GROUP_COLORS` and a search box (`.gp-group`), and sliders (`.gp-range`: a thin
 track filled with the accent up to the thumb, its value at its left). Everything in it is kept per vault (`graph.view`).
 
+### Agents (`agentspane.js`, `views/runs.js`)
+
+**A list that is not the vault's files reuses the Explorer's tree read-only**: `treePane({ readonly: true, … })` keeps
+the filter, folding, keyboard and lit row, and drops dragging, renaming, deleting, *Search in files* and the eye; its
+rows take `nameOf`, `iconOf`, `tipOf`, `decorate` and a `menu(node)` of their own. A section per folder is drawn as
+Docs' heads (`.docs-head`, the title folds it) with its count at the right (`.agents-count`). An agent's name is
+monospace (it is what you type), with the `slash` icon; a namespace is a plain folder row.
+
+In the middle: **`#/runs` is rows, not cards** (`.agents-row`: icon · name in monospace · description, muted ·
+argument hint, monospace and muted), a thin line under each folder's head. **An agent's page** is a head (its name as
+the `h1`, in monospace; folder · file in a muted line, the file a quiet link to the editor; the description as a
+sentence; **Open in ▾** secondary — the Claude terminal's own menu, `openInMenu`, opening below — and **Run** primary at
+the right) and `tabPanels` with Run and Definition, on the page's own padding (`.agents-page .tab-panel`). It is laid
+out as an item's page is (`.page.two-panel` > `.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that
+`sideFold` folds; 360px wide here, `.agents-body`): the side panel is its **Runs**, drawn as an item's AI tab draws its
+conversations (`.cs-list` of `.cs-item` cards: what it sent in monospace over a muted meta line, the live dot, the
+arrow and ⋯ on hover). A list that polls redraws only when what it shows changed, so a hovered row or an open menu
+stays put.
+Run's choices are quiet property rows (`.prop-rows.quiet`), a help line under a choice when it needs one, then the
+exact message it sends in a monospace pill with **Run** at its right, after a line. Definition is property rows too,
+the allowed tools as monospace chips, then *Prompt* and the body as Markdown. No tiles, no status colours: what runs is
+a chat in the dock, drawn as every chat is.
+
 ### Resizing a panel
 
 A panel whose width (or the dock's height) the user picks gets a grip wired by `wireResizer` (`resizer.js`): drag, ←/→

@@ -4,6 +4,16 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Agents: run your Claude Code commands from the app.** A third sidebar mode (⌘⇧E goes round Project, Explorer and
+  Agents) lists the commands in the `.claude/commands` of any folder you add — a repository, a system, outside every
+  vault — by folder and namespace, with a filter, pinned agents on top and hidden ones out of the way. Each agent has a
+  page: what it does and the arguments it expects, the mode, model and effort it starts with, the exact message it
+  sends, and its definition (its fields, allowed tools and prompt). **Run** starts it as a chat in the dock, in its own
+  folder, where its questions and permissions are answered with a click; **Open in ▾** starts it in Terminal, Claude
+  Desktop, Cursor or Antigravity instead. On the right, its **Runs**: every run of it on this computer, live ones with
+  a dot, each opened again in the dock or elsewhere from its row. Folders are added from the sidebar or in
+  Settings → Agents.
+
 - **The README shows the app as it is now**: new screenshots, light only, all on the Projects sample vault — an
   initiative's page, Planning, a story's card, ⌘K, Goals, every item in one list and Docs. The dark variants are gone.
 - **Goals has a Canvas**: a whiteboard (Excalidraw) beside List and Board, with the open goals in a column that folds.

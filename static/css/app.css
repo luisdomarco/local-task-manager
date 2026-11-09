@@ -487,9 +487,10 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .side-mode { display: flex; gap: 2px; padding: 3px; background: var(--muted); border-radius: var(--radius); }
 .side-mode .btn.icon { width: 32px; height: 30px; min-height: 0; color: var(--muted-foreground); }
 .side-mode .btn.icon.active { background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
-#side-explorer { display: none; }
-.side-mode-explorer #sidebar > #side-explorer { display: flex; flex: 1 1 0; min-height: 160px; flex-direction: column; gap: 6px; }
-.side-mode-explorer #sidebar #nav, .side-mode-explorer #sidebar .side-section, .side-mode-explorer #sidebar .side-tools { display: none; }
+#side-explorer, #side-agents { display: none; }
+.side-mode-explorer #sidebar > #side-explorer, .side-mode-agents #sidebar > #side-agents { display: flex; flex: 1 1 0; min-height: 160px; flex-direction: column; gap: 6px; }
+.side-mode-explorer #sidebar #nav, .side-mode-explorer #sidebar .side-section, .side-mode-explorer #sidebar .side-tools,
+.side-mode-agents #sidebar #nav, .side-mode-agents #sidebar .side-section, .side-mode-agents #sidebar .side-tools { display: none; }
 /* Docs (views/docs.js): its panel on the left of the view, the doc on the right, and between them a grip that resizes
    the panel (resizer.js; its width in --docs-w), drawn as the sidebar's. A head per section — its title folds it, "+"
    starts a doc or a folder; dimmed while its Docs folder is not there. */
@@ -2955,4 +2956,86 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
   .gp-row, .gp-group { min-height: 40px; }
   .gp-chip { height: 34px; border-radius: 17px; padding: 0 11px; }
   .graph-page .graph-controls .btn { width: 40px; height: 40px; }
+}
+
+/* ── Agents (agentspane.js, views/runs.js) ── The sidebar's third mode: a section per agent folder, drawn as Docs' heads
+   (.docs-head) with the folder's count at the right; an agent's row is the tree's. In the middle, #/runs lists every
+   folder's agents as rows (name · what it does · its arguments), and an agent's page is its head, then Run and
+   Definition: properties as rows (.prop-rows .quiet), the message it sends in monospace, the prompt as Markdown. */
+.agents-head .docs-title { gap: 6px; }
+.agents-count { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.agents-head.dim .agents-count { font-style: italic; }
+.agents-empty { display: grid; gap: 10px; justify-items: start; padding: 6px 6px 4px; }
+.agents-empty p { margin: 0; line-height: 1.5; }
+.side-agents .tree-row .tree-name { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: -.01em; }
+.side-agents .tree-row.is-dir .tree-name { font-family: inherit; font-size: var(--fs-sm); letter-spacing: 0; }
+
+#modal.agents-modal { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.agents-add-form { display: flex; flex-direction: column; gap: 12px; }
+.agents-add-form .prop-rows { display: flex; flex-direction: column; gap: 6px; }
+.agents-add-form .prop-rows .field { grid-template-columns: 84px minmax(0, 1fr); }
+.agents-add-form p { margin: 0; line-height: 1.5; }
+.agents-add-form code, .agents-intro code, .agents-help code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+.agents-add-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* #/runs */
+.agents-intro { max-width: 620px; line-height: 1.6; }
+.agents-intro p { margin: 0 0 8px; }
+.agents-group { margin-top: 22px; }
+.agents-group-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.agents-group-head h2 { margin: 0; font-size: var(--fs-h4); font-weight: 650; white-space: nowrap; }
+.agents-group-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-2xs); }
+.agents-rows { display: flex; flex-direction: column; }
+.agents-row { display: grid; grid-template-columns: 16px minmax(140px, 240px) minmax(0, 1fr) auto; align-items: center; column-gap: 10px;
+  min-height: 40px; padding: 0 10px; border-bottom: 1px solid var(--border); color: var(--foreground); text-decoration: none; font-size: var(--fs-sm); }
+.agents-row:hover { background: var(--muted); }
+.agents-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.agents-row > svg { color: var(--muted-foreground); }
+.agents-row-name { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-row-desc { color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-row-hint { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-2xs); color: var(--muted-foreground); }
+.agents-none { margin: 10px 10px 0; }
+
+/* #/runs/<folder>/<name> */
+.agents-page > * { max-width: 920px; } /* the page's column: its runs are in the side panel (.agents-side) */
+.agents-body { grid-template-columns: minmax(0, 1fr) 360px; }
+.agents-file { padding: 0; text-decoration: none; font-family: var(--mono); font-size: var(--fs-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agents-file:hover { text-decoration: underline; }
+.agents-props .agents-file { font-size: var(--fs-xs); white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.agents-side .cs-item-title.mono { font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; }
+.agents-page .view-head { margin-bottom: 6px; }
+.agents-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.agents-title { font-family: var(--mono); letter-spacing: -.03em; overflow-wrap: anywhere; }
+.agents-where { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; min-width: 0; }
+.agents-where .mono { font-family: var(--mono); font-size: var(--fs-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-desc { margin: 10px 0 0; max-width: 720px; line-height: 1.55; }
+.agents-page .tabs-bar { padding: 0; margin-top: 14px; }
+.agents-page .tab-panel { flex: none; overflow: visible; padding: 18px 0 0; gap: 16px; }
+.agents-form { display: flex; flex-direction: column; gap: 2px; }
+.agents-form .field { align-items: start; }
+.agents-form .field > span:first-child { padding-top: 8px; }
+.agents-control { display: grid; gap: 4px; min-width: 0; }
+.agents-help { margin: 0 0 4px 10px; }
+.agents-args { font-family: var(--mono); font-size: var(--fs-xs); }
+.agents-folder { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px; min-width: 0; }
+.agents-folder > svg, .agents-folder > span:not(.muted) { flex: none; white-space: nowrap; }
+.agents-folder > .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-2xs); }
+.agents-send { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 0 0 120px; border-top: 1px solid var(--border); }
+.agents-message { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 3px 8px; border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.agents-allowed { display: flex; align-items: center; gap: 6px; margin: 0 0 0 120px; }
+.agents-props { display: flex; flex-direction: column; gap: 2px; }
+.agents-props .field { align-items: start; }
+.agents-props .field > span:first-child { padding-top: 9px; }
+.agents-value { min-height: 36px; padding: 9px 10px 0; line-height: 1.45; overflow-wrap: anywhere; }
+.agents-value code { font-family: var(--mono); font-size: var(--fs-xs); }
+.agents-tools { display: flex; flex-wrap: wrap; gap: 4px; }
+.agents-tools .chip { font-family: var(--mono); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.agents-prompt-title { margin: 8px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: var(--fs-h4); font-weight: 650; }
+.agents-prompt { max-width: 760px; }
+@media (max-width: 760px) {
+  .agents-row { grid-template-columns: 16px minmax(0, 1fr); row-gap: 2px; padding: 8px 10px; }
+  .agents-row-desc { grid-column: 2; white-space: normal; }
+  .agents-row-hint { display: none; }
+  .agents-send, .agents-allowed { padding-left: 0; margin-left: 0; }
+  .agents-group-path { display: none; }
 }

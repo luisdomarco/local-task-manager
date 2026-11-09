@@ -17,7 +17,7 @@ import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
 
-const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['general', 'General'], ['claude', 'Claude'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);
@@ -270,6 +270,29 @@ export function mount(root, param) {
           h('button', { class: 'btn icon row-action', title: `Remove ${p}`, onclick: () => { paths.splice(i, 1); delete names[p]; if (defaultPath === p) defaultPath = ''; renderPaths(); } }, icon('x', 14)))),
         h('div', { class: 'cp-add' }, addInput, h('button', { class: 'btn small ghost', onclick: addPath }, icon('plus', 13), 'Add')));
       renderPaths();
+      // Agent folders (the sidebar's Agents mode): their own list, each with the name the sidebar shows for it.
+      const agentPaths = [...(c.agent_dirs || [])];
+      const agentNames = { ...(c.agent_dir_names || {}) };
+      const agentsBox = h('div', { class: 'claude-paths' });
+      const agentInput = h('input', { type: 'text', class: 'wide', placeholder: 'Add a folder — /absolute/path or ~/…', 'aria-label': 'Agent folder to add' });
+      const addAgentPath = () => {
+        const p = agentInput.value.trim().replace(/\/+$/, '');
+        if (!p) return;
+        if (!agentPaths.includes(p)) agentPaths.push(p);
+        agentInput.value = '';
+        renderAgentPaths();
+        agentInput.focus();
+      };
+      agentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAgentPath(); } });
+      const renderAgentPaths = () => agentsBox.replaceChildren(
+        ...(agentPaths.length ? [] : [h('p', { class: 'muted small' }, 'None yet.')]),
+        ...agentPaths.map((p, i) => h('div', { class: 'cp-row agents-dir-row' },
+          h('input', { type: 'text', class: 'cp-name', value: agentNames[p] || '', placeholder: p.split('/').pop() || 'Name', 'aria-label': `Name of ${p}`,
+            title: 'What the sidebar shows for this folder (empty: its last part)', oninput: (e) => { agentNames[p] = e.target.value; } }),
+          h('code', { class: 'cp-path', title: p }, p),
+          h('button', { class: 'btn icon row-action', title: `Remove ${p} (its files stay as they are)`, onclick: () => { agentPaths.splice(i, 1); delete agentNames[p]; renderAgentPaths(); } }, icon('x', 14)))),
+        h('div', { class: 'cp-add' }, agentInput, h('button', { class: 'btn small ghost', onclick: addAgentPath }, icon('plus', 13), 'Add')));
+      renderAgentPaths();
       const claudeCmd = h('input', { type: 'text', class: 'wide', value: c.claude_command || 'claude', placeholder: 'claude' });
       let terminal = c.terminal || 'Terminal';
       let editorApp = c.editor_app || 'Cursor';
@@ -307,13 +330,15 @@ export function mount(root, param) {
           editor_app: editorApp,
           claude_model: model,
           claude_effort: effort,
+          agent_dirs: agentPaths,
+          agent_dir_names: Object.fromEntries(agentPaths.map((p) => [p, (agentNames[p] || '').trim()]).filter(([, n]) => n)),
         }).then(() => {
           toast('Settings saved');
           if (typesHere() !== before) location.reload();
         }).catch(() => {});
       };
       const saveBar = () => h('div', { class: 'settings-save' }, h('button', { class: 'btn primary', onclick: doSave }, 'Save settings'),
-        h('span', { class: 'muted small' }, 'Saves Vaults, General and Claude together.'));
+        h('span', { class: 'muted small' }, 'Saves Vaults, General, Claude and Agents together.'));
       const vaultsTab = [
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Vaults')),
@@ -346,6 +371,13 @@ export function mount(root, param) {
             h('div', { class: 'field' }, h('span', {}, 'Default effort'), effortSel))),
         saveBar(),
       ];
+      const agents = [
+        h('section', { class: 'group' },
+          h('header', {}, h('h3', {}, 'Agent folders')),
+          h('p', { class: 'muted' }, 'The folders the sidebar\'s Agents mode reads (⌘⇧E goes round the modes). Every command in a folder\'s .claude/commands is an agent, run from its page as a chat in the dock, in that folder, so Claude loads that folder\'s commands, settings and CLAUDE.md. A folder may be anywhere: a repository, a system, outside every vault. Taking one out of the list leaves its files as they are.'),
+          h('div', { class: 'field claude-paths-field' }, h('span', {}, 'Folders'), agentsBox)),
+        saveBar(),
+      ];
       const maintenance = [
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Items without ID', h('span', { class: 'count' }, missing.length || ''))),
@@ -358,7 +390,7 @@ export function mount(root, param) {
       const keyboard = [h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Keyboard')),
         h('p', { class: 'muted' }, keyboardHelp()))];
-      const content = { vaults: vaultsTab, general, claude, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
+      const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
         documentation: [guideTab.el] };
       form.replaceChildren(...tabPanels(TABS.map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
         tab = key;

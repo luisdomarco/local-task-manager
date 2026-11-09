@@ -37,7 +37,7 @@ EXCLUDE_FILES = ('.DS_Store',)
 EXCLUDE_PATHS = ('.claude/settings.local.json',)
 EXCLUDE_SUFFIXES = ('.pyc',)
 # Never in, even if someone adds them to INCLUDE: per-machine settings, secrets, personal data, the zips.
-NEVER = ('config.json', '.env', 'vault', 'versions', 'backups')
+NEVER = ('config.json', '.env', 'vault', 'versions', 'backups', 'agent-runs.json')
 VERSIONS_DIR = 'versions'
 NAME_RE = re.compile(r'^(?:(?:system|agents|vault)-)?task-manager-[0-9A-Za-z._-]+\.zip$')
 # Inside the vault zip, everything goes under vault-<its id>/ (plain vault/ when it has none): two vaults' zips

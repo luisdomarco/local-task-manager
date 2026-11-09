@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="Task Manager">
 <script src="vendor/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi"></script>
 <script src="vendor/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a"></script>
-<script>try{var d=document.documentElement,t=localStorage.getItem('tm-theme');if(t==='light'||t==='dark')d.dataset.theme=t;var w=JSON.parse(localStorage.getItem('tm.ui.sidebar.w'));if(w>=180&&w<=420)d.style.setProperty('--sidebar-w',w+'px');var c=JSON.parse(localStorage.getItem('tm.ui.sidebar.collapsed'));if(c===true||(c===null&&innerWidth>760&&innerWidth<1000))d.classList.add('side-collapsed');var v=new URLSearchParams(location.search).get('vault')||localStorage.getItem('tm.lastVault');if(!v||JSON.parse(localStorage.getItem('tm.v.'+v+'.sidebar.mode'))!=='project')d.classList.add('side-mode-explorer')}catch(e){}</script>
+<script>try{var d=document.documentElement,t=localStorage.getItem('tm-theme');if(t==='light'||t==='dark')d.dataset.theme=t;var w=JSON.parse(localStorage.getItem('tm.ui.sidebar.w'));if(w>=180&&w<=420)d.style.setProperty('--sidebar-w',w+'px');var c=JSON.parse(localStorage.getItem('tm.ui.sidebar.collapsed'));if(c===true||(c===null&&innerWidth>760&&innerWidth<1000))d.classList.add('side-collapsed');var v=new URLSearchParams(location.search).get('vault')||localStorage.getItem('tm.lastVault');var m=v&&JSON.parse(localStorage.getItem('tm.v.'+v+'.sidebar.mode'));if(m==='agents')d.classList.add('side-mode-agents');else if(m!=='project')d.classList.add('side-mode-explorer')}catch(e){}</script>
 <link rel="stylesheet" href="vendor/fonts/inter.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -35,6 +35,8 @@
   </div>
   <!-- The Explorer mode: the vault's folders and files (explorer.js); the Project mode's nav is hidden meanwhile. -->
   <div id="side-explorer" class="side-explorer"></div>
+  <!-- The Agents mode: the commands of the agent folders of Settings → Agents (agentspane.js), in place of both. -->
+  <div id="side-agents" class="side-explorer side-agents"></div>
   <nav id="nav" aria-label="Views">
     <!-- The type links come from the vault's structure (main.js renderNav, by each type's nav group); the folder-per-type structure's until then. -->
     <div class="nav-types" data-nav-group="capture">
@@ -78,7 +80,7 @@
   </nav>
   <nav class="side-bottom">
     <div id="vault-switch" class="vault-switch"></div>
-    <!-- The sidebar's mode (Explorer or Project: sidebar.js) and the theme, side by side between the vault and Settings. -->
+    <!-- The sidebar's mode (Project, Explorer or Agents: sidebar.js) and the theme, side by side between the vault and Settings. -->
     <div class="side-switches">
       <div id="side-mode" class="side-mode" role="group" aria-label="Sidebar"></div>
       <div id="theme-switch" class="theme-switch" role="group" aria-label="Theme"></div>

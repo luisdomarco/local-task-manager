@@ -2,6 +2,8 @@
 config.json
 # The copy server.py kept of it before the first save that writes the vault list (now in backups/)
 config.json.bak-*
+# The runs of the Agents section (tm/agentruns.py), next to config.json: personal, never versioned
+agent-runs.json
 # Secrets for tools/redmine_status_sync.py (see .env.example)
 .env
 # Claude Code's per-user settings for this folder (your permissions): never versioned, never exported

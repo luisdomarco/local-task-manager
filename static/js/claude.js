@@ -41,20 +41,20 @@ export const CLAUDE_EFFORTS = [['', "Claude's default"], ['low', 'Low'], ['mediu
 
 // Open in ▾ (TSK-038): where a session can open besides the dock — Terminal, and Claude Desktop, Cursor and Antigravity
 // when they are installed (server.py open_targets: the config's claude_targets, or a preview's targets).
-const TARGET_ICON = { terminal: 'terminal', desktop: 'sparkles', cursor: 'code', antigravity: 'code' };
-const claudeTargets = () => state.config.claude_targets || [{ key: 'terminal', label: state.config.terminal || 'Terminal' }];
+export const TARGET_ICON = { terminal: 'terminal', desktop: 'sparkles', cursor: 'code', antigravity: 'code' };
+export const claudeTargets = () => state.config.claude_targets || [{ key: 'terminal', label: state.config.terminal || 'Terminal' }];
 
 /** The menu of where to open, above `anchor`. Its heading says it is the Claude session that opens there (Cursor here is its
  *  Claude Code extension, not the Explorer's "Open in <editor>", which opens a file). `sessionId`: a recorded session,
  *  which Claude Desktop cannot take while it runs in the dock (`claude --desktop --resume` does not move a live
  *  session; the server answers 409). */
-function openInMenu(anchor, targets, onPick, sessionId = null) {
+export function openInMenu(anchor, targets, onPick, sessionId = null, side = 'top') { // side 'auto': below, as on a page's head
   const live = sessionId && termIsLive(sessionId);
   dropdown(anchor, [{ heading: sessionId ? 'Resume the conversation in' : 'Start the session in' }, ...targets.map((t) => {
     const blocked = live && t.key === 'desktop';
     return { label: t.label, icon: TARGET_ICON[t.key] || 'external', onSelect: () => onPick(t), disabled: blocked,
       title: blocked ? 'Still running in the dock — close it there first' : null };
-  })], { side: 'top', align: 'end', width: 220 });
+  })], { side, align: 'end', width: 220 });
 }
 
 /** Reopen a recorded conversation in the folder it ran in: Terminal (`claude --resume <id>`), Claude Desktop

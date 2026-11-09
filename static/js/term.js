@@ -512,6 +512,12 @@ export async function openClaudeHere({ key = null, instruction = '', model = '',
   }
 }
 
+/** A chat the server has just started elsewhere (an agent run, server.py run_agent), shown in the dock and brought to
+ *  the front. */
+export function showChatHere(info) {
+  return attachChat(info).id;
+}
+
 const NEW_TITLE = 'New session — empty, about the item open in the card (if any); the top bar\'s Claude button has the full dialog';
 
 /** The list's "+": a session at once, with nothing sent, in the view last picked — about the item open in the card if

@@ -39,16 +39,19 @@ import * as month from './views/month.js';
 import * as docs from './views/docs.js';
 import * as graph from './views/graph.js';
 import * as goals from './views/goals.js';
+import * as runs from './views/runs.js';
+import { initAgents } from './agentspane.js';
 import { refOf } from './shownid.js';
 import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews } from './savedviews.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, graph };
+const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, graph, runs };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
   inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
   labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', graph: 'Graph',
+  runs: 'Agents',
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
@@ -179,7 +182,8 @@ async function route() {
   const [, name, param] = location.hash.match(/^#\/(\w+)(?:\/(.+))?/) || [];
   const explorerOnly = vaultBlocked() && sidebarMode() === 'explorer';
   if (explorerOnly && !['settings', 'files', 'find'].includes(name)) { location.replace(filesHref('')); return; }
-  if (vaultBlocked() && !explorerOnly && name !== 'settings') {
+  // Settings and the Agents section are not about the vault: they open whatever it holds.
+  if (vaultBlocked() && !explorerOnly && name !== 'settings' && name !== 'runs') {
     if (current?.unmount) await current.unmount();
     current = null;
     currentRoute = null; // whatever was asked for mounts afresh once the vault matches
@@ -401,7 +405,7 @@ function wireSidebarDrop(box, move) {
 }
 
 function renderAll() {
-  const onSettings = /^#\/settings(\/|$)/.test(location.hash);
+  const onSettings = /^#\/(settings|runs)(\/|$)/.test(location.hash);
   if (state.error) {
     document.getElementById('view').replaceChildren(h('div', { class: 'empty error' },
       `Cannot load items: ${state.error}. Check the vault in Settings.`));
@@ -465,5 +469,6 @@ firstLoad.then(syncSidebarMode); // the vault's own mode, now that the page know
 // On a vault that does not match, the mode decides what the middle shows: its files, or the notice.
 onSidebarMode(() => { if (vaultBlocked()) route(); });
 initExplorer();
+initAgents();
 onChange(renderAll);
 reload().then(route).then(restoreTerms); // terminals the server still runs get their tabs back

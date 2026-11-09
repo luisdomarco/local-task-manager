@@ -185,6 +185,7 @@ Every field is optional.
 | `claude_paths`, `claude_cwd`, `claude_path_names` | The saved folders Claude may start in (a closed list: the browser picks one, never types one), the default among them (`""` = this app's folder) and a display name for each. | Settings → Claude |
 | `claude_model`, `claude_effort` | Default model and effort for a launch (`""` = Claude's own default). | Settings → Claude |
 | `terminal` | `Terminal` or `iTerm`, for *Open in Terminal*. | Settings → Claude |
+| `agent_dirs`, `agent_dir_names` | The agent folders of the sidebar's Agents mode (absolute, existing; a closed list, apart from `claude_paths`: the page names a folder by its id, never by its path) and the name the sidebar shows for each. | Settings → Agents, or *+ Add folder* in the sidebar |
 | `sync` | Settings for commands of your own that sync the vault with outside systems (your email, which calendar…). The app itself never reads it. See [Your own commands, skills and agents](#your-own-commands-skills-and-agents). | by hand, or by those commands |
 
 Secrets never go in `config.json`: a token for an external system goes in `.env` (copy
@@ -254,7 +255,10 @@ One line per area; each links to its reference section.
 - **Work log** — time per item per day, one file per day, suggestions of what you forgot to log. → [Work log](#work-log)
 - **Explorer** — the vault as files: preview, edit, search in files, CSV as a table, drag files in from Finder.
   → [The Explorer](#the-explorer)
-- **Sidebar modes** — Project (the views) and Explorer (the files), remembered per vault. → [Sidebar modes](#sidebar-modes)
+- **Sidebar modes** — Project (the views), Explorer (the files) and Agents (your Claude Code commands), remembered per
+  vault. → [Sidebar modes](#sidebar-modes)
+- **Agents** — the commands in the `.claude/commands` of any folder you add (a repository, a system, outside every
+  vault), each with its page, run from the app as a chat in the dock. → [Agents](#agents)
 - **Docs** — a view (⌘⇧D) of the vault's documents, which are never items: trees on the left, the doc and its
   properties on the right. → [Docs](#docs)
 - **Work with Claude** — launch Claude Code on any item, in the embedded terminal dock or in Terminal, Claude Desktop,
@@ -745,7 +749,7 @@ come the files whose path matches, the views, *Claude terminal* / *Work on … w
 Arrow keys move, Enter runs, Esc closes (`palette.js`; what matches and in what order is `search.js`).
 
 Keys: `q` capture · `/` focus the filter · `Esc` close the top layer · `⌘\` hide or show the sidebar · `⌘⇧E`
-Explorer · `⌘⇧D` Docs · `g` then a key to go to a view. The `g` keys are the app's (`t` Today, `w` Week,
+the next sidebar mode (Project → Explorer → Agents) · `⌘⇧D` Docs · `g` then a key to go to a view. The `g` keys are the app's (`t` Today, `w` Week,
 `b` Board, `a` List, `l` Work log, `h` Labels, `e` Contacts, `d` Trash) plus each type's — Initiatives: `i` Inbox,
 `n` Initiatives, `s` User stories, `k` Tasks, `o` Notes, `x` Transcriptions, `m` Meetings, `c` Activity, `p` Prompts;
 Tasks: the same without `s`, plus `j` Projects; Projects (its Prompts, Transcriptions, Specs and Agents have none): `i` Inbox, `j` Projects, `n` Initiatives, `k` Tasks, `u` Support, `f` Hotfixes, `v` PRDs, `y` Plans,
@@ -806,7 +810,7 @@ was left. Going to another view from the sidebar closes an expanded card (saving
 
 #### Sidebar modes
 
-The sidebar shows the vault in one of **two modes**, the two buttons at its foot, under the vault selector and left of the theme switch (`⌘⇧E` switches between them):
+The sidebar shows one of **three modes**, the three buttons at its foot, under the vault selector and left of the theme switch (`⌘⇧E` goes round them):
 
 - **Project** — first **Favourites**, right under *Add item*: the initiatives starred on their page (the ☆ in the
   page's header; a new one is not until you star it), each with its progress ring, in the order you drag them
@@ -831,6 +835,8 @@ The sidebar shows the vault in one of **two modes**, the two buttons at its foot
 - **Explorer** — the vault's folders and files as a tree: open, **Edit**, create, rename, move, upload and duplicate
   files, filter by name or **search in files** (see [The Explorer](#the-explorer)). It shows the files even of a
   vault that does not match its structure.
+- **Agents** — the agents of your agent folders, to open and run (see [Agents](#agents)). The folders are the same
+  in every vault.
 
 Switching never navigates: the page stays where it is. **The mode is remembered per vault** (in this browser,
 `tm.v.<vault>.sidebar.mode`), and **a vault starts in the Explorer** until you pick Project once — so a new vault
@@ -1003,7 +1009,7 @@ them. There are three kinds, each with its own section, button and list of versi
 For the system and the agents what goes in is a whitelist (`tm/export.py` `INCLUDE`). **Always out of those two:**
 the vault you work in (wherever it is, even `sample-vault/` when it is the one in use; it has its own zip),
 every other vault in Settings → Vaults, `vault/`, `backups/` (and the older `vault.backup-*`), `config.json` (each machine has its
-own paths), `.env` (secrets), `.claude/settings.local.json`, `.git`, `versions/`, `.claude/worktrees/`, `__pycache__`,
+own paths), `agent-runs.json`, `.env` (secrets), `.claude/settings.local.json`, `.git`, `versions/`, `.claude/worktrees/`, `__pycache__`,
 `.DS_Store`, and symlinks pointing out of the app.
 
 **The installed app** (`tools/install_app.py`) runs from a copy that holds only what it needs to run: no `.git`,
@@ -1516,6 +1522,47 @@ Ideas, each one command:
 - `/daily-brief` — a summary of Today, what is carried over and the week ahead.
 - `/triage-inbox` — each inbox item proposed as a task, note or meeting with a parent, converted on approval.
 - `/notes-to-tasks` — the action items of a meeting's notes or transcription become tasks related to the meeting.
+
+#### Agents
+
+**The sidebar's third mode lists your agents, and runs them without opening Claude Code** (`agentspane.js`,
+`views/runs.js`; the server's `list_agents`, `run_agent` and `launch_agent`, `tm/commands.py`, `tm/agentruns.py`).
+
+- **An agent folder is any folder**: a repository, a system, outside every vault. Add one with **+** in the mode's bar
+  (or *+ Add folder* while there is none): its absolute path and, if you like, the name the sidebar shows for it. They
+  are listed in **Settings → Agents** (`agent_dirs`), where they are renamed and removed; removing one leaves its files
+  as they are. A folder that is gone stays listed, dimmed (*not found*), until you remove it.
+- **Every command in its `.claude/commands` is an agent** — nothing to register: write the `.md` and it is there
+  (**⟳** reads every folder again). It is named as Claude Code names it: `dev/start.md` is `/dev:start`, under a
+  `dev` folder in the tree. A `.claude/commands` that is a link (an app linking the commands of the system that builds
+  it) is followed, as Claude Code follows it.
+- **The tree**: a section per folder, its title folds it and its count is how many agents it shows; ⋯ shows it in
+  Finder, shows its hidden agents, or opens Settings. *Filter agents…* finds them by name or description. An agent's ⋯
+  (or a right-click) **pins** it to a *Pinned* section on top, **hides** it, opens its file in the editor of Settings,
+  or copies its command. Pinned, hidden, folded and open are this browser's.
+- **`#/runs`** lists every folder's agents as rows: name, what it does, the arguments it expects.
+- **An agent's page** (`#/runs/<folder>/<name>`): its name, folder and file (a click opens it in the editor of
+  Settings), its description, **Open in ▾** and **Run**, two tabs, and its **Runs** on the right.
+  **Run** — *Arguments* (its `argument-hint` as the placeholder), *Mode* (Ask before edits, Accept edits, Plan first,
+  Auto; never bypass), *Model*, *Effort* and the folder it runs in, then the exact message it sends (`/dev:start
+  STY-12`) and **Run** (⌘↵, or Enter in the arguments). What it last ran with is remembered per agent. **Definition**
+  — its frontmatter as properties (description, arguments, its allowed tools, model, whether Claude may start it
+  itself, the file) and its prompt as Markdown.
+- **Running one starts a chat in the dock**, in the agent's own folder, so Claude loads that folder's commands,
+  settings and `CLAUDE.md`; the message is `/<name> <arguments>`, the arguments as text on one line (never a shell).
+  Claude runs the command itself, with its own `allowed-tools`; whatever else it asks for — a permission, a question —
+  is a card in the chat, answered with a click.
+- **Open in ▾ starts the same run elsewhere**, with the Run tab's choices: **Terminal** (`claude` in the agent's folder,
+  the message as its first one, the mode as `--permission-mode`), or **Claude Desktop**, **Cursor** or **Antigravity**
+  when they are installed (a new session there, in that folder, the message written and not sent: press Enter there),
+  as the Claude terminal's Open in ▾ does.
+- **Runs**, the panel on the right (it folds away, as an item's page's does), lists every run of that agent, newest
+  first: what it sent, where it ran (*In the app* or *Terminal*), the mode, model and effort when they were not the
+  default, and when Claude Code last wrote it; a dot while it runs in the dock. A row's arrow opens it again — in this
+  app (the dock), Terminal, Claude Desktop, Cursor or Antigravity — and its ⋯ puts its arguments back into the Run tab,
+  copies its session id, or forgets it (the conversation stays in Claude Code). The runs are this computer's, not a
+  vault's: they are kept in `agent-runs.json` next to `config.json` (never versioned, never exported), so every vault
+  shows the same ones. A run opened in Claude Desktop, Cursor or Antigravity is not listed: that app picks its own session.
 
 #### Safe against edits from outside
 

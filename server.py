@@ -28,7 +28,7 @@ import errno
 import queue
 import signal
 
-from tm import agentsmd, attachments, export, journal
+from tm import agentruns, agentsmd, attachments, commands, export, journal
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
@@ -49,6 +49,8 @@ GUIDE_PATH = os.path.join(APP_DIR, 'docs', 'user-guide.md')
 # What the app and its tools set aside before overwriting something (a config, a vault): one folder next to config.json,
 # apart from versions/ (the exports). Never versioned, never exported.
 BACKUPS_DIR = 'backups'
+# The runs of the Agents section (tm/agentruns.py): one list for this computer, next to config.json. Never versioned, never exported.
+AGENT_RUNS = 'agent-runs.json'
 
 
 def backup_path(name):
@@ -69,6 +71,10 @@ DEFAULT_CONFIG = {
     'editor_app': 'Cursor',    # the Explorer's "Open in <editor>": one of EDITORS
     'claude_model': '',        # '' = Claude's own default; else one of CLAUDE_MODELS
     'claude_effort': '',       # '' = Claude's own default; else one of CLAUDE_EFFORTS
+    # The folders the Agents section reads commands from (.claude/commands/**/*.md; absolute, existing), and their
+    # public names. Its own closed list, apart from claude_paths: the browser names one by its id, never by a path.
+    'agent_dirs': [],
+    'agent_dir_names': {},
     # The vaults this app can show: [{id, name, path, structure, folders}]. `root` and `folders` above are kept
     # equal to the default vault's, for the tools in tools/ and for a config written before there were vaults.
     'vaults': [],
@@ -94,6 +100,8 @@ def load_config():
     cfg['folders'] = {**DEFAULT_FOLDERS, **cfg.get('folders', {})}
     cfg['claude_paths'] = clean_paths(cfg.get('claude_paths'), cfg.get('claude_cwd'))
     cfg['claude_path_names'] = clean_names(cfg.get('claude_path_names'), cfg['claude_paths'])
+    cfg['agent_dirs'] = clean_paths(cfg.get('agent_dirs'))
+    cfg['agent_dir_names'] = clean_names(cfg.get('agent_dir_names'), cfg['agent_dirs'])
     # A config from before there were vaults: its root becomes the one vault, in memory only. The file is
     # left as it is until the next save from Settings (which keeps a copy of it first). A root it names was an
     # Initiatives vault then; with no config at all, the root is the bundled sample, a Projects vault.
@@ -371,7 +379,9 @@ class App:
         cfg['claude_cwd'] = os.path.expanduser(str(cfg.get('claude_cwd') or '').strip()).rstrip('/')
         cfg['claude_paths'] = clean_paths(cfg.get('claude_paths'), cfg['claude_cwd'])
         cfg['claude_path_names'] = clean_names(cfg.get('claude_path_names'), cfg['claude_paths'])
-        for folder in cfg['claude_paths']:
+        cfg['agent_dirs'] = clean_paths(cfg.get('agent_dirs'))
+        cfg['agent_dir_names'] = clean_names(cfg.get('agent_dir_names'), cfg['agent_dirs'])
+        for folder in [*cfg['claude_paths'], *cfg['agent_dirs']]:
             if not os.path.isabs(folder) or not os.path.isdir(folder):
                 raise StoreError(400, f'not a directory: {folder}')
         before = {v['id']: v for v in self.config['vaults']}
@@ -1042,7 +1052,12 @@ def launch_claude(store, key, instruction='', model=None, effort=None, cwd=None,
 def _resume_plan(store, key, session_id):
     """The record a resume starts from (the item's list, or the global one) and the flags: never from the request,
     so the shell only ever sees what was stored."""
-    found = store.claude_session(key or None, session_id)
+    try:
+        found = store.claude_session(key or None, session_id)
+    except StoreError:
+        found = None if key else agentruns.find(runs_path(), session_id)  # a run of the Agents section: no vault's
+        if not found:
+            raise
     try:
         flags = resume_flags(found['id'])
     except ValueError as e:
@@ -1170,6 +1185,135 @@ def resume_chat(store, key, session_id, mode=''):
                        effort=found.get('effort') or '')
     chat.vault = getattr(store, 'vault_id', None)
     return {'chat': chat.info(), 'cwd': found['cwd'], 'session_id': found['id']}
+
+
+# ── Agents: the commands of the folders in Settings → Agents, run as a chat in the folder they come from ──
+AGENT_ARGS_MAX = 4000  # characters of a run's arguments: one line of text after the command, never a shell
+
+
+def agent_dirs():
+    """The agent folders of Settings, each with its id, public name and whether it is still there."""
+    names = APP.config.get('agent_dir_names', {})
+    return [{'id': commands.dir_id(p), 'path': p, 'name': names.get(p) or os.path.basename(p) or p, 'exists': os.path.isdir(p)}
+            for p in APP.config.get('agent_dirs', [])]
+
+
+def agent_dir(dir_id):
+    """The agent folder whose id is `dir_id`: only one of Settings' list (the browser never sends a path)."""
+    found = next((d for d in agent_dirs() if d['id'] == str(dir_id or '')), None)
+    if not found:
+        raise StoreError(404, 'no such agent folder: add it in Settings → Agents')
+    if not found['exists']:
+        raise StoreError(409, f"that folder no longer exists: {found['path']}")
+    return found
+
+
+def list_agents():
+    """Every agent folder with its commands (none for a folder that is gone: it is still listed, to be removed)."""
+    return {'dirs': [{**d, 'commands': commands.scan(d['path']) if d['exists'] else []} for d in agent_dirs()]}
+
+
+def agent_command(dir_id, name):
+    """One command for its page: its fields and its body (the prompt)."""
+    folder = agent_dir(dir_id)
+    found = commands.read(folder['path'], name)
+    if not found:
+        raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    return {'dir': folder, 'command': found}
+
+
+def agent_message(name, args=''):
+    """What a run sends as its first message: `/<name> <args>`, the way it is typed in Claude Code. Claude loads the
+    command itself (its body, `$ARGUMENTS`, its allowed-tools); the arguments are text in a message, on one line."""
+    args = ' '.join(str(args or '').split())
+    if len(args) > AGENT_ARGS_MAX:
+        raise StoreError(400, f'the arguments are too long (at most {AGENT_ARGS_MAX} characters)')
+    return f'/{name} {args}'.rstrip()
+
+
+def runs_path():
+    return os.path.join(os.path.dirname(CONFIG_PATH), AGENT_RUNS)
+
+
+def _agent_plan(dir_id, name, args, mode, model, effort):
+    """What a run needs before anything starts: the folder and the command (looked up here, never taken from the
+    request), the message, a fresh session id, the flags, and the entry for the list of runs (agentruns)."""
+    folder = agent_dir(dir_id)
+    if not commands.find(folder['path'], name):
+        raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    mode = (mode or '').strip()
+    if mode and mode not in CHAT_MODES:
+        raise StoreError(400, f"mode must be one of {', '.join(CHAT_MODES)}")
+    model = ((APP.config.get('claude_model') if model is None else model) or '').strip()
+    effort = ((APP.config.get('claude_effort') if effort is None else effort) or '').strip()
+    try:
+        flags = claude_flags(model, effort)
+    except ValueError as e:
+        raise StoreError(400, str(e))
+    prompt = agent_message(name, args)
+    session_id = str(uuid.uuid4())
+    cwd = os.path.realpath(folder['path'])
+    entry = {'id': session_id, 'at': now_stamp(), 'cwd': cwd, 'dir': folder['id'], 'cmd': name, 'args': ' '.join(str(args or '').split()),
+             'mode': mode or 'default', 'model': model, 'effort': effort}
+    return prompt, cwd, [*flags, *session_flags(session_id, prompt)], entry
+
+
+def run_agent(store, dir_id, name, args='', mode='', model=None, effort=None):
+    """Run a command of an agent folder as a chat in the dock: claude -p started in that folder (so it loads that
+    folder's commands), with `/<name> <args>` as its first message. Recorded in the list of runs (agentruns), so the
+    agent's page lists it and it can be resumed like any other session."""
+    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort)
+    chat = _spawn_chat(entry['id'], flags, cwd, prompt, None, entry['mode'], entry['model'], prompt, effort=entry['effort'])
+    chat.vault = getattr(store, 'vault_id', None)
+    agentruns.add(runs_path(), {**entry, 'target': 'here'})
+    return {'chat': chat.info(), 'cwd': cwd, 'command': _command_line([*chat_flags(entry['mode']), *flags]), 'session_id': entry['id']}
+
+
+def launch_agent(dir_id, name, args='', mode='', model=None, effort=None, target='terminal'):
+    """Open in ▾ of an agent's page: the same run somewhere else. Terminal: `claude` in the folder under a fresh session
+    id, the message as its first one and the mode as --permission-mode, recorded like a run in the dock. Claude
+    Desktop, Cursor or Antigravity: a new session there, in that folder, the message written and not sent (Enter,
+    there), not recorded (the app picks its own id), as the Claude terminal's Open in ▾ does."""
+    target = _target(target)
+    prompt, cwd, flags, entry = _agent_plan(dir_id, name, args, mode, model, effort)
+    if target != 'terminal':
+        return _open_elsewhere(target, cwd, prompt=prompt)
+    if entry['mode'] != 'default':
+        flags = [*flags, '--permission-mode', entry['mode']]
+    out = _open_terminal(cwd, flags, prompt)
+    agentruns.add(runs_path(), {**entry, 'target': 'terminal'})
+    return {**out, 'session_id': entry['id'], 'recorded': True}
+
+
+def agent_runs(dir_id=None, name=None):
+    """The runs on record, newest first: of one agent (its page's Runs panel), of one folder, or all. `live`: running
+    in the dock now."""
+    return {'runs': [{**r, 'live': bool(CHATS.live(r['id']) or TERMS.live(r['id']))}
+                     for r in agentruns.of(agentruns.load(runs_path()), dir_id or None, name or None)]}
+
+
+def forget_agent_run(session_id):
+    if not agentruns.forget(runs_path(), session_id):
+        raise StoreError(404, 'that run is not on record')
+    return {'forgotten': str(session_id).strip().lower()}
+
+
+def open_agent_file(dir_id, name):
+    """A command's file in the editor of Settings (`open -a <app> <file>`: handed to it to edit, never run)."""
+    if sys.platform != 'darwin':
+        raise StoreError(501, 'opening in an editor needs macOS')
+    folder = agent_dir(dir_id)
+    full = commands.find(folder['path'], name)
+    if not full:
+        raise StoreError(404, f'{folder["name"]} has no command /{name}')
+    app = APP.config.get('editor_app') or 'Cursor'
+    if app not in EDITORS:
+        raise StoreError(400, f'editor_app must be one of {", ".join(EDITORS)}')
+    try:
+        subprocess.run(['open', '-a', app, full], check=True, timeout=10, capture_output=True)
+    except subprocess.CalledProcessError:
+        raise StoreError(400, f'{app} could not open it: is it installed? Pick another editor in Settings → General.') from None
+    return {'opened': name, 'app': app}
 
 
 def _in_dock(session_id):
@@ -1506,6 +1650,16 @@ ROUTES = {
     ('POST', '/api/exports/reveal'): lambda s, q, b: open_local(export.path_of(source_dir(), b.get('name'))),
     ('POST', '/api/worklog/delete'): lambda s, q, b: s.unlog_work(b['date'], int(b['index'])),
     ('GET', '/api/guide'): lambda s, q, b: user_guide(),
+    ('GET', '/api/agents'): lambda s, q, b: list_agents(),
+    ('GET', '/api/agents/command'): lambda s, q, b: agent_command(q.get('dir'), q.get('cmd')),
+    ('POST', '/api/agents/run'): lambda s, q, b: run_agent(s, b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
+                                                           b.get('model'), b.get('effort')),
+    ('POST', '/api/agents/launch'): lambda s, q, b: launch_agent(b.get('dir'), b.get('cmd'), b.get('args') or '', b.get('mode') or '',
+                                                                 b.get('model'), b.get('effort'), b.get('target') or 'terminal'),
+    ('GET', '/api/agents/runs'): lambda s, q, b: agent_runs(q.get('dir'), q.get('cmd')),
+    ('POST', '/api/agents/runs/forget'): lambda s, q, b: forget_agent_run(b.get('session_id')),
+    ('POST', '/api/agents/open-file'): lambda s, q, b: open_agent_file(b.get('dir'), b.get('cmd')),
+    ('POST', '/api/agents/reveal'): lambda s, q, b: open_local(agent_dir(b.get('dir'))['path']),
 }
 # The routes whose body is a file's bytes, not JSON.
 UPLOAD_ROUTES = {('POST', '/api/attachments/add'), ('POST', '/api/files/upload')}
@@ -1517,6 +1671,8 @@ GLOBAL_ROUTES = {
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),
     ('POST', '/api/claude/updated'), ('GET', '/api/claude/folders'), ('POST', '/api/open'), ('GET', '/api/server'), ('POST', '/api/server/stop'),
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
+    ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
+    ('POST', '/api/agents/launch'), ('GET', '/api/agents/runs'), ('POST', '/api/agents/runs/forget'),
 }
 
 

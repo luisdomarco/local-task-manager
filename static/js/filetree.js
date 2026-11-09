@@ -51,7 +51,9 @@ const rank = (n) => (n.kind === 'file' && INDEX.test(n.name) ? 0 : n.kind === 'd
 export function filterTree(node, query) {
   const q = String(query || '').trim().toLowerCase();
   if (!q) return node;
-  const hit = (n) => n.name.toLowerCase().includes(q) || (n.item && `${n.item.key} ${n.item.title}`.toLowerCase().includes(q));
+  // A node may say what else finds it (`search`: an agent's name and description, agentsmodel.js).
+  const hit = (n) => n.name.toLowerCase().includes(q) || (n.item && `${n.item.key} ${n.item.title}`.toLowerCase().includes(q))
+    || (n.search && n.search.toLowerCase().includes(q));
   const walk = (n) => {
     if (n.kind === 'file') return hit(n) ? n : null;
     if (n.path && hit(n)) return n;

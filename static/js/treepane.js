@@ -52,6 +52,10 @@ async function run(op) {
  *   empty        what it says when there is nothing to list
  *   ordered      each folder shows its own order (.order, Docs) and a row takes a drop above it, below it or — a
  *                folder — inside it: the folder keeps the order it was dropped in (POST /api/files/move {order})
+ *   readonly     a list that is not the vault's files (the Agents section, agentspane.js): nothing is dragged, dropped,
+ *                renamed or deleted; the rows' menu is `menu(node)` (its items, or none), and there is no "Search in
+ *                files" nor the hidden-files eye. With it: `placeholder` (the filter's), `nameOf(node)` (a row's text),
+ *                `iconOf(node)` (its icon, a file's), `tipOf(node)` (its tooltip) and `decorate(node, row)` (marks).
  */
 export function treePane(cfg) {
   const href = cfg.href || filesHref;
@@ -91,11 +95,12 @@ export function treePane(cfg) {
     const isDir = node.kind === 'dir';
     const expanded = isDir && (filtering || set.has(node.path));
     const mark = isDir ? icon(expanded ? 'folderopen' : 'folder', 15)
-      : node.item ? typeIcon(node.item.type, 15) : icon(FILE_ICON[fileKind(node.path)], 15);
+      : cfg.iconOf ? cfg.iconOf(node) : node.item ? typeIcon(node.item.type, 15) : icon(FILE_ICON[fileKind(node.path)], 15);
     const status = node.item?.status ? h('span', { class: `tree-status s-${cssKey(node.item.status)}`, title: node.item.status }) : null;
     const el = h('a', {
       class: `tree-row ${isDir ? 'is-dir' : ''} ${isHiddenPath(node.path) ? 'is-hidden' : ''}`, href: href(node.path), role: 'treeitem', tabindex: '-1',
-      'data-path': node.path, style: `--depth:${depth}`, title: node.item ? `${node.item.key} · ${node.item.title}\n${node.path}` : node.path,
+      'data-path': node.path, style: `--depth:${depth}`,
+      title: cfg.tipOf ? cfg.tipOf(node) : node.item ? `${node.item.key} · ${node.item.title}\n${node.path}` : node.path,
       ...(isDir ? { 'aria-expanded': String(expanded) } : {}),
       // A folder unfolds as it opens in the middle; clicked again once shown there, it folds. While filtering,
       // everything that matched stays unfolded.
@@ -103,14 +108,16 @@ export function treePane(cfg) {
     },
     h('span', { class: 'tree-chevron', 'aria-hidden': 'true' }, isDir ? icon(expanded ? 'down' : 'right', 12) : null),
     mark,
-    editing?.kind === 'rename' && editing.path === node.path ? editField(node) : h('span', { class: 'tree-name' }, node.name),
+    editing?.kind === 'rename' && editing.path === node.path ? editField(node) : h('span', { class: 'tree-name' }, cfg.nameOf ? cfg.nameOf(node) : node.name),
     status,
     h('button', { class: 'btn icon tree-more', tabindex: '-1', title: `Actions on ${node.name}`, 'aria-haspopup': 'menu',
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); rowMenu(e.currentTarget, node); } }, icon('more', 14)));
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); rowMenu(el.querySelector('.tree-more'), node); });
-    draggableRow(el, node);
-    if (cfg.ordered) orderedDrop(el, node, siblings);
-    else if (isDir) dropTarget(el, node.path);
+    cfg.decorate?.(node, el);
+    if (cfg.readonly) { /* nothing moves */ } else if (cfg.ordered) { draggableRow(el, node); orderedDrop(el, node, siblings); } else {
+      draggableRow(el, node);
+      if (isDir) dropTarget(el, node.path);
+    }
     const fresh = editing?.kind === 'new' && editing.parent === node.path && expanded ? [newRow(depth + 1)] : [];
     const inside = expanded ? kids(node) : [];
     return expanded ? [el, ...fresh, ...inside.flatMap((c) => row(c, depth + 1, set, filtering, inside))] : [el];
@@ -223,6 +230,11 @@ export function treePane(cfg) {
   }
 
   function rowMenu(anchor, node) {
+    if (cfg.readonly) {
+      const items = (cfg.menu?.(node) || []).filter(Boolean);
+      if (items.length) dropdown(anchor, items, { width: 210 });
+      return;
+    }
     const root = state.vault?.root;
     const isDir = node.kind === 'dir';
     const copyPath = { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) };
@@ -367,19 +379,20 @@ export function treePane(cfg) {
     // Built once: only the rows change after, so the filter keeps its focus (moving an element in the DOM blurs it).
     if (!list || !el.contains(list)) {
       const filter = h('input', {
-        type: 'search', class: 'side-explorer-filter', placeholder: 'Filter files…', 'aria-label': 'Filter files', value: query,
+        type: 'search', class: 'side-explorer-filter', placeholder: cfg.placeholder || 'Filter files…', 'aria-label': cfg.placeholder || 'Filter files', value: query,
         oninput: (e) => { query = e.target.value; render(); },
         onkeydown: (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); list.querySelector('.tree-row')?.focus(); } },
       });
       list = h('div', { class: 'tree', role: 'tree', 'aria-label': cfg.label, onkeydown: onTreeKey });
-      if (cfg.rootDrop) dropTarget(list, ''); // the tree's empty space is the vault itself
+      if (cfg.rootDrop && !cfg.readonly) dropTarget(list, ''); // the tree's empty space is the vault itself
       note = h('p', { class: 'muted small side-explorer-msg', hidden: true }, 'Too many files: only the first ones are listed.');
       // What the files say, not what they are called: Enter searches their text (views/find.js).
       const search = h('input', {
         type: 'search', class: 'side-explorer-filter side-explorer-search', placeholder: 'Search in files… ⏎', 'aria-label': 'Search in files',
         onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim().length >= 2) location.hash = `#/find/${encodeURIComponent(e.target.value.trim())}`; },
       });
-      el.replaceChildren(h('div', { class: 'side-explorer-bar' }, searchBox(filter), ...(cfg.bar || []), hiddenToggle()), h('div', { class: 'side-explorer-bar' }, searchBox(search)), list, note);
+      el.replaceChildren(...[h('div', { class: 'side-explorer-bar' }, searchBox(filter), ...(cfg.bar || []), cfg.readonly ? null : hiddenToggle()),
+        cfg.readonly ? null : h('div', { class: 'side-explorer-bar' }, searchBox(search)), list, note].filter(Boolean));
     }
     syncHiddenToggle(el);
     const filtering = !!query.trim();
@@ -427,8 +440,8 @@ export function treePane(cfg) {
     const path = cur.dataset.path;
     const go = (r) => { if (r) { e.preventDefault(); r.focus(); } };
     const node = findNode(cfg.tree(), path);
-    if (e.key === 'F2' && node && !node.sealed) { e.preventDefault(); startRename(node); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace' && e.metaKey) && node && !node.sealed) { e.preventDefault(); remove(node); return; }
+    if (e.key === 'F2' && node && !node.sealed && !cfg.readonly) { e.preventDefault(); startRename(node); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace' && e.metaKey) && node && !node.sealed && !cfg.readonly) { e.preventDefault(); remove(node); return; }
     if (e.key === 'ArrowDown') go(rows[i + 1]);
     else if (e.key === 'ArrowUp') go(rows[i - 1]);
     else if (e.key === 'Home') go(rows[0]);

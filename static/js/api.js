@@ -107,6 +107,18 @@ export const api = {
   chatList: () => get('/api/chat/list'),
   chatFiles: (id) => get(`/api/chat/files?id=${encodeURIComponent(id)}`),
   chatOpen: (key, instruction, model, effort, cwd, mode, empty = false) => post('/api/chat/open', { key, instruction, model, effort, cwd, mode, empty }),
+  // The Agents section (server.py list_agents…): the agent folders of Settings and their commands, one command's page,
+  // running one as a chat in the dock, and its file or folder opened. A folder is named by its id, never by its path.
+  agents: () => get('/api/agents'),
+  agentCommand: (dir, cmd) => get(`/api/agents/command?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
+  agentRun: (dir, cmd, args, mode, model, effort) => post('/api/agents/run', { dir, cmd, args, mode, model, effort }),
+  // Open in ▾ of an agent's page: Terminal (recorded) or Claude Desktop, Cursor, Antigravity (server.py launch_agent).
+  agentLaunch: (dir, cmd, args, mode, model, effort, target) => post('/api/agents/launch', { dir, cmd, args, mode, model, effort, target }),
+  // Its Runs panel: the runs on record (this computer's list, tm/agentruns.py), newest first; resumed like any session.
+  agentRuns: (dir = '', cmd = '') => get(`/api/agents/runs?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
+  agentRunForget: (sessionId) => post('/api/agents/runs/forget', { session_id: sessionId }),
+  agentOpenFile: (dir, cmd) => post('/api/agents/open-file', { dir, cmd }),
+  agentReveal: (dir) => post('/api/agents/reveal', { dir }),
   chatResume: (key, sessionId, mode) => post('/api/chat/resume', { key, session_id: sessionId, mode }),
   // items: keys in this vault; images: [{ data: base64, thumb: data URL }]
   chatSend: (id, text, items = [], images = []) => post('/api/chat/send', { id, text, items, images, vault: vaultId() }),

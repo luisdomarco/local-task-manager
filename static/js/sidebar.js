@@ -2,8 +2,9 @@
 // to reset; the button in its header, ⌘\ or the button in the top bar hides and shows it. Both are
 // remembered (prefs.js); index.html applies them before first paint so the layout does not jump. On a phone it is a
 // drawer instead (setDrawer).
-// It has two modes, picked in its header (or ⌘⇧E): Project, the views built from the vault's structure, and
-// Explorer, the vault's folders and files (explorer.js). Switching never navigates: the page stays where it is. The
+// It has three modes, picked in its foot (⌘⇧E goes round them): Project, the views built from the vault's structure,
+// Explorer, the vault's folders and files (explorer.js), and Agents, the commands of the agent folders of Settings
+// (agentspane.js), to run from the app. Switching never navigates: the page stays where it is. The
 // mode is each vault's own, Explorer until one is picked: it needs nothing of the structure, so a vault just added
 // shows what its folder holds; index.html applies it before first paint too, from the vault the address names.
 // (Docs is a view with its own tree, views/docs.js, reached from its link in Project.)
@@ -16,28 +17,33 @@ const width = cssWidth({ cssVar: '--sidebar-w', key: 'sidebar.w', def: 248, min:
   measure: () => document.getElementById('sidebar').getBoundingClientRect().width });
 export const sidebarCollapsed = () => root.classList.contains('side-collapsed');
 
-const MODES = [['project', 'project', 'Project', 'The views of the vault'], ['explorer', 'foldertree', 'Explorer', 'The vault\'s folders and files']];
-export const sidebarMode = () => (root.classList.contains('side-mode-explorer') ? 'explorer' : 'project');
+const MODES = [['project', 'project', 'Project', 'The views of the vault'], ['explorer', 'foldertree', 'Explorer', 'The vault\'s folders and files'],
+  ['agents', 'zap', 'Agents', 'Run the Claude Code commands of your agent folders']];
+const MODE_NAMES = MODES.map(([m]) => m);
+export const sidebarMode = () => (root.classList.contains('side-mode-explorer') ? 'explorer'
+  : root.classList.contains('side-mode-agents') ? 'agents' : 'project');
 const modeListeners = [];
 /** Calls `fn(mode)` whenever the sidebar switches mode. */
 export const onSidebarMode = (fn) => modeListeners.push(fn);
 
 function showMode(next) {
   root.classList.toggle('side-mode-explorer', next === 'explorer');
+  root.classList.toggle('side-mode-agents', next === 'agents');
   renderModes();
   modeListeners.forEach((fn) => fn(next));
 }
 
-/** Shows the sidebar in `mode` ('project' | 'explorer'; the other one when left out), and remembers it for this vault. */
+/** Shows the sidebar in `mode` ('project' | 'explorer' | 'agents'; the next one round when left out), and remembers it
+ *  for this vault. */
 export function setSidebarMode(mode) {
-  const next = mode || (sidebarMode() === 'explorer' ? 'project' : 'explorer');
+  const next = MODE_NAMES.includes(mode) ? mode : MODE_NAMES[(MODE_NAMES.indexOf(sidebarMode()) + 1) % MODE_NAMES.length];
   setPref('sidebar.mode', next);
   showMode(next);
 }
 
 /** Once the page knows its vault: the mode that vault was left in (Explorer when none), if it is not the one shown. */
 export function syncSidebarMode() {
-  const saved = pref('sidebar.mode') === 'project' ? 'project' : 'explorer';
+  const saved = ['project', 'agents'].includes(pref('sidebar.mode')) ? pref('sidebar.mode') : 'explorer';
   if (saved !== sidebarMode()) showMode(saved);
 }
 
