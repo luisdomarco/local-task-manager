@@ -1,8 +1,8 @@
 # Design guide — how the app looks, and how to keep it that way
 
 The rules every screen follows. Read this before changing anything a user sees; reuse what is named here before
-writing a new class or helper. The tokens (colours, sizes, radii) live at the top of `static/css/app.css`, in light and
-dark; this file is the decisions on top of them.
+writing a new class or helper. The tokens (colours, sizes, radii) live at the top of `static/css/app.css` for Classic and in
+`static/css/themes/modern.css` for Modern, each in light and dark; this file is the decisions on top of them (§2).
 
 The idea in one line: **a page to read, not a form to fill in.** Few frames, colour only where it means something, the
 same pattern for the same thing everywhere.
@@ -28,20 +28,170 @@ same pattern for the same thing everywhere.
    the mouse crossed the words.
 8. **Every width, both themes.** 375 / 820 / 1000 / 1303 px, light and dark, no horizontal scroll of the page.
 
-## 2. Tokens (`app.css` `:root`, redefined for dark)
+## 2. Tokens and themes
 
-| What | Tokens | Rule |
-|---|---|---|
-| Surfaces | `--background`, `--card`, `--popover`, `--well`, `--muted`, `--accent` (hover), `--sidebar` | `--muted` mixed to ~45–70 % for soft tints (hovered row, empty state). |
-| Text | `--foreground`, `--muted-foreground` | Secondary text, labels, metadata: `--muted-foreground`. Never lighter. |
-| Lines | `--border` (dividers, boxes), `--input` (field outlines, ≥ 3:1) | A divider between rows: `1px solid var(--border)`. |
-| Focus | `--focus` (2px ring on buttons/links), `--field-ring` + `--field-halo` (fields) | Never remove a focus style without replacing it. |
-| Meaning | `--destructive`; `--st-*-bg/-fg` and `--st-dot` per status; `--pr-icon-1/2/3`, `--pr-1-bg`; `--t-<type>` | Status/priority colours come from `statusCss()` / `.s-*` / `.pr-*` classes, never hard-coded. |
-| Type | `--fs-base` 13.5 · `--fs-sm` 13 · `--fs-xs` 12.5 · `--fs-2xs` 12 · `--fs-h4` 14 · `--fs-title` 22 | No other font sizes. Weights: 400, 500 (labels), 600–650 (headings). |
-| Size | `--control-h` 32 · `--control-h-sm` 28 · `--row-h` 48 · `--radius` 8 · `--radius-sm` 6 · `--side-w` (every right panel: an item's card, a page's, an agent's — `clamp(360px, 32vw, 500px)`) | Controls ≥ 32px (28 for `.small` in dense rows); 38px for form fields. |
+The app has two themes (Settings → Themes, README §7 *Themes*): **Classic**, the look it has always had, and
+**Modern**, Basecoat's (shadcn's Nova style) with options of its own. Both draw the same components from the same
+tokens. A theme is the tokens' values, in its own file, `static/css/themes/<id>.css`, under `:root[data-skin="<id>"]`.
+The theme, the mode and Modern's options are kept in the browser (`tm-skin`, `tm-theme`, `tm-<option>` in
+localStorage) and set on the root by `index.html`'s first script before the first paint, so a reload never flickers.
+`theme.js` changes them live. A test (`tests/js/themeprefs.test.mjs`) runs that script against `themeprefs.js`.
 
-Contrast floor: text ≥ 4.5:1, control borders and focus ≥ 3:1. A new colour goes in `:root` **and** both dark blocks
-(`@media (prefers-color-scheme: dark)` and `[data-theme="dark"]`).
+### The tokens
+
+| What | Tokens | Classic | Modern | Rule |
+|---|---|---|---|---|
+| Surfaces | `--background`, `--card`, `--popover`, `--well`, `--muted`, `--accent` (hover), `--sidebar` | zinc greys | Radix greys (`--base-1…12`, from `data-base`) | `--muted` mixed to ~45–70 % for soft tints (a hovered row, an empty state). |
+| Text | `--foreground`, `--muted-foreground` | | | Secondary text, labels, metadata: `--muted-foreground`. Never lighter. |
+| Lines | `--border` (dividers, boxes), `--input` (field outlines, ≥ 3:1) | | | A divider between rows: `1px solid var(--border)`. |
+| Accent and focus | `--primary`, `--ring`, `--focus` (2px ring on buttons and links), `--field-ring` + `--field-halo` (fields), `--brand-*` | the ink (near-black, near-white in dark) | the accent (`--brand-fill`, from `data-accent`) | Never remove a focus style without replacing it. |
+| Meaning | `--destructive`; `--st-*-bg/-fg` and `--st-dot` per status; `--pr-icon-1/2/3`, `--pr-1-bg`; `--t-<type>`; `--graph-*` | | Radix steps 3/11/9/6 | Status and priority colours come from `statusCss()` / `.s-*` / `.pr-*`, never hard-coded. |
+| Type | `--fs-3xs` · `--fs-caption` · `--fs-2xs` · `--fs-xs` · `--fs-sm` · `--fs-base` · `--fs-h4` · `--fs-lg` · `--fs-h3` · `--fs-title`; Markdown's `--fs-doc-h1/h2/h3` | 11 · 11.5 · 12 · 12.5 · 13 · **13.5** · 14 · 15 · 17 · 22; 19/16/14.5 | 12 at least, **14** the body, 16 · 16 · 18 · 24; 22/18/16 (compact: 13 the body, the rest Classic's but 12 at least) | No other font sizes, but three a glyph fits a box by (a badge's count 9.5, a week number 10, an agent's status 10.5) and 16px on a phone's field (iOS zooms under 16). Weights: 400, 500 (labels), 600 (headings). |
+| Size | `--control-h`, `--control-h-sm`, `--row-h`, `--spacing` | 32 · 28 · 48 · not set | 36 · 30 · 40 · 4.5 (compact 28 · 24 · 32 · 3.5) | Controls ≥ `--control-h` (`-sm` for `.small` in dense rows). Modern measures in steps of `--spacing`, as Basecoat does. |
+| Panels | `--side-w`: every right panel (an item's card, a page's, an agent's) | `clamp(360px, 32vw, 500px)` | | One width for every right panel. |
+| Radii | `--radius` 8 · `--radius-sm` 6 · `--radius-xs` 4 · `--radius-full` 999 | | `data-radius` changes them | A card: `--radius` + 4px. A radius that is half a box's height stays a number. |
+| Shadows | `--shadow-sm`, `--shadow-card`, `--shadow-lg` (and Modern's `--shadow-md`) | | its own, deeper in dark | A board card's ring is `--shadow-card` (a theme sets the token, never `box-shadow`, so app.css's hover ring and drop marker still add to it). |
+| Layers | `--z-sticky` 15 · `--z-card` 20 · `--z-dock` 22 · `--z-drawer-backdrop` 24 · `--z-drawer` 25 · `--z-modal` / `--z-bulk` 30 · `--z-popover` / `--z-fullscreen` 40 · `--z-palette` 45 · `--z-skip` 50 · `--z-toast` 60 | | | A component's own stacking (1–5) stays a number in its rule. |
+
+**Contrast**: text ≥ 4.5:1; control borders, focus and a type's icon ≥ 3:1. `tests/js/contrast.test.mjs` reads the
+token files and checks every theme, mode, accent, base and canvas (a pair under the floor that was always there is
+listed in it by name, so a new one fails).
+
+**Dark** is one block per theme. `theme.js` and `index.html`'s first script always set `data-theme` to `light` or
+`dark` (System resolved, and followed when the system changes) and the `.dark` class with it, so no
+`@media (prefers-color-scheme)` block is needed. A new colour goes in Classic's `:root` **and** its one dark block
+(`:root[data-theme="dark"]`, which a dark terminal in the dock shares), and in each theme's file in light and dark.
+
+**A rule reads the token, never the theme.** No `[data-skin]` selector outside a theme's file, with one exception:
+Classic's blocks for the Basecoat components (below).
+
+### Cascade layers
+
+`static/css/main.css` names them: `vendor` (third-party CSS the app dresses: Inter, Basecoat) < `app` (app.css, then
+the statuses' `<style>`, Excalidraw's and xterm's stylesheets) < `themes`. A later layer wins whatever the
+specificity, so a theme's tokens beat Classic's. Third-party CSS loaded at run time goes through
+`layeredCss(href, layer)` (`layeredcss.js`), never a bare `<link>`: unlayered CSS would beat every layer. Generated CSS
+goes inside `@layer app { … }` (ui.js `statusCss`). `!important` reverses the order: an app-layer `!important` beats
+the themes layer, so a forced size that is Classic's alone is scoped to `:where(:root[data-skin="classic"])`.
+`modern.css` repeats the layer statement at its top: it can reach the page before main.css, and the first sheet to
+name the layers fixes their order.
+
+### Modern's options
+
+Settings → Themes → Look is a set of options, `OPTIONS` in `static/js/themeprefs.js` (density, accent, base, radius,
+sidebar, canvas, font, heading, menu, icons). Each is a `data-<option>` on the root (none in Classic) and a
+`tm-<option>` in localStorage; its first value is the default, which has no rule. In `themes/modern.css` the levels
+are: Radix scales → `--base-1…12` (the greys, from `data-base`) and `--brand-1…12` (from `data-accent`) → the shadcn
+tokens → the app's. So every rule there reads `--base-N`, never `--gray-N`. The accent's filled control is
+`--brand-fill`, with `--brand-contrast` on it and `--brand-text` for the accent as text; `--primary`, `--ring`,
+`--focus` and `--graph-accent` are `--brand-fill`. Which step fills (9, 10 or 11) and whether white or the ink goes
+on it is measured per accent (`plans/design-system.md`, *As built — appearance*). `PRESETS` are lines of options:
+what one leaves out is the default.
+
+**To add an option**: its values in `OPTIONS` (and in `index.html`'s first script, which the test runs against the
+module), its rules in `modern.css` under `:root[data-skin="modern"][data-<option>="<value>"]`, a row in
+`views/themes.js` `ROWS`; if it changes a colour, add it to the loops of `tests/js/contrast.test.mjs`.
+
+**What reads the theme live**: the graph (`graphcanvas.js`) and the canvas (`canvas/whiteboard.js`) watch the root's
+attributes (`THEME_ATTRS`) and redraw on any of them. A terminal in the dock does not: it takes Claude Code's own theme.
+
+### Basecoat's components
+
+A primitive moved to Basecoat (plans/design-system.md, phase 3) is drawn by Basecoat's CSS in **every** theme:
+buttons (`.btn`), chips (`.chip`, Basecoat's badge), selects (`select()` and `selectButton()`'s `.select-btn`, and a
+`select()`'s options, `.menu-list > [role=option]`), menus (`dropdown()`'s `.menu` and its `.menu-item` rows, the view
+bar's and the pickers' panels too), tabs (`tabPanels()`'s and a section's `.tab-btn`), modals (`#modal`,
+`#item-modal` and their backdrops), the toast (`#toast`), every checkbox (`input[type=checkbox]`), the switch
+(`.vb-switch`), the empty state (`.empty`) and the skeleton (`.skeleton`). The page loads
+`vendor/basecoat/basecoat-nova.app.css`, which `tools/basecoat_css.py` writes from Basecoat's own file: no Tailwind
+preflight, only the adopted families, their variants on the app's classes (`.btn.primary` / `.active` → primary,
+`.danger` → destructive, `.ghost` / `.icon` → ghost, any other → outline; `.small` → small; `.chip.on` → primary…), and
+no rule that sizes an icon (`icon(name, size)` does). So:
+- a view keeps writing `btn small`, `btn icon`, `chip late`: never `data-variant` or `data-size`;
+- a theme's look comes from its tokens (Basecoat reads `--primary`, `--radius`, `--spacing`, `--text-sm`…); Modern
+  takes Basecoat's shape as it is;
+- **Classic's look is the exception**: its sizes and colours for a family are in `app.css`, under
+  `:where(:root[data-skin="classic"])` (no added weight, so a screen's rule still wins where it did), right after
+  the family's rules that hold in every theme. One such block per family, and nowhere else;
+- an element reset of app.css (`button { font: inherit }`, `.icon`) must not reach a Basecoat component: app.css is
+  in a later layer and would beat it whatever its weight (`button:where(:not(.btn, .chip, .select-btn, .menu-item, .tab-btn))`,
+  `.icon:where(:not(.btn))`);
+- **a select keeps the app's markup**: its chevron is a background (`--chevron`), not Basecoat's svg, and the picked
+  option's check is Basecoat's in Modern (a background of `[aria-selected=true]`) and the app's `.opt-check` icon in
+  Classic;
+- **a menu is the app's panel with Basecoat's look**: `dropdown()` places a fixed `.menu` itself (Basecoat's wrapper,
+  placement and open/closed states are left out). Its rows show hover and focus by their background, never the
+  page's focus outline; a `.danger` row's is the destructive tint. A rule of app.css on every `.menu-item` sets no
+  background: in the later layer it would hide Basecoat's hover. `.menu-label`, `.menu-sep` and `kbd` stay the app's
+  (they are used outside menus too);
+- **tabs are Basecoat's `line` tabs on the app's bar**: Basecoat gives a tab its type, colour (the foreground at 60%,
+  muted in dark), spacing and transition; the `.tabs-bar` (full width, the line under it, sideways scroll with its
+  fades), the picked tab's 2px line on the bar's own line and keyboard focus as a soft fill are the app's, in every
+  theme (a ring would be cut by a bar that scrolls). A tab is rounded at the top only: a rounded bottom would bend the
+  line's ends up;
+- **a modal is the app's, dressed as Basecoat's dialog**: `#modal` and `#item-modal` stay divs the app places, opens,
+  traps focus in and closes on Esc (Basecoat's native `<dialog>`, its centring, open/closed states, scroll lock,
+  header, footer and close button are left out). They take its radius, its 1px ring of the foreground for an edge
+  instead of a shadow, its text size and colours; their backdrops (and the palette's and the phone drawer's) its blur,
+  with the tint from `--overlay` (Modern's is Basecoat's 10% black). A modal's width is the app's (`max-width: none`
+  over Basecoat's 24rem), and nothing on them is animated but `rise` and `fade`;
+- **the toast is the app's one `#toast`, dressed as Basecoat's**: `toast()` shows one at a time at the bottom right and
+  replaces it (Basecoat's stacking `.toaster`, its slide-up and its title/description layout are left out). It takes
+  the look of Basecoat's `.toast-content` (radius-2xl, a soft shadow, 13px text, its padding) and its Undo the action
+  button's size; an error's red and the place over the bulk bar stay the app's;
+- **a checkbox is any `input[type=checkbox]`, a switch the app's `.vb-switch`**: Basecoat's checkbox (its `.input` /
+  `.field > input`) is every checkbox here, so app.css's rules on every `input` skip it (`input:where(:not([type=checkbox]))`)
+  and give it to Classic's block. The switch stays a `button` with `role=switch`, `aria-checked` and a span for its
+  knob: Basecoat's `:checked` is its `aria-checked`, its `::before` the span. In Modern both are sized in steps of
+  `--spacing` (modern.css sizes the switch's track, which Basecoat fixes in px); Classic's block undoes, with
+  `revert` in a rule that weighs nothing, what only Basecoat sets (`appearance`, `display`…), so the browser draws
+  its own checkbox again. The task's round check in a row (`.check`, `checkbox()` in ui.js) is the app's own;
+- **an empty state is one line of text in Basecoat's Empty box**: `emptyState(text)` and the other `.empty` divs take
+  its box (centred in a column, balanced lines, radius-xl, 6 steps of padding) and, in every theme but Classic, a
+  dashed hairline of `--border` with no fill (Basecoat's own has no border width). Its header, figure, title and
+  footer are left out: the markup stays one line. A table's empty cell (`td.empty`) keeps the app's grey cell in
+  every theme. Basecoat's `width: 100%` counts with the box's margin: one with a margin sets `width: auto`
+  (`.empty.error`). `.skeleton` (muted, rounded, pulsing) is there for a placeholder; nothing shows one yet;
+- **the date picker is the app's** (`calendar()` in `datepicker.js`, `.cal`), not Cally's: Cally draws in a shadow DOM
+  with Intl's weekday names, so Classic could not stay as it is. Modern gives it shadcn's Calendar in modern.css: a day
+  is 8 steps of `--spacing` (a control's height), ‹ › are ghost buttons, today sits on `--brand-subtle`, the picked
+  day on `--primary`, the focus ring is Basecoat's (3px of `--ring` at 50 %). Cally stays in `#/lab`;
+- a family moved to Basecoat is checked in Classic as **identical**, computed style for computed style, before and
+  after (§5).
+
+### Modern's screens
+
+A screen's look in Modern lives in `modern.css`'s "Screens" section (plans/design-system.md, phase 4). Classic never
+loads that file, so a rule there needs no Classic mirror. The rules there:
+- measures in steps of `--spacing`; what is picked on `--sidebar-active` (the accent's tint) with its icon in
+  `--brand`; weights 400 / 500, 600 for a heading;
+- a box that holds things is a card: `--radius` + 4px and `--shadow-sm`;
+- **never size a list's cells**: a phone's list lays them out in app.css, and the themes layer would win over it.
+  Sizes go on the table, in variables, or in `@media (min-width: 641px)`.
+
+| Screen | In Modern |
+|---|---|
+| Shell | The sidebar's links 7 steps tall, the picked one on the accent's tint with its icon in the accent; group titles 12px medium; ⌘K's rows at the body's size, 8 steps. |
+| Lists and tables (`table.grid`) | Rows `--row-h` (40, 32 compact), text at the body's size, the head 8 steps, 13px medium; a picked row on `--picked-bg`. The view bar shortens itself at its own container widths (736 / 576, over app.css's 640 / 560): its controls are larger. |
+| Board | A column's corners one step over the controls'; a card outlined in `--border` with `--shadow-sm` (through `--shadow-card`), its subject at the body's size. |
+| The item | A card's title 20px (`--fs-title` on `.im-title`), a page's 24, weight 600; the side panel at the body's size; the status picker a badge on `--st-bg` / `--st-fg`. |
+| Today and Planning | An agenda row a table's (`--row-h`), its figures tabular; today (its line, its tag, its number in the month) in `--brand`; a goal's progress tag stays grey. |
+| Settings | A field's label at the body's size, 500, its help at the body's size; an on/off boolean (a vault's guide and types, Export's scope) is still a checkbox in the markup, drawn as Basecoat's switch by Modern alone. |
+| Agents | A run an outlined item (its command in `--foreground`, its line grey with tabular figures, its status a dot and a word); the boxes cards. An item's own Claude panel keeps its `.cs-item` rows. |
+| Explorer and Docs | A tree row the sidebar's link (7 steps, the open file on `--sidebar-active`); rendered Markdown (`.md`, wherever it is) as shadcn's typography: headings 600, a quote on a 2px `--border` line, a table ruled under each row; a task list keeps its own indent (`:not(:has(input[type=checkbox]))`). |
+| Graph | The settings a card, rows 8 steps, Basecoat's slider (a 1.5-step track on `--muted`, the knob outlined in `--primary`); an item's local graph a card. The drawing reads `--graph-*`. |
+| Canvas | The whiteboard a card. Excalidraw's chrome reads the tokens (app.css's `.excalidraw` variables); its menus (☰, More tools) Basecoat's dropdown's rows (1.5 × 2 steps, 16px icons, no gap). |
+| The dock and a chat | The sessions the sidebar's links (the open one on `--sidebar-active`); Chat \| Terminal the view bar's segmented control; a chat at the body's size, its composer a card with a field's focus ring. A terminal's pane keeps Claude Code's theme. |
+
+### Tooltips: a `title`, always
+
+Every tooltip of the app is an element's `title` (set in `h()` or at run time, on several lines with `\n` when it
+needs them). Classic leaves it to the browser. Modern draws it: `tooltip.js` shows one `.tooltip` for the page
+(Basecoat's look: the foreground as background, extra-small text, at most 20rem) on hover or keyboard focus, above
+the element or below it at the top of the window, and never cut by an `overflow`. While it shows, the title waits in
+`data-tip-title` so the browser's tooltip does not show too. So a view never writes a tooltip element or a
+`data-tooltip`; it sets `title`. The graph's `.graph-tip` (several lines that follow the pointer) is the one tooltip
+of its own.
 
 ## 3. Components and patterns
 
@@ -388,6 +538,11 @@ Properties · Activity · AI Agents · Relations · Time, last.
   path into the field as if typed. Not on a Mac, it is not there and the field is typed as before.
 - Settings: form tabs at `max-width: 860px`, sections one under another divided by a line, each setting a row
   (`setRow(label, control, help)` in `views/settings.js`), the save bar sticky at the foot (`.settings-save`).
+- Settings → Themes (`views/themes.js`) applies each choice at once, so it has no save bar. A look is a **theme card**
+  (`.theme-cards` > `button.theme-card`, `aria-pressed`, `.active` framed in `--foreground`): a preview of the look in
+  light and dark side by side (`.tc-preview` with two `.tc-half`, drawn with literal colours so it shows the other
+  look, not the current one), its name (`.tc-name`) and a line about it (`.tc-about`). Its other choices are
+  `.seg` groups in `prop-rows`; one that does not apply to the current look is `disabled`, with a note saying why.
 
 ### Empty, loading, errors
 
@@ -567,12 +722,16 @@ menus, and the app's own date picker (`dateInput()`, `pickDate()` in `datepicker
 3. Hover and touch: whatever is quiet until hover must be visible on a phone (`@media (hover: none)`).
 4. Open a few selects on the changed screens: they must open (a name clash once broke every menu).
 5. README §7 says what a user now sees; CHANGELOG under *Unreleased*.
+6. A change to Basecoat's families or to a theme's tokens: Classic compared with `main`'s on two sample servers, each
+   page's every element's computed style (colour, sizes, spacing, radius, shadow, display, flex, font, transition…)
+   hashed and compared, at the four widths in light and dark. Equal hashes, or each difference explained.
 
 ## 6. Where things are
 
 | Thing | File |
 |---|---|
 | Tokens, every style | `static/css/app.css` (sections marked `/* ── … ── */`) |
+| A theme's tokens (Modern) | `static/css/themes/<id>.css`; choices and how they apply: `static/js/themeprefs.js`, `theme.js` |
 | `h`, `icon`, `select`, `dropdown`, `tabPanels`, `itemCard`, `statusChip`, `statusLabel`, `emptyState`, `carriedAction`; the Panel kit (`secondaryButton`, `stackGroup`, `rowList`, `rowItem`, `rowAction`) | `static/js/ui.js` |
 | Property fields, `statusSelect`, `quietBlanks`, `planControl` | `static/js/itemform.js` |
 | The description block (`mdBlock`: rendered box, editor on a click, full screen) | `static/js/mdblock.js` |

@@ -766,7 +766,7 @@ searchable list of the vault's docs and folders), and under them the docs that m
 | **Agents** | A backlog of AI agents (`AGT-0001` in Initiatives and Tasks, folder `agents/`; `AGT-001` in Projects, folder `Agents/`). An agent moves through its own statuses — **Idea → Design → Build → Test → Live → Retired** (Retired closes it) — and is not planned: no Today, Week or Board. It has a priority and its reason, **Platform** (Claude Code subagent · Agent SDK · Managed Agent · n8n · Other), **Model**, **Trigger** (manual · scheduled · event) and **Tools & MCP**, and may hang from an initiative. Created with an empty description, its body starts from the sections Purpose · Inputs · Outputs · Tools · Prompt · Evaluation · Runbook. **Its folder is optional**: a vault without it still matches its structure, and the folder is made with the first agent. Quick add: `/agent` or `/agt`. |
 | **Prompts** | Reusable prompts as a table (`PRM-0001`, folder `prompts/`; `PRM-001` in Projects, folder `Prompts/`, optional: made with the first one, and with no "g then" key there): subject, state, labels, created and updated, with filters (Active / Archived / All, label, text) and **Add prompt**. The body of the file is the prompt itself. Like a note it has no status: it is **active** until you archive it (⋯ → Archive). It relates to nothing, has no side panel (no links, work log or comments) and does not appear in List, the Board or the Work log suggestions. |
 | **Trash** | Everything you delete, as a table (how many in the head, *Empty* when there is nothing): id, subject, type, when it went, where it was and how many related items were detached. **Restore** puts an item back in its folder and relinks what the delete detached; **Delete forever** (the bin on a row's hover) and **Empty trash** (red, at the right of the bar) ask first, in place. The trash is the folder `<root>/.task-manager/trash/` — plain `.md` files, each with a `.meta.json` beside it (original path, deleted at, detached children). Nothing is purged automatically, and ids in the trash are never handed out again, so a restore cannot collide. Labels, people, columns and work-log entries are not items and are deleted outright. |
-| **Settings** | Tabs (`#/settings/<tab>`, the last one remembered): **Vaults** (the folders this app shows, each with its structure, item types on/off and, in Initiatives and Tasks, the folders for new items; the default — see [Setup](#your-first-vault). The vault the page shows has **Guide for agents**, which keeps an `AGENTS.md` at its top — see [The vault's guide for agents](#the-vaults-guide-for-agents). A new vault is Projects; the row of a legacy vault, Initiatives or Tasks, says how to move it to Projects), **Statuses** (see *Statuses and their groups*), **General** (work kinds, the editor of *Open in …*), **Claude** (how it starts, saved folders, model and effort), **Maintenance** (assign ids to hand-written items), **Keyboard**, **Export** (see *Exporting the system*), **App** (the installed app: stop, restart), **Documentation** (the user guide, [`docs/user-guide.md`](docs/user-guide.md)). Vaults, General and Claude are one form: *Save settings* at the foot of any saves all three. The form tabs keep a reading width, one section under the other with a line between them; each setting is a row (its name on the left, its control and what it does on the right), each control in a soft grey frame and the text at the lists' size, and the save bar stays at the foot of the window while the tab is longer than it. A row's ×, an export's download and Show in Finder show on hover. In Statuses a status's colour is a dot, beside its name and group in the same soft frame. |
+| **Settings** | Tabs (`#/settings/<tab>`, the last one remembered): **Vaults** (the folders this app shows, each with its structure, item types on/off and, in Initiatives and Tasks, the folders for new items; the default — see [Setup](#your-first-vault). The vault the page shows has **Guide for agents**, which keeps an `AGENTS.md` at its top — see [The vault's guide for agents](#the-vaults-guide-for-agents). A new vault is Projects; the row of a legacy vault, Initiatives or Tasks, says how to move it to Projects), **Statuses** (see *Statuses and their groups*), **Themes** (see *Themes*), **General** (work kinds, the editor of *Open in …*), **Claude** (how it starts, saved folders, model and effort), **Maintenance** (assign ids to hand-written items), **Keyboard**, **Export** (see *Exporting the system*), **App** (the installed app: stop, restart), **Documentation** (the user guide, [`docs/user-guide.md`](docs/user-guide.md)). Vaults, General and Claude are one form: *Save settings* at the foot of any saves all three. The form tabs keep a reading width, one section under the other with a line between them; each setting is a row (its name on the left, its control and what it does on the right), each control in a soft grey frame and the text at the lists' size, and the save bar stays at the foot of the window while the tab is longer than it. A row's ×, an export's download and Show in Finder show on hover. In Statuses a status's colour is a dot, beside its name and group in the same soft frame. |
 
 **Add item** (sidebar) opens a menu as wide as the button with what is made most often, in three groups: *Capture to
 Inbox* (one line, `q`) and Activity; Note, Task and Meeting; Project, Initiative and Story (a vault whose structure has
@@ -1059,6 +1059,77 @@ type and the listed type (a task's notes, an initiative's notes) — never per i
 
 Every table shares one width per column (`WIDTH` in `datatable.js`): ID, Status or Updated measure the same in a list,
 on an initiative's page, in List or in the Trash; the subject takes what is left.
+
+#### Themes
+
+**Settings → Themes** picks how the app looks **in this browser**: the choices are kept in its `localStorage`
+(`tm-theme`, `tm-skin`, and one `tm-<option>` per option of Modern's look), not in `config.json`, so each browser and
+machine has its own and there is no Save. Each one applies at once, and every open tab of the app follows it.
+
+- **Theme**: **Classic**, the app as it has always looked (compact, monochrome, 13.5px text), or **Modern**: larger
+  text and controls (14px, 36px), Radix colours, and a look of your own. Each card shows the look in light and in dark.
+- **Mode**: Light, Dark or System (the system's, followed when it changes). It is the same choice as the switch at
+  the sidebar's foot. **Density** (Comfortable, Compact) is Modern's.
+- **Look** (Modern's; in Classic it is greyed out): a **preset** — Modern, Ink, Paper, Ocean, Grape, Forest,
+  Terminal — or each option on its own, beside a preview drawn with the app's own components (a sidebar, a title, a
+  progress bar, a card with chips, buttons, a menu) that changes with every choice:
+  - **Base colour**: the greys of every surface, line and secondary text (Gray, Mauve, Slate, Sage, Olive, Sand).
+  - **Accent**: primary buttons, what is on or checked, a progress bar, focus — one of 18 colours, or Mono (no colour,
+    the ink). Red is not offered: it says an error.
+  - **Sidebar**: the sidebar's and the top bar's background — Grey, Like the page, or Tinted with the accent.
+  - **Canvas**: the background behind lists, boards and pages — Plain, Tinted, or a soft Gradient from the accent.
+  - **Radius**: Default, None, Small or Large corners on buttons, fields, cards and menus.
+  - **Font** (Inter, System, Serif, Mono) and **Headings** (the same as the text, or one of those four).
+  - **Menus**: Solid, or Translucent (what is under a menu or ⌘K shows through, blurred).
+  - **Icons**: Regular, Thin or Bold lines.
+
+  **Shuffle** picks one of each at random; **Reset** goes back to Modern's own. A set of choices that is no preset
+  says so (*Your own*). Every accent, base, sidebar and canvas is checked for contrast, light and dark.
+
+The theme is applied before the page first paints (no flash of the other one on a reload), and whatever draws with
+the theme's colours (the graph, a canvas) redraws when it changes. Claude's terminal keeps Claude's own theme (see
+*Undo, addresses, the dock and minimized cards*). Classic looks exactly as it always did.
+
+**What Modern changes.** Its colours (statuses, priorities, item types, the graph) come from
+[Radix](https://www.radix-ui.com/colors)'s scales, every pair checked for contrast. Its controls are
+[Basecoat](https://basecoatui.com)'s (shadcn's look, in plain CSS), which Classic draws with its own sizes:
+- **Buttons and chips**: rounder, a pill for a chip, an outline button with no shadow, a 1px press.
+- **Selects and menus**: a field with a focus ring (a soft fill in dark mode), the picked option's check at the end;
+  menus with a hairline edge, rounder rows and a red tint under the pointer on Delete.
+- **Tabs**: underlined, a little larger, the ones not picked in a softer grey.
+- **Dialogs** (an item's card, the create form, Capture, ⌘K): a thin edge instead of a heavy shadow, the page behind
+  lightly dimmed and blurred. The notice at the bottom right (Saved, Moved to the trash · Undo): rounder, softer.
+- **Checkboxes and switches** (a list's row picks, the Filter menu, Settings, a task list; the view bar's and the
+  graph's switches): Basecoat's squares filled with the accent and Basecoat's pills, following the density. Classic
+  keeps the browser's checkbox.
+- **Empty states**: centred in a rounded box outlined by a dashed hairline (a table's *No … match* row keeps its grey
+  cell).
+- **The date picker**: shadcn's calendar — each day a control's height, today on a tint of the accent, the picked day
+  filled with it.
+- **Tooltips**: drawn by the app, a dark label (light in dark mode) half a second after the pointer stops, or at once
+  on keyboard focus; never cut by the panel it is in. Classic keeps the browser's own.
+
+And every screen takes the same look:
+- **The sidebar**: links a little taller (shorter in compact), the page you are on in the accent's tint with its icon
+  in colour; ⌘K's rows at the body's size.
+- **Lists and tables** (List, a type's list, Labels, Contacts, Trash…): 40px rows (32 in compact), text at the body's
+  size, picked rows tinted with the accent. A list's bar of buttons drops its words sooner, so it fits beside the
+  sidebar on a narrower window.
+- **Boards** (Board, a type's Board, Today, Planning): a card outlined with a soft shadow, its subject at the body's
+  size, the columns' corners a little rounder.
+- **An item**: a 20px title on its card (its page keeps 24), the side panel at the body's size, the status a badge in
+  its colour that opens the same menu.
+- **Today and Planning**: rows as tall as a table's, dates and counts in even-width figures, today in the accent (its
+  line and tag in the week, its number in the month).
+- **Settings**: labels and help at the body's size; a vault's guide for agents, its item types and Export's *Every
+  vault* are switches.
+- **Agents**: a run is an outlined card with its command in full colour; an agent's figures, instructions and tools
+  sit in rounded cards.
+- **The Explorer and Docs**: tree rows as tall as the sidebar's links, the open file in the accent's tint; Markdown
+  with lighter headings, a thin line by a quote and tables ruled under each row.
+- **The graph, the Canvas and the dock**: the graph's settings and the Canvas's whiteboard are rounded cards, the
+  graph's sliders thinner; in the dock the open session is in the accent's tint, and a chat reads at the body's size,
+  its message box a rounded card.
 
 #### Statuses and their groups
 

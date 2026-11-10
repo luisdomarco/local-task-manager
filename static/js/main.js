@@ -19,6 +19,7 @@ import { pageHref } from './datatable.js';
 import { GO } from './shortcuts.js';
 import { initMentions } from './mentions.js';
 import { initTheme } from './theme.js';
+import { initTooltips } from './tooltip.js';
 import * as board from './views/board.js';
 import * as files from './views/files.js';
 import * as find from './views/find.js';
@@ -41,18 +42,20 @@ import * as canvas from './views/canvases.js';
 import * as graph from './views/graph.js';
 import * as goals from './views/goals.js';
 import * as runs from './views/runs.js';
+import * as lab from './views/lab.js';
+import { loadBasecoat } from './basecoat.js';
 import { initAgents } from './agentspane.js';
 import { refOf } from './shownid.js';
 import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews } from './savedviews.js';
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, canvas, graph, runs };
+const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, canvas, graph, runs, lab };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
   inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
   labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
-  runs: 'Agents',
+  runs: 'Agents', lab: 'Lab', // #/lab: the design-system spike, by its address only (not in the sidebar or ⌘K)
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
@@ -188,7 +191,7 @@ async function route() {
   const explorerOnly = vaultBlocked() && sidebarMode() === 'explorer';
   if (explorerOnly && !['settings', 'files', 'find'].includes(name)) { location.replace(filesHref('')); return; }
   // Settings and the Agents section are not about the vault: they open whatever it holds.
-  if (vaultBlocked() && !explorerOnly && name !== 'settings' && name !== 'runs') {
+  if (vaultBlocked() && !explorerOnly && name !== 'settings' && name !== 'runs' && name !== 'lab') {
     if (current?.unmount) await current.unmount();
     current = null;
     currentRoute = null; // whatever was asked for mounts afresh once the vault matches
@@ -468,6 +471,10 @@ window.addEventListener('beforeunload', (e) => {
 window.addEventListener('focus', () => reload());
 
 initTheme();
+initTooltips(); // Modern draws the titles' tooltips; Classic leaves them to the browser
+// ?basecoat=1 loads the whole of Basecoat over every screen (main.css loads only the families the app has adopted,
+// tools/basecoat_css.py): what the next family would change, before its PR (plans/design-system-spike.md).
+if (new URLSearchParams(location.search).has('basecoat')) loadBasecoat(new URLSearchParams(location.search).get('basecoat') === 'mira' ? 'mira' : 'nova');
 initMentions();
 initSidebar();
 firstLoad.then(syncSidebarMode); // the vault's own mode, now that the page knows which vault it is

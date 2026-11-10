@@ -23,11 +23,8 @@ export const ITEM_MIME = 'application/x-tm-item'; // a side list's row, dragged:
 const SAVE_AFTER = 800; // ms of quiet before a save
 const LIBRARY_PREF = 'canvas.library'; // what you added to Excalidraw's Library panel (the app's shapes are its own panel's)
 
-/** Light or dark, as the page is (Settings' switch, or the system's). */
-const pageTheme = () => {
-  const t = document.documentElement.dataset.theme;
-  return t === 'dark' || (t !== 'light' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-};
+/** Light or dark, as the page is: theme.js always sets data-theme, the system's choice resolved. */
+const pageTheme = () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
 /** The canvas's own defaults, as draw.io draws: clean lines, a thin black line, square corners, the normal font (each
  *  element can still be changed). */
@@ -424,8 +421,6 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
   const retheme = () => { const t = pageTheme(); if (t !== theme) { theme = t; render(); } };
   const themeObs = new MutationObserver(retheme);
   themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
-  mq?.addEventListener?.('change', retheme);
   window.addEventListener('focus', onFocus);
 
   const ready = (async () => {
@@ -526,7 +521,6 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
       themeObs.disconnect();
       document.fonts?.removeEventListener?.('loadingdone', onFonts);
       clearTimeout(fontTimer);
-      mq?.removeEventListener?.('change', retheme);
       window.removeEventListener('focus', onFocus);
       root?.unmount();
       root = null; xapi = null;

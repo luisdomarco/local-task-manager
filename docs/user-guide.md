@@ -68,6 +68,10 @@ Labels and people fields keep to one line: what does not fit waits behind **+N**
 
 The terminal button on a card starts **Claude Code** on that item: it shows you the folder it will start in and the exact prompt first. It runs in the terminal dock at the bottom of the app, or in Terminal, Claude Desktop, Cursor or Antigravity. Every session is recorded on the item; *Resume* continues it where it was. Set the default folder, model and effort in **Settings → Claude**.
 
+## How it looks
+
+**Settings → Themes** picks the look in this browser: **Classic**, the app as it has always looked, or **Modern** — larger text and controls, rounder buttons and cards, and an accent colour that marks what is on, picked or today. Choose light, dark or your system's, and for Modern a density (Comfortable or Compact) and a look: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each part on its own — base colour, accent, the sidebar's and the page's background, corners, fonts, menus and icons — with a preview that changes as you choose. It applies at once and is kept in this browser only, so another browser or machine has its own; the switch at the sidebar's foot is the same light / dark / system choice.
+
 ## Keeping your data safe
 
 - Everything is plain Markdown in your folders: back them up, sync them, put them in git as you like.

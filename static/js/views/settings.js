@@ -1,6 +1,6 @@
 // Settings, in tabs (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show,
 // each with its structure; the default; for a folder-per-type vault, the folders new items go to), Statuses (each
-// type's statuses in the three groups, views/statuses.js), General (work
+// type's statuses in the three groups, views/statuses.js), Themes (how the app looks in this browser, views/themes.js), General (work
 // kinds), Claude, Maintenance, Keyboard, Export (the system, the agents or a vault, as zips), App and Documentation (the
 // user guide, docs/user-guide.md). Vaults, General and
 // Claude are one config form: Save, at the foot of any of them, saves all three.
@@ -19,8 +19,9 @@ import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
+import { themesPanel } from './themes.js';
 
-const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);
@@ -406,6 +407,7 @@ export function mount(root, param) {
         h('header', {}, h('h3', {}, 'Keyboard')),
         h('p', { class: 'muted' }, keyboardHelp()))];
       const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
+        themes: [themesPanel().el],
         documentation: [guideTab.el] };
       form.replaceChildren(...tabPanels(TABS.map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
         tab = key;

@@ -476,6 +476,9 @@ export function withMentions(text) {
  * picked (Docs' "+ Link a doc or folder": pick one and it is linked, the button stays as it was), and
  * `menuWidth: (btn) => px` for a list wider than the button (that one's: the panel's width).
  */
+/** The picked option's check. Classic shows it; Modern hides it for Basecoat's, a background of [aria-selected] (app.css). */
+const optCheck = () => { const svg = icon('check', 14); svg.classList.add('opt-check'); return svg; };
+
 export function select(options, value, onChange, attrs = {}) {
   const { class: cls = '', search, clearable = false, face: fixed = null, menuWidth = null, ...rest } = attrs;
   const tone = /\bstatus-select\b/.test(cls) ? { prefix: 's-', kind: 'status' }
@@ -532,7 +535,7 @@ export function select(options, value, onChange, attrs = {}) {
         return h('button', {
           type: 'button', role: 'option', 'aria-selected': String(picked), class: `menu-item ${picked ? 'current' : ''}`,
           onclick: () => choose(v),
-        }, lead, text, picked ? icon('check', 14) : null);
+        }, lead, text, picked ? optCheck() : null);
       }) : [h('div', { class: 'menu-empty' }, 'No matches')]));
     };
     let typed = ''; let typedAt = 0;
@@ -630,7 +633,7 @@ if (typeof document !== 'undefined') {
   onStructure((s) => {
     let style = document.getElementById('status-colors');
     if (!style) style = document.head.appendChild(Object.assign(document.createElement('style'), { id: 'status-colors' }));
-    style.textContent = statusCss(s);
+    style.textContent = `@layer app {\n${statusCss(s)}\n}`; // after app.css, in its layer (css/main.css)
   });
 }
 
@@ -937,7 +940,7 @@ export function tabPanels(tabs, active, onChange = () => {}, { more = [], onMore
 export const menuIsOpen = () => openMenu !== null;
 
 /** A menu, list or calendar opened from the side panel of a card or page is drawn at the panel's one text size
- *  (app.css .menu-side), though it lives on the body. */
+ *  (app.css .menu-side: Classic's; Modern draws it as any other), though it lives on the body. */
 export function sideSized(el, anchor) {
   if (anchor?.closest?.('.im-side.tabbed')) el.classList.add('menu-side');
   return el;

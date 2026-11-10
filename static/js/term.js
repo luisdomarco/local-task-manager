@@ -16,6 +16,7 @@ import { claudeAssociate, claudeChatOpen, claudeTermOpen, onChange, state, toast
 import { setAlertTitle } from './tabtitle.js';
 import { closeMenu, dropdown, h, icon, typeIcon } from './ui.js';
 import { vaultId } from './vault.js';
+import { layeredCss } from './layeredcss.js';
 import { refOf } from './shownid.js';
 
 const VENDOR = 'vendor/xterm';
@@ -40,12 +41,7 @@ const script = (src) => new Promise((resolve, reject) => {
 async function loadLibs() {
   if (libs) return libs;
   libs = (async () => {
-    if (!document.querySelector(`link[href="${VENDOR}/xterm.css"]`)) {
-      const link = document.createElement('link'); // not h(): its href filter only lets absolute http(s) links through
-      link.rel = 'stylesheet';
-      link.href = `${VENDOR}/xterm.css`;
-      document.head.append(link);
-    }
+    layeredCss(`${VENDOR}/xterm.css`, 'app'); // after app.css, in its layer (layeredcss.js says why)
     await script(`${VENDOR}/xterm.js`);
     await script(`${VENDOR}/addon-fit.js`);
     return { Terminal: window.Terminal, FitAddon: window.FitAddon.FitAddon };

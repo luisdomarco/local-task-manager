@@ -2,6 +2,23 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+- **Settings → Themes.** Pick how the app looks in this browser: **Classic** (as it always was) or **Modern** (larger
+  text and controls, Radix colours, a look of your own), Light, Dark or System, and for Modern a density
+  (Comfortable, Compact) and a **look**: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each option
+  on its own — base colour, accent (18 colours or Mono), the sidebar's background, the canvas (plain, tinted,
+  gradient), corners, the text's and the headings' font, translucent menus, the icons' weight — with Shuffle, Reset
+  and a preview that changes as you choose. In Modern the primary buttons and what is on or checked take the accent.
+  It applies at once, is kept in the browser, and every open tab follows it. Modern is built on
+  [Basecoat](https://basecoatui.com) (shadcn's look, in plain CSS) and Radix colours, every pair checked for contrast:
+  its buttons, chips, selects, menus, tabs, dialogs, notices, checkboxes, switches and empty states are Basecoat's, its
+  date picker shadcn's calendar, its tooltips drawn by the app (never cut by a panel); and every screen takes its look
+  — the sidebar marks the page you are on in the accent, tables have 40px rows (32 compact), board cards, Agents' runs,
+  the graph's settings, the Canvas and a chat's message box are rounded cards with a soft shadow, an item's status is a
+  badge in its colour, today is in the accent in Today and Planning, Settings' on/off choices are switches and Markdown
+  reads with lighter headings. Classic looks as it always did.
+
 ## [1.4.0] — 2026-11-09
 
 **Highlights.** **Agents**: your Claude Code commands become agents you run, watch and schedule — a home, an Inbox of

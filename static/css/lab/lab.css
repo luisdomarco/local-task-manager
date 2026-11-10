@@ -1,0 +1,13 @@
+/* #/lab (design-system spike): the page around the stage. Loaded by views/lab.js while the lab is open. */
+.lab-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 0 0 12px; }
+.lab-bar label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted-foreground); }
+.lab-frame { display: block; width: 100%; height: 72vh; min-height: 480px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--background); }
+.lab-tests { margin-top: 20px; }
+.lab-tests .lab-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.lab-results { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.lab-results th, .lab-results td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.lab-results td:nth-child(2) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lab-sandbox { margin-top: 12px; padding: 12px; border: 1px dashed var(--border); border-radius: var(--radius); }
+/* Basecoat's dialog is the inner div (max-width: sm by default): a card's width goes on it */
+dialog.lab-card > div { width: min(1100px, 94vw); max-width: none; height: min(800px, 88vh); max-height: none; overflow: auto; padding: 0; }

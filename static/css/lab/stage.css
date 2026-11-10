@@ -1,0 +1,31 @@
+/* The lab's stage (#/lab, an iframe): Basecoat on its own, with the tokens of the theme being looked at.
+   Only the layout of the specimen sheet is here; every component's look is Basecoat's. */
+body { margin: 0; padding: 20px 24px 64px; background: var(--background); color: var(--foreground);
+  font-family: var(--font-sans); font-size: var(--text-sm); line-height: var(--text-sm--line-height, 1.5); }
+.lab-sec { padding: 18px 0 22px; border-bottom: 1px solid var(--border); }
+.lab-sec > h2 { margin: 0 0 12px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted-foreground); }
+.lab-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; }
+.lab-col { display: grid; gap: 12px; max-width: 420px; }
+.lab-note { margin: 4px 0 0; font-size: 12px; color: var(--muted-foreground); }
+.lab-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; }
+.lab-scale { display: grid; grid-template-columns: 110px 70px 1fr; gap: 6px 12px; align-items: baseline; }
+.lab-scale code { font-size: 12px; color: var(--muted-foreground); }
+.lab-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; white-space: nowrap; }
+.lab-chip i { width: 7px; height: 7px; border-radius: 50%; }
+.lab-chips { display: grid; grid-template-columns: 90px auto auto minmax(0, 1fr); gap: 6px 12px; align-items: center; }
+.lab-chips small { overflow-wrap: anywhere; }
+.lab-chips small { font-size: 11px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.lab-icons { display: flex; flex-wrap: wrap; gap: 14px; }
+.lab-icons figure { margin: 0; display: grid; justify-items: center; gap: 4px; width: 72px; font-size: 11px; color: var(--muted-foreground); }
+.lab-icons svg { width: 20px; height: 20px; color: var(--foreground); }
+.lab-swatch { display: inline-grid; place-items: center; min-width: 120px; height: 34px; padding: 0 10px; border-radius: var(--radius);
+  font-size: 12px; font-variant-numeric: tabular-nums; }
+.table-container { overflow-x: auto; }
+.tnum { font-variant-numeric: tabular-nums; }
+calendar-date { font-size: 13px; }
+calendar-month::part(button) { border-radius: 6px; }
+calendar-month::part(selected) { background: var(--brand, var(--primary)); color: var(--brand-foreground, var(--primary-foreground)); }
+calendar-month::part(today) { color: var(--brand-text, var(--foreground)); font-weight: 600; }
+calendar-date svg { width: 16px; height: 16px; }

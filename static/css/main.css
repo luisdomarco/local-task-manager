@@ -1,0 +1,12 @@
+/* The page's stylesheet: the others, each in its cascade layer. A later layer wins over an earlier one whatever the
+   specificity of their rules, so the order below is the order of precedence:
+   - vendor: third-party CSS the app dresses from above: Inter, and Basecoat (Nova), whose components read the app's
+             tokens (shadcn's names) and whose rules app.css overrides where Classic differs
+   - app:    app.css, Classic's tokens included; after it the vault's status colours (ui.js statusCss) and the
+             stylesheets of Excalidraw and xterm, added when they load (layeredcss.js says why they are here)
+   - themes: a theme other than Classic (css/themes/<id>.css, loaded only when it is the one chosen: index.html, theme.js)
+   Inside a layer the usual rules hold. `!important` reverses the order between layers: one in vendor beats the app's. */
+@layer vendor, app, themes;
+@import url("../vendor/fonts/inter.css") layer(vendor);
+@import url("../vendor/basecoat/basecoat-nova.app.css") layer(vendor);
+@import url("app.css") layer(app);

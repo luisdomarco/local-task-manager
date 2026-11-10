@@ -6,6 +6,7 @@
 import { createSimulation, fit, forceOptions, nearest, unclutter, zoomAt } from './graphlayout.js';
 import { degrees } from './graphmodel.js';
 import { edgeStyle, labelAlpha, nodeColor } from './graphstyle.js';
+import { THEME_ATTRS } from './themeprefs.js';
 import { h, icon } from './ui.js';
 
 const TONES = { strong: '--foreground', soft: '--graph-line', faint: '--graph-line-faint', alert: '--destructive' };
@@ -230,11 +231,10 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
     draw();
   });
   ro.observe(el);
-  // The theme changed (Settings' switch, or the system's): its colours again.
+  // The theme changed (Settings → Themes, the sidebar's switch, or the system's, which theme.js turns into data-theme):
+  // its colours again.
   const themeObs = new MutationObserver(() => draw());
-  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-  const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
-  mq?.addEventListener?.('change', draw);
+  themeObs.observe(document.documentElement, { attributes: true, attributeFilter: THEME_ATTRS });
 
   // ── the pointer ──
   const pointers = new Map(); // id → { x, y }, for a pinch
@@ -359,7 +359,7 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
     },
     destroy() {
       cancelAnimationFrame(raf); raf = 0;
-      ro.disconnect(); themeObs.disconnect(); mq?.removeEventListener?.('change', draw);
+      ro.disconnect(); themeObs.disconnect();
     },
   };
 }
