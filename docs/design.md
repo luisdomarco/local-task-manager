@@ -105,7 +105,7 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   Filter (`lead`) that opens a popover of presets and two days (`popover`, exported by viewbar.js). Its groups are a
   list's grey band (`tr.group-head` › `.group-line` › `.group-toggle`), the group's entries and time at its right
   (`.wl-group-total`). A column the group already says (Date by day, Kind by kind) is not drawn.
-- **Overview's work and records** (Tasks, Notes, Meetings: `workGroups`): the Panel kit's groups and rows, never a second tab bar — a folding name with its count (open ones only, for a kind that closes), *+ Add…* as `aside`, rows with the id muted and, at the right, a task's status and priority as two fixed-width columns without a table, the priority at the right edge (`.work-meta`; on a phone the priority keeps only its bars) or a record's date, the tables' pager (`paged`) in the group's foot. The whole line up to *+ Add* folds it. **Issues** uses the same groups (`workGroups(…, { table: true })`), each unfolding into its kind's `dataTable` with the columns of its list but `ISSUE_LEFT_OUT` (ticket id, progress): id and subject at fixed widths (`ISSUE_TABLE`) so every kind's table lines up with the others, an empty last column (`FILL_COLUMN`) taking what is left, sideways scroll without a bar; quiet (small grey heads, no bold subject), *Show N closed* on its pager's line (`.issue-body`). The quick add (+ Add) shuts on Esc, *Close*, or a click elsewhere while empty.
+- **Overview's work and records** (Tasks, Notes, Meetings: `workGroups`): the Panel kit's groups and rows, never a second tab bar — a folding name with its count (open ones only, for a kind that closes), *+ Add…* as `aside`, rows with the id muted and, at the right, a task's status and priority as two columns without a table, edited in place with the lists' cells (`COL.status` / `COL.priority` from `datatable.js`, outside the row's link so a pick does not open it; quiet until the row is hovered, as `.grid td`'s), the priority at the right edge (`.work-meta`; on a phone the priority keeps only its bars) or a record's date, the tables' pager (`paged`) in the group's foot. The whole line up to *+ Add* folds it. **Issues** uses the same groups (`workGroups(…, { table: true })`), each unfolding into its kind's `dataTable` with the columns of its list but `ISSUE_LEFT_OUT` (ticket id, progress): id and subject at fixed widths (`ISSUE_TABLE`) so every kind's table lines up with the others, an empty last column (`FILL_COLUMN`) taking what is left, sideways scroll without a bar; quiet (small grey heads, no bold subject), *Show N closed* on its pager's line (`.issue-body`). The quick add (+ Add) shuts on Esc, *Close*, or a click elsewhere while empty.
 - **Relations / Docs**: built of the Panel kit (below): `stackGroup`s of `rowList`s, quiet pickers, a secondary button
   to add one more. **Parent** opens Relations: one group for where the item lives (`project` and `related_to` in the
   file), the chain as rows — its parent and on up, closed by its project (`in`) — the first with ✎ (`itemPicker` over
@@ -191,7 +191,16 @@ corner, `.body-wrap.in-tab`; then its work and records — Tasks, Notes, Meeting
 Readiness, Execution… Paused or discarded —: no tab of their own) · Files (attachments) · Links · Docs
 (`docsTab`) · **Issues** (every other kind that hangs from it, stacked as Overview's, each its table: `groupTabs`), last, set apart by
 a short line (`.tab-btn.apart`, the tab's `apart: true`). A structure with `child_groups` (Projects) gets one such tab per
-group instead (Initiatives · Issues · Briefs · Records), the line before the first. One line under the bar, none over it; a tab's count is a number, so a 0 shows no badge (as the side panel's). Settings
+group instead (Initiatives · Issues · Briefs · Records), the line before the first. **Seven at most** (`foldTabs`,
+`tabfold.js`): its own sections always, then the groups while there is room; a group past the seven waits in a **+**
+after the last one shown (`.tab-btn.tab-more`, a `dropdown` of their names and counts), and shows anyway once it holds an
+item (any status), while it is the tab open, or once picked from + until the detail closes (the editor's `openedTabs`).
+**Canvas** (`canvasTab`, a type with `canvas` in its structure: in Projects a project, initiative, story, task and
+meeting) is last, set apart by its own line, never one of the seven nor folded: the Canvas layout (`mountCanvasView`,
+host = its ref, `canvas/itemcanvas.js`) at a height of its own (`.item-canvas`), built the first time the tab shows
+(`onShow`) and kept by its editor while the item stays open, so a save that draws the tabs again moves the same
+whiteboard into the new panel; it is destroyed (its last strokes saved) when another item opens there or the detail
+closes. Its side column offers the open items that hang from it, at any depth, as cards. One line under the bar, none over it; a tab's count is a number, so a 0 shows no badge (as the side panel's). Settings
 follows the side panel's line, one field per row, its name on the left (a map with `key_labels`, On hold, a row per
 key: On hold by · Why on hold · Resume when; never keys titled over boxes): a group's name a small grey uppercase title with no icon, as the create form's
 sections (*SPEC AND RELEASE*, as *SETTINGS*), a thin line between groups, each field quiet as in Properties — no frame
@@ -255,11 +264,18 @@ Properties · Activity · AI Agents · Relations · Time, last.
 - **What a page hands in** is a provider; the canvas knows no page:
   `{ kind, label, items() (the side list), all() (Map id → item: every one a card may show), card(item), line(item), open(item) }`.
   `card(item)` → `{ title, kicker?, status?: { label, key }, priority?, note?, progress?: { done, total }, link? }`.
-  `mountCanvasView(el, { host, provider })` draws the rest: the canvas picker, the side list, the whiteboard. `host` names
-  its folder, `<Docs>/Canvases/<host>`.
-- **The layout**: as a board, it takes the height left (`.canvas-view`, `board-layout` on `#view`). The items sit in a
-  220 px column, the picker (`select`) and ⋯ on top, and a ⟨sidebar⟩ button folds it to a 32 px rail
-  (`canvas.<host>.folded`). The whiteboard sits in a soft frame (`--border`, `--radius`). Filter, Display and the chips
+  `mountCanvasView(el, { host, provider })` draws the rest: the canvas picker, the side column, the whiteboard. `host`
+  names its folder, `<Docs>/Canvases/<host>`. Its providers: Goals' (`goalsProvider`), and an item's or a free canvas's
+  (`itemCanvasProvider({ items, whose, listed })`, panel.js: a card per item, any type).
+- **The Canvas page** (`views/canvases.js`, `#/canvas/<path>`) is Docs' page (`.docs-page`, `.docs-panel`, its
+  `.docs-head` sections with **+**, the same resizer) with a section per host — Free (`General`), Goals, each item's
+  (`canvas/itemcanvas.js canvasHost`) — and `.canvas-row` links, and on its right the host's layout with
+  `{ path, fixed: true }`: the canvas named instead of picked (`.canvas-name-fixed`), the page's list being the picker.
+  `onOpen(c)` keeps the address on the canvas shown (a rename, a new one from ⋯); `actions(c, anchor)` adds
+  **Move to an item…** to ⋯ (`itemPicker` over the types with `canvas`, then `api.movePath`).
+- **The layout**: as a board, it takes the height left (`.canvas-view`, `board-layout` on `#view`). A 220 px column, the
+  picker (`select`) and ⋯ on top, then a `.seg` of two tabs, **Shapes** and the provider's label (`canvas.<host>.side`,
+  Shapes first), and a ⟨sidebar⟩ button folds it to a 32 px rail (`canvas.<host>.folded`). The whiteboard sits in a soft frame (`--border`, `--radius`). Filter, Display and the chips
   step aside (`#view.canvas-layout`). A narrow window stacks the column above the canvas. Excalidraw's own UI goes
   mobile under 730 px of canvas, so the column stays narrow.
 - **A card is a board's card**, drawn in Excalidraw's primitives and grouped:
@@ -276,9 +292,25 @@ Properties · Activity · AI Agents · Relations · Time, last.
   variables on `.excalidraw`, set from the app's tokens (`--primary`, `--accent`, `--popover`, the radii) under
   `.canvas-stage`, so they follow the theme. The Library's headings are section labels (`--muted-foreground`, 12.5 px,
   600), and its *Browse libraries* link out is hidden.
-- **Shapes** live in `library.js`, as data: Excalidraw skeletons, roughness 0, ink `#343a40` on white, Nunito. A figure
-  of several shapes is one group. The canvas defaults to clean lines, Nunito 16, round corners and shapes filled white (Excalidraw takes hold of a shape with no fill only by its outline, so a filled one drags from its middle, as in Miro); each element can
-  still change.
+- **The shapes panel** (`shapepanel.js`) is draw.io's palette in the app's quiet style: a search (every word, over a
+  figure's name, keywords and family), then the families as section labels that fold (`--muted-foreground`, 12.5 px,
+  600; General open, `canvas.shapes.open`), each a grid of 36 px pictures (`.shape-tile`: its name on hover, `--muted`
+  under it). A picture is the figure's own skeleton drawn as SVG (`shapes/thumb.js`): ink in `currentColor`, paper in
+  `--shape-paper`, so it follows the theme. Drag one onto the canvas (`SHAPE_MIME`) or click it: the figure lands there,
+  or in the view's middle (a second click steps down and right), selected.
+- **Figures** are data in `shapes/` (`general.js`, `bpmn.js`, `flowchart.js`; `index.js` the families), built with
+  `kit.js`. Drawn as draw.io draws them: white, a 1 px black line (`#000000`), square corners (the rounded ones by
+  name: rounded rectangle, BPMN activities), roughness 0, Nunito 14. Excalidraw has only rectangles, diamonds, ellipses,
+  lines, arrows and texts, so a figure is a group of **ink** (closed lines filled white — a hexagon, a cylinder's body
+  —, ellipses, a marker's strokes; a black marker is a **mark**) under a **box**: a rectangle its size, on top, filled
+  `#ffffff01` with no line. The box is what arrows bind to (from its middle too: it is filled), what holds the label,
+  what you take hold of. A figure whose outline is a rectangle, diamond or ellipse is its own box (its **outline**).
+  Each part says which in `customData.tmRole`. A colour that reaches the box (`boxRepairs`) goes on to the ink, and the
+  box is cleared again. A double-click on a figure writes its label at once: Excalidraw's first double-click only goes
+  into a group, so the whiteboard gives its canvas a second one.
+- **The canvas's own defaults** follow: clean lines, a 1 px black line, square corners, Nunito 16, shapes filled white
+  (Excalidraw takes hold of a shape with no fill only by its outline, so a filled one drags from its middle). Excalidraw's
+  Library panel keeps only what you add to it.
 - **Arrows meet a shape at the middle of a side**, as draw.io's and Miro's connectors, never anywhere along it:
   - `anchorlayer.js` draws the dots over Excalidraw (it has none): hover a shape, or select it, and its four dots show,
     blue (`.wb-anchor`); drag from one and a dashed line follows to the dot of the shape under the pointer, lit green;
@@ -287,8 +319,8 @@ Properties · Activity · AI Agents · Relations · Time, last.
     Excalidraw's handles: the dots only say where its end may go (they let the pointer through). A click on a dot an
     arrow already meets selects that arrow, by giving Excalidraw's canvas a click on it: its handles (its linear
     editor) come only from a pointer selection, with the up a moment after the down.
-  - `anchors.js` (pure) says which shape is under a point (`targetAt`: a shape, a free text or a card's frame, never a
-    card's parts) and where its dots are; `snapArrows` puts an end drawn elsewhere on the nearest side's middle when
+  - `anchors.js` (pure) says which shape is under a point (`targetAt`: a shape, a free text, a card's frame or a
+    figure's box, never a card's parts nor a figure's ink) and where its dots are; `snapArrows` puts an end drawn elsewhere on the nearest side's middle when
     the pointer is up, and routes again an elbow that comes into its side the wrong way (an end moved to another side
     keeps the segments you dragged). An elbow keeps the side as its `fixedPoint`, and Excalidraw's own router
     (`mutateElement` with new binding objects, on an elbow in the scene) draws its path around the shapes. A rotated shape is left as Excalidraw binds it.

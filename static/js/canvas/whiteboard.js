@@ -12,12 +12,14 @@ import { toast } from '../state.js';
 import { CARD, cardHeight, cardSig, cardSkeleton, cardsOn, parse, partSkeletons, serialize, staleCards, staleLinks } from './canvasfile.js';
 import { anchor, bindingTo, snapArrows } from './anchors.js';
 import { mountAnchors } from './anchorlayer.js';
-import { LIBRARY } from './library.js';
 import { loadExcalidraw } from './loader.js';
+import { SHAPE_MIME } from './shapepanel.js';
+import { SHAPES } from './shapes/index.js';
+import { boxRepairs } from './shapes/kit.js';
 
 export const ITEM_MIME = 'application/x-tm-item'; // a side list's row, dragged: its item's id
 const SAVE_AFTER = 800; // ms of quiet before a save
-const LIBRARY_PREF = 'canvas.library'; // what you added to the Library panel (the built-in shapes are always there)
+const LIBRARY_PREF = 'canvas.library'; // what you added to Excalidraw's Library panel (the app's shapes are its own panel's)
 
 /** Light or dark, as the page is (Settings' switch, or the system's). */
 const pageTheme = () => {
@@ -25,8 +27,10 @@ const pageTheme = () => {
   return t === 'dark' || (t !== 'light' && window.matchMedia?.('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 };
 
-/** The canvas's own defaults: clean lines, the normal font, round corners (each element can still be changed). */
-const CLEAN = { currentItemRoughness: 0, currentItemFontFamily: 6, currentItemFontSize: 16, currentItemRoundness: 'round', currentItemStrokeWidth: 2,
+/** The canvas's own defaults, as draw.io draws: clean lines, a thin black line, square corners, the normal font (each
+ *  element can still be changed). */
+const CLEAN = { currentItemRoughness: 0, currentItemFontFamily: 6, currentItemFontSize: 16, currentItemRoundness: 'sharp', currentItemStrokeWidth: 1,
+  currentItemStrokeColor: '#000000',
   currentItemArrowType: 'elbow', // a connector, as Miro's: straight and curved are a click away in the arrow's properties
   // Shapes filled white, as Miro's: Excalidraw takes hold of a shape with no fill only by its outline, so one drawn
   // transparent could not be dragged from its middle (transparent is still a swatch away).
@@ -152,7 +156,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     const hits = (q) => xapi.getSceneElements().some((r) => !r.containerId && r.type !== 'arrow' && r.type !== 'line'
       && q.x < r.x + r.width + GAP && r.x < q.x + CARD.width + GAP && q.y < r.y + r.height + GAP && r.y < q.y + CARD.height + GAP);
     for (let n = 0; !at && hits(p) && n < 200; n += 1) p = { x: p.x + CARD.width + GAP, y: p.y };
-    const made = build(cardSkeleton(item, provider.card(item), p, provider.kind));
+    const made = build(cardSkeleton(item, provider.card(item), p, item.type || provider.kind));
     const group = [`tm-${item.id}-${Date.now().toString(36)}`]; // the frame and its parts move as one
     for (const e of made) e.groupIds = group;
     xapi.updateScene({ elements: [...elements(), ...made], appState: { selectedElementIds: { [made[0].id]: true }, selectedGroupIds: { [group[0]]: true } },
@@ -204,25 +208,82 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     xapi.updateScene({ elements: [...next, ...added], captureUpdate: lib.CaptureUpdateAction.NEVER });
   }
 
-  // ── the library panel: the built-in shapes, then yours ──
-  const builtIn = () => LIBRARY.map((l) => ({ id: l.id, status: 'published', created: 1, name: l.name, elements: build(l.skeleton) }));
-  const libraryItems = () => {
-    const own = (pref(LIBRARY_PREF, null) || []).filter((i) => !LIBRARY.some((l) => l.id === i.id));
-    return [...builtIn(), ...own];
-  };
+  // ── Excalidraw's Library panel: only what you added to it (the app's shapes are in the shapes panel) ──
+  // A built-in shape of before (`tm-…`, always given back then, never saved) is not kept.
+  const libraryItems = () => (pref(LIBRARY_PREF, null) || []).filter((i) => !String(i.id).startsWith('tm-'));
   const onLibraryChange = (items) => {
-    const own = items.filter((i) => !LIBRARY.some((l) => l.id === i.id));
+    const own = items.filter((i) => !String(i.id).startsWith('tm-'));
     setPref(LIBRARY_PREF, own.length ? own : null);
   };
 
-  // ── drops from the side list ──
-  const isOurs = (e) => [...(e.dataTransfer?.types || [])].includes(ITEM_MIME);
-  const onDragOver = (e) => { if (!isOurs(e)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; };
+  // ── a figure of the shapes panel (shapepanel.js, shapes/) ──
+  /**
+   * Its skeletons as elements, each part keeping what it is (customData) and the figure its own group: the ids are
+   * given here, not regenerated, so each part is found again by its id.
+   */
+  const buildShape = (skeletons) => {
+    const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const named = skeletons.map((s, i) => ({ ...s, id: `tm-${stamp}-${i}` }));
+    const out = lib.convertToExcalidrawElements(named, { regenerateIds: false });
+    for (const s of named) { const e = out.find((x) => x.id === s.id); if (e && s.customData) e.customData = s.customData; }
+    const group = `tm-shape-${stamp}`;
+    if (named.some((s) => s.groupIds?.length)) for (const e of out) e.groupIds = [group]; // its label too
+    return out;
+  };
+  /** The figure `id` with its middle at scene point `at` (a drop), or in the view's middle beside what is there. */
+  function addShape(id, at = null) {
+    const fig = SHAPES.get(id);
+    if (!xapi || !fig) return;
+    let p = at || middle();
+    p = { x: p.x - fig.w / 2, y: p.y - fig.h / 2 };
+    // Clicked in, not dropped: not on the figure added before it (each click steps down and right).
+    const taken = (q) => xapi.getSceneElements().some((r) => r.customData?.tmShape && Math.abs(r.x - q.x) < 2 && Math.abs(r.y - q.y) < 2);
+    for (let n = 0; !at && taken(p) && n < 50; n += 1) p = { x: p.x + 24, y: p.y + 24 };
+    const made = buildShape(fig.skeleton(Math.round(p.x), Math.round(p.y)));
+    const picked = made.filter((e) => !e.containerId);
+    xapi.updateScene({
+      elements: [...elements(), ...made],
+      appState: { selectedElementIds: Object.fromEntries(picked.map((e) => [e.id, true])),
+        selectedGroupIds: made[0]?.groupIds?.length ? { [made[0].groupIds[0]]: true } : {} },
+      captureUpdate: lib.CaptureUpdateAction.IMMEDIATELY,
+    });
+  }
+  /** A figure's box stays unseen when a colour reaches it (shapes/kit.js boxRepairs). */
+  const repairBoxes = () => {
+    const fixes = new Map(boxRepairs(xapi.getSceneElements()).map((r) => [r.id, r.patch]));
+    if (!fixes.size) return;
+    xapi.updateScene({ elements: elements().map((e) => (fixes.has(e.id) ? lib.newElementWith(e, fixes.get(e.id)) : e)), captureUpdate: lib.CaptureUpdateAction.NEVER });
+  };
+
+  /**
+   * A double-click on a figure writes its label, as draw.io's: a figure is a group, and Excalidraw's first double-click
+   * on a group only goes into it (its box picked), its second writes in the box. So a first one on a figure is given
+   * to Excalidraw's canvas once more, a moment after (the second finds the group entered, and is let be).
+   */
+  const onDblClick = (e) => {
+    if (!xapi || !lib || !e.isTrusted) return;
+    const st = xapi.getAppState();
+    const { x, y } = lib.viewportCoordsToSceneCoords({ clientX: e.clientX, clientY: e.clientY }, st);
+    const box = [...xapi.getSceneElements()].reverse().find((b) => ['box', 'outline'].includes(b.customData?.tmRole) && b.groupIds?.length
+      && x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height);
+    if (!box || st.editingGroupId === box.groupIds[0] || st.editingTextElement) return;
+    const canvas = el.querySelector('canvas.interactive');
+    const { clientX, clientY } = e;
+    setTimeout(() => canvas?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX, clientY, detail: 2 })), 30);
+  };
+  el.addEventListener('dblclick', onDblClick, true);
+
+  // ── drops: a row of the side list (a card), a picture of the shapes panel (a figure) ──
+  const dragged = (e) => [...(e.dataTransfer?.types || [])].find((t) => t === ITEM_MIME || t === SHAPE_MIME) || null;
+  const onDragOver = (e) => { if (!dragged(e)) return; e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; };
   const onDrop = (e) => {
-    if (!isOurs(e)) return;
+    const kind = dragged(e);
+    if (!kind || !xapi) return;
     e.preventDefault(); e.stopPropagation(); // Excalidraw would try it as a file
+    const at = lib.viewportCoordsToSceneCoords({ clientX: e.clientX, clientY: e.clientY }, xapi.getAppState());
+    if (kind === SHAPE_MIME) { addShape(e.dataTransfer.getData(SHAPE_MIME), at); return; }
     const item = provider.all().get(e.dataTransfer.getData(ITEM_MIME));
-    if (item && xapi) addCard(item, lib.viewportCoordsToSceneCoords({ clientX: e.clientX, clientY: e.clientY }, xapi.getAppState()));
+    if (item) addCard(item, at);
   };
   el.addEventListener('dragover', onDragOver, true);
   el.addEventListener('drop', onDrop, true);
@@ -362,7 +423,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
           fontsReady().then(() => { remeasure(); sync(); snap(); });
           return;
         }
-        if (lib.getSceneVersion(elements()) !== saved) { later(); tellCards(); }
+        if (lib.getSceneVersion(elements()) !== saved) { repairBoxes(); later(); tellCards(); }
       },
       onLibraryChange,
       // A card opens its item here (its [[link]] is for Obsidian); another [[link]] has nowhere to go in the page.
@@ -382,13 +443,14 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
   ready.catch(() => {});
 
   return {
-    ready, addCard, locate, sync, placed,
+    ready, addCard, addShape, locate, sync, placed,
     async destroy() {
       if (dead) return;
       if (timer) await save().catch(() => {});
       dead = true;
       el.removeEventListener('dragover', onDragOver, true);
       el.removeEventListener('drop', onDrop, true);
+      el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('pointerup', onPointerUp, true);
       dots?.destroy();
       dots = null;

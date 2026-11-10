@@ -59,6 +59,28 @@ class CanvasesTest(unittest.TestCase):
         self.assertEqual(sorted(i['key'] for i in again.items()), before)
         self.assertEqual(self.s.canvases('Agents')['canvases'][0]['name'], 'Flows')
 
+    def test_the_index_counts_each_hosts_canvases(self):
+        self.assertEqual(self.s.canvas_index(), {})
+        for rel in ('Goals/Roadmap', 'STY-482/Flow', 'STY-482/Data model', 'HB/Map'):
+            self.s.create_file(f'Docs/Canvases/{rel}.excalidraw.md', CANVAS, parents=True)
+        self.s.create_file('Docs/Canvases/TSK-9/notes.md', '# not a canvas', parents=True)
+        self.s.create_file('Docs/Canvases/stray.excalidraw.md', CANVAS, parents=True)  # in no host's folder
+        self.assertEqual(self.s.canvas_index(), {'Goals': 1, 'STY-482': 2, 'HB': 1})
+        self.assertEqual(self.s.canvases('STY-482')['folder'], 'Docs/Canvases/STY-482')  # an item's, by its ref
+
+    def test_every_canvas_with_its_host(self):
+        self.assertEqual(self.s.all_canvases(), {'folder': 'Docs/Canvases', 'canvases': []})
+        for rel in ('Goals/Roadmap', 'STY-482/Flow', 'General/Ideas', 'General/A map'):
+            self.s.create_file(f'Docs/Canvases/{rel}.excalidraw.md', CANVAS, parents=True)
+        self.s.create_file('Docs/Canvases/General/notes.md', '# not a canvas', parents=True)
+        self.s.create_file('Docs/Canvases/stray.excalidraw.md', CANVAS, parents=True)  # in no host's folder
+        self.s.create_file('Docs/Canvases/.hidden/x.excalidraw.md', CANVAS, parents=True)
+        listed = self.s.all_canvases()['canvases']
+        self.assertEqual([(c['host'], c['name']) for c in listed],
+                         [('General', 'A map'), ('General', 'Ideas'), ('Goals', 'Roadmap'), ('STY-482', 'Flow')])
+        self.assertEqual(listed[-1]['path'], 'Docs/Canvases/STY-482/Flow.excalidraw.md')
+        self.assertTrue(all(c['rev'] and c['mtime'] for c in listed))
+
     def test_a_host_is_a_plain_name(self):
         for bad in ('', '../Tasks', 'Goals/x', '.hidden', 'x' * 60):
             with self.assertRaises(StoreError, msg=bad):

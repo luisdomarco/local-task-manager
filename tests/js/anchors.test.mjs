@@ -62,6 +62,18 @@ describe('anchors', () => {
     assert.equal(connectable({ id: 't', type: 'text', x: 0, y: 0, width: 1, height: 1 }), true);
   });
 
+  it('anchors to a figure by its box, never by its ink or its marks (shapes/kit.js)', () => {
+    const fig = (role, type = 'rectangle') => ({ ...box(role, 0, 0, 120, 80), type, customData: { tmShape: 'bpmn-send', tmRole: role } });
+    const [outline, mark, ink] = [fig('outline'), fig('mark'), fig('ink', 'ellipse')];
+    const boxed = fig('box');
+    assert.equal(connectable(outline), true);
+    assert.equal(connectable(boxed), true);
+    assert.equal(connectable(mark), false);
+    assert.equal(connectable(ink), false);
+    // A task's envelope over its outline: the task is found under it.
+    assert.equal(targetAt([outline, { ...mark, x: 6, y: 6, width: 18, height: 12 }], [10, 10])?.id, 'outline');
+  });
+
   it('puts a dot at the middle of each side, and binds there', () => {
     assert.deepEqual(anchorPoints(box('b', 10, 20, 100, 60)), { top: [60, 20], right: [110, 50], bottom: [60, 80], left: [10, 50] });
     assert.deepEqual(bindingTo(box('b', 0, 0), 'right'), { elementId: 'b', focus: 0, gap: 4, fixedPoint: [1, 0.5] });

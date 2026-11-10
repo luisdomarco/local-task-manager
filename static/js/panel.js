@@ -8,7 +8,7 @@
 // own open item, content draft and focus.
 import { api } from './api.js';
 import { historyText } from './historytext.js';
-import { DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
+import { COL, DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
 import { relDay, shiftWeek, stampLabel, thisMonth, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL, trapFocus } from './create.js';
 import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, planKey, propField, sideFold, statusSelect } from './itemform.js';
@@ -35,9 +35,12 @@ import {
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
-import { closeMenu, dropdown, h, icon, priorityChip, rowAction, rowItem, rowList, secondaryButton, select, stackGroup, statusChip, statusLabel, tabPanels, tagInput, typeIcon, withMentions } from './ui.js';
+import { closeMenu, dropdown, h, icon, rowAction, rowItem, rowList, secondaryButton, select, stackGroup, statusLabel, tabPanels, tagInput, typeIcon, withMentions } from './ui.js';
 import { refOf } from './shownid.js';
 import { MEMBER_TYPES, byGoalOrder, goalCandidates, goalProgress, inGoal, nextGoalOrder } from './goals.js';
+import { mountCanvasView } from './canvas/canvasview.js';
+import { canvasHost, canvasItems } from './canvas/itemcanvas.js';
+import { foldTabs } from './tabfold.js';
 import { itemPicker } from './itempicker.js';
 
 /** A phone's width, where the card's head keeps only its essentials (app.css matches it). */
@@ -275,6 +278,47 @@ function docsTab(item, rerender) {
     stackGroup(mentioned.length ? 'Linked' : rows.length ? null : none, rows.length ? rowList(rows) : mentioned.length ? h('p', { class: 'muted small rel-none' }, none) : null, { aside: pick }),
     mentioned.length ? stackGroup('Mentioned in', rowList(mentioned.map((p) => rowItem({ ico: icon('note', 14), href: docsHref(p), linkAttrs: { title: p },
       text: p.split('/').pop().replace(/\.md$/i, ''), meta: where(p) || null })))) : null)] };
+}
+
+// Canvas: the item's own whiteboards, in <Docs>/Canvases/<its ref> (canvas/itemcanvas.js), and beside them the open
+// items that hang from it, to put on them as cards. Built the first time the tab shows, and kept by its editor while the
+// item stays open (createEditor: a save draws the tabs again, and the same view goes into the new panel).
+let canvasHosts = null; // /api/canvases/index: { host: its canvases }, asked once; a listed host's count is kept in step
+function canvasTab(item, c) {
+  if (!TYPE_DEFS[item.type]?.canvas || !c.canvas) return null;
+  const host = canvasHost(item);
+  if (!host) return null;
+  if (!canvasHosts) {
+    canvasHosts = {};
+    api.canvasIndex().then((r) => { canvasHosts = r.hosts || {}; c.rerender(); }, () => {});
+  }
+  const slot = c.canvas(item.key);
+  slot.view?.update();
+  const listed = (n) => { if ((canvasHosts[host] || 0) !== n) { canvasHosts[host] = n; c.rerender(); } };
+  const items = () => canvasItems(state.all.find((k) => k.key === item.key) || item, state.items, state.byId, isDone);
+  return {
+    key: 'canvas', label: 'Canvas', count: canvasHosts[host] || 0, pinned: true, apart: true, content: slot.el,
+    // Once its panel is in the page (the first onShow comes while the tabs are being drawn): right after.
+    onShow: () => { if (!slot.view) queueMicrotask(() => { if (!slot.view && slot.el.isConnected) slot.view = mountCanvasView(slot.el, { host, provider: itemCanvasProvider({ items, whose: refOf(item) || item.title, listed }) }); }); },
+  };
+}
+
+/** What items are on a canvas (whiteboard.js's provider): a card each — title, ref, status, priority and kind —
+ *  linked to its file. `items()`: the side column's (an item's tree on its Canvas tab, every open one on the Canvas
+ *  page); `whose`: what its empty state names; `listed(n)`: its host's canvases counted. */
+export function itemCanvasProvider({ items, whose = 'this page', listed = null }) {
+  return {
+    kind: 'task', label: 'Items', whose, listed,
+    all: () => state.byId,
+    items,
+    card: (k) => ({
+      title: k.title, kicker: refOf(k), note: TYPE_DEFS[k.type]?.label || k.type,
+      status: k.fields.status ? { label: statusLabel(k.fields.status), key: k.fields.status } : null, priority: k.fields.priority || null,
+      link: k.path ? `[[${k.path.replace(/\.md$/, '')}]]` : null,
+    }),
+    line: (k) => [TYPE_DEFS[k.type]?.label, k.fields.status && statusLabel(k.fields.status)].filter(Boolean).join(' · '),
+    open: (k) => (modalEd.isOpen() ? openFromItem(k) : openItemCard(k)), // a card: close it and go on drawing
+  };
 }
 
 /** A note's "Convert to doc…": where it goes, a Docs folder (its project's first), then the conversion; the page
@@ -810,9 +854,17 @@ function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPi
     { key: 'files', label: 'Files', count: files, content: h('section', { class: 'files-group' }, attachmentsBody(item)) },
     { key: 'links', label: 'Links', count: linked, content: links(item, c.rerender) },
     docsTab(item, c.rerender), // the docs it links and those that mention it
-    ...groupTabs(item, groups, c.rerender),
-  ].filter(Boolean);
-  return h('section', { class: 'item-tabs' }, ...tabPanels(tabs, current, onPick)); // an unknown `current`: the first
+  ].filter(Boolean).map((t) => ({ ...t, own: true }));
+  const all = [...tabs, ...groupTabs(item, groups, c.rerender), canvasTab(item, c)].filter(Boolean);
+  // Seven at most, its own sections and Canvas always; the groups past them in "+" until they hold an item (tabfold.js).
+  const opened = c.openedTabs || new Set();
+  const fold = foldTabs(all, { active: current, opened });
+  const shown = all.filter((t) => fold.shown.includes(t.key));
+  const firstGroup = shown.find((t) => !t.own && !t.pinned);
+  for (const t of shown) if (!t.own && !t.pinned) t.apart = t === firstGroup; // the line before the first group shown
+  const more = all.filter((t) => fold.hidden.includes(t.key));
+  const onMore = (key) => { opened.add(key); onPick(key); c.rerender(); };
+  return h('section', { class: 'item-tabs' }, ...tabPanels(shown, current, onPick, { more, onMore })); // an unknown `current`: the first
 }
 
 /** A goal's Overview head, where another item has its description: its description (a plain text field), how far
@@ -858,6 +910,7 @@ function groupTabs(item, groups, rerender) {
   return groups.map((g, n) => ({
     key: g.key, label: g.label, apart: n === 0,
     count: g.tables.reduce((k, t) => k + Number(t.count || 0), 0),
+    used: g.tables.some((t) => t.group?.all?.length > 0), // an item of its kinds, any status: never folded into "+"
     content: workGroups(item, g.tables, rerender, { table: true }),
   }));
 }
@@ -982,15 +1035,16 @@ function workGroups(item, tables, rerender, { table = false } = {}) {
     const rows = page.rows.map((k) => {
       const f = k.fields;
       const when = workWhen(g.type, k).slice(0, 10);
+      // A kind with statuses: its status, then its priority (at the right edge), edited in place as a list's columns
+      // (datatable.js COL); a meeting its date (or when it last changed); the rest when it last changed.
+      const cells = hasStatuses(g.type) ? h('span', { class: `work-meta ${prio ? 'with-prio' : ''}` }, // two columns, level row to row
+        f.status ? COL.status.cell(k) : h('span'), prio ? COL.priority.cell(k) : null) : null;
       return rowItem({ // a link as Relations' rows: a click opens it here, ⌘/Ctrl or the middle button in a new tab
         ico: k.id ? h('span', { class: 'row-id mono' }, refOf(k)) : null,
         text: k.title, href: itemHref(k),
-        // A kind with statuses: its status, then its priority (at the right edge); a meeting its date (or when it last
-        // changed); the rest when it last changed.
-        meta: hasStatuses(g.type) ? h('span', { class: `work-meta ${prio ? 'with-prio' : ''}` }, // two quiet columns, level row to row
-          f.status ? statusChip(f.status) : h('span'), prio ? (f.priority ? priorityChip(f.priority) : h('span')) : null)
-          : when ? relDay(when) : null,
+        meta: cells ? null : when ? relDay(when) : null,
         linkAttrs: { class: 'item-link', title: k.id ? `${refOf(k)} · ${k.title}` : k.title, 'data-key': k.key, ...opener(k, openFromItem) },
+        actions: cells, // beside the link, not in it: a select in a link would open the row
         class: isDone(k) ? 'done' : '',
       });
     });
@@ -1320,6 +1374,11 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     placeholder: 'What was done about it? Writing a resolution marks the activity resolved.',
   });
   const blocks = [body, resolution];
+  // While one item stays open: its Canvas tab's view (canvasTab: { key, el, view }), and the tabs picked from "+".
+  let canvas = null;
+  const openedTabs = new Set();
+  const dropCanvas = () => { canvas?.view?.destroy(); canvas = null; }; // its last strokes saved first
+  const forget = () => { dropCanvas(); openedTabs.clear(); };
 
   const ed = {
     get key() { return current; },
@@ -1330,6 +1389,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
       if (ed.hasUnsaved() && current !== key && !(await ed.flush())) return false;
       try {
         const full = await api.item(key);
+        if (full.key !== current) forget();
         current = full.key;
         bodyRev = full.body_rev ?? null;
         ownRevs.clear();
@@ -1347,7 +1407,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
       for (const b of blocks) ok = (await b.flush()) && ok;
       return ok;
     },
-    reset() { current = null; blocks.forEach((b) => b.clearDraft()); onTitle(''); },
+    reset() { current = null; forget(); blocks.forEach((b) => b.clearDraft()); onTitle(''); },
     currentKey: () => current,
     render() { if (current) keepFocus(host(), doRender); },
   };
@@ -1433,6 +1493,10 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
 
     const ctx = {
       subject, bodyEl: body.el, resolutionEl: item.type === 'activity' ? resolution.el : null, more, pin: pinButton(item), minimize: minimizeButton(), sidebar: sidebarButton(item), claude: claudeButton(item), rerender: () => ed.render(),
+      openedTabs, canvas: (key) => {
+        if (canvas?.key !== key) { dropCanvas(); canvas = { key, el: h('div', { class: 'item-canvas' }), view: null }; }
+        return canvas;
+      },
       foot: h('footer', { class: 'drawer-foot' },
         h('span', { title: [`Created ${f.created_at || '—'}`, `Updated ${f.updated_at || '—'}`, f.completed_at ? `Closed ${f.completed_at}` : ''].filter(Boolean).join('\n') },
           `Created ${stampLabel(f.created_at) || '—'} · Updated ${stampLabel(f.updated_at) || '—'}`

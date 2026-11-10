@@ -76,6 +76,7 @@ class TypeDef:
     # Its folder may be missing: the vault still matches, and the folder is made with its first item (an agent's).
     folder_optional: bool = False
     body: str = ''            # a new item's body when none is given (an agent's sections); '' for none
+    canvas: bool = False      # its detail has a Canvas tab: its own canvases, in <Docs>/Canvases/<its ref>
 
     @property
     def relatable(self):
@@ -360,6 +361,7 @@ class Structure:
                 **({'page': True, 'children': list(t.children)} if t.page else {}),
                 **({'child_tables': {k: v for k, v in t.child_tables.items() if k in t.children}} if t.page and t.child_tables else {}),
                 **({'parent_label': t.parent_label} if t.parent_label else {}),
+                **({'canvas': True} if t.canvas else {}),
             } for t in self.types.values()],
             'groups': [[g, GROUP_LABELS[g]] for g in GROUPS],
             **({'statuses_locked': True} if self.statuses_locked else {}),

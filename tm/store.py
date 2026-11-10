@@ -2373,6 +2373,35 @@ class Store:
                             'rev': self.disk_rev(path), 'mtime': int(os.stat(path).st_mtime)})
         return {'folder': folder, 'canvases': out}
 
+    def all_canvases(self):
+        """Every canvas of the vault, whoever's (the Canvas page, views/canvases.js): {folder, canvases: [{host, name,
+        path, rev, mtime}]} by host, then name. A host is a folder of <Docs>/Canvases: `General` for those of no page,
+        `Goals`, an item's ref (`STY-482`) or a project's key. A file in no host's folder, or not a canvas, is left out."""
+        folder = f'{self.full_structure.docs_folder}/Canvases'
+        root = self.abs(folder)
+        out = []
+        if os.path.isdir(root):
+            for host in sorted(os.listdir(root), key=str.lower):
+                if self._CANVAS_HOST.match(host) and os.path.isdir(os.path.join(root, host)):
+                    out.extend(dict(c, host=host) for c in self.canvases(host)['canvases'])
+        return {'folder': folder, 'canvases': out}
+
+    def canvas_index(self):
+        """How many canvases each host has: {host: n}, hosts without one left out. An item's are kept by its ref
+        (`STY-482`, a project's by its key): its Canvas tab counts them from here (panel.js canvasTab)."""
+        root = self.abs(f'{self.full_structure.docs_folder}/Canvases')
+        out = {}
+        if os.path.isdir(root):
+            for host in os.listdir(root):
+                full = os.path.join(root, host)
+                if not self._CANVAS_HOST.match(host) or not os.path.isdir(full):
+                    continue
+                n = sum(1 for name in os.listdir(full)
+                        if not name.startswith('.') and name.endswith(self.CANVAS_SUFFIX) and os.path.isfile(os.path.join(full, name)))
+                if n:
+                    out[host] = n
+        return out
+
     # ── docs (TSK-039) ───────────────────────────────────────────────────────
     def docs_roots(self):
         """Where this vault's documents are: [{project, title, path, exists, archived, roots}] — one per project when the

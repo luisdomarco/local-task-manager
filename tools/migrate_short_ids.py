@@ -19,7 +19,8 @@ written into SOURCE.
   same oldest-first order, and the name of every ticket: `ACME-INI-001 Plan.md` → `PLN-490 INI-482 Plan.md`,
   `2026-10-12 Revisión P1.md` → `ANL-491 Revisión P1.md` (an `id` line after its fileClass; nothing else of it changes);
 - its first heading when it is the template's (`# ACME-STY-001 — Title`); other mentions only with --rewrite-bodies;
-- the work log's entries, each history file, the pins and the sidebar, by the id map;
+- the work log's entries, each history file, the pins and the sidebar, by the id map; an item's canvases folder
+  (`Docs/Canvases/ACME-STY-001`) is renamed after its new ref;
 - ids.json gains the number's mark (the old marks stay), legacy-ids.json the id map.
 It refuses if SOURCE changed since the plan, if NEW exists and is not empty, or if SOURCE already has short ids. It
 writes into NEW.partial and moves it into place once whole: a run that stops leaves nothing behind.
@@ -45,7 +46,7 @@ from tm.history import path_of as history_path  # noqa: E402
 from tm.store import IDS_FILE, META_DIR, NUMBER_MARK, Store, StoreError  # noqa: E402
 from tm.structures.check import PLACEHOLDER_RE  # noqa: E402
 from tm.structures.ticketing import codec as tcodec  # noqa: E402
-from tm.structures.ticketing.definition import SPEC, WORKLOG_FOLDER  # noqa: E402
+from tm.structures.ticketing.definition import DOCS_FOLDER, SPEC, WORKLOG_FOLDER  # noqa: E402
 
 PLAN_VERSION = 2  # 2: plans and analyses from before they had ids (`annexes`) get a number too
 STRUCTURE = 'ticketing'
@@ -329,7 +330,18 @@ def _write(plan, target, rewrite_bodies):
             n += 1
     for old_rel, new_rel in plan['renames']:
         os.rename(os.path.join(target, old_rel), os.path.join(target, new_rel))
+    _canvases(target, refs)
     return n + _meta(target, plan)
+
+
+def _canvases(target, refs):
+    """An item's canvases are kept by its ref (<Docs>/Canvases/ACME-STY-001, panel.js canvasTab): its folder follows it
+    to the new one. Their cards' wikilinks to its file were relinked with every other file's."""
+    root = os.path.join(target, DOCS_FOLDER, 'Canvases')
+    for old, ref in refs.items():
+        src, dst = os.path.join(root, old), os.path.join(root, ref)
+        if os.path.isdir(src) and not os.path.exists(dst):
+            os.rename(src, dst)
 
 
 def with_body(text, body):

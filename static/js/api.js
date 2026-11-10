@@ -58,6 +58,8 @@ export const api = {
   docsRoots: () => get('/api/docs/roots'),
   // A page's canvases (canvas/): Obsidian Excalidraw files in <Docs>/Canvases/<host>, read and saved as any file.
   canvases: (host) => get(`/api/canvases?host=${encodeURIComponent(host)}`),
+  canvasAll: () => get('/api/canvases/all'), // { folder, canvases: [{ host, name, path, rev, mtime }] }: the Canvas page
+  canvasIndex: () => get('/api/canvases/index'), // { hosts: { <host>: its canvases } }: an item's Canvas tab counts by its ref
   noteToDoc: (key, folder) => post('/api/docs/from-note', { key, folder }),
   docProps: (path, values, rev) => post('/api/docs/props', { path, values, rev }),
   renamePath: (path, name) => post('/api/files/rename', { path, name }),

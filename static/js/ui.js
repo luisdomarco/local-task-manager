@@ -857,14 +857,17 @@ export function selectButton(label, attrs = {}) {
 }
 
 /**
- * Horizontal tabs. tabs: [{ key, label, count?, fill?, content: node | node[] }] (`fill`: the panel does not scroll,
- * its content fills it — a list that scrolls above a fixed composer). Returns the
+ * Horizontal tabs. tabs: [{ key, label, count?, fill?, onShow?, content: node | node[] }] (`fill`: the panel does not
+ * scroll, its content fills it — a list that scrolls above a fixed composer; `onShow()`: called each time it shows, the
+ * first one too, so a heavy panel is built only once it is looked at). Returns the
  * tab bar followed by one panel per tab; switching only hides / shows panels, so
  * nothing re-renders and drafts survive. `active` is the tab shown first and
  * `onChange(key)` lets the caller remember the choice. A name longer than TAB_LABEL_MAX is cut (tablabel.js), and
  * said whole on hover; each button carries its tab's key (`data-tab`), as its panel does.
+ * `more`: the tabs folded out of the bar ([{ key, label, count? }], tabfold.js), offered by a "+" after the others (before
+ * a `pinned` one); picking one calls `onMore(key)`, which shows it (the caller draws the bar again with it in).
  */
-export function tabPanels(tabs, active, onChange = () => {}) {
+export function tabPanels(tabs, active, onChange = () => {}, { more = [], onMore = () => {} } = {}) {
   const first = tabs.some((t) => t.key === active) ? active : tabs[0].key;
   const buttons = new Map();
   const panels = new Map();
@@ -874,7 +877,7 @@ export function tabPanels(tabs, active, onChange = () => {}) {
       buttons.get(t.key).setAttribute('aria-selected', String(on));
       buttons.get(t.key).tabIndex = on ? 0 : -1;
       panels.get(t.key).hidden = !on;
-      if (on) panels.get(t.key).dispatchEvent(new Event('tabshow'));
+      if (on) { panels.get(t.key).dispatchEvent(new Event('tabshow')); t.onShow?.(); }
     }
     if (focus) buttons.get(key).focus();
     buttons.get(key).scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); // a row that scrolls sideways shows the tab picked
@@ -899,6 +902,15 @@ export function tabPanels(tabs, active, onChange = () => {}) {
     buttons.set(t.key, btn);
     return btn;
   }));
+  if (more.length) {
+    const names = more.map((t) => t.label).join(', ');
+    const plus = h('button', {
+      type: 'button', class: 'tab-btn tab-more', title: `More tabs: ${names}`, 'aria-label': `More tabs: ${names}`, 'aria-haspopup': 'menu',
+      onclick: () => dropdown(plus, more.map((t) => ({ label: t.label, kbd: t.count ? String(t.count) : null, onSelect: () => onMore(t.key) })),
+        { width: 200 }),
+    }, icon('plus', 14));
+    bar.insertBefore(plus, [...buttons.values()].find((b) => tabs.find((t) => t.key === b.dataset.tab)?.pinned) || null);
+  }
   // A row wider than its room scrolls sideways (its bar hidden): the side with more fades out (app.css), and the wheel
   // scrolls it as well as a trackpad does.
   const edges = () => {
@@ -917,6 +929,7 @@ export function tabPanels(tabs, active, onChange = () => {}) {
     buttons.get(t.key).setAttribute('aria-selected', String(t.key === first));
     buttons.get(t.key).tabIndex = t.key === first ? 0 : -1;
     panels.get(t.key).hidden = t.key !== first;
+    if (t.key === first) t.onShow?.();
   }
   return [bar, ...panels.values()];
 }

@@ -1,11 +1,12 @@
 // A page's Canvas layout (Goals' first; any page can have one): its canvases, picked in a selector, and beside the
-// whiteboard the page's items, to drag in. What the items are, and what a card says, is the provider's
-// (whiteboard.js); the canvases are files in <Docs>/Canvases/<host> (GET /api/canvases).
+// whiteboard a column of two tabs: Shapes (draw.io's figures, shapepanel.js) and the page's items, to drag in as
+// cards. What the items are, and what a card says, is the provider's (whiteboard.js); the canvases are files in
+// <Docs>/Canvases/<host> (GET /api/canvases).
 //
 //   ┌ [Roadmap ▾] ⋯ ──────┬───────────────────────────────┐
-//   │ Goals   2 of 5 on it│                               │
-//   │ ▸ Launch checkout ⌖ │        the whiteboard         │
-//   │ ▸ Hire a designer   │                               │
+//   │ [Shapes] [Goals]    │                               │
+//   │ ▾ General           │        the whiteboard         │
+//   │ ▢ ▭ ◯ ◇ ▱ ⬡         │                               │
 //   └─────────────────────┴───────────────────────────────┘
 import { api } from '../api.js';
 import { filesHref } from '../filetree.js';
@@ -14,12 +15,13 @@ import { toast } from '../state.js';
 import { dropdown, h, icon, select, typeIcon } from '../ui.js';
 import { closePopover, popover } from '../viewbar.js';
 import { emptyDrawing, fileName, serialize } from './canvasfile.js';
+import { mountShapePanel } from './shapepanel.js';
 import { ITEM_MIME, mountWhiteboard } from './whiteboard.js';
 
 const NEW = '\u0000new'; // the selector's "New canvas…"
 
 /** A name, asked in a popover under `anchor` → the name, or null. */
-function askName(anchor, { title, value = '', button }) {
+export function askName(anchor, { title, value = '', button }) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (v) => { if (!done) { done = true; closePopover(); resolve(v); } };
@@ -44,11 +46,17 @@ function askName(anchor, { title, value = '', button }) {
 
 /**
  * The Canvas layout in `el`. `host` names the page's canvases folder ('Goals'); `provider` is the whiteboard's, plus
- * `items()` (the side list: what can be put on a canvas, in the page's order) and `line(item)` (a row's second line).
+ * `items()` (the side list: what can be put on a canvas, in the page's order), `line(item)` (a row's second line) and,
+ * if it wants them, `listed(n)` (how many canvases the host has, each time they are listed) and `whose` (what its empty
+ * state names, its label otherwise: "No canvas for STY-482 yet").
+ * The Canvas page (views/canvases.js) opens one canvas of the host by its `path`, hears which one shows (`onOpen(c)`:
+ * the canvas, or null for none), adds its own entries to the ⋯ menu (`actions(c, anchor)` → dropdown items) and, its
+ * own list being the selector, shows the canvas's name instead of one (`fixed`).
  * → { update() (the page's items changed), destroy() }.
  */
-export function mountCanvasView(el, { host, provider }) {
+export function mountCanvasView(el, { host, provider, path = null, onOpen = () => {}, actions = () => [], fixed = false }) {
   const prefKey = `canvas.${host}`;
+  if (path) setPref(prefKey, path); // the one asked for, while the host has it (current() falls back to the first)
   let list = null; // { folder, canvases: [{ name, path, rev }] }
   let board = null; // { path, wb }
   let placed = new Set();
@@ -58,26 +66,43 @@ export function mountCanvasView(el, { host, provider }) {
   const side = h('div', { class: 'canvas-items', role: 'list', 'aria-label': provider.label });
   const sideHead = h('div', { class: 'canvas-items-head' });
   const stage = h('div', { class: 'canvas-stage' });
+  // The column's two tabs: the figures to draw with, or the page's items to put on it as cards (remembered per page).
+  const tabKey = `${prefKey}.side`;
+  const shapesEl = h('div', { class: 'canvas-shapes' });
+  const itemsEl = h('div', { class: 'canvas-items-pane' }, sideHead, side);
+  const seg = h('div', { class: 'seg canvas-seg', role: 'tablist', 'aria-label': 'Draw with' });
+  const paintTab = () => {
+    const now = pref(tabKey, 'shapes') === 'items' ? 'items' : 'shapes';
+    seg.replaceChildren(...[['shapes', 'Shapes'], ['items', provider.label]].map(([k, label]) => h('button', {
+      type: 'button', role: 'tab', class: `btn small ${now === k ? 'active' : ''}`, 'aria-selected': String(now === k),
+      onclick: () => { setPref(tabKey, k === 'shapes' ? null : k); paintTab(); },
+    }, label)));
+    shapesEl.hidden = now !== 'shapes';
+    itemsEl.hidden = now !== 'items';
+  };
   // The column folds to a rail (its button stays), for the whole width to draw in; remembered per page.
   const foldKey = `${prefKey}.folded`;
   const fold = h('button', { type: 'button', class: 'btn icon small canvas-fold' }, icon('sidebar', 16));
-  const view = h('div', { class: 'canvas-view' }, h('aside', { class: 'canvas-side' }, h('div', { class: 'canvas-top' }, fold, head), sideHead, side), stage);
+  const view = h('div', { class: 'canvas-view' }, h('aside', { class: 'canvas-side' }, h('div', { class: 'canvas-top' }, fold, head), seg, shapesEl, itemsEl), stage);
   const paintFold = () => {
     const off = !!pref(foldKey, false);
     view.classList.toggle('side-off', off);
-    fold.title = off ? `Show the ${provider.label.toLowerCase()} and the canvases` : `Hide the ${provider.label.toLowerCase()}`;
+    fold.title = off ? 'Show the shapes, the canvases and the ' + provider.label.toLowerCase() : 'Hide the column';
     fold.setAttribute('aria-label', fold.title);
     fold.setAttribute('aria-expanded', String(!off));
   };
   fold.addEventListener('click', () => { setPref(foldKey, pref(foldKey, false) ? null : true); paintFold(); });
   paintFold();
+  paintTab();
   el.replaceChildren(view);
+  const shapes = mountShapePanel(shapesEl, { onAdd: (id) => board?.wb.addShape(id), enabled: () => !!board });
 
   const current = () => list?.canvases.find((c) => c.path === pref(prefKey, null)) || list?.canvases[0] || null;
 
   async function refresh(pick = null) {
     list = await api.canvases(host);
     if (dead) return;
+    provider.listed?.(list.canvases.length); // an item's Canvas tab counts them
     if (pick) setPref(prefKey, pick);
     paintHead();
     await open(current());
@@ -88,6 +113,7 @@ export function mountCanvasView(el, { host, provider }) {
     if (board && board.path === c?.path) return;
     if (board) { const old = board; board = null; await old.wb.destroy(); }
     if (dead) return;
+    onOpen(c);
     if (!c) { paintEmpty(); return; }
     setPref(prefKey, c.path);
     const wb = mountWhiteboard(stage, {
@@ -130,7 +156,7 @@ export function mountCanvasView(el, { host, provider }) {
   function paintHead() {
     const c = current();
     if (!list.canvases.length) { head.replaceChildren(); return; }
-    const pick = select([
+    const pick = fixed ? h('span', { class: 'canvas-pick canvas-name-fixed', title: c.path }, icon('canvas', 14), h('span', {}, c.name)) : select([
       ...list.canvases.map((x) => [x.path, x.name, 'canvas']),
       [NEW, 'New canvas…', 'plus'],
     ], c?.path, (v) => {
@@ -146,6 +172,7 @@ export function mountCanvasView(el, { host, provider }) {
         { label: 'New canvas…', icon: 'plus', onSelect: () => create(more) },
         { label: 'Rename', icon: 'pencil', onSelect: () => rename(more, c) },
         { label: 'Open in the Explorer', icon: 'foldertree', onSelect: () => { location.hash = filesHref(c.path); } },
+        ...actions(c, more),
         '-',
         { label: 'Move to the trash', icon: 'trash', onSelect: () => remove(c) },
       ], { width: 220 });
@@ -156,13 +183,14 @@ export function mountCanvasView(el, { host, provider }) {
   function paintEmpty() {
     stage.replaceChildren(h('div', { class: 'canvas-empty' },
       icon('canvas', 28),
-      h('p', {}, `No canvas for ${provider.label} yet. A canvas is a whiteboard: put ${provider.label.toLowerCase()} on it as cards, and draw around them — arrows, notes, shapes, frames.`),
+      h('p', {}, `No canvas for ${provider.whose || provider.label} yet. A canvas is a whiteboard: put ${provider.label.toLowerCase()} on it as cards, and draw around them — arrows, notes, shapes, frames.`),
       h('p', { class: 'muted' }, `It is saved in the vault (${list?.folder || 'Docs/Canvases'}), and opens in Obsidian's Excalidraw too.`),
       h('button', { type: 'button', class: 'btn primary', onclick: (e) => create(e.currentTarget) }, icon('plus', 14), 'Create canvas')));
   }
 
   function paintSide() {
     if (dead) return;
+    shapes.update(); // its pictures can be added once a canvas is open
     const items = provider.items();
     const on = items.filter((i) => placed.has(i.id)).length;
     sideHead.replaceChildren(h('span', { class: 'canvas-items-title' }, provider.label),
@@ -173,7 +201,7 @@ export function mountCanvasView(el, { host, provider }) {
       const row = h('div', {
         class: `canvas-item ${isOn ? 'placed' : ''}`, role: 'listitem', draggable: board && !isOn ? 'true' : 'false', tabindex: board ? '0' : null,
         title: !board ? '' : isOn ? `${card.title} — on the canvas: ⌖ finds it` : `${card.title} — drag it onto the canvas, or click to add it in the middle`,
-      }, typeIcon(provider.kind, 14),
+      }, typeIcon(it.type || provider.kind, 14),
       h('span', { class: 'canvas-item-text' }, h('span', { class: 'canvas-item-title' }, card.title), h('span', { class: 'canvas-item-line muted' }, provider.line(it))),
       isOn ? h('button', { type: 'button', class: 'btn icon small', title: 'Find it on the canvas', 'aria-label': `Find ${card.title} on the canvas`,
         onclick: (e) => { e.stopPropagation(); board?.wb.locate(it.id); } }, icon('target', 14)) : null);

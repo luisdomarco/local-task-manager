@@ -52,9 +52,10 @@ export function elbowRoute(s, sSide, e, eSide) {
   return out;
 }
 
-/** What an arrow can be anchored to: a shape, a free text, a card's frame (never a card's parts, nor a line). */
+/** What an arrow can be anchored to: a shape, a free text, a card's frame, a figure's box (never a card's parts, nor a
+ *  figure's ink or marks — its box is over them —, nor a line). */
 export const connectable = (e) => !!e && !e.isDeleted && !e.angle && !e.customData?.tmOf && !e.containerId
-  && ['rectangle', 'diamond', 'ellipse', 'image', 'text'].includes(e.type);
+  && !['ink', 'mark'].includes(e.customData?.tmRole) && ['rectangle', 'diamond', 'ellipse', 'image', 'text'].includes(e.type);
 
 /** The shape under scene point `p` (the topmost; `pad` around its box counts, so its dots stay reachable), or null. */
 export function targetAt(elements, p, pad = 0, except = null) {

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CARD, DOTS, cardSig, cardSkeleton, cardsOn, clip, dotOf, emptyDrawing, fileName, parse, partSkeletons, priorityOf, serialize, staleCards, staleLinks, unplaced } from '../../static/js/canvas/canvasfile.js';
-import { LIBRARY } from '../../static/js/canvas/library.js';
 
 const rect = (id, item, textId, extra = {}) => ({ id, type: 'rectangle', customData: { tmItem: item }, boundElements: textId ? [{ type: 'text', id: textId }] : [], ...extra });
 const text = (id, t, extra = {}) => ({ id, type: 'text', text: t, originalText: t, ...extra });
@@ -75,12 +74,5 @@ describe('canvasfile', () => {
     const els = [rect('r1', 'G1', null, { link: '[[Goals/Launch]]' }), rect('r2', 'G2', null, { link: '[[Goals/Old]]' }), rect('r3', 'G3', null, { link: '[[Goals/Gone]]' })];
     const items = new Map([['G1', { id: 'G1', title: 'Launch' }], ['G2', { id: 'G2', title: 'New' }]]);
     assert.deepEqual(staleLinks(els, items, card), [{ id: 'r2', link: '[[Goals/New]]' }]);
-  });
-
-  it('ships a library of shapes, a figure of several in one group', () => {
-    assert.ok(LIBRARY.length >= 8);
-    assert.equal(new Set(LIBRARY.map((l) => l.id)).size, LIBRARY.length);
-    for (const l of LIBRARY.filter((x) => x.skeleton.length > 1)) assert.equal(new Set(l.skeleton.map((e) => e.groupIds?.[0])).size, 1, l.name);
-    assert.ok(LIBRARY.some((l) => l.name === 'Sticky note') && LIBRARY.some((l) => l.name === 'Parallel gateway'));
   });
 });

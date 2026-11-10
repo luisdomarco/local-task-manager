@@ -63,6 +63,8 @@ class MigrateBase(unittest.TestCase):
         s.save_pins([self.ini['id'], self.task['id']])
         s.delete(self.gone['key'])
         write(self.src, 'Docs/Team/How we ship.md', '# How we ship\n\nStart from [[ACME-INI-001 Checkout|the checkout]].\n')
+        write(self.src, 'Docs/Canvases/ACME-INI-001/Flow.excalidraw.md', '---\nexcalidraw-plugin: parsed\n---\n\n'
+              '## Element Links\nabc: [[ACME-INI-001 Checkout]]\n')  # its Canvas tab's
         # The initiative came from an Initiatives vault (tools/migrate_structures.py): its first id is an alias.
         path = os.path.join(self.src, self.ini['path'])
         write(self.src, self.ini['path'], read(self.src, self.ini['path']).replace('aliases: []', 'aliases: [INI-0007]'))
@@ -167,6 +169,8 @@ class ApplyTest(MigrateBase):
         s = Store(self.new, structure='ticketing', enforce_structure=True)
         self.assertEqual((s.find('ANL-44')['title'], s.find('PLN-43')['fields']['related_to']), ('Revisión P1', plan['id_map'][self.ini['id']]))
         self.assertIn(f'[[{ini} Checkout|the checkout]]', read(self.new, 'Docs/Team/How we ship.md'))
+        self.assertIn(f'abc: [[{ini} Checkout]]', read(self.new, f'Docs/Canvases/{ini}/Flow.excalidraw.md'))  # its canvases follow it
+        self.assertFalse(os.path.exists(os.path.join(self.new, 'Docs/Canvases/ACME-INI-001')))
         self.assertIn(f'initiative: "[[{ini} Checkout]]"', read(self.new, f'Acme Web/Stories/{sty} One page.md'))
         self.assertIn(f'[[{task} Map it]]', read(self.new, f'Acme Web/Initiatives/{ini} Checkout.md'))
 

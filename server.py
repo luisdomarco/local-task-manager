@@ -1974,6 +1974,8 @@ ROUTES = {
     ('POST', '/api/files/mkdir'): lambda s, q, b: s.make_folder(b.get('path'), parents=bool(b.get('parents'))),
     ('GET', '/api/docs/roots'): lambda s, q, b: {'containers': s.docs_roots()},
     ('GET', '/api/canvases'): lambda s, q, b: s.canvases(q.get('host')),
+    ('GET', '/api/canvases/index'): lambda s, q, b: {'hosts': s.canvas_index()},
+    ('GET', '/api/canvases/all'): lambda s, q, b: s.all_canvases(),
     ('POST', '/api/docs/from-note'): lambda s, q, b: s.note_to_doc(b.get('key'), b.get('folder')),
     ('POST', '/api/docs/props'): lambda s, q, b: s.update_doc(b.get('path'), b.get('values') or {}, b.get('rev')),
     ('POST', '/api/files/rename'): lambda s, q, b: s.rename_path(b.get('path'), b.get('name')),

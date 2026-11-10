@@ -414,6 +414,8 @@ NAV_SECTIONS = (
     {'key': 'issues', 'label': 'Issues', 'icon': 'flag', 'types': ['story', 'support', 'hotfix']},
     {'key': 'records', 'label': 'Records', 'icon': 'lightbulb', 'types': ['learning', 'error']},
 )
+# The types whose detail has a Canvas tab (panel.js canvasTab): whiteboards of their own, kept by their ref.
+CANVAS_TYPES = ('project', 'initiative', 'story', 'task', 'meeting')
 PLANNABLE = {name for name in SPEC if plannable(name)}  # initiative, story, support, hotfix, prd, task: `work`
 # The types with statuses of their own, not the tickets' "1. Backlog" … "7. Discarded": written to disk as they are.
 OWN_STATUSES = {'error': ERROR_STATUSES, 'agent': agents.STATUSES, 'spec': SPEC_STATUSES, 'project': PROJECT_STATUSES, 'goal': GOAL_STATUSES}
@@ -446,7 +448,7 @@ def _type(name):
         plannable=name in PLANNABLE, counted=counted, go_key=go_key, tokens=tuple(tokens), props=props,
         extra_fields=tuple(p['key'] for p in props if p['kind'] == 'readonly'),
         page=name in PAGES, children=PAGES.get(name, ()), parent_label=parent_label(parents, LABELS),
-        folder_optional=name in OPTIONAL_ROOT_FOLDERS,
+        folder_optional=name in OPTIONAL_ROOT_FOLDERS, canvas=name in CANVAS_TYPES,
     )
 
 

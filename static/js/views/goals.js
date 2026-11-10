@@ -109,7 +109,7 @@ function paintList(box, { goals, byGoal }) {
 
 // ── canvas ───────────────────────────────────────────────────────────────────
 /** What a goal is on a canvas (whiteboard.js's provider): a board's card — title, ref, status and priority, progress — linked to its note. */
-const goalsProvider = {
+export const goalsProvider = {
   kind: 'goal', label: 'Goals',
   all: () => new Map(state.items.filter((i) => i.type === 'goal').map((g) => [g.id, g])),
   items: () => state.items.filter((i) => i.type === 'goal' && !isDone(i)).sort(byGoalRank),

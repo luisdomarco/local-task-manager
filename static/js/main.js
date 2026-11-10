@@ -37,6 +37,7 @@ import * as week from './views/week.js';
 import { nextWeek as nextweek } from './views/week.js';
 import * as month from './views/month.js';
 import * as docs from './views/docs.js';
+import * as canvas from './views/canvases.js';
 import * as graph from './views/graph.js';
 import * as goals from './views/goals.js';
 import * as runs from './views/runs.js';
@@ -46,11 +47,11 @@ import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, graph, runs };
+const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, canvas, graph, runs };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
   inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
-  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', graph: 'Graph',
+  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
   runs: 'Agents',
 };
 let VIEW_TITLES = { ...FIXED_TITLES };
@@ -90,6 +91,10 @@ onStructure((s) => {
 function DOCS_LINK() {
   return h('a', { href: '#/docs', 'data-view': 'docs', title: 'Docs — the vault\'s documents (⌘⇧D)' }, icon('book', 16), 'Docs');
 }
+// Canvas (views/canvases.js): every canvas of the vault, right after Docs (they are files in Docs/Canvases).
+function CANVAS_LINK() {
+  return h('a', { href: '#/canvas', 'data-view': 'canvas', title: 'Canvas — every whiteboard of the vault' }, icon('canvas', 16), 'Canvas');
+}
 
 /** Each type's link, in its nav group's box (index.html), by its order there, with a line where its `section`
  *  changes. Only between links that are there: a type the vault turned off leaves no line of its own. */
@@ -100,10 +105,10 @@ function renderNav(s) {
     box.replaceChildren(...types.flatMap((t, i) => [
       i && t.nav.section !== types[i - 1].nav.section ? h('div', { class: 'nav-sep', role: 'separator' }) : null,
       h('a', { href: `#/${t.route}`, 'data-view': t.route }, icon(t.icon, 16), t.plural, h('span', { class: 'count', 'data-count': t.route })),
-      // Docs (views/docs.js) — documents, not a type — sits under Notes, ending their section
-      t.name === 'note' ? DOCS_LINK() : null,
+      // Docs (views/docs.js) — documents, not a type — sits under Notes, ending their section; Canvas right after it
+      ...(t.name === 'note' ? [DOCS_LINK(), CANVAS_LINK()] : []),
     ]).filter(Boolean));
-    if (box.dataset.navGroup === 'types' && !types.some((t) => t.name === 'note')) box.append(DOCS_LINK());
+    if (box.dataset.navGroup === 'types' && !types.some((t) => t.name === 'note')) box.append(DOCS_LINK(), CANVAS_LINK());
     // Then the structure's sections (Meetings, Brief…), one link each after a line; renderSidebar points each at its tab.
     if (box.dataset.navGroup === 'types') {
       box.append(...(s.sections || []).flatMap((sec, i) => [i ? null : h('div', { class: 'nav-sep', role: 'separator' }),
