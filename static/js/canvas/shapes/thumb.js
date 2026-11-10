@@ -46,6 +46,7 @@ function head(kind, tip, from, len, stroke) {
   }
   const wing = [at(len, len * 0.45), tip, at(len, -len * 0.45)];
   if (kind === 'arrow') return `<polyline points="${pts(wing)}" fill="none" ${s}/>`;
+  if (kind === 'triangle') return `<polygon points="${pts([...wing, at(len * 0.75, 0)])}" fill="${stroke}" ${s}/>`; // notched, as the canvas draws it
   return `<polygon points="${pts(wing)}" fill="${kind === 'triangle_outline' ? 'var(--shape-paper, #fff)' : stroke}" ${s}/>`;
 }
 

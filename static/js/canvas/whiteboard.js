@@ -12,6 +12,8 @@ import { toast } from '../state.js';
 import { CARD, cardHeight, cardSig, cardSkeleton, cardsOn, parse, partSkeletons, serialize, staleCards, staleLinks } from './canvasfile.js';
 import { anchor, bindingTo, snapArrows } from './anchors.js';
 import { mountAnchors } from './anchorlayer.js';
+import { toDrawio } from './drawio.js';
+import { icon } from '../ui.js';
 import { loadExcalidraw } from './loader.js';
 import { SHAPE_MIME } from './shapepanel.js';
 import { SHAPES } from './shapes/index.js';
@@ -32,13 +34,33 @@ const pageTheme = () => {
 const CLEAN = { currentItemRoughness: 0, currentItemFontFamily: 6, currentItemFontSize: 16, currentItemRoundness: 'sharp', currentItemStrokeWidth: 1,
   currentItemStrokeColor: '#000000',
   currentItemArrowType: 'elbow', // a connector, as Miro's: straight and curved are a click away in the arrow's properties
+  currentItemEndArrowhead: 'triangle', // filled, as draw.io's (Excalidraw's own is an open V)
   // Shapes filled white, as Miro's: Excalidraw takes hold of a shape with no fill only by its outline, so one drawn
   // transparent could not be dragged from its middle (transparent is still a swatch away).
   currentItemBackgroundColor: '#ffffff', currentItemFillStyle: 'solid' };
 
-/** A canvas saved with Excalidraw's own default (no fill) draws its new shapes filled too. */
-const unfilled = (st) => (!st?.currentItemBackgroundColor || st.currentItemBackgroundColor === 'transparent'
-  ? { currentItemBackgroundColor: CLEAN.currentItemBackgroundColor, currentItemFillStyle: CLEAN.currentItemFillStyle } : {});
+/**
+ * What a canvas saved with Excalidraw's own defaults draws new: its shapes filled too, its arrows' heads filled (its
+ * open V was Excalidraw's default, not a choice: one picked since in the arrow's properties is kept for that arrow).
+ */
+const unfilled = (st) => ({
+  ...(!st?.currentItemBackgroundColor || st.currentItemBackgroundColor === 'transparent'
+    ? { currentItemBackgroundColor: CLEAN.currentItemBackgroundColor, currentItemFillStyle: CLEAN.currentItemFillStyle } : {}),
+  ...(!st?.currentItemEndArrowhead || st.currentItemEndArrowhead === 'arrow' ? { currentItemEndArrowhead: CLEAN.currentItemEndArrowhead } : {}),
+});
+
+/** What a canvas looks like besides its drawing, kept in its file: its background colour and whether it shows a grid. */
+const lookOf = (st) => `${st?.viewBackgroundColor || ''}|${st?.gridModeEnabled ? 'grid' : 'plain'}`;
+
+/** A file downloaded from the page: `text` saved as `name`. */
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 /** The canvas's fonts loaded (Nunito: the cards and the default text), or given up on after a few seconds. */
 const fontsReady = () => Promise.race([
@@ -62,6 +84,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
   let root = null; // the React root
   let file = null; // { frontmatter, rev }
   let saved = -1; // the scene version on disk
+  let savedLook = ''; // and its look (lookOf): a background or a grid changed is saved too, the drawing the same
   let timer = null;
   let saving = null; // the save in flight
   let dead = false;
@@ -88,13 +111,15 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     clearTimeout(timer); timer = null;
     if (!xapi || !file) return;
     const version = lib.getSceneVersion(elements());
-    if (version === saved && !force) return;
+    const look = lookOf(xapi.getAppState());
+    if (version === saved && look === savedLook && !force) return;
     if (saving) { await saving.catch(() => {}); return save(force); }
     saving = api.saveFile(path, text(), file.rev, force);
     try {
       const r = await saving;
       file.rev = r.rev;
       saved = version;
+      savedLook = look;
     } catch (err) {
       if (err.status !== 409) { toast(`Canvas not saved: ${err.message}`, true); return; }
       // Changed on disk (Obsidian, another tab): what is there now, and yours a click away.
@@ -248,6 +273,18 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
       captureUpdate: lib.CaptureUpdateAction.IMMEDIATELY,
     });
   }
+  const title = () => String(name || 'Canvas').replace(/\.excalidraw(\.md)?$/i, '');
+  /** The canvas as a draw.io diagram (drawio.js), downloaded as <its name>.drawio: draw.io opens it, or imports it. */
+  function exportDrawio() {
+    if (!xapi) return;
+    download(`${title()}.drawio`, toDrawio(xapi.getSceneElements(), { name: title(), appState: xapi.getAppState() }), 'application/vnd.jgraph.mxfile');
+  }
+  /** The canvas as Excalidraw's own file, <its name>.excalidraw (excalidraw.com opens it): the menu's download, in
+   *  place of Excalidraw's "Save to…" dialog, whose one choice was this. */
+  function downloadExcalidraw() {
+    if (!xapi) return;
+    download(`${title()}.excalidraw`, lib.serializeAsJSON(xapi.getSceneElements(), xapi.getAppState(), xapi.getFiles(), 'local'), 'application/vnd.excalidraw+json');
+  }
   /** A figure's box stays unseen when a colour reaches it (shapes/kit.js boxRepairs). */
   const repairBoxes = () => {
     const fixes = new Map(boxRepairs(xapi.getSceneElements()).map((r) => [r.id, r.patch]));
@@ -359,7 +396,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
       elbowed: elbow, fixedSegments: null, roundness: !elbow && st.currentItemArrowType === 'round' ? { type: 2 } : null,
       strokeColor: st.currentItemStrokeColor, strokeWidth: st.currentItemStrokeWidth, strokeStyle: st.currentItemStrokeStyle,
       roughness: st.currentItemRoughness, opacity: st.currentItemOpacity,
-      startArrowhead: st.currentItemStartArrowhead ?? null, endArrowhead: st.currentItemEndArrowhead ?? 'arrow',
+      startArrowhead: st.currentItemStartArrowhead ?? null, endArrowhead: st.currentItemEndArrowhead ?? CLEAN.currentItemEndArrowhead,
       startBinding: bind(from, fromSide), endBinding: to ? bind(to, toSide) : null,
     };
     const ends = new Set([from.id, to?.id].filter(Boolean));
@@ -401,6 +438,34 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     root = X.createRoot(host$);
     dots = mountAnchors(el, { getApi: () => xapi, getLib: () => lib, onArrow: addArrow, onPick: pickArrow }); // beside React's root, not in it
     let first = true;
+    let shownLook = '';
+    /**
+     * Excalidraw's main menu, as the app wants it: its own items save its links (GitHub, X, Discord: Excalidraw's, not
+     * the app's) and its "Save to…" dialog (a direct download instead), Export to draw.io, and under the background's
+     * colours a plain or a grid background.
+     */
+    const menu = () => {
+      const { React: R, MainMenu: M } = X;
+      const el$ = R.createElement;
+      const svg = (n) => el$('span', { className: 'wb-menu-icon', dangerouslySetInnerHTML: { __html: icon(n, 16).outerHTML } });
+      const grid = !!xapi?.getAppState().gridModeEnabled;
+      const pattern = (on, text) => el$('button', {
+        type: 'button', className: `btn${on === grid ? ' active' : ''}`, 'aria-pressed': String(on === grid),
+        onClick: () => xapi?.updateScene({ appState: { gridModeEnabled: on } }),
+      }, text);
+      return el$(M, null,
+        el$(M.Item, { icon: svg('download'), onSelect: downloadExcalidraw, 'aria-label': 'Download .excalidraw' }, 'Download .excalidraw'),
+        el$(M.DefaultItems.SaveAsImage),
+        el$(M.Item, { icon: svg('file'), onSelect: exportDrawio, 'aria-label': 'Export to draw.io' }, 'Export to draw.io…'),
+        el$(M.DefaultItems.SearchMenu),
+        el$(M.DefaultItems.Help),
+        el$(M.DefaultItems.ClearCanvas),
+        el$(M.Separator),
+        el$(M.DefaultItems.ChangeCanvasBackground),
+        el$(M.ItemCustom, { className: 'wb-pattern' },
+          el$('div', { className: 'wb-pattern-title' }, 'Canvas pattern'),
+          el$('div', { className: 'seg', role: 'group', 'aria-label': 'Canvas pattern' }, pattern(false, 'Plain'), pattern(true, 'Grid'))));
+    };
     const props = () => ({
       excalidrawAPI: (a) => { xapi = a; },
       initialData: {
@@ -416,14 +481,18 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
       onChange: () => {
         if (!xapi || !lib) return;
         dots?.update(); // the view moved, a shape moved, the tool changed
+        const look = lookOf(xapi.getAppState());
         if (first) {
           first = false;
           saved = lib.getSceneVersion(elements());
+          savedLook = look;
+          shownLook = look;
           tellCards();
           fontsReady().then(() => { remeasure(); sync(); snap(); });
           return;
         }
-        if (lib.getSceneVersion(elements()) !== saved) { repairBoxes(); later(); tellCards(); }
+        if (look !== shownLook) { shownLook = look; render(); } // the menu's Plain · Grid says which (Ctrl+' toggles it too)
+        if (lib.getSceneVersion(elements()) !== saved) { repairBoxes(); later(); tellCards(); } else if (look !== savedLook) later();
       },
       onLibraryChange,
       // A card opens its item here (its [[link]] is for Obsidian); another [[link]] has nowhere to go in the page.
@@ -433,7 +502,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
         if (/^\[\[/.test(element.link || '')) event.preventDefault();
       },
     });
-    render = () => root?.render(X.React.createElement(X.Excalidraw, props()));
+    render = () => root?.render(X.React.createElement(X.Excalidraw, props(), menu()));
     render();
   })().catch((err) => {
     if (dead) return;

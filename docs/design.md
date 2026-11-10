@@ -288,14 +288,23 @@ Properties · Activity · AI Agents · Relations · Time, last.
   Colours are the light theme's; Excalidraw darkens the whole scene in dark mode. `customData.tmSig` says what the card
   shows. A changed item redraws only the parts, so the frame keeps your colour, place and arrows. `CARD_LAYOUT` is
   bumped when the parts move.
-- **Excalidraw's own chrome** (toolbar, properties, Library, menus) wears the app's colours: its violet palette is
-  variables on `.excalidraw`, set from the app's tokens (`--primary`, `--accent`, `--popover`, the radii) under
-  `.canvas-stage`, so they follow the theme. The Library's headings are section labels (`--muted-foreground`, 12.5 px,
-  600), and its *Browse libraries* link out is hidden.
+- **Excalidraw's own chrome** (toolbar, properties, Library, menus, dialogs) wears the app's colours: its violet palette
+  is variables on `.excalidraw`, set from the app's tokens (`--primary`, `--accent`, `--popover`, `--border`, the radii)
+  under `.canvas-stage`, so they follow the theme. Its dialogs (Export image, Help) are drawn outside the canvas, in a
+  body-level `.excalidraw-modal-container`: the same variables are set there too, or they come out violet.
+  - The ☰ menu is a `.menu`: 5 px in, a border, `--shadow-lg`, rows of `--fs-sm`, grey icons and shortcuts, an
+    `--accent` hover, its *Canvas background* a `.menu-label`.
+  - A dialog is a `#modal`: radius 14, `--shadow-lg`, a 17 px 650 title in the app's font, its buttons `.btn.primary`,
+    the scale a `.seg`. Its switches and radio choices are bare inputs over a drawn track, so the app's field look is
+    taken off them.
+  - The Library panel is on `--popover`, its Search · Library tabs a `.seg`, its ⋮ a `.btn.icon`; its headings are
+    section labels (`--muted-foreground`, 12.5 px, 600), its *Browse libraries* link out is hidden and its empty hint
+    says how to add to it (the right-click menu), not where the link was.
 - **The shapes panel** (`shapepanel.js`) is draw.io's palette in the app's quiet style: a search (every word, over a
   figure's name, keywords and family), then the families as section labels that fold (`--muted-foreground`, 12.5 px,
-  600; General open, `canvas.shapes.open`), each a grid of 36 px pictures (`.shape-tile`: its name on hover, `--muted`
-  under it). A picture is the figure's own skeleton drawn as SVG (`shapes/thumb.js`): ink in `currentColor`, paper in
+  600; General open, `canvas.shapes.open`), each a grid of 36 px pictures (`.shape-tile`, `--muted` under the mouse).
+  A picture under the mouse shows its figure larger beside the panel, with its name under it (`.shape-peek`, the
+  popover's surface; draw.io's preview): the same SVG drawn at 128 px, cached as the tile's. A picture is the figure's own skeleton drawn as SVG (`shapes/thumb.js`): ink in `currentColor`, paper in
   `--shape-paper`, so it follows the theme. Drag one onto the canvas (`SHAPE_MIME`) or click it: the figure lands there,
   or in the view's middle (a second click steps down and right), selected.
 - **Figures** are data in `shapes/` (`general.js`, `bpmn.js`, `flowchart.js`; `index.js` the families), built with
@@ -309,8 +318,27 @@ Properties · Activity · AI Agents · Relations · Time, last.
   box is cleared again. A double-click on a figure writes its label at once: Excalidraw's first double-click only goes
   into a group, so the whiteboard gives its canvas a second one.
 - **The canvas's own defaults** follow: clean lines, a 1 px black line, square corners, Nunito 16, shapes filled white
-  (Excalidraw takes hold of a shape with no fill only by its outline, so a filled one drags from its middle). Excalidraw's
-  Library panel keeps only what you add to it.
+  (Excalidraw takes hold of a shape with no fill only by its outline, so a filled one drags from its middle), arrows
+  ending in a filled head (`triangle`, which the vendored Excalidraw draws notched, as draw.io's *classic*; Excalidraw's
+  open V was its default, so a canvas saved with it draws the filled one too). Excalidraw's Library panel keeps only
+  what you add to it.
+- **A 1 px line is one sharp row of pixels**, at any zoom, on a 1× screen as on a retina one. Excalidraw drew it across
+  two rows at half grey, broken every few pixels (Chrome's hairline for a stroke of ≤ 1 device pixel): the vendored
+  renderer is patched for it, with the notched head (`static/vendor/excalidraw/BUILD.md`, *After the build*).
+- **The main menu** (☰) is the whiteboard's own (`menu()` in `whiteboard.js`, Excalidraw's `MainMenu` with its
+  `DefaultItems`): **Download .excalidraw** (the file excalidraw.com opens; it replaces Excalidraw's *Save to…* dialog,
+  whose one choice it was), Export image…, **Export to draw.io…**, Find on canvas, Help, Reset the canvas, then the
+  background's colours and under them **Canvas pattern** — a `.seg` of **Plain · Grid** (`gridModeEnabled`, which also
+  snaps to it; Ctrl+' toggles it too). No *Excalidraw links* (GitHub, X, Discord: Excalidraw's, not the app's), no theme
+  switch (the page's). The background and the pattern are the file's (its `appState`): changed alone, they are saved.
+- **Export to draw.io** (`drawio.js`, pure) writes the canvas as a `.drawio` file (`<mxfile>`, uncompressed) that draw.io
+  opens or imports. A figure of the shapes panel is one shape in draw.io's own style for it (`FIGURE_STYLES`: its
+  `mxgraph.flowchart.*`, `mxgraph.bpmn.*`, `shape=…`), the size of its box, its label and colours; its ink is draw.io's
+  to draw (the pool with lanes, which draw.io makes of children, goes part by part). A card is a rounded box with its
+  title, ID and status. Rectangles, ellipses and diamonds are draw.io's, free texts its texts, arrows and lines its edges
+  bound to the shapes their ends are bound to (an end bound to a figure's ink, to the figure), an elbow
+  `orthogonalEdgeStyle` with its side as `exitX/Y`, `entryX/Y`, its heads draw.io's (`arrowhead`: triangle → classic).
+  The background and the grid go with it.
 - **Arrows meet a shape at the middle of a side**, as draw.io's and Miro's connectors, never anywhere along it:
   - `anchorlayer.js` draws the dots over Excalidraw (it has none): hover a shape, or select it, and its four dots show,
     blue (`.wb-anchor`); drag from one and a dashed line follows to the dot of the shape under the pointer, lit green;
@@ -461,21 +489,25 @@ mode's `.side-title`, never folding, not there while none is starred) and then a
 folder icon and name, its namespace after a `/`, muted and small), then a row of the name (the `h1`, as an item
 type's title: `--fs-title`, 700, not monospace) and at its right the actions (`.agents-actions`, all 32px high — the small *Where* select too —, wrapping
 under the name when short of room): the Favourites star (`.btn.fav`, as an initiative's), **Run** primary, *Where* as a
-small `select`, **Schedule…** secondary, **Open in ▾** ghost and ⋯; under the row, the description, muted, the page's
-whole width, 14px below it; 24px under it the tabs, their bar and their content level with the head (no inset of their
+small `select`, **Schedule…** secondary, **Open in ▾** ghost and ⋯; no description under the row (it is the first
+property of its Instructions); 24px under it the tabs, their bar and their content level with the head (no inset of their
 own, as `.item-tabs`) (the page's parts never shrink: `.agents-page > * { flex: none }`). The page has no max width: it takes the column. **There is no composer on the page**: Run opens
 the dock's chat with the command written, and that composer is the only one. **The figures** are the side panel's
 first tab, **Overview** (`.agents-overview`): property rows (`prop-rows quiet`, as an item's Properties), each its name,
 then the figure (600) and what it counts, muted and smaller (`.agents-ov-value`) — never a scorecard. **The tabs** (`tabPanels`, `.agents-tabs`, as wide as their names and scrolling sideways, never cut):
 *Instructions* is its file as a card (`agentfile.js`, `.agents-doc`: a bordered card, a muted head with the file in
 monospace and the Explorer's **Preview · Source · Edit** `.seg` at its right — Source and Edit only for a file that is
-not Markdown —, the Markdown under it with its headings brought down to h4 size; Source is `.files-source`, Edit the
-Explorer's `mdEditor`). **Every Markdown file of an agent reads this one way**; *Skills*, *Subagents*,
+not Markdown —; Preview is its frontmatter as `prop-rows` (`.agents-file-props`, Details' `.agents-props` rows: a list
+as `.chip.mono`, the path in monospace, only the keys it has — `agentsmodel.js fileProps` —, each name over its value
+when the card is under 460px, a container query) with a line under them, then the Markdown as Docs' preview draws it
+(`.md .files-md`: the app's heading sizes, never brought down) with a prompt's rhythm on top (`.agents-prompt`: room
+around headings, between list items and around code, a list's own disc · circle · square); Source is `.files-source`,
+Edit the Explorer's `mdEditor`). **Every Markdown file of an agent reads this one way**; *Skills*, *Subagents*,
 *Commands* and *Files* only when there is something in them, each a bordered list (`.agents-rel-list`) of rows that
 unfold — icon, name in monospace with a *via …* chip when it came through another, its description clamped to two
 lines, a chevron that turns — into the same file card, flush with the row (no frame of its own, a line above, indented
-to the name): unfolded, the row is its name, the card's head its path and Preview · Source · Edit, then its description
-(`.agents-file-summary`, muted), then the file; *Details* the property rows. It is laid out as an item's page is (`.page.two-panel` >
+to the name): unfolded, the row is its name, the card's head its path and Preview · Source · Edit, then the file (its
+description is one of its property rows, never a loose muted paragraph); *Details* the property rows. It is laid out as an item's page is (`.page.two-panel` >
 `.page-body` with `.page-main` and a `.page-side.im-side.tabbed` that `sideFold` folds; as wide as every right panel,
 `.agents-body`): the side panel's tabs are **Runs** and **Schedules**, drawn as an item's AI tab draws its
 conversations (`.cs-list` of `.cs-item` cards, the arrow and ⋯ on hover).

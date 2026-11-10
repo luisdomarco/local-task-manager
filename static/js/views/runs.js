@@ -333,12 +333,11 @@ const RELATED = [ // its tabs of what it works with (tm/agentlinks.py), shown on
 function agentPage(folder, agent, openRunId = '') {
   let where = folder.git && pref('agents.where', 'here') === 'worktree' ? 'worktree' : 'here';
 
-  // ── the head: where it lives, its name, what it does, and what to do with it ──
+  // ── the head: where it lives, its name and what to do with it (what it does is its Instructions' first row) ──
   const crumbs = h('nav', { class: 'agents-crumbs muted small', 'aria-label': 'Where it lives' },
     icon('folder', 13), h('span', { title: folder.path }, folder.name),
     ...(agent.ns ? agent.ns.split(':').flatMap((n) => [h('span', { class: 'agents-crumb-sep', 'aria-hidden': 'true' }, '/'), h('span', {}, n)]) : []));
   const title = h('h1', { class: 'agents-title' }, `/${agent.name}`);
-  const desc = h('p', { class: 'agents-desc' });
 
   const runBtn = h('button', { class: 'btn primary agents-run', type: 'button',
     title: 'Opens it in the dock with the command written: add its arguments, pick its mode and model there, and send (⌘↵)',
@@ -428,8 +427,8 @@ function agentPage(folder, agent, openRunId = '') {
   // arguments… may have changed).
   const cards = new Map(); // path ('' its own) → card
   const openRows = new Set(); // the rows unfolded: they stay so when the tabs are drawn again
-  const card = (path, summary = '') => {
-    if (!cards.has(path)) cards.set(path, agentFile({ dir: folder.id, cmd: agent.name, path, summary, onSaved: () => { if (!path) loadAgents(); loadRelated(); } }));
+  const card = (path) => {
+    if (!cards.has(path)) cards.set(path, agentFile({ dir: folder.id, cmd: agent.name, path, onSaved: () => { if (!path) loadAgents(); loadRelated(); } }));
     return cards.get(path).el;
   };
 
@@ -453,7 +452,7 @@ function agentPage(folder, agent, openRunId = '') {
           toggle.setAttribute('aria-expanded', String(open));
           body.hidden = !open;
           li.classList.toggle('open', open);
-          if (open) { openRows.add(it.path); if (!body.firstChild) body.append(card(it.path, it.description)); } else openRows.delete(it.path);
+          if (open) { openRows.add(it.path); if (!body.firstChild) body.append(card(it.path)); } else openRows.delete(it.path);
         } },
       h('span', { class: 'agents-rel-ico' }, icon(ico, 14)),
       h('span', { class: 'agents-rel-text-col' },
@@ -462,7 +461,7 @@ function agentPage(folder, agent, openRunId = '') {
         it.description ? h('span', { class: 'agents-rel-desc muted' }, it.description) : null),
       icon(kind === 'commands' ? 'right' : 'down', 13));
       const li = h('li', { class: 'agents-rel' }, toggle, body);
-      if (openRows.has(it.path)) { toggle.setAttribute('aria-expanded', 'true'); body.hidden = false; li.classList.add('open'); body.append(card(it.path, it.description)); }
+      if (openRows.has(it.path)) { toggle.setAttribute('aria-expanded', 'true'); body.hidden = false; li.classList.add('open'); body.append(card(it.path)); }
       return li;
     }));
   }
@@ -480,14 +479,12 @@ function agentPage(folder, agent, openRunId = '') {
   }
   const loadRelated = () => api.agentRelated(folder.id, agent.name).then((r) => { related = r; paintTabs(current); }, () => {});
 
-  const paintHead = (a) => { desc.textContent = a.description || ''; desc.hidden = !a.description; };
   let current = agent;
-  paintHead(agent);
   paintTabs(agent);
   loadRelated();
 
   const head = h('header', { class: 'view-head agents-head-page' }, crumbs,
-    h('div', { class: 'agents-title-row' }, title, actions), desc);
+    h('div', { class: 'agents-title-row' }, title, actions));
   const main = h('div', { class: 'page-main agents-page', onkeydown: (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); run(); } } },
     head, tabsBox);
   // On the right, as on an item's page (panel.js pageLayout): its runs, in a panel that folds away.
@@ -503,7 +500,6 @@ function agentPage(folder, agent, openRunId = '') {
       if (JSON.stringify(a) === JSON.stringify(current)) return;
       current = a;
       folder = f;
-      paintHead(a);
       loadRelated();
       paintTabs(a);
     },

@@ -96,3 +96,58 @@ export function runMeta(run) {
   const mode = run.mode && run.mode !== 'default' ? RUN_MODES.find(([m]) => m === run.mode)?.[1] || run.mode : null;
   return [RUN_WHERE[run.target] || run.target || null, run.worktree ? 'Worktree' : null, mode, run.model || null, run.effort ? `${run.effort} effort` : null].filter(Boolean);
 }
+
+// A file's frontmatter as Preview shows it (agentfile.js): rows of a name and a value over the body, never the YAML.
+// `name` and `description` first, then the rest in the file's order, then where the file is. Its tools (`allowed-tools`,
+// a subagent's `tools`) are a list, a string split on the commas outside parentheses as tm/commands.py split_tools does.
+const PROP_FIRST = ['name', 'description'];
+const TOOL_KEYS = new Set(['allowed-tools', 'tools', 'disallowed-tools', 'disallowedTools']);
+
+/** A frontmatter key as a label: `argument-hint` → "Argument hint", `disallowedTools` → "Disallowed tools". */
+export const propLabel = (key) => {
+  const words = String(key).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[-_]+/g, ' ').trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/** `Read, Bash(git add *, git commit *)` → ['Read', 'Bash(git add *, git commit *)']. */
+export function splitTools(raw) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const c of String(raw ?? '')) {
+    if (c === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    if (c === '(') depth += 1;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((t) => t.trim()).filter(Boolean);
+}
+
+const propText = (v) => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (Array.isArray(v)) return v.map(propText).filter(Boolean).join(', ');
+  if (typeof v === 'object') return Object.entries(v).map(([k, x]) => `${k}: ${propText(x)}`).join(', ');
+  return String(v).trim();
+};
+
+/**
+ * fileProps(fields, path) → [{ key, label, value }]: `value` a string, or a list of strings (shown as chips) for a list
+ * or for its tools. Only the keys with something in them; then `path` (where the file is) as "Path" — not for a file with
+ * no frontmatter, where it would only repeat the card's head.
+ */
+export function fileProps(fields, path = '') {
+  const f = fields && typeof fields === 'object' ? fields : {};
+  const keys = [...PROP_FIRST.filter((k) => k in f), ...Object.keys(f).filter((k) => !PROP_FIRST.includes(k))];
+  const out = [];
+  for (const key of keys) {
+    const raw = f[key];
+    const list = TOOL_KEYS.has(key) ? (Array.isArray(raw) ? raw.map(propText) : splitTools(raw))
+      : Array.isArray(raw) && raw.every((x) => x === null || typeof x !== 'object') ? raw.map(propText) : null;
+    const value = list ? list.filter(Boolean) : propText(raw);
+    if (value.length) out.push({ key, label: propLabel(key), value });
+  }
+  if (path && out.length) out.push({ key: 'path', label: 'Path', value: path });
+  return out;
+}

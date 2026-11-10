@@ -52,14 +52,17 @@ def _text(full, shown):
 
 
 def read(folder, name, path=''):
-    """{path, text (the whole file), body (Markdown without its frontmatter, for Preview), markdown, rev}, or None."""
+    """{path, text (the whole file), body (Markdown without its frontmatter, for Preview), fields (its frontmatter, read:
+    Preview shows them as rows over the body; {} for a file that is not Markdown, or whose frontmatter cannot be read),
+    markdown, rev}, or None."""
     found = locate(folder, name, path)
     if not found:
         return None
     full, shown = found
     text = _text(full, shown)
     md = full.endswith(MARKDOWN_EXT)
-    return {'path': shown, 'text': text, 'body': commands._parse(text)[1] if md else text, 'markdown': md, 'rev': rev_of(full)}
+    fields, body = commands._parse(text) if md else ({}, text)
+    return {'path': shown, 'text': text, 'body': body, 'fields': fields, 'markdown': md, 'rev': rev_of(full)}
 
 
 def save(folder, name, path, text, base_rev):

@@ -2607,6 +2607,14 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .shape-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .shape-tile:disabled { opacity: .45; cursor: default; background: none; }
 .shape-tile svg { display: block; pointer-events: none; }
+/* A picture's preview under the mouse (shapepanel.js): the figure larger, its name under it, on the popover's surface
+   beside the panel (.graph-tip's). */
+.shape-peek { --shape-paper: var(--popover); position: fixed; z-index: 45; pointer-events: none; display: flex; flex-direction: column;
+  align-items: center; gap: 6px; padding: 10px 12px 8px; border-radius: var(--radius); background: var(--popover); color: var(--foreground);
+  border: 1px solid var(--border); box-shadow: var(--shadow-lg); animation: pop .12s ease-out; }
+.shape-peek[hidden] { display: none; }
+.shape-peek svg { display: block; }
+.shape-peek-name { max-width: 148px; font-size: var(--fs-xs); font-weight: 500; text-align: center; }
 .shapes-none { padding: 6px 8px; font-size: var(--fs-xs); margin: 0; }
 .canvas-name { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .canvas-name-err { font-size: var(--fs-xs); color: var(--destructive); margin: 0; }
@@ -2618,17 +2626,54 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .canvas-empty p { max-width: 440px; margin: 0; font-size: var(--fs-sm); }
 .canvas-empty p:first-of-type { color: var(--foreground); }
 /* Excalidraw's own UI in the app's font; its island shadows as soft as ours. */
-.canvas-stage .excalidraw { --ui-font: var(--font); }
-/* Excalidraw's own chrome (toolbar, properties, Library, menus) in the app's colours, not its violet: its palette is
-   variables on .excalidraw (and .theme--dark), set here from the app's tokens, which follow the page's theme. */
-.canvas-stage .wb-host .excalidraw {
+.canvas-stage .excalidraw, :root .excalidraw.excalidraw-modal-container { --ui-font: var(--font); }
+/* Excalidraw's own chrome (toolbar, properties, Library, menus, dialogs) in the app's colours, not its violet: its
+   palette is variables on .excalidraw (and .theme--dark), set here from the app's tokens, which follow the page's theme.
+   Its dialogs (Export image, Help) are drawn outside the canvas, in a body-level .excalidraw-modal-container: the same
+   variables there, with a selector that outranks .excalidraw.theme--dark (excalidraw.css loads after this file). */
+.canvas-stage .wb-host .excalidraw, :root .excalidraw.excalidraw-modal-container {
   --color-primary: var(--primary); --color-primary-darker: var(--primary); --color-primary-darkest: var(--primary);
   --color-primary-hover: var(--primary); --color-brand-hover: var(--primary); --color-brand-active: var(--primary);
   --color-primary-light: var(--accent); --color-primary-light-darker: var(--border);
   --color-surface-primary-container: var(--accent); --color-on-primary-container: var(--foreground);
-  --color-surface-high: var(--muted); --island-bg-color: var(--popover); --text-primary-color: var(--foreground);
+  --color-surface-high: var(--muted); --color-surface-low: var(--muted); --color-surface-lowest: var(--popover);
+  --color-on-surface: var(--foreground); --island-bg-color: var(--popover); --popup-bg-color: var(--popover);
+  --text-primary-color: var(--foreground); --default-border-color: var(--border); --dialog-border-color: var(--border);
+  --sidebar-border-color: var(--border); --button-hover-bg: var(--accent); --button-active-bg: var(--accent);
+  --input-bg-color: var(--background); --input-border-color: var(--border); --input-hover-bg-color: var(--accent);
+  --input-label-color: var(--foreground); --overlay-bg-color: var(--overlay); --modal-shadow: var(--shadow-lg);
   --border-radius-md: var(--radius-sm); --border-radius-lg: var(--radius);
 }
+/* The main menu (☰) as the app's .menu: its surface, 5 px in, rows of fs-sm, grey icons and shortcuts, an accent hover. */
+.canvas-stage .excalidraw .dropdown-menu .dropdown-menu-container {
+  padding: 5px; background: var(--popover); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
+.canvas-stage .excalidraw .dropdown-menu .dropdown-menu-item-base { padding: 0 10px; font-size: var(--fs-sm); border-radius: var(--radius-sm); color: var(--foreground); }
+.canvas-stage .excalidraw .dropdown-menu .dropdown-menu-item:hover { background: var(--accent); }
+.canvas-stage .excalidraw .dropdown-menu .dropdown-menu-item__icon { color: var(--muted-foreground); }
+.canvas-stage .excalidraw .dropdown-menu .dropdown-menu-item__shortcut { font-size: var(--fs-xs); color: var(--muted-foreground); opacity: 1; }
+.canvas-stage .excalidraw .dropdown-menu-container > div[style*="height: 1px"] { margin: 5px -5px !important; } /* .menu-sep */
+.canvas-stage .excalidraw [data-testid="canvas-background-label"], .canvas-stage .excalidraw .wb-pattern-title {
+  font-size: 12.5px !important; font-weight: 600; color: var(--muted-foreground); padding: 2px 10px 0; /* .menu-label */
+}
+/* Its dialogs as the app's (#modal): radius 14, the large shadow, a 17 px title, .btn.primary buttons and a .seg. */
+:root .excalidraw-modal-container .Modal__content { border: 0; border-radius: 14px; box-shadow: var(--shadow-lg); }
+:root .excalidraw-modal-container .Dialog h2, :root .excalidraw-modal-container .Dialog h3,
+:root .excalidraw-modal-container .ImageExportModal h3 { font-family: var(--font); font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
+:root .excalidraw-modal-container .ImageExportModal__settings__setting__label { font-size: var(--fs-sm); }
+:root .excalidraw-modal-container .ExcButton--variant-filled {
+  height: var(--control-h); padding: 0 12px; border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-sm);
+  font-weight: 500; background: var(--primary); color: var(--primary-foreground); box-shadow: var(--shadow-sm);
+}
+:root .excalidraw-modal-container .ExcButton--variant-filled:hover { background: color-mix(in srgb, var(--primary) 86%, var(--background)); }
+:root .excalidraw-modal-container .ExcButton__icon svg { width: 16px; height: 16px; }
+/* Its switches and radio choices are bare inputs over a drawn track: the app's own field look (white, a border) off them. */
+:root .excalidraw-modal-container .Switch input, :root .excalidraw-modal-container .RadioGroup__choice input {
+  background: transparent; border: 0; box-shadow: none; outline: none; height: 100%;
+}
+:root .excalidraw-modal-container .RadioGroup { padding: 3px; gap: 2px; background: var(--muted); border: 0; border-radius: var(--radius); }
+:root .excalidraw-modal-container .RadioGroup__choice { height: 26px; min-width: 32px; border-radius: var(--radius-sm); font-family: var(--font); font-size: var(--fs-xs); color: var(--muted-foreground); }
+:root .excalidraw-modal-container .RadioGroup__choice.active { background: var(--background); color: var(--foreground); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 /* The Library panel: its headings as the app's section labels, no link out to libraries.excalidraw.com. */
 .canvas-stage .excalidraw .library-menu-items-container__header,
 .canvas-stage .excalidraw .library-menu-items__no-items__label {
@@ -2637,6 +2682,26 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .canvas-stage .excalidraw .library-menu-items-container__header--excal { margin-top: 16px; }
 .canvas-stage .excalidraw .library-menu-items__no-items { font-size: var(--fs-sm); color: var(--muted-foreground); }
 .canvas-stage .excalidraw .library-menu-browse-button { display: none; }
+/* …its hint without the "public repository, below" that link was; the panel on the app's surface, its Search · Library
+   tabs a .seg, its ⋮ a .btn.icon. */
+.canvas-stage .excalidraw .library-menu-items__no-items__hint { font-size: 0; }
+.canvas-stage .excalidraw .library-menu-items__no-items__hint::after {
+  content: "Select something on the canvas and add it here from its right-click menu."; font-size: var(--fs-sm);
+}
+.canvas-stage .excalidraw .sidebar { background: var(--popover); box-shadow: var(--shadow-lg); }
+.canvas-stage .excalidraw .sidebar-triggers { gap: 2px; padding: 3px; background: var(--muted); border: 0; border-radius: var(--radius); box-shadow: none; }
+.canvas-stage .excalidraw .sidebar-tab-trigger { height: 28px; border-radius: var(--radius-sm); background: transparent; color: var(--muted-foreground); }
+.canvas-stage .excalidraw .sidebar-tab-trigger[data-state="active"] { background: var(--background); color: var(--foreground); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.canvas-stage .excalidraw .library-menu-dropdown-container .dropdown-menu-button {
+  width: 30px; height: 30px; background: transparent; border: 0; border-radius: var(--radius-sm); box-shadow: none; color: var(--muted-foreground);
+}
+.canvas-stage .excalidraw .library-menu-dropdown-container .dropdown-menu-button:hover { background: var(--accent); color: var(--foreground); }
+/* The main menu's own items (whiteboard.js menu): an app icon as Excalidraw's, and under the background's colours a
+   Plain · Grid .seg, titled as its "Canvas background" is (a .menu-label, above). */
+.canvas-stage .excalidraw .wb-menu-icon { display: inline-flex; }
+.canvas-stage .excalidraw .dropdown-menu .wb-pattern { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-top: 8px; padding: 0 0 4px; }
+.canvas-stage .excalidraw .wb-pattern .seg { flex-wrap: nowrap; align-self: flex-start; margin-left: 10px; }
+.canvas-stage .excalidraw .wb-pattern .seg .btn { height: 26px; padding: 0 12px; font-size: var(--fs-xs); }
 
 /* The dots an arrow leaves or meets a shape by (canvas/anchorlayer.js): over the drawing, blue; the one an arrow
    will meet, green (the colours of draw.io's connection points). */
@@ -3122,7 +3187,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-head-page .agents-title { margin: 0; line-height: 1.25; flex: 1 1 280px; min-width: 0; }
 .agents-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .agents-actions .btn, .agents-actions .select-btn { height: 32px; } /* one height on the row: Where (a small select) as tall as Run */
-.agents-head-page .agents-desc { margin: 14px 0 0; line-height: 1.55; color: var(--muted-foreground); } /* the page's width, under its head (over .view-head p) */
 .agents-openin { color: var(--muted-foreground); }
 .agents-run { gap: 6px; }
 /* How it has gone: its side panel's Overview, as an item's properties (prop-rows quiet) — the figure, then what it counts */
@@ -3142,12 +3206,34 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-doc-head .mono { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .agents-file-seg { flex: none; padding: 2px; }
 .agents-file-seg .btn { height: 26px; }
-/* Its body: Preview reads as a document, Source and Edit as the Explorer's (views/files.js) */
-.agents-file-body { padding: 10px 20px 16px; min-width: 0; }
-.agents-file-body > .agents-prompt > :first-child { margin-top: 0; }
+/* Its body: Preview reads as Docs' does (.md .files-md: the app's heading sizes), its frontmatter as property rows over
+   it with a line between (agentfile.js props); Source and Edit as the Explorer's (views/files.js) */
+.agents-file-body { padding: 14px 24px 20px; min-width: 0; container: agentfile / inline-size; }
 .agents-file-source { max-height: 70vh; overflow: auto; }
-.agents-prompt h1, .agents-prompt h2 { font-size: var(--fs-h4); margin: 1.2em 0 .4em; }
-.agents-prompt h3, .agents-prompt h4 { font-size: var(--fs-base); margin: 1em 0 .3em; }
+.agents-file-props { margin: -4px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.agents-file-props .field { grid-template-columns: 128px minmax(0, 1fr); }
+/* A prompt is long and made of steps: room around its headings, between its items and around its code */
+.agents-prompt > :first-child { margin-top: 0; }
+.agents-prompt > :last-child { margin-bottom: 0; }
+.agents-prompt :is(h1, h2, h3, h4) { margin: 1.6em 0 .55em; }
+.agents-prompt h4 { font-size: var(--fs-base); }
+.agents-prompt :is(p, ul, ol, blockquote, table) { margin: .7em 0; }
+.agents-prompt :is(ul, ol) { padding-left: 1.6em; }
+.agents-prompt ul { list-style: disc; } /* its own levels, even inside a row of the Skills list (an li) */
+.agents-prompt ul ul { list-style: circle; }
+.agents-prompt ul ul ul { list-style: square; }
+.agents-prompt li + li { margin-top: .35em; }
+.agents-prompt li > :is(ul, ol) { margin: .35em 0 0; }
+.agents-prompt li > p { margin: .25em 0; }
+.agents-prompt pre { margin: 1em 0; line-height: 1.5; }
+.agents-prompt hr { margin: 1.6em 0; }
+@media (max-width: 640px) { .agents-file-body { padding: 12px 14px 16px; } }
+/* A narrow card (a phone, or the column beside an open side panel): each name over its value */
+@container agentfile (max-width: 460px) {
+  .agents-file-props .field { grid-template-columns: minmax(0, 1fr); row-gap: 0; }
+  .agents-file-props .field > span:first-child { padding-top: 6px; }
+  .agents-file-props .agents-value { min-height: 0; padding: 2px 0 6px; }
+}
 .agents-rel-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
 .agents-rel + .agents-rel { border-top: 1px solid var(--border); }
 .agents-rel-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 14px; text-align: left; background: none; border: 0;
@@ -3168,8 +3254,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-rel.open > .agents-rel-row { background: var(--muted); }
 /* unfolded: the row is its name; under it its path and Preview · Source · Edit, then what it is for, then the file */
 .agents-rel.open .agents-rel-desc { display: none; }
-.agents-file-summary { margin: 0; padding: 10px 20px 0; font-size: var(--fs-xs); line-height: 1.5; }
-.agents-rel-body .agents-file-summary { padding-left: 38px; }
 .agents-path { font-family: var(--mono); overflow-wrap: anywhere; }
 .agents-section-title { margin: 6px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: var(--fs-h4); font-weight: 650; }
 .agents-props { display: flex; flex-direction: column; gap: 2px; }

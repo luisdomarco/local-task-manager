@@ -2,8 +2,10 @@
 // with its path and the Explorer's Preview · Source · Edit (views/files.js), so every Markdown file reads the same in
 // the app. Preview renders it (its body, without the frontmatter), Source shows it whole, Edit writes it — saved as you
 // type, against the version it was read at (server.py agent_file_save, tm/agentfiles.py): a file changed meanwhile on
-// disk is never written over, it asks. Preview or Source is remembered in this browser; Edit never is. A `summary` (a
-// skill's or subagent's description, unfolded under its row) goes between its path and its text.
+// disk is never written over, it asks. Preview or Source is remembered in this browser; Edit never is. Preview shows the
+// file's frontmatter first as property rows (name, description, its tools…, then its path: agentsmodel.js fileProps),
+// never as the YAML Source shows, and then its body as a document, as Docs' preview reads.
+import { fileProps } from './agentsmodel.js';
 import { api } from './api.js';
 import { codeLanguage } from './filetree.js';
 import { highlight } from './highlight.js';
@@ -18,11 +20,11 @@ const MODES = { markdown: [['preview', 'eye', 'Preview'], ['source', 'code', 'So
   text: [['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']] };
 
 /**
- * agentFile({ dir, cmd, path, summary, onSaved }) → { el }. `path` empty is the command's own file. The file is read when the
+ * agentFile({ dir, cmd, path, onSaved }) → { el }. `path` empty is the command's own file. The file is read when the
  * card is built; `onSaved(file)` after each save (the page reads its fields again).
  */
-export function agentFile({ dir, cmd, path = '', summary = '', onSaved = () => {} }) {
-  let file = null;      // { path, text, body, markdown, rev } as last read or saved
+export function agentFile({ dir, cmd, path = '', onSaved = () => {} }) {
+  let file = null;      // { path, text, body, fields, markdown, rev } as last read or saved
   let mode = pref(MODE_KEY, 'preview');
   let back = mode;      // where Done goes back to
   let ed = null;        // the editor while in Edit: { mde, wrap, status, notice }
@@ -34,8 +36,7 @@ export function agentFile({ dir, cmd, path = '', summary = '', onSaved = () => {
   const pathEl = h('span', { class: 'mono agents-file-path', title: path || '' }, path || '…');
   const seg = h('div', { class: 'seg agents-file-seg', role: 'group', 'aria-label': 'Show as' });
   const body = h('div', { class: 'agents-file-body' }, h('p', { class: 'muted small' }, 'Reading…'));
-  const el = h('section', { class: 'agents-doc' }, h('div', { class: 'agents-doc-head' }, icon('text', 13), pathEl, seg),
-    summary ? h('p', { class: 'muted agents-file-summary' }, summary) : null, body);
+  const el = h('section', { class: 'agents-doc' }, h('div', { class: 'agents-doc-head' }, icon('text', 13), pathEl, seg), body);
 
   const kind = () => (file?.markdown ? 'markdown' : 'text');
   const shown = () => (mode === 'preview' && kind() !== 'markdown' ? 'source' : mode);
@@ -135,9 +136,19 @@ export function agentFile({ dir, cmd, path = '', summary = '', onSaved = () => {
     const m = shown();
     if (m === 'edit') { body.replaceChildren(editor()); return; }
     if (m === 'source') { body.replaceChildren(source()); return; }
-    const md = h('div', { class: 'md agents-prompt' });
+    const md = h('div', { class: 'md files-md agents-prompt' });
     md.innerHTML = file.body.trim() ? renderMarkdown(file.body) : '<p class="muted">Empty.</p>'; // sanitized by renderMarkdown (DOMPurify)
-    body.replaceChildren(md);
+    body.replaceChildren(...[props(), md].filter(Boolean));
+  }
+
+  /** Its frontmatter as rows (Details' prop-rows): a list as chips, its path in monospace. Null when it has none. */
+  function props() {
+    const rows = fileProps(file.fields, file.path);
+    if (!rows.length) return null;
+    const value = ({ key, value: v }) => (Array.isArray(v) ? h('div', { class: 'agents-tools' }, v.map((t) => h('span', { class: 'chip mono', title: t }, t)))
+      : key === 'path' ? h('span', { class: 'mono small agents-path' }, v) : v);
+    return h('div', { class: 'fields prop-rows quiet agents-props agents-file-props', role: 'list', 'aria-label': 'Its properties' },
+      rows.map((r) => h('div', { class: 'field', role: 'listitem' }, h('span', { title: r.key }, r.label), h('div', { class: 'agents-value' }, value(r)))));
   }
 
   function load() {

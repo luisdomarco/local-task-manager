@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  agentEntries, agentHref, agentKey, agentPath, agentPathOfHash, folderCounts, parseRunsParam, pinnedAgents, runMessage, runMeta, toggled,
+  agentEntries, agentHref, agentKey, agentPath, agentPathOfHash, fileProps, folderCounts, parseRunsParam, pinnedAgents, propLabel, runMessage,
+  runMeta, splitTools, toggled,
 } from '../../static/js/agentsmodel.js';
 import { buildTree, filterTree, findNode } from '../../static/js/filetree.js';
 
@@ -77,5 +78,22 @@ describe('agentsmodel', () => {
     assert.deepEqual(toggled(null, 'a'), ['a']);
     assert.deepEqual(toggled(['a', 'b'], 'a'), ['b']);
     assert.equal(toggled(['a'], 'a'), null);
+  });
+
+  it('shows a file\'s frontmatter as rows: name and description first, its tools as a list, the path last', () => {
+    const rows = fileProps({
+      model: 'sonnet', description: ' Resolves a scope ', name: 'layer-scope', 'allowed-tools': 'Read, Bash(git add *, git commit *)',
+      'argument-hint': '<layer> [scope]', 'disable-model-invocation': true, tags: ['a', 'b'], empty: '', none: null, list: [], when: { at: '9:00' },
+    }, '.claude/skills/layer-scope/SKILL.md');
+    assert.deepEqual(rows.map((r) => [r.label, r.value]), [
+      ['Name', 'layer-scope'], ['Description', 'Resolves a scope'], ['Model', 'sonnet'],
+      ['Allowed tools', ['Read', 'Bash(git add *, git commit *)']], ['Argument hint', '<layer> [scope]'],
+      ['Disable model invocation', 'Yes'], ['Tags', ['a', 'b']], ['When', 'at: 9:00'], ['Path', '.claude/skills/layer-scope/SKILL.md'],
+    ]);
+    assert.deepEqual(fileProps({ tools: ['Read', ' '] }).map((r) => r.value), [['Read']]); // a YAML list stays a list
+    assert.deepEqual(fileProps(null, ''), []);
+    assert.deepEqual(fileProps({ empty: '' }, 'docs/guide.md'), []); // no frontmatter worth a row: no block at all
+    assert.equal(propLabel('disallowedTools'), 'Disallowed tools');
+    assert.deepEqual(splitTools(''), []);
   });
 });

@@ -49,7 +49,9 @@ class RelatedTest(unittest.TestCase):
         skill = agentfiles.read(self.dir, 'wor-build', '.claude/skills/ski-ledger/SKILL.md')
         self.assertEqual((skill['text'], skill['body'].strip(), skill['markdown']),
                          ('---\nname: ski-ledger\ndescription: Keeps a ledger\n---\nBody\n', 'Body', True))
-        self.assertEqual(agentfiles.read(self.dir, 'wor-build', 'notes.txt')['body'], 'notes')
+        self.assertEqual(skill['fields'], {'name': 'ski-ledger', 'description': 'Keeps a ledger'})  # Preview's rows
+        notes = agentfiles.read(self.dir, 'wor-build', 'notes.txt')
+        self.assertEqual((notes['body'], notes['fields']), ('notes', {}))
         own = agentfiles.read(self.dir, 'help')  # no path: the command's own file
         self.assertEqual((own['path'], own['text']), ('.claude/commands/help.md', '---\ndescription: Help\n---\nHelp.\n'))
         for path in ('.claude/skills/ski-unused/SKILL.md', '../outside.md', '/etc/hosts', '.claude/commands/wor-build.md'):
