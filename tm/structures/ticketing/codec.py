@@ -359,6 +359,12 @@ class TicketingCodec:
         """Whether an item of this type is named after its title: its file follows a change of title (renamed)."""
         return SPEC[item_type]['title'] in ('id', 'date', 'note')
 
+    @staticmethod
+    def owns_folder(item_type):
+        """Whether an item of this type is its folder's note (a project: `<Name>/00 <Name>.md`, its tickets inside):
+        it is renamed, deleted and restored with everything in the folder."""
+        return (SPEC.get(item_type) or {}).get('scope') == 'note'
+
     def renamed(self, it, subject, stamp):
         """The new path of an item whose title changes (its file name is its title): same folder, new name. A plan from
         before plans had ids is named after its item, not its title: it keeps its name. A project's folder is named

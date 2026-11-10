@@ -1,6 +1,7 @@
 """The Ticketing structure (tm/structures/ticketing): files in the native format of docs/ticketing-second-brain,
 read and written by the Store without losing a byte it did not mean to change."""
 import difflib
+import json
 import os
 import tempfile
 import unittest
@@ -765,6 +766,112 @@ class GoalTest(TicketingBase):
         self.s.restore_trashed(out['trashed'])
         self.assertEqual([(self.s.read(it['key'])['fields']['goal'], self.s.read(it['key'])['fields']['goal_order']) for it in (ini, task)],
                          [(goal['key'], 2), (goal['key'], 1)])
+
+
+class ProjectTrashTest(TicketingBase):
+    """A project is its folder's note: deleted, restored and purged with its folder; a ticket goes back into its
+    project's folder as it is called now. The vault never leaves its structure on the way."""
+
+    def test_a_ticket_deleted_before_its_project_was_renamed_goes_back_into_its_new_folder(self):
+        story = self.s.create('story', 'Pagar', {'project': 'ECD'})
+        task = self.s.create('task', 'Revisar', {'project': 'ECD'})
+        gone = [self.s.delete(it['id']) for it in (story, task)]
+        self.s.update(self.ecd['key'], {'subject': 'R&D Lab'})
+        for out in gone:
+            self.s.restore_trashed(out['trashed'])
+        self.assertEqual(self.s.read(story['id'])['path'], f"R&D Lab/Stories/{os.path.basename(story['path'])}")
+        self.assertEqual([self.s.read(it['id'])['fields']['project'] for it in (story, task)], ['ECD', 'ECD'])
+        self.assertIn('[[00 R&D Lab]]', read(self.root, self.s.read(task['id'])['path']))
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Acme Web')))
+        self.assertTrue(self.s.check()['ok'])
+
+    def test_a_ticket_deleted_before_the_trash_kept_its_project_follows_the_link_the_rename_rewrote(self):
+        task = self.s.create('task', 'Revisar', {'project': 'ECD'})
+        out = self.s.delete(task['id'])
+        meta = os.path.join(self.root, out['trashed'] + '.meta.json')
+        with open(meta, encoding='utf-8') as f:
+            kept = json.load(f)
+        kept.pop('project')  # as a delete from before this wrote it
+        with open(meta, 'w', encoding='utf-8') as f:
+            json.dump(kept, f)
+        self.s.update(self.ecd['key'], {'subject': 'R&D Lab'})
+        self.assertIn('[[00 R&D Lab]]', read(self.root, out['trashed']))  # the trash's links follow a rename
+        self.assertEqual(self.s.restore_trashed(out['trashed'])['fields']['project'], 'ECD')
+
+    def test_deleting_a_project_takes_its_folder_and_a_restore_brings_it_all_back(self):
+        story = self.s.create('story', 'Pagar', {'project': 'ECD'})
+        task = self.s.create('task', 'Revisar', {'project': 'ECD'})
+        sub = self.s.create('task', 'Probar', {'related_to': story['id']})
+        out = self.s.delete(self.ecd['key'])
+        self.assertEqual(out['holds'], 1)
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Acme Web')))
+        self.assertTrue(self.s.check()['ok'])
+        self.assertFalse(self.s.read(task['id'])['fields'].get('project'))
+        self.assertFalse(self.s.read(sub['id'])['fields'].get('related_to'))
+        with self.assertRaises(StoreError):
+            self.s.read(story['id'])
+        entry = next(e for e in self.s.trash() if e['type'] == 'project')
+        self.assertEqual((entry['title'], entry['holds'], entry['original_path']), ('Acme Web', 1, 'Acme Web/00 Acme Web.md'))
+        self.assertIn(story['id'], self.s._trashed_ids())  # its tickets' ids stay taken while it is in the trash
+        self.s.restore_trashed(out['trashed'])
+        self.assertTrue(self.s.check()['ok'])
+        self.assertEqual(self.s.read(story['id'])['path'], story['path'])
+        self.assertEqual(self.s.read(task['id'])['fields']['project'], 'ECD')
+        self.assertEqual(self.s.read(sub['id'])['fields']['related_to'], story['id'])
+        self.assertEqual(self.s.trash(), [])
+
+    def test_a_ticket_of_a_deleted_project_waits_for_the_project(self):
+        story = self.s.create('story', 'Pagar', {'project': 'ECD'})
+        lone = self.s.delete(story['id'])
+        project = self.s.delete(self.ecd['key'])
+        with self.assertRaises(StoreError) as e:
+            self.s.restore_trashed(lone['trashed'])
+        self.assertEqual(e.exception.status, 409)
+        self.assertTrue(self.s.check()['ok'])
+        self.s.restore_trashed(project['trashed'])
+        self.assertEqual(self.s.restore_trashed(lone['trashed'])['path'], story['path'])
+        self.assertTrue(self.s.check()['ok'])
+
+    def test_a_project_comes_back_only_while_its_name_and_key_are_free(self):
+        out = self.s.delete(self.ecd['key'])
+        other = self.s.create('project', 'Acme Web', {'project_key': 'ACM', 'project_kind': 'product'})
+        with self.assertRaises(StoreError) as e:
+            self.s.restore_trashed(out['trashed'])
+        self.assertEqual(e.exception.status, 409)
+        self.s.update(other['key'], {'subject': 'Acme Shop', 'project_key': 'ECD'})  # its key is not editable: still ACM
+        self.assertTrue(self.s.check()['ok'])
+        self.assertEqual(self.s.restore_trashed(out['trashed'])['path'], 'Acme Web/00 Acme Web.md')
+        self.assertTrue(self.s.check()['ok'])
+
+    def test_a_project_deleted_before_its_folder_went_with_it_is_put_right_by_its_restore(self):
+        story = self.s.create('story', 'Pagar', {'project': 'ECD'})
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        lone = self.s.delete(task['id'])
+        # What a delete did before: the note alone to the trash, the folder left behind, the vault out of its structure.
+        trashed = '.task-manager/trash/20261101-120000-00 Acme Web.md'
+        os.rename(os.path.join(self.root, self.ecd['path']), os.path.join(self.root, trashed))
+        write(self.root, trashed + '.meta.json', json.dumps({'id': 'ECD', 'type': 'project', 'path': self.ecd['path'],
+                                                             'deleted_at': '2026-11-01T12:00:00', 'children': []}))
+        self.assertFalse(self.s.check()['ok'])
+        entry = next(e for e in self.s.trash() if e['trashed'] == trashed)
+        self.assertEqual((entry['title'], entry['id']), ('Acme Web', 'ECD'))
+        with self.assertRaises(StoreError) as e:  # any other restore waits, as every item write on such a vault
+            self.s.restore_trashed(lone['trashed'])
+        self.assertEqual(e.exception.status, 409)
+        self.s.restore_trashed(trashed)
+        self.assertTrue(self.s.check()['ok'])
+        self.assertEqual(self.s.read(story['id'])['fields']['project'], 'ECD')
+        self.s.restore_trashed(lone['trashed'])
+
+    def test_purging_a_deleted_project_purges_its_folder(self):
+        self.s.create('story', 'Pagar', {'project': 'ECD'})
+        out = self.s.delete(self.ecd['key'])
+        self.s.purge(out['trashed'])
+        self.assertEqual(os.listdir(os.path.join(self.root, '.task-manager', 'trash')), [])
+        again = self.s.delete(self.hb['key'])
+        self.s.empty_trash()
+        self.assertFalse(os.path.exists(os.path.join(self.root, again['trashed'] + '.folder')))
+        self.assertTrue(self.s.check()['ok'])
 
 
 class RelationKindsTest(TicketingBase):

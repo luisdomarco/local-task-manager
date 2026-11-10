@@ -38,17 +38,20 @@ export function mount(root) {
     h('button', { class: 'th-btn', onclick: () => { sort.dir = sort.col === col ? -sort.dir : (col === 'deleted_at' ? -1 : 1); sort.col = col; saveSort('trash', sort); api.update(); } },
       label, sort.col === col ? icon(sort.dir > 0 ? 'up' : 'down', 13) : null));
 
+  // A project went with its folder: the items in it are in the trash with it, and go with it either way.
+  const items = (n) => `${n} item${n > 1 ? 's' : ''}`;
+  const withItems = (e) => (e.holds ? ` and its ${items(e.holds)}` : '');
   const row = (e) => {
     if (confirm === e.trashed) {
       return h('tr', { class: 'tag-edit' }, h('td', { colspan: COLS }, h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, `Delete ${e.ref || e.id || e.title} for good? It cannot be undone.`),
+        h('span', { class: 'small' }, `Delete ${e.ref || e.id || e.title}${withItems(e)} for good? It cannot be undone.`),
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
         h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever'))));
     }
     return h('tr', { class: 'trash-row hover-host' },
       h('td', {}, h('span', { class: 'mono' }, e.ref || e.id || '—')),
-      h('td', { class: 'c-subject' }, e.title),
+      h('td', { class: 'c-subject' }, e.title, e.holds ? h('span', { class: 'muted small' }, ` · with ${items(e.holds)}`) : null),
       h('td', {}, h('span', { class: `chip t-${e.type}` }, typeIcon(e.type, 12), e.type || '—')),
       h('td', { title: e.deleted_at }, when(e.deleted_at)),
       h('td', { class: 'muted trash-path', title: e.original_path }, e.original_path),

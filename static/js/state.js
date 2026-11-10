@@ -19,7 +19,7 @@ export const state = {
   sidebar: [],   // initiative ids in their sidebar order (<root>/.task-manager/sidebar.md)
   config: { work_kinds: [] },
   worklog: [],
-  trash: [], // [{ trashed, id, type, title, original_path, deleted_at, unlinked }], most recently deleted first
+  trash: [], // [{ trashed, id, type, title, original_path, deleted_at, unlinked, holds }], most recently deleted first (holds: a project's items)
   trashFiles: 0, // files taken off an item, waiting in trash/attachments/ for the trash to be emptied
   trashedFiles: [], // [{ trashed, path, kind, deleted_at }]: files and folders the Explorer deleted (trash/files/)
   people: [], // [{ name, count, sender, attendee, calendar_name, emails, redmine, slack, notes, when_to_use }], most used first: the history behind the person suggestions
@@ -199,7 +199,10 @@ export async function removeAttachment(key, path) {
 /** Delete (to the trash) with an Undo in the toast that restores the file. */
 export async function deleteItem(key) {
   const out = await mutate(() => api.remove(key));
-  toast(out.unlinked ? `Moved to the trash · ${out.unlinked} related item${out.unlinked > 1 ? 's' : ''} unlinked` : 'Moved to the trash', false, { label: 'Undo', run: () => mutate(() => api.restore(out.trashed, out.restore_to)) });
+  const plural = (n, what) => `${n} ${what}${n > 1 ? 's' : ''}`;
+  // A project goes with its folder: the toast says how many of its items went along.
+  const moved = out.holds ? `Moved to the trash with its ${plural(out.holds, 'item')}` : 'Moved to the trash';
+  toast(out.unlinked ? `${moved} · ${plural(out.unlinked, 'related item')} unlinked` : moved, false, { label: 'Undo', run: () => mutate(() => api.restore(out.trashed, out.restore_to)) });
   return out;
 }
 /** Several items to the trash (a list's bulk bar), one by one; one toast whose Undo restores every one that went. A

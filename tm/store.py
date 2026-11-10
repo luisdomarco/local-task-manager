@@ -1326,7 +1326,8 @@ class Store:
         the edits are planned before any is written. → how many files changed."""
         rewrite = self.structure.codec.relink if self.structure.codec else wikilinks.rewrite
         edits = []
-        for path in self._walk_md(docs=True):
+        # The trash too: a deleted item keeps linking its project by its name now, so a restore still finds it.
+        for path in [*self._walk_md(docs=True), *self._trash_mds()]:
             with open(path, encoding='utf-8') as f:
                 before = f.read()
             after = rewrite(before, old_stem, new_stem)
@@ -2003,8 +2004,25 @@ class Store:
             return []
         return [fields.get('id'), fields.get('converted_from')]
 
+    @staticmethod
+    def _bundle(path):
+        """Where a trashed project keeps the rest of its folder: beside its note, `<note>.folder/`."""
+        return path + '.folder'
+
+    def _with_bundle(self, path):
+        """A trashed file and, for a project, every .md of its folder that went with it."""
+        out = [path]
+        for dirpath, dirnames, filenames in os.walk(self._bundle(path)):
+            dirnames.sort()
+            out.extend(os.path.join(dirpath, n) for n in sorted(filenames) if n.endswith('.md') and not n.startswith('.'))
+        return out
+
+    def _trash_mds(self):
+        """Every .md in the trash that is (or was) an item: a deleted item's file, and those in a deleted project's folder."""
+        return [p for path in self._trash_files() for p in self._with_bundle(path)]
+
     def _trashed_ids(self):
-        return [i for path in self._trash_files() for i in self._file_ids(path)]
+        return [i for path in self._trash_mds() for i in self._file_ids(path)]
 
     @staticmethod
     def _file_attachments(path):
@@ -2020,13 +2038,15 @@ class Store:
         trash, but those in `purging` (trashed files on their way out)."""
         listed = {p for it in self._scan(resolve=False, hidden_too=True)[0] for p in it['fields'].get('attachments') or []}
         purging = {os.path.realpath(p) for p in purging}
-        listed.update(p for path in self._trash_files() if os.path.realpath(path) not in purging for p in self._file_attachments(path))
+        listed.update(p for path in self._trash_files() if os.path.realpath(path) not in purging
+                      for md in self._with_bundle(path) for p in self._file_attachments(md))
         return listed
 
     def _orphaned_by(self, purging):
         """The files the trashed items in `purging` list that no other item does: what goes with them."""
         listed = self._listed_attachments(purging)
-        return list(dict.fromkeys(p for path in purging for p in self._file_attachments(path) if p not in listed))
+        return list(dict.fromkeys(p for path in purging for md in self._with_bundle(path) for p in self._file_attachments(md)
+                                  if p not in listed))
 
     def _drop_attachments(self, rels):
         """Delete for good these files of Attachments/, and their item's folder once it is empty. Only what
@@ -2091,12 +2111,18 @@ class Store:
             if not deleted_at and stamp:
                 deleted_at = datetime.strptime(stamp.group(1) + stamp.group(2), '%Y%m%d%H%M%S').strftime('%Y-%m-%dT%H:%M:%S')
             original = meta.get('path') or os.path.join(self.folders.get(kind, ''), stamp.group(3) if stamp else name)
-            tid = str(fields['id']) if fields.get('id') not in (None, '') else None
+            # A project's note has no id: its key, which the trash kept, stands for one (as in the app).
+            project = bool(meta.get('folder')) or self._owns_folder(kind)
+            tid = next((str(v) for v in (fields.get('id'), meta.get('id') if project else None) if v not in (None, '')), None)
             out.append({
                 'trashed': self.rel(path), 'id': tid, 'ref': self.structure.ref(kind, tid), 'type': kind,
-                'title': str(fields.get('subject') or fields.get('title') or os.path.splitext(name)[0]),
+                # A project's name is its folder's (its note has no subject).
+                'title': str(fields.get('subject') or fields.get('title') or (project and os.path.dirname(original))
+                             or os.path.splitext(name)[0]),
                 'original_path': original, 'deleted_at': deleted_at or '',
-                'related_to': fields.get('related_to'), 'unlinked': len(meta.get('children') or []),
+                'related_to': fields.get('related_to'),
+                'unlinked': len(meta.get('children') or []) + len(meta.get('detached') or []) + len(meta.get('project_members') or []),
+                'holds': len(self._with_bundle(path)) - 1,  # a project: the items of its folder that went with it
             })
         return sorted(out, key=lambda e: e['deleted_at'], reverse=True)
 
@@ -2986,6 +3012,8 @@ class Store:
         something that no longer exists; the trash remembers which, so a restore can relink them."""
         with self._lock:
             it = self.find(key)
+            if self._owns_folder(it['type']):
+                return self._delete_project(it)
             # Every child, the hidden ones too (a type this vault turned off): none may keep pointing at a deleted item.
             scanned = self._scan(hidden_too=True)[0]
             children = [c for c in scanned if it['id'] and c['id'] != it['id'] and c['fields'].get('related_to') == it['id']]
@@ -3006,25 +3034,155 @@ class Store:
                 self._patch_fields(c, {'goal': None, 'goal_order': None})
             atomic_write(dst + '.meta.json', json.dumps({
                 'id': it['id'], 'type': it['type'], 'path': it['path'], 'deleted_at': f'{when:%Y-%m-%dT%H:%M:%S}',
+                # Its project by key: a restore finds its folder by that, even when the project was renamed since.
+                **({'project': it['fields']['project']} if it['fields'].get('project') else {}),
                 'children': [c['id'] for c in children if c['id']],
                 **({'members': [[c['id'], c['fields'].get('goal_order')] for c in members if c['id']]} if members else {})},
                 ensure_ascii=False))
         return {'trashed': self.rel(dst), 'restore_to': it['path'], 'unlinked': len(children) + len(members)}
 
-    @writes
+    def _owns_folder(self, item_type):
+        codec = self.structure.codec
+        return bool(codec and getattr(codec, 'owns_folder', None) and codec.owns_folder(item_type))
+
+    def _trash_slot(self, name, when):
+        """A free path in the trash for a file called `name` deleted at `when` (two deletes in one second)."""
+        trash = self._trash_dir()
+        os.makedirs(trash, exist_ok=True)
+        dst, n = None, 0
+        while dst is None or os.path.lexists(dst) or os.path.lexists(self._bundle(dst)):
+            dst = os.path.join(trash, f"{when:%Y%m%d-%H%M%S}{'' if not n else f'-{n}'}-{name}")
+            n += 1
+        return dst
+
+    def _delete_project(self, it):
+        """A project goes to the trash with its folder: its note where a deleted item's file goes, everything else in
+        the folder beside it (_bundle), as one entry. What lives outside the folder and points into it is left
+        pointing at nothing — a ticket or note of the project loses its `project`, an item hanging from one of its
+        tickets its `related_to` — and the trash remembers each, so a restore puts them back."""
+        folder = os.path.dirname(it['path'])
+        key = it['id'] or it['fields'].get('project_key')
+        scanned = self._scan(hidden_too=True)[0]
+        inside = lambda x: x['path'].startswith(folder + '/')
+        ids = {x['id'] for x in scanned if inside(x) and x['id']}
+        outside = [x for x in scanned if not inside(x) and x['id']]
+        detached = [x for x in outside if x['fields'].get('related_to') in ids]
+        members = [x for x in outside if key and x['fields'].get('project') == key]
+        when = datetime.now()
+        dst = self._trash_slot(os.path.basename(it['path']), when)
+        shutil.move(self.abs(folder), self._bundle(dst))
+        shutil.move(os.path.join(self._bundle(dst), os.path.basename(it['path'])), dst)
+        for x in detached:  # a relation is not an edit of the item: updated_at stays
+            self._patch_fields(x, {'related_to': None})
+        for x in members:
+            self._patch_fields(x, {'project': None})
+        holds = len(self._with_bundle(dst)) - 1
+        atomic_write(dst + '.meta.json', json.dumps({
+            'id': it['id'], 'type': it['type'], 'path': it['path'], 'folder': folder, 'deleted_at': f'{when:%Y-%m-%dT%H:%M:%S}',
+            'detached': [[x['id'], x['fields']['related_to']] for x in detached],
+            'project_members': [x['id'] for x in members]}, ensure_ascii=False))
+        return {'trashed': self.rel(dst), 'restore_to': it['path'], 'unlinked': len(detached) + len(members), 'holds': holds}
+
+    def _restore_project(self, src, to, meta):
+        """A project back from the trash with its folder (_delete_project): its note at `to`, the rest of its folder
+        around it; what lost its link to it gets it back, unless it was given another since. Refused, and nothing
+        moved, when its folder's name or its key was taken by another project meanwhile.
+        A project deleted before its folder went with it left that folder in the vault, without its note, and the
+        vault out of its structure: its note goes back into it — the one restore a vault in that state takes."""
+        folder = os.path.dirname(to)
+        bundle, dst = self._bundle(src), self.abs(to)
+        orphan = not os.path.isdir(bundle) and os.path.isdir(self.abs(folder)) and not os.path.lexists(dst)
+        if not orphan:
+            if not getattr(_writing, 'matched', True):
+                raise StoreError(409, READ_ONLY_MESSAGE, check=self.check())
+            self._check_project_folder(folder)
+        key = meta.get('id')
+        r = self._resolver()
+        if key and key in r.projects:
+            raise StoreError(409, f'the key {key} is taken by the project {r.projects[key]["name"]} now: change its key first')
+
+        had_bundle = os.path.isdir(bundle)
+
+        def do():
+            if had_bundle:
+                shutil.move(bundle, self.abs(folder))
+            elif not orphan:  # its folder is gone too: the note in a folder of its own again
+                os.makedirs(self.abs(folder))
+            shutil.move(src, dst)
+
+        def undo():
+            shutil.move(dst, src)
+            if had_bundle:
+                shutil.move(self.abs(folder), bundle)
+            elif not orphan:
+                os.rmdir(self.abs(folder))
+        self._keeping_structure(do, undo)
+        by_id = {x['id']: x for x in self._scan(hidden_too=True)[0] if x['id']}
+        for child, parent in meta.get('detached') or []:
+            if child in by_id and not by_id[child]['fields'].get('related_to'):
+                self._patch_fields(by_id[child], {'related_to': parent})
+        for mid in meta.get('project_members') or []:
+            if mid in by_id and not by_id[mid]['fields'].get('project'):
+                self._patch_fields(by_id[mid], {'project': key})
+        self._drop_sidecars(src)
+        return self.read(self.rel(dst))
+
+    def _restore_place(self, src, to, meta):
+        """Where a deleted ticket goes back: where it was, unless its project was renamed since — then in that
+        project's folder now (found by the key the trash kept, or by the link in its file). → (to, its project's key
+        when the project is still in the vault). A ticket whose project is gone is refused: restore that first."""
+        codec = self.structure.codec
+        if not codec:
+            return to, None
+        with open(src, encoding='utf-8') as f:
+            raw = fm.parse(fm.split(f.read())[0])
+        item_type = meta.get('type') or codec.classify(meta.get('path') or to, raw)
+        r = self._resolver()
+        key = meta.get('project')
+        if not key:
+            stem = wikilinks.target(raw.get('project'))
+            key = r.project_by_stem.get(stem) if stem else None
+        if key and key not in r.projects:
+            if item_type in self.structure.extras.get('project_scoped', ()) and to == meta.get('path'):
+                raise StoreError(409, f'its project {key} is not in the vault (it may be in the trash too): restore that first')
+            return to, None
+        if key and to == meta.get('path') and item_type in self.structure.extras.get('project_scoped', ()):
+            folder = codec.folder_of(item_type, key, r)
+            if folder:
+                to = f'{folder}/{os.path.basename(to)}'
+        return to, key
+
+    @writes_files  # a project's note back into its own folder is how a vault from an older delete is put right
     def restore(self, trashed, to):
-        """Undo a delete: move `trashed` (relative to root, inside the trash) back to `to`."""
+        """Undo a delete: move `trashed` (relative to root, inside the trash) back to `to`. On a vault that does not
+        match its structure only one restore goes (_restore_project): the rest are refused as any item write is."""
         to = str(to or '')
         if not self._scannable(to):  # anywhere else it would leave the trash and vanish from the app
             raise StoreError(400, f'cannot restore to {to or "(nothing)"}: it must be a .md path outside hidden folders')
         with self._lock:
             src = self._in_trash(trashed)
+            meta = self._trash_meta(src)
+            if meta.get('folder') or self._owns_folder(meta.get('type')):
+                return self._restore_project(src, to, meta)
+            if not getattr(_writing, 'matched', True):
+                raise StoreError(409, READ_ONLY_MESSAGE, check=self.check())
+            to, project = self._restore_place(src, to, meta)
             dst = self.abs(to)
             if os.path.exists(dst):
                 raise StoreError(409, f'already exists: {to}')
-            meta = self._trash_meta(src)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.move(src, dst)
+            parent = os.path.dirname(dst)
+            made = [] if os.path.isdir(parent) else self._missing_folders(to, parents=True)
+            os.makedirs(parent, exist_ok=True)
+
+            def undo():
+                shutil.move(dst, src)
+                for folder in made:  # absolute, deepest first
+                    try:
+                        os.rmdir(folder)
+                    except OSError:
+                        pass
+            # Never back into a vault it would leave out of its structure (a folder that is no project's any more).
+            self._keeping_structure(lambda: shutil.move(src, dst), undo)
             for child_id in meta.get('children') or []:  # relink what the delete detached, unless it was related elsewhere since
                 for c in self._scan(hidden_too=True)[0]:  # the hidden ones too: the delete detached them as well
                     if c['id'] == child_id and not c['fields'].get('related_to'):
@@ -3035,12 +3193,15 @@ class Store:
                     self._patch_fields(c, {'goal': meta.get('id'), 'goal_order': places[c['id']]})
             self._drop_sidecars(src)
             item = self.find(self.rel(dst))
+            if project and item['fields'].get('project') != project:  # its link names the project as it was called
+                self._patch_fields(item, {'project': project})
+                item = self.find(self.rel(dst))
             parent = item['fields'].get('related_to')  # what it hung from may be gone since
             if parent and not any(i['id'] == parent for i in self.items()):
                 self._patch_fields(item, {'related_to': None})
         return self.read(self.rel(dst))
 
-    @writes
+    @writes_files  # as restore
     def restore_trashed(self, trashed):
         """Restore from the trash view: back to the place it was deleted from."""
         entry = next((e for e in self.trash() if e['trashed'] == trashed), None)
@@ -3054,9 +3215,12 @@ class Store:
         with self._lock:
             src = self._in_trash(trashed)
             files = self._orphaned_by([src]) if src.endswith('.md') else []
-            self._mark_ids(self._file_ids(src))  # gone for good, but its id stays used (items made before ids.json)
+            # gone for good, but its id stays used (items made before ids.json); a project's, and those of its tickets
+            self._mark_ids([i for md in self._with_bundle(src) for i in self._file_ids(md)])
             os.remove(src)
             self._drop_sidecars(src)
+            if os.path.isdir(self._bundle(src)):
+                shutil.rmtree(self._bundle(src))
             gone = self._drop_attachments(files)
         return {'purged': trashed, 'attachments': gone}
 
@@ -3067,10 +3231,12 @@ class Store:
         with self._lock:
             files = self._trash_files()
             orphans = self._orphaned_by(files)
-            self._mark_ids([i for path in files for i in self._file_ids(path)])
+            self._mark_ids(self._trashed_ids())
             for path in files:
                 os.remove(path)
                 self._drop_sidecars(path)
+                if os.path.isdir(self._bundle(path)):
+                    shutil.rmtree(self._bundle(path))
             gone = self._drop_attachments(orphans)
             removed = self._attachments_trash()
             if os.path.isdir(removed):
