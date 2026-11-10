@@ -136,6 +136,36 @@ class ProjectNoteTest(TicketingBase):
         self.assertIn('\n# Web Shop\n', text)
         self.assertIn('What we sell online.', text)
 
+    def test_renaming_a_project_renames_its_folder_and_what_links_it(self):
+        story = self.s.create('story', 'Pagar', {'project': 'ECD'})
+        task = self.s.create('task', 'Revisar', {'project': 'ECD'})
+        write(self.root, 'Acme Web/Docs/Arquitectura.md', '# Arquitectura\n')
+        self.s.update(task['key'], {'docs': ['Acme Web/Docs/Arquitectura.md']})
+        out = self.s.update(self.ecd['key'], {'subject': 'R&D: Lab'})
+        self.assertEqual(out['path'], 'R&D Lab/00 R&D Lab.md')  # a name with & is a name; ':' cannot be in one
+        self.assertEqual(out['title'], 'R&D Lab')
+        self.assertFalse(os.path.exists(os.path.join(self.root, 'Acme Web')))
+        self.assertEqual(self.s.read(story['id'])['path'], f"R&D Lab/Stories/{os.path.basename(story['path'])}")
+        self.assertIn('[[00 R&D Lab]]', read(self.root, task['path']))  # a ticket outside the folder links it by its new name
+        self.assertEqual(self.s.read(task['id'])['fields']['docs'], ['[[R&D Lab/Docs/Arquitectura]]'])
+        self.assertEqual(self.s.read(task['id'])['fields']['project'], 'ECD')
+        self.assertTrue(self.s.check()['ok'])
+
+    def test_a_project_rename_onto_a_taken_or_own_folder_is_refused_and_changes_nothing(self):
+        for name, status in (('Internal Tools', 409), ('Tasks', 400), ('tasks', 400)):
+            with self.subTest(name=name):
+                with self.assertRaises(StoreError) as e:
+                    self.s.update(self.ecd['key'], {'subject': name})
+                self.assertEqual(e.exception.status, status)
+                self.assertEqual(self.s.read(self.ecd['key'])['title'], 'Acme Web')
+                self.assertTrue(self.s.check()['ok'])
+
+    def test_a_project_rename_that_only_changes_case_is_not_a_clash(self):
+        out = self.s.update(self.ecd['key'], {'subject': 'ACME web'})
+        self.assertEqual(out['path'], 'ACME web/00 ACME web.md')
+        self.assertIn('ACME web', os.listdir(self.root))
+        self.assertTrue(self.s.check()['ok'])
+
 
 class RoundTripTest(TicketingBase):
     def test_a_status_change_touches_only_status_log_and_dates(self):

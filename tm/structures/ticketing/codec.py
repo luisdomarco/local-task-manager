@@ -361,11 +361,14 @@ class TicketingCodec:
 
     def renamed(self, it, subject, stamp):
         """The new path of an item whose title changes (its file name is its title): same folder, new name. A plan from
-        before plans had ids is named after its item, not its title: it keeps its name."""
+        before plans had ids is named after its item, not its title: it keeps its name. A project's folder is named
+        after it too (`<Name>/00 <Name>.md`): both change, and what is in the folder goes with it."""
         t = it['type']
         if not self.title_is_name(t) or _title_of(t, it['id']) == 'plan':
             return None
         name = self.file_name(t, it['id'], subject, (it['fields'].get('created_at') or stamp))
+        if SPEC[t]['scope'] == 'note':
+            return f'{self.folder_of(t, None, None, subject)}/{name}'
         return os.path.join(os.path.dirname(it['path']), name)
 
     # ── projects ─────────────────────────────────────────────────────────────

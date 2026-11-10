@@ -4,6 +4,7 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Renaming a project no longer breaks the vault.** A new title renamed the project's note but not its folder, so the vault stopped matching its structure and went read-only. Now the folder is renamed with it (everything in it goes along), links to the project and `docs` links into its folder follow, its page stays open, and a name that is taken is refused without changing anything.
 - **Settings → Themes.** Pick how the app looks in this browser: **Classic** (as it always was) or **Modern** (larger
   text and controls, Radix colours, a look of your own), Light, Dark or System, and for Modern a density
   (Comfortable, Compact) and a **look**: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each option

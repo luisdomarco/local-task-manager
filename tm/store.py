@@ -412,6 +412,15 @@ def file_rev(key):
     return '-'.join(f'{n:x}' for n in key)
 
 
+def _same_file(a, b):
+    """Whether two paths name one file or folder: a rename that only changes the case of a name, on a disk that does
+    not tell cases apart (a Mac's), finds its own source at the destination."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def slugify(text, max_len=50):
     # Accents are stripped (é → e) but letters of other scripts stay: a title in Chinese or Greek keeps a readable file name.
     out = []
@@ -1057,15 +1066,8 @@ class Store:
         self._remember_labels(vals.get('labels'))
         rel, text = codec.new_file('project', name, vals, body, r, None, stamp)
         top = os.path.dirname(rel)
-        # A top folder of the structure's own (Tasks/, Docs/, or where the tickets in no project live: Initiatives/…) is
-        # never a project's: refused whether it is there yet or not, in any case (a Mac's disk does not tell them apart).
-        own = {*self.structure.docs_not_projects, self.structure.docs_folder}
-        if top.casefold() in {f.casefold() for f in own}:
-            raise StoreError(400, f'"{top}" is one of the vault\'s own folders (the tickets in no project and the app\'s '
-                                  'own types are kept in them): give the project another name')
+        self._check_project_folder(top)
         folder = self.abs(top)
-        if os.path.lexists(folder):
-            raise StoreError(409, f'already exists: {os.path.dirname(rel)}')
         text = fm.patch(text, {'project_key': key, 'project_kind': kind})
         # The settings its kind has no use for are not written, not even the template's placeholders: once made, they
         # could not be edited (a simple project's repo, execution, support due days).
@@ -1075,6 +1077,18 @@ class Store:
             os.makedirs(os.path.join(folder, sub), exist_ok=True)
         atomic_write(self.abs(rel), text, exclusive=True)
         return self.read(rel)
+
+    def _check_project_folder(self, top, was=None):
+        """A project's folder may be named `top`: not a top folder of the structure's own (Tasks/, Docs/, or where the
+        tickets in no project live: Initiatives/…) — refused whether it is there yet or not, in any case (a Mac's disk
+        does not tell them apart) — and not a folder already there, unless it is `was` itself (a rename that only
+        changes its case)."""
+        own = {*self.structure.docs_not_projects, self.structure.docs_folder}
+        if top.casefold() in {f.casefold() for f in own}:
+            raise StoreError(400, f'"{top}" is one of the vault\'s own folders (the tickets in no project and the app\'s '
+                                  'own types are kept in them): give the project another name')
+        if os.path.lexists(self.abs(top)) and not (was and _same_file(self.abs(was), self.abs(top))):
+            raise StoreError(409, f'already exists: {top}')
 
     def _convert_coded(self, key, new_type, values):
         """An inbox item becomes a ticket: a new file from the type's template (title, body, links and labels
@@ -1278,17 +1292,32 @@ class Store:
     def _rename_coded(self, it, subject, stamp):
         """The title is the file name: rename the file and rewrite every `[[old]]` in the vault to `[[new]]`. Each
         file touched is copied first to .task-manager/backup/<stamp>-rename/; the edits are planned before any is
-        written, and the rename comes last. → the item's key (its path, for one without an id)."""
+        written, and the rename comes last. A project's folder is named after it as well: it is renamed with its note,
+        and the `docs` that link something in it follow. → the item's key (its path, for one without an id)."""
         codec = self.structure.codec
         new_rel = codec.renamed(it, subject, stamp)
         if not new_rel or new_rel == it['path']:
             return it['key']
+        old_dir, new_dir = os.path.dirname(it['path']), os.path.dirname(new_rel)
         src, dst = self.abs(it['path']), self.abs(new_rel)
-        if os.path.lexists(dst):
+        if old_dir != new_dir:
+            self._check_project_folder(new_dir, was=old_dir)
+        elif os.path.lexists(dst) and not _same_file(src, dst):
             raise StoreError(409, f'another file already has that name: {new_rel}')
         old_stem, new_stem = [os.path.splitext(os.path.basename(p))[0] for p in (it['path'], new_rel)]
         self._relink(old_stem, new_stem, stamp, also=[src])
-        os.rename(src, dst)
+        if old_dir == new_dir:
+            os.rename(src, dst)
+            return it['id'] or new_rel
+        # The note first, inside its folder; then the folder. A folder that cannot move puts the note's name back.
+        inside = os.path.join(os.path.dirname(src), os.path.basename(dst))
+        os.rename(src, inside)
+        try:
+            os.rename(self.abs(old_dir), self.abs(new_dir))
+        except OSError:
+            os.rename(inside, src)
+            raise
+        self._relink_docs_folder(old_dir, new_dir)
         return it['id'] or new_rel
 
     def _relink(self, old_stem, new_stem, stamp, also=()):
@@ -2561,12 +2590,18 @@ class Store:
     def _relink_docs_folder(self, old, new):
         """A folder moved or renamed: the items that link it (or a folder in it) in their `docs` follow it, each file
         copied first to .task-manager/backup/<stamp>-rename/ as _relink does. Not on a vault that does not match its
-        structure (its items are read-only): there the link shows as not found until it is fixed."""
+        structure (its items are read-only): there the link shows as not found until it is fixed. A link is a path
+        (`Docs/Guide.md`) or, in Projects, a wikilink with its folders (`[[Acme Web/Docs/Guide]]`)."""
         if not getattr(_writing, 'matched', True):
             return 0
-        old_p, new_p = f'{old}/', f'{new}/'
-        hits = [(it, [new_p + d[len(old_p):] if d.startswith(old_p) else d for d in it['fields'].get('docs') or []])
-                for it in self.items() if any(isinstance(d, str) and d.startswith(old_p) for d in it['fields'].get('docs') or [])]
+
+        def moved(d):
+            for pre in ('', '[['):
+                if isinstance(d, str) and d.startswith(f'{pre}{old}/'):
+                    return f'{pre}{new}/{d[len(pre) + len(old) + 1:]}'
+            return d
+        hits = [(it, [moved(d) for d in docs]) for it in self.items()
+                for docs in [it['fields'].get('docs') or []] if any(moved(d) != d for d in docs)]
         if not hits:
             return 0
         stamp = now_stamp()

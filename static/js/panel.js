@@ -1338,7 +1338,8 @@ function keepFocus(root, render) {
 // `onTitle(name)`: what the item shown is called, on every render, and '' once it is gone (the browser tab's title).
 function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle = () => {} }) {
   let current = null;   // key of the open item
-  let bodyRev = null;   // version of the description this editor started from (item.body_rev); a save sends it back
+  let currentId = null; // and its id: a project's key is its path, which a new title changes (the server renames it)
+  let bodyRev = null;  // version of the description this editor started from (item.body_rev); a save sends it back
   let listRev = null;   // the version the last list reload reported; an outside edit is a change in THIS, not a gap between the two
   let savingBody = false; // true while our own save is in flight, so its reload is not mistaken for an outside edit
   const ownRevs = new Set(); // every body_rev our saves produced: a late reload reporting one of them is not an outside edit
@@ -1391,6 +1392,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         const full = await api.item(key);
         if (full.key !== current) forget();
         current = full.key;
+        currentId = full.id || null;
         bodyRev = full.body_rev ?? null;
         ownRevs.clear();
         listRev = state.all.find((i) => i.key === full.key)?.body_rev ?? bodyRev;
@@ -1407,16 +1409,17 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
       for (const b of blocks) ok = (await b.flush()) && ok;
       return ok;
     },
-    reset() { current = null; forget(); blocks.forEach((b) => b.clearDraft()); onTitle(''); },
+    reset() { current = null; currentId = null; forget(); blocks.forEach((b) => b.clearDraft()); onTitle(''); },
     currentKey: () => current,
     render() { if (current) keepFocus(host(), doRender); },
   };
   editors.add(ed);
 
   function doRender() {
-    const item = state.all.find((i) => i.key === current) || state.byId.get(current);
+    const item = state.all.find((i) => i.key === current) || state.byId.get(current) || (currentId && state.byId.get(currentId));
     if (!item) { current = null; onTitle(''); onGone(); return; }
     current = item.key;
+    currentId = item.id || null;
     onTitle(itemName(item));
     const f = item.fields;
     body.configure(item.type === 'activity'
