@@ -14,7 +14,7 @@ import { pref, setPref } from '../prefs.js';
 import { TYPE_DEFS } from '../rules.js';
 import { confirmLog, discardLog, logWork, state, unlogWork, updateLog } from '../state.js';
 import { loadDismissed, saveDismissed, suggestLog } from '../suggestions.js';
-import { h, icon, pageCount, pageEmpty, pageHead, rowAction } from '../ui.js';
+import { countOf, foldHead, h, icon, linkButton, pageCount, pageEmpty, pageHead, rowAction, seg } from '../ui.js';
 import { closePopover, popover, viewBar } from '../viewbar.js';
 import { columnOn, fresh, matches } from '../viewmodel.js';
 import { LOG_GROUPS, LOG_PROPS, groupName, groupSummary, logFields, logGroupLabel, logGroups } from '../worklogview.js';
@@ -82,9 +82,6 @@ export function mount(root) {
   const ctx = () => ({ kinds: state.config.work_kinds, typeOf: (id) => itemOf(id)?.type, typeName: (t) => TYPE_DEFS[t]?.plural || t });
   const fields = () => logFields(ctx());
   let pool = []; // the rows in the range that match the search: what Filter counts over
-  const seg = (pairs, current, pick, aria) => h('div', { class: 'seg', role: 'group', 'aria-label': aria }, ...pairs.map(([k, l]) => h('button', {
-    type: 'button', class: `btn small ${current === k ? 'active' : ''}`, 'aria-pressed': String(current === k), onclick: () => pick(k),
-  }, l)));
   const vb = viewBar({
     view, save, fields, ctx, items: () => pool,
     groups: LOG_GROUPS.map(([k]) => k), groupLabel: logGroupLabel,
@@ -93,7 +90,7 @@ export function mount(root) {
     // Display: suggestions on or off, and the dismissed ones back.
     displayRows: () => [
       h('div', { class: 'vb-row' }, h('span', {}, 'Suggestions'),
-        seg([[false, 'Hide'], [true, 'Show']], view.suggestions !== false, (on) => { change({ suggestions: on }); closePopover(); }, 'Suggestions')),
+        seg([[false, 'Hide'], [true, 'Show']], view.suggestions !== false, (on) => { change({ suggestions: on }); closePopover(); }, { aria: 'Suggestions' })),
       dismissed.size ? h('div', { class: 'vb-row' }, h('span', { class: 'muted' }, `${dismissed.size} dismissed`),
         h('button', { type: 'button', class: 'btn small ghost', onclick: () => { dismissed.clear(); saveDismissed(dismissed); closePopover(); api.update(); } }, 'Restore')) : null,
       h('div', { class: 'menu-sep' }),
@@ -114,7 +111,7 @@ export function mount(root) {
       return h('span', { class: 'gone', title: 'This item was deleted; the time stays in the log' },
         h('span', { class: 'mono' }, id), ' ', title || '', ' ', h('span', { class: 'chip warn' }, 'deleted'));
     }
-    return h('button', { class: 'link', ...opener(item, (it, e) => { e.stopPropagation(); openItem(it); }) }, h('span', { class: 'mono' }, refOf(item)), ' ', item.title); // a live item shows its current title
+    return linkButton([h('span', { class: 'mono' }, refOf(item)), ' ', item.title], null, { attrs: opener(item, (it, e) => { e.stopPropagation(); openItem(it); }) }); // a live item shows its current title
   };
   const kindChip = (k) => h('span', { class: `chip kind k-${String(k).toLowerCase()}` }, k);
   // A chip before the item's link, in one line that cuts the link's title short (…) rather than hiding it.
@@ -195,8 +192,7 @@ export function mount(root) {
           : [h('strong', {}, groupName(view.groupBy, key))];
     const tentative = view.groupBy === 'day' && rows.some((r) => !r.suggested && isTentative(r));
     return h('tr', { class: 'group-head', 'aria-expanded': String(!folded) }, h('td', { colspan: cols.length }, h('div', { class: 'group-line' },
-      h('button', { class: 'group-toggle', type: 'button', 'aria-expanded': String(!folded), onclick: toggle },
-        icon(folded ? 'right' : 'down', 14), ...name, h('span', { class: 'group-count' }, String(rows.length))),
+      foldHead({ open: !folded, class: 'group-toggle', title: [...name, countOf(rows.length, { plain: true, cls: 'group-count' })], what: 'this group', onToggle: toggle }),
       tentative ? h('span', { class: 'day-actions' },
         h('button', { class: 'btn small ghost', onclick: () => confirmLog(key).catch(() => {}) }, icon('check', 13), 'Confirm day'),
         h('button', { class: 'btn small ghost', onclick: () => discardLog(key).catch(() => {}) }, icon('x', 13), 'Discard proposals')) : null,

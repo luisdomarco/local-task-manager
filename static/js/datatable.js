@@ -9,7 +9,7 @@ import { pref, setPref } from './prefs.js';
 import { planControl, planKey, planValues } from './itemform.js';
 import { noMonth, progressOf, setStatus, state, updateItem } from './state.js';
 import { itemHref, opener, wantsNewTab } from './links.js';
-import { cssKey, h, icon, labelChip, select, typeIcon } from './ui.js';
+import { cssKey, foldHead, h, icon, labelChip, select, typeIcon } from './ui.js';
 import { planText, sortColumn } from './viewmodel.js';
 
 export { pageHref } from './links.js'; // the types with a page (rules.js hasPage); everything else opens as a card modal
@@ -66,10 +66,11 @@ const pageAt = new Map(); // `at` → { index, total }
  *   at       which table it is, for its page (defaults to key; an item's tables pass their item too)
  *   size     the size when none is remembered
  *   onChange re-renders the table after a page or size change
- * The page goes back to the first when the number of rows changes (a filter, a search). No bar while
- * everything fits in one page.
+ *   always   a main list (LIST_PAGE): its bar shows even when every row fits in one page (1–18 of 18, the size to
+ *            pick), so every list has it in the same place; a table inside an item has none until it needs a second page
+ * The page goes back to the first when the number of rows changes (a filter, a search). No bar with no rows.
  */
-export function paged({ key, at = key, rows, size: fallback, onChange }) {
+export function paged({ key, at = key, rows, size: fallback, onChange, always = false }) {
   const saved = pref(`page.${key}`);
   const size = PAGE_SIZES.includes(saved) ? saved : fallback;
   const total = rows.length;
@@ -79,7 +80,7 @@ export function paged({ key, at = key, rows, size: fallback, onChange }) {
   pageAt.set(at, { index, total });
   const from = index * size;
   const go = (i) => { pageAt.set(at, { index: i, total }); onChange(); };
-  const pager = pages > 1 ? h('div', { class: 'pager', role: 'navigation', 'aria-label': 'Pages' },
+  const pager = pages > 1 || (always && total > 0) ? h('div', { class: 'pager', role: 'navigation', 'aria-label': 'Pages' },
     h('span', { class: 'muted small pager-range' }, `${from + 1}–${Math.min(from + size, total)} of ${total}`),
     h('button', { class: 'btn icon', type: 'button', title: 'Previous page', 'aria-label': 'Previous page', 'data-pg': 'prev', disabled: index === 0, onclick: () => go(index - 1) }, icon('left', 15)),
     h('span', { class: 'small pager-page' }, `${index + 1} / ${pages}`),
@@ -200,9 +201,9 @@ function groupedRows(groups, span, group, row, page) {
     const here = folded || !members.length ? start >= page.from && (start < end || end >= total) : shown.length > 0;
     if (!here) return [];
     const head = h('tr', { class: 'group-head', 'aria-expanded': String(!folded) },
-      h('td', { colspan: span }, h('div', { class: 'group-line' }, h('button', {
-        class: 'group-toggle', type: 'button', 'aria-expanded': String(!folded), onclick: () => group.onToggle(key),
-      }, icon(folded ? 'right' : 'down', 14), group.header(key, members)), group.action ? group.action(key) : null)));
+      h('td', { colspan: span }, h('div', { class: 'group-line' }, foldHead({
+        open: !folded, class: 'group-toggle', title: group.header(key, members), what: 'this group', onToggle: () => group.onToggle(key),
+      }), group.action ? group.action(key) : null)));
     return [head, ...shown.map(row)];
   });
 }

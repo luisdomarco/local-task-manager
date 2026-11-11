@@ -1511,7 +1511,22 @@ class Store:
             comments = list(it['fields'].get('comments') or [])
             if not 0 <= index < len(comments):
                 raise StoreError(404, 'comment not found')
-            comments.pop(index)
+            removed = comments.pop(index)
+            # What went, for the page's Undo (restore_comment puts this same comment back)
+            return {**self.update(it['key'], {'comments': comments}), 'removed': removed}
+
+    @writes
+    def restore_comment(self, key, index, comment):
+        """Put back a comment delete_comment took off (its Undo): the same comment — its `at`, its text, `edited` —
+        at its place, or last when the list has shortened meanwhile. update() keeps only a comment's own keys."""
+        if not isinstance(comment, (dict, str)):
+            raise StoreError(400, 'a comment needs text')
+        with self._lock:
+            it = self.find(key)
+            if 'comments' not in self.structure.allowed_fields(it['type']):
+                raise StoreError(400, f"a {it['type']} has no comments")
+            comments = list(it['fields'].get('comments') or [])
+            comments.insert(min(max(int(index), 0), len(comments)), comment)
             return self.update(it['key'], {'comments': comments})
 
     @writes
@@ -4213,6 +4228,26 @@ class Store:
             entries = list(fields.get('entries') or [])
             if not 0 <= index < len(entries):
                 raise StoreError(404, 'entry not found')
-            entries.pop(index)
+            removed = entries.pop(index)
             self._write_day(date, path, entries)
-        return {'ok': True}
+        return {'ok': True, 'removed': removed}  # what went, for the page's Undo (restore_log)
+
+    LOG_KEYS = ('at', 'id', 'title', 'kind', 'time', 'note', 'status', 'source')
+
+    @writes
+    def restore_log(self, date, index, entry):
+        """Put back a work-log entry unlog_work took off (its Undo): the same entry at its place in its day, or last
+        when the day has shortened meanwhile (and the day's file again, if it went with it)."""
+        if not DATE_RE.match(str(date or '')):
+            raise StoreError(400, 'date must be YYYY-MM-DD')
+        if not isinstance(entry, dict) or not entry.get('id') or not entry.get('kind'):
+            raise StoreError(400, 'not a work log entry')
+        entry = {k: entry[k] for k in self.LOG_KEYS if entry.get(k) not in (None, '')}
+        entry['time'] = normalize_time(entry.get('time'))
+        with self._lock:
+            _, days = self.scan()
+            entries = list(days[date][1].get('entries') or []) if date in days else []
+            index = min(max(int(index), 0), len(entries))
+            entries.insert(index, entry)
+            self._write_day(date, self._day_path(date, days), entries)
+        return {**entry, 'date': date, 'index': index}

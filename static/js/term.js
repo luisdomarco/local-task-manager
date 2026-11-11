@@ -14,7 +14,7 @@ import { wireResizer } from './resizer.js';
 import { itemName, itemPicker } from './itempicker.js';
 import { claudeAssociate, claudeChatOpen, claudeTermOpen, onChange, state, toast } from './state.js';
 import { setAlertTitle } from './tabtitle.js';
-import { closeMenu, dropdown, h, icon, typeIcon } from './ui.js';
+import { closeMenu, dropdown, h, icon, removeButton, typeIcon } from './ui.js';
 import { vaultId } from './vault.js';
 import { layeredCss } from './layeredcss.js';
 import { refOf } from './shownid.js';
@@ -244,7 +244,7 @@ function addRow(t, before = null) {
     onclick: () => activate(t.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(t.id); } } },
   h('span', { class: 'td-dot' }),
   h('span', { class: 'td-rowtext' }, h('span', { class: 'td-label' }, t.label), h('span', { class: 'td-sub' })),
-  h('button', { class: 'td-x', title: 'Close (ends the process)', onclick: (e) => { e.stopPropagation(); closeTab(t.id); } }, icon('x', 12)));
+  removeButton('Close (ends the process)', (e) => { e.stopPropagation(); closeTab(t.id); }, { cls: 'td-x' }));
   if (before) before.replaceWith(t.row);
   else listEl().prepend(t.row); // newest on top
   paintRow(t);

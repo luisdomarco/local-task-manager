@@ -4,6 +4,60 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Routines: everything scheduled, of every agent, in one place.** A **Routines** row in the Agents sidebar (and a tab beside Home and Inbox) lists every agent's schedules, the next to fire first and the paused ones last, with a search; each keeps Run now, Edit…, Go to its agent, Pause / Resume and Delete.
+
+- **Closed items shown can be hidden again, and every list has its pager.** After *Show closed* under a list, the line reads *4 closed shown · Hide closed* (before, nothing took you back but Display). The pager (*1–18 of 18*, pages, Rows per page) shows under every main list — Tasks, Initiatives…, the Agents Inbox, Labels, Trash, Claude history — even when all rows fit on one page.
+
+- **Archive a run in the Agents Inbox.** ⋯ → *Archive* on a run that ended takes it out of the Inbox and the Home (it is marked read; Undo in the toast) and keeps it on its agent's page, marked *Archived*; ⋯ → *Unarchive* brings it back, and Display → *Archived runs* shows them all. `POST /api/agents/runs/archive` (`ids`, `archived`), refused for a run that is working or waiting for you.
+
+- **The Agents Inbox's board folds and keeps its width, as every board.** Its columns shared the page's width, so folding the others left one stretched across the page, and only an empty column could fold. It is now the app's board: 272px columns, a fold button on each head, the strip opens it again, columns still move by their head.
+
+- **A goal's description looks like every other description.** Its Overview drew it as a plain text field; it is now the same box as an initiative's or a task's (Markdown, View / Both, copy and full screen, *See more*), still kept in the goal's `description:`. The *Projects* group under it lost the missing room above it: a goal's groups are spaced as any item's.
+
+- **A Markdown editor in View shows only the preview.** In an editor with the source coloured (an item's description), View left the coloured source drawn over the preview.
+
+- **Phase A of the design-system audit** (`plans/design-system-audit.md`):
+  - **The Docs page** shows a doc's properties one per row, quiet, as an item's (it was a framed card of fields), and
+    *Linked from items* / *Linked from* as the side panel's rows: an item's id reads `STY-31` (it was a bare `31`).
+  - **An empty Canvas** (an item's tab, the Canvas page with nothing open, Docs with nothing open) says so in one line,
+    with *Create canvas* / *New canvas* as a secondary button under it, instead of a block of paragraphs.
+  - **AI Agents**: *Work on it with Claude* and *Add existing session* are each as wide as their text (they split the
+    row in halves, which cut the first one's label on a narrow panel).
+  - **Delete is one click** (the item's ⋯): it goes to the trash with *Undo* in the toast; it asked twice. Deleting a
+    **comment** or a **work-log entry** now has *Undo* too, which puts back the same one at its place (its time kept).
+  - **The tabs' + menu** shows each tab's count as the grey pill, not as a keyboard shortcut.
+
+- **A labels or people field counts what it hides again.** Its *+N* read *+-1* with one label: each chip's × was
+  counted as a chip, and it took a chip's height.
+- **Menus, popovers and pickers close the same way.** Esc closes the one on top and puts you back on its button, a
+  click outside closes it, and opening one closes the one before — the item picker (*Change parent*, *Move to another
+  item…*) and *Add existing session* used to leave an open menu behind. A view bar popover with no room under its
+  button opens above it instead of covering it.
+- **One hover, one ×, one small title.** A hovered row tints the same in every list (search, Work log, a tab's rows,
+  a canvas's items); every × that removes or closes something — a pinned item's, a terminal's, a filter's — is the
+  same 22px square with the same hover; and the small grey titles over a block (Settings, Statuses, an item's
+  properties, an agent's Schedule) share one size, Schedule's now as small as the rest. A tab with nothing to count
+  shows no empty badge.
+- **Cancel looks the same everywhere, and sits before the button it cancels.** It was outlined in one place, plain in
+  another and a ghost in a third, sometimes after *Save* or *Remove*: now it is always a ghost button left of the
+  action (dialogs, a comment's or a link's edit, Time, Labels, Trash, Settings). *Show 3 closed* under a project's
+  groups is a grey link, as *Show* under Today.
+
+- **Empty and loading lines look the same everywhere.** *No activity yet*, *No runs yet*, *Loading…*, *Reading…* and
+  the rest are one grey line of the same size in every panel, tab and page (some were larger, some smaller, one a
+  tinted box), and a screen reader announces what is loading.
+
+- **Every dialog opens and closes the same way.** Esc, the ✕ and a click outside close any of them, Tab stays inside,
+  and the focus goes back to where you were — before, *Capture to Inbox* had no ✕, no focus trap and left the focus
+  nowhere, and *Open in Terminal* let Tab walk out of it. A drag that starts in a field and ends outside no longer
+  closes a dialog by mistake.
+
+- **One fold head everywhere** (design-system audit, phase B: `foldHead` in `ui.js`). Every header that folds what is
+  under it — Overview's work groups, a list's and the work log's groups, Docs', Canvas' and Agents' sections, the
+  Graph panel's sections, the shapes families, Settings' *Versions* — is now the same button: one chevron, the
+  accent on hover, a focus ring, a tooltip saying what a click does, the count as a pill. The Graph panel's and the
+  shapes panel's heads hover like the rest; a shapes family shows its count as a pill while searching.
+
 - **The view bar never runs past its edge.** A list's bar drops *Order:* / *Group:* and List | Board's names at
   744px (was 640) and Filter's and Display's at 580 (was 560): between 640 and 737px its last buttons ran past the
   bar, as at a 1000px window with the sidebar open. The steps are measured with each menu's longest pick.

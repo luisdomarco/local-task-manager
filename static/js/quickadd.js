@@ -10,7 +10,7 @@
 import { addDays, isoWeek, monthLabel, nextDow, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './rules.js';
 import { createItem, state, toast } from './state.js';
-import { h, icon, labelChip, priorityChip } from './ui.js';
+import { h, icon, labelChip, openDialog, priorityChip } from './ui.js';
 import { withMic } from './dictation.js';
 import { refOf } from './shownid.js';
 
@@ -109,20 +109,14 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
 
 /** Quick capture: lands as an inbox item unless a /task, /note… token says otherwise. */
 export function openQuickModal(defaults = { type: 'inbox' }) {
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const close = () => { backdrop.hidden = true; modal.replaceChildren(); };
-  modal.className = '';
-  modal.setAttribute('aria-label', 'Capture to Inbox');
-  modal.replaceChildren(
-    h('h2', {}, 'Capture to Inbox'),
-    quickAddBar(defaults, {
-      autofocus: true, onCreated: close,
-      placeholder: defaults.type === 'inbox' ? 'Capture anything…  (/task, /note… to file it straight away)' : undefined,
-    }),
-    h('p', { class: 'hint' }, 'Enter to create · Esc to close · leave it unplanned and unrelated to triage it later from Inbox'),
-  );
-  backdrop.hidden = false;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  let close = () => {};
+  const bar = quickAddBar(defaults, {
+    onCreated: () => close(true),
+    placeholder: defaults.type === 'inbox' ? 'Capture anything…  (/task, /note… to file it straight away)' : undefined,
+  });
+  ({ close } = openDialog({
+    title: 'Capture to Inbox', ico: 'inbox', body: [bar,
+      h('p', { class: 'hint' }, 'Enter to create · Esc to close · leave it unplanned and unrelated to triage it later from Inbox')],
+    focus: () => bar.querySelector('input, textarea')?.focus(),
+  }));
 }

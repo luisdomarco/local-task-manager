@@ -6,11 +6,10 @@ import { api } from './api.js';
 import { agoLabel } from './dates.js';
 import { DETAIL_PAGE, LIST_PAGE, fixedColumns, paged } from './datatable.js';
 import { saveSort, savedSort } from './prefs.js';
-import { trapFocus } from './create.js';
 import { byType, claudeAdd, claudeForget, claudeLaunch, claudeMain, state, toast } from './state.js';
 import { itemPicker } from './itempicker.js';
 import { moveClaudeSession, openClaudeHere, resumeClaudeHere, termIsLive } from './term.js';
-import { dropdown, h, icon, select, sideSized, tabPanels } from './ui.js';
+import { closeFloating, dropdown, emptyLine, floating, floatingFrom, formActions, h, icon, openDialog, propRow, select, tabPanels } from './ui.js';
 import { withMic } from './dictation.js';
 import { launchModelOptions } from './chat-model.js';
 import { refOf } from './shownid.js';
@@ -151,7 +150,7 @@ function moreMenu(anchor, { key, s, index, onForget }) {
  * open card re-renders by itself; `onForget` (after either) is for the rest. */
 export function sessionList(entries, { key = null, onForget = null, onResume = null, empty = 'No conversations yet.' } = {}) {
   const list = (entries || []).map((s, index) => ({ s, index }));
-  if (!list.length) return h('p', { class: 'muted small cs-empty' }, empty);
+  if (!list.length) return emptyLine(empty, { cls: 'cs-empty' });
   const where = key === null ? 'global' : 'item';
   const cols = SESSION_COLS[where];
   // Newest activity first: the last updated on top (not saved ones at the bottom), whatever started first.
@@ -229,7 +228,7 @@ export function sessionList(entries, { key = null, onForget = null, onResume = n
       return (x < y ? -1 : x > y ? 1 : 0) * sort.dir || (a.s.at < b.s.at ? 1 : -1);
     });
     // On an item: a detail table (5 a page); the global history: a main one (20).
-    const page = paged({ key: `history.${where}`, at: `history.${where}.${key ?? ''}`, rows: sorted, size: where === 'item' ? DETAIL_PAGE : LIST_PAGE, onChange: render });
+    const page = paged({ key: `history.${where}`, at: `history.${where}.${key ?? ''}`, rows: sorted, size: where === 'item' ? DETAIL_PAGE : LIST_PAGE, always: where !== 'item', onChange: render });
     const { rows } = page;
     const fixed = fixedColumns([...cols, { key: where === 'item' ? 'cs_actions_compact' : 'cs_actions' }]);
     box.replaceChildren(h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed cs-grid', style: fixed.style, 'aria-label': 'Claude sessions' },
@@ -259,20 +258,11 @@ export function sessionList(entries, { key = null, onForget = null, onResume = n
 // then its conversations, searchable by title, folder or origin; or a session id pasted in. The server reads its folder and
 // title from its transcript (server.py add_existing_claude).
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-let picking = null;
-
-function closeSessionPicker() {
-  if (!picking) return;
-  picking.el.remove();
-  document.removeEventListener('mousedown', picking.outside, true);
-  picking.anchor.setAttribute('aria-expanded', 'false');
-  picking = null;
-}
+const closeSessionPicker = () => closeFloating('panel');
 
 /** Open under (or above) `anchor`, for the item `key`; adding one closes it (the card re-renders with it listed). */
 export function addSessionPicker(anchor, key) {
-  if (picking?.anchor === anchor) { closeSessionPicker(); return; }
-  closeSessionPicker();
+  if (floatingFrom(anchor, 'panel')) { closeSessionPicker(); return; }
   const input = h('input', { type: 'search', class: 'ip-search', autocomplete: 'off', spellcheck: 'false' });
   const list = h('div', { class: 'ip-list', role: 'listbox' });
   // The folder: the app's select button; it turns the list below into the folders, searched with the same box (a menu
@@ -355,11 +345,6 @@ export function addSessionPicker(anchor, key) {
     e.stopPropagation();
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mark(at + (e.key === 'ArrowDown' ? 1 : -1)); }
     else if (e.key === 'Enter' && e.target !== folderBtn && rows[at]?.act) { e.preventDefault(); rows[at].act(); }
-    else if (e.key === 'Escape') { // the folders back to the sessions, else closed
-      e.preventDefault();
-      if (mode === 'folders') setMode('sessions');
-      else { closeSessionPicker(); anchor.focus(); }
-    }
   });
   const load = (path) => {
     found = null;
@@ -373,15 +358,8 @@ export function addSessionPicker(anchor, key) {
   setMode('sessions');
   load('');
 
-  document.body.append(sideSized(el, anchor));
-  const r = anchor.getBoundingClientRect();
-  el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - el.offsetWidth - 8))}px`;
-  if (r.bottom + 6 + 360 > innerHeight - 8) el.style.bottom = `${innerHeight - r.top + 6}px`;
-  else el.style.top = `${r.bottom + 6}px`;
-  const outside = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) closeSessionPicker(); };
-  document.addEventListener('mousedown', outside, true);
-  anchor.setAttribute('aria-expanded', 'true');
-  picking = { el, anchor, outside };
+  // Esc takes the folders back to the sessions, else closes it.
+  floating(anchor, el, { layer: 'panel', grow: 360, onEsc: () => mode === 'folders' && (setMode('sessions'), true) });
   input.focus();
 }
 
@@ -480,17 +458,16 @@ function requestPane(item, close) {
 
   const nodes = [
     item ? h('p', { class: 'claude-item' }, h('span', { class: 'mono' }, refOf(item) || item.type), ' ', item.title) : null,
-    folderSel ? h('div', { class: 'field claude-folder' }, h('span', {}, 'Folder'), folderSel) : null,
+    folderSel ? propRow('Folder', folderSel, { tag: 'div', cls: 'claude-folder' }) : null,
     where,
     h('div', { class: 'claude-opts' },
-      h('div', { class: 'field' }, h('span', {}, 'Model'), modelSel),
-      h('div', { class: 'field' }, h('span', {}, 'Effort'), effortSel),
-      h('div', { class: 'field claude-cmd' }, h('span', {}, 'Command'), command)),
-    h('div', { class: 'field claude-saved' }, h('span', {}, 'Saved prompt'), pickPrompt),
-    h('label', { class: 'field' }, h('span', {}, item ? 'Extra instruction' : 'Prompt'), withMic(instruction, { place: 'above' })),
-    h('label', { class: 'field' }, h('span', {}, 'What will be sent as the first message'), preview),
-    h('div', { class: 'modal-foot' }, h('span', { class: 'spacer' }),
-      h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), copy, launch, here),
+      propRow('Model', modelSel, { tag: 'div' }),
+      propRow('Effort', effortSel, { tag: 'div' }),
+      propRow('Command', command, { tag: 'div', cls: 'claude-cmd' })),
+    propRow('Saved prompt', pickPrompt, { tag: 'div', cls: 'claude-saved' }),
+    propRow(item ? 'Extra instruction' : 'Prompt', withMic(instruction, { place: 'above' })),
+    propRow('What will be sent as the first message', preview),
+    h('div', { class: 'modal-foot' }, formActions({ onCancel: () => close(), actions: [copy, launch, here] })),
   ].filter(Boolean);
   return { nodes, refresh, focus: () => instruction.focus() };
 }
@@ -500,44 +477,26 @@ export async function openClaudeDialog(itemOrKey) {
   const item = itemOrKey == null ? null
     : typeof itemOrKey === 'object' ? itemOrKey : (state.byId.get(itemOrKey) || state.all.find((i) => i.key === itemOrKey));
   if (itemOrKey != null && !item) return;
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const opener = document.activeElement; // the button that opened it gets the focus back
-  const close = () => {
-    backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-    if (opener && document.contains(opener)) opener.focus();
-  };
   const title = item ? 'Work on it with Claude' : 'Claude terminal';
-  const pane = requestPane(item, close);
-  const head = h('div', { class: 'modal-head' }, h('h2', {}, icon('terminal', 18), title),
-    h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: close }, icon('x', 16)));
-
-  modal.className = 'claude-modal';
-  modal.setAttribute('aria-label', title);
-  if (item) {
-    modal.replaceChildren(head, ...pane.nodes);
-  } else {
+  let close = () => {}; // the dialog's, once open: the request pane closes it when its terminal starts
+  const pane = requestPane(item, () => close());
+  let body = pane.nodes;
+  if (!item) {
     // Two tabs: the request, and the terminals already opened from here (resumable).
     let sessions = [];
     try { sessions = (await api.claudeSessions()).sessions; } catch (e) { toast(e.message, true); }
     const history = h('div', { class: 'claude-history' });
-    const opts = { key: null, onResume: close, empty: 'No terminals opened from here yet — the New request tab starts one.' }; // resuming shows the dock: the dialog goes
+    const opts = { key: null, onResume: () => close(), empty: 'No terminals opened from here yet — the New request tab starts one.' }; // resuming shows the dock: the dialog goes
     const fill = async () => {
       try { sessions = (await api.claudeSessions()).sessions; } catch (e) { toast(e.message, true); }
       history.replaceChildren(sessionList(sessions, { ...opts, onForget: fill }));
     };
     history.replaceChildren(sessionList(sessions, { ...opts, onForget: fill }));
-    modal.replaceChildren(head, ...tabPanels([
+    body = tabPanels([
       { key: 'new', label: 'New request', content: pane.nodes },
       { key: 'history', label: 'History', count: sessions.length, content: history },
-    ], 'new'));
+    ], 'new');
   }
-  backdrop.hidden = false;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
-    if (e.key === 'Tab') trapFocus(modal, e); // Tab stays inside the dialog
-  };
-  pane.focus();
+  ({ close } = openDialog({ title, ico: 'terminal', cls: 'claude-modal', body, focus: () => pane.focus() }));
   await pane.refresh();
 }

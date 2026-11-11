@@ -24,7 +24,7 @@ import { planRow, planSection, planViewOf } from '../planrows.js';
 import { isDone, isEnabled } from '../rules.js';
 import { createItem, state, updateItem, updateMany } from '../state.js';
 import { refOf } from '../shownid.js';
-import { cssKey, dropZone, dropdown, h, icon, priorityChip, statusLabel, typeIcon } from '../ui.js';
+import { countOf, cssKey, dropdown, dropZone, h, icon, priorityChip, seg, statusLabel, typeIcon } from '../ui.js';
 import { viewBar } from '../viewbar.js';
 import { cardShows, closedShown, filterFields, matches } from '../viewmodel.js';
 import { vaultCtx } from './list.js';
@@ -104,7 +104,7 @@ function paintList(box, { goals, byGoal }) {
         action: [g.fields.priority ? priorityChip(g.fields.priority) : null, add, more] }),
       rows(its, g.id));
   });
-  box.replaceChildren(...(goals.length ? sections : [emptyLine()]));
+  box.replaceChildren(...(goals.length ? sections : [noGoalsLine()]));
 }
 
 // ── canvas ───────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ export const goalsProvider = {
   open: (g) => openItemCard(g), // a card over the canvas: close it and go on drawing
 };
 
-const emptyLine = () => h('p', { class: 'muted goals-empty' }, 'No open goals. Add one to put your projects, initiatives, stories and tasks behind it.');
+const noGoalsLine = () => h('p', { class: 'muted goals-empty' }, 'No open goals. Add one to put your projects, initiatives, stories and tasks behind it.');
 
 export function mount(root) {
   const { view, save } = planViewOf('goals', { layout: 'board', closed: 'none', goalsClosed: false });
@@ -134,16 +134,14 @@ export function mount(root) {
   const fields = () => filterFields(types(), vaultCtx());
   const members = () => state.items.filter((i) => types().includes(i.type));
   const change = (patch) => { Object.assign(view, patch); save(); api.update(); };
-  const count = h('span', { class: 'muted view-count' });
+  const count = countOf(null, { plain: true, cls: 'view-count' });
   const body = h('div', { class: 'plan-list goals-list' });
   const vb = viewBar({
     view, save, fields, ctx: vaultCtx, items: members, closable: true, closedDefault: 'none', search: false,
     layout: { current: () => view.layout, pick: (l) => change({ layout: l }),
       options: [['list', 'List', 'list'], ['board', 'Board', 'kanban'], ['canvas', 'Canvas', 'canvas']] },
     // Closed goals: left out unless asked (a goal is closed by hand, its items may still be open).
-    displayRows: () => [h('div', { class: 'vb-row' }, h('span', {}, 'Closed goals'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Closed goals' },
-      ...[[false, 'Hide'], [true, 'Show']].map(([v, l]) => h('button', { type: 'button', class: `btn small ${!!view.goalsClosed === v ? 'active' : ''}`,
-        'aria-pressed': String(!!view.goalsClosed === v), onclick: () => change({ goalsClosed: v }) }, l))))],
+    displayRows: () => [h('div', { class: 'vb-row' }, h('span', {}, 'Closed goals'), seg([[false, 'Hide'], [true, 'Show']], !!view.goalsClosed, (v) => change({ goalsClosed: v }), { aria: 'Closed goals' }))],
     onText: () => {}, onChange: () => api.update(),
   });
   root.replaceChildren(

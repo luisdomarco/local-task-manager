@@ -15,7 +15,7 @@ import { durationLabel, isUnread, RUN_STATUSES, runLabel, runStatus } from '../r
 import { inLabel, nextLabel } from '../schedmodel.js';
 import { toast } from '../state.js';
 import { setAlertTitle } from '../tabtitle.js';
-import { h, icon, pageHead, secondaryButton } from '../ui.js';
+import { emptyLine, h, icon, pageHead, secondaryButton } from '../ui.js';
 
 const TICK = 15000;                   // how often a running run's time is redrawn
 
@@ -35,7 +35,7 @@ const iconBtn = (ico, title, fn) => h('button', { class: 'btn icon', type: 'butt
   onclick: (e) => { e.stopPropagation(); fn(); } }, icon(ico, 14));
 const section = (title, count, body, extra = null) => h('section', { class: 'agents-home-section', 'aria-label': title },
   h('h2', { class: 'agents-section-title' }, title, count ? h('span', { class: 'muted' }, String(count)) : null, extra), body);
-const list = (rows, empty) => (rows.length ? h('ul', { class: 'cs-list' }, rows) : h('p', { class: 'muted small agents-home-empty' }, empty));
+const list = (rows, empty) => (rows.length ? h('ul', { class: 'cs-list' }, rows) : emptyLine(empty, { cls: 'agents-home-empty' }));
 
 /**
  * The Home page. `dirs` the agent folders (agentspane.js); `sectionTabs(on)` the section's tabs.

@@ -9,7 +9,7 @@
 //   ▸ Arrows
 //   ▸ BPMN 2.0 Activities
 import { pref, setPref } from '../prefs.js';
-import { h, icon } from '../ui.js';
+import { emptyLine, foldHead, h, icon } from '../ui.js';
 import { CATEGORIES, search } from './shapes/index.js';
 import { thumbSvg } from './shapes/thumb.js';
 
@@ -86,10 +86,10 @@ export function mountShapePanel(el, { onAdd, enabled = () => true }) {
     list.replaceChildren(...(found.length ? found.map((c) => {
       const unfolded = searching || open.has(c.key);
       return h('section', { class: 'shapes-group' },
-        h('button', { type: 'button', class: 'shapes-group-head', 'aria-expanded': String(unfolded), disabled: searching, onclick: () => toggle(c.key) },
-          icon(unfolded ? 'down' : 'right', 12), h('span', {}, c.title), searching ? h('span', { class: 'muted' }, String(c.shapes.length)) : null),
+        foldHead({ open: unfolded, title: c.title, small: true, class: 'shapes-group-head', count: searching ? c.shapes.length : null,
+          attrs: { disabled: searching }, onToggle: () => toggle(c.key) }),
         unfolded ? h('div', { class: 'shapes-grid' }, ...c.shapes.map(tile)) : null);
-    }) : [h('p', { class: 'muted shapes-none' }, `No shape called “${query.trim()}”.`)]));
+    }) : [emptyLine(`No shape called “${query.trim()}”.`, { cls: 'shapes-none' })]));
   }
   paint();
 

@@ -7,7 +7,6 @@
 import { activity, initActivity, onActivity } from './agentactivity.js';
 import { api } from './api.js';
 import { agentEntries, agentHref, agentKey, agentPath, agentPathOfHash, folderCounts, pinnedAgents, runMessage, toggled } from './agentsmodel.js';
-import { trapFocus } from './create.js';
 import { buildTree, findNode } from './filetree.js';
 import { folderButton } from './folderpick.js';
 import { pref, setPref } from './prefs.js';
@@ -15,7 +14,7 @@ import { onSidebarMode, sidebarMode } from './sidebar.js';
 import { onChange, saveConfig, state, toast } from './state.js';
 import { agentMarks, inboxCount, RUN_STATUSES } from './runmodel.js';
 import { treePane } from './treepane.js';
-import { dropdown, h, icon } from './ui.js';
+import { countOf, dropdown, foldHead, formActions, h, icon, openDialog, propRow } from './ui.js';
 
 let dirs = null;      // the latest list: [{ id, name, path, exists, commands }]
 let tree = null;      // buildTree of it
@@ -94,10 +93,9 @@ function head(d, count) {
   const isFolded = folded().has(d.id);
   const gone = !d.exists;
   return h('div', { class: `docs-head agents-head ${gone ? 'dim' : ''}`, 'data-agents': d.id },
-    h('button', { class: 'docs-title', 'aria-expanded': String(!isFolded), title: gone ? `${d.path}\nThis folder is not there any more` : d.path,
-      onclick: () => { setPref('agents.folded', toggled(pref('agents.folded', []), d.id)); rebuild(); } },
-    icon(isFolded ? 'right' : 'down', 12), h('span', {}, d.name),
-    h('span', { class: 'agents-count' }, gone ? 'not found' : String(count))),
+    foldHead({ open: !isFolded, small: true, class: 'docs-title', tip: gone ? `${d.path}\nThis folder is not there any more` : d.path,
+      title: [h('span', { class: 'fold-title' }, d.name), countOf(gone ? 'not found' : count, { plain: true, cls: 'agents-count' })],
+      onToggle: () => { setPref('agents.folded', toggled(pref('agents.folded', []), d.id)); rebuild(); } }),
     h('button', { class: 'btn icon docs-add', title: `${d.name}: actions`, 'aria-label': `Actions on ${d.name}`, 'aria-haspopup': 'menu',
       onclick: (e) => folderMenu(e.currentTarget, d) }, icon('more', 14)));
 }
@@ -109,7 +107,7 @@ const favsHead = () => h('div', { class: 'agents-favs' }, h('div', { class: 'sid
 let marks = {}; // agentKey → 'needs_you' | 'working' | 'unread' (runmodel.js agentMarks), as the tree was last drawn
 const MARK_TIP = { needs_you: 'A run waits for you', working: 'Running', unread: 'A run ended: not seen yet' };
 
-/** Home and Inbox, above the folders (views/agentshome.js #/runs, views/runs.js #/runs/inbox): the Inbox with how many
+/** Home, Inbox and Routines, above the folders (views/agentshome.js #/runs, views/runs.js #/runs/inbox): the Inbox with how many
  *  runs wait for you or ended unread, and a dot while one runs. */
 function inboxRow() {
   const counts = activity()?.counts || {};
@@ -122,7 +120,8 @@ function inboxRow() {
     link('#/runs/inbox', 'inbox', 'Inbox', at === '#/runs/inbox',
       n ? `${counts.needs_you || 0} waiting for you · ${counts.unread || 0} ended, not seen yet` : 'Every run of your agents',
       counts.running ? h('span', { class: 'td-dot tone-accent', title: `${counts.running} running`, 'aria-label': `${counts.running} running` }) : null,
-      n ? h('span', { class: `agents-inbox-count${counts.needs_you ? ' warn' : ''}` }, String(n)) : null));
+      n ? h('span', { class: `agents-inbox-count${counts.needs_you ? ' warn' : ''}` }, String(n)) : null),
+    link('#/runs/routines', 'clock', 'Routines', at === '#/runs/routines', 'Everything scheduled, of every agent'));
 }
 
 function folderMenu(anchor, d) {
@@ -190,13 +189,7 @@ const pane = treePane({
 
 /** "+ Add folder": a folder's absolute path and the name the sidebar shows for it, added to Settings → Agents. */
 export function addFolderDialog() {
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const opener = document.activeElement;
-  const close = () => {
-    backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-    if (opener && document.contains(opener)) opener.focus();
-  };
+  let close = () => {};
   const path = h('input', { class: 'input', placeholder: '/absolute/path/to/a/repository', 'aria-label': 'Folder', spellcheck: 'false', autocomplete: 'off' });
   const name = h('input', { class: 'input', placeholder: 'Its name in the sidebar (optional)', 'aria-label': 'Name' });
   const add = h('button', { class: 'btn primary', type: 'submit' }, icon('plus', 14), 'Add folder');
@@ -211,29 +204,18 @@ export function addFolderDialog() {
       const names = { ...(state.config.agent_dir_names || {}) };
       if (name.value.trim()) names[p] = name.value.trim();
       await saveConfig({ agent_dirs: [...list, p], agent_dir_names: names });
-      close();
+      close(true);
       sig = '';
       await loadAgents();
       toast(`${name.value.trim() || p.split('/').pop()} added`);
     } catch { add.disabled = false; /* toasted by the state: "not a directory: …" */ }
   } },
   h('div', { class: 'fields prop-rows' },
-    h('label', { class: 'field' }, h('span', {}, 'Folder'),
-      h('span', { class: 'folder-field' }, path, folderButton(path, { prompt: 'Choose a folder whose .claude/commands holds agents' }))),
-    h('label', { class: 'field' }, h('span', {}, 'Name'), name)),
+    propRow('Folder', h('span', { class: 'folder-field' }, path, folderButton(path, { prompt: 'Choose a folder whose .claude/commands holds agents' }))),
+    propRow('Name', name)),
   h('p', { class: 'muted small' }, state.config.can_pick_folder ? 'Its absolute path, typed or chosen. Every command in its ' : 'Its absolute path. Every command in its ', h('code', {}, '.claude/commands'), ' (a link there is followed) is an agent you can run from here, in that folder.'),
-  h('div', { class: 'agents-add-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), add));
-  modal.className = 'agents-modal';
-  modal.setAttribute('aria-label', 'Add an agent folder');
-  modal.replaceChildren(h('div', { class: 'modal-head' }, h('h2', {}, icon('zap', 18), 'Add an agent folder'),
-    h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: close }, icon('x', 16))), form);
-  backdrop.hidden = false;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
-    if (e.key === 'Tab') trapFocus(modal, e);
-  };
-  path.focus();
+  formActions({ onCancel: () => close(), actions: add }));
+  ({ close } = openDialog({ title: 'Add an agent folder', ico: 'zap', cls: 'agents-modal', body: form, focus: path }));
 }
 
 export function initAgents() {

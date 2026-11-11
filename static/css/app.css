@@ -24,6 +24,7 @@
   --destructive: #c81e1e;
   --sidebar: #f7f7f8;
   --sidebar-hover: #ebebee;
+  --row-hover: var(--accent); /* a row of a list in a panel or a page (rowItem, a log entry, a canvas, a search hit); a tree keeps --sidebar-hover */
   --overlay: rgb(9 9 11 / .45);
   --shadow-sm: 0 1px 2px rgb(0 0 0 / .06);
   --shadow-card: 0 1px 1px rgb(0 0 0 / .08), 0 0 0 1px rgb(0 0 0 / .06);
@@ -165,6 +166,18 @@ body { cursor: default; }
 .skip:focus { top: 12px; }
 .link { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--muted-foreground); text-underline-offset: 3px; }
 .link:hover { text-decoration-color: currentColor; }
+/* linkButton({ muted }) (ui.js): grey until hover — a line under a table, Show / Hide closed. `.link-btn` is the same
+   thing under its old name, left for the list's closed line until it moves (views/list.js). */
+:is(.link.muted, .link-btn) { color: var(--muted-foreground); text-decoration-color: currentColor; text-underline-offset: 2px; }
+:is(.link.muted, .link-btn):hover { color: var(--foreground); }
+.link-btn { border: 0; background: none; padding: 0 4px; font: inherit; font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
+/* A small grey uppercase section title — PROPERTIES, VAULTS, WHEN, NOT STARTED: `.section-label` (ui.js sectionLabel),
+   and the titles that wear it by place. Each place keeps only its margins. */
+:is(.section-label, .settings .group > header h3, .item-tabs .fold-groups > .panel-section.prop-group > h4) {
+  font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+/* formActions (ui.js): a form's or a confirm's buttons — lead · spacer · Cancel (ghost) · its actions. */
+.form-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+:is(.modal-foot, .im-foot) > .form-actions { flex: 1; }
 kbd { font: 500 var(--fs-3xs)/1 var(--font); color: var(--muted-foreground); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 3px 5px; }
 
 /* one focus style everywhere: 2px ring with offset, ≥ 3:1 against any surface */
@@ -308,6 +321,7 @@ input[type=number] { padding-right: 6px; }
 .menu-item:focus-visible { outline: none; }
 .menu-item .icon { color: var(--muted-foreground); }
 .menu-item span { flex: 1; }
+.menu-item > .count { flex: none; margin-left: 8px; } /* a menu entry's count (dropdown `count`): the grey pill at the right, as wide as its number */
 .menu-item.danger { color: var(--destructive); }
 .menu-item.danger .icon { color: currentColor; }
 /* greyed, its title still shown on hover (Basecoat's pointer-events: none would hide it) */
@@ -396,7 +410,9 @@ input[type=number] { padding-right: 6px; }
   font-size: var(--fs-2xs); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums;
 }
 .count { margin-left: auto; }
-.count:empty { display: none; }
+.count:empty, .tab-count:empty { display: none; } /* nothing to count: no pill */
+/* The plain count beside a title (countOf plain): its own class says only its size and place. */
+.count-plain { color: var(--muted-foreground); font-weight: 400; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #sidebar nav a.active .count, .tab-btn[aria-selected="true"] .tab-count { color: var(--foreground); }
 h3 .count, .h3 .count { margin-left: 8px; }
 .group h3 .muted { margin-left: 8px; font-weight: 400; }
@@ -437,8 +453,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .side-bottom { gap: 8px !important; }
 .grid tbody tr.group-head, .grid tbody tr.group-head:hover { cursor: default; background: var(--well); }
 .group-head td { height: 34px; padding: 0 8px; border-bottom: 1px solid var(--border); }
-.group-toggle { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 4px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
-.group-toggle:hover { background: var(--accent); }
+.group-toggle { gap: 8px; width: 100%; height: 30px; padding: 0 4px; } /* a table's group head, a foldHead */
 /* A page's own toolbar (Labels, Contacts): its search, then what it has on the right. */
 .list-toolbar { flex-wrap: nowrap; }
 .list-toolbar input[type=search] { flex: 0 1 320px; }
@@ -553,7 +568,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .docs-panel-title { display: flex; align-items: center; gap: 8px; margin: 0 4px 2px; font-size: var(--fs-h4); font-weight: 650; }
 .docs-tree { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
 .docs-main { min-width: 0; padding: 28px 40px 64px; }
-.docs-empty { display: grid; justify-items: center; gap: 6px; margin-top: 12vh; text-align: center; }
+.docs-empty { display: grid; justify-items: center; gap: 12px; margin-top: 12vh; } /* emptyState, and the one button that fills it */
+.docs-empty > .empty { justify-self: stretch; }
 @media (max-width: 760px) {
   .docs-page { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .docs-resizer { display: none; }
@@ -582,10 +598,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .docs-head { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 0 2px 0 4px; }
 .docs-head:first-child { margin-top: 0; }
 .docs-head.dim { opacity: .6; }
-.docs-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px; border: 0; background: none;
-  font-size: var(--fs-xs); font-weight: 600; color: var(--muted-foreground); cursor: pointer; border-radius: var(--radius-sm); } /* as the sidebar's section titles (.side-title) */
-.docs-title span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docs-title:hover { background: var(--sidebar-hover); color: var(--foreground); }
+.docs-title { flex: 1; height: 26px; padding: 0 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted-foreground); } /* a foldHead, as the sidebar's section titles (.side-title) */
+.docs-title:hover { background: var(--sidebar-hover); } /* a sidebar-like tree: the sidebar's hover */
 .docs-add { width: 24px; height: 24px; min-height: 0; color: var(--muted-foreground); }
 .side-explorer-bar { display: flex; gap: 4px; flex: none; }
 .side-explorer-bar .btn.icon { flex: none; color: var(--muted-foreground); }
@@ -631,12 +645,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-props { border-collapse: collapse; margin: 0 0 18px; font-size: var(--fs-sm); }
 .files-props th { text-align: left; padding: 3px 18px 3px 0; color: var(--muted-foreground); font-weight: 500; vertical-align: top; white-space: nowrap; }
 .files-props td { padding: 3px 0; overflow-wrap: anywhere; }
-/* A doc's own properties (views/files.js docProps): a row of fields that save as they change */
-.doc-props { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; margin: 0 0 18px; padding: 12px;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card, transparent); }
-.doc-prop { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.doc-prop-label { font-size: var(--fs-xs); font-weight: 550; color: var(--muted-foreground); } /* as a field's label elsewhere (.field > span) */
-.doc-prop .select-btn { width: 100%; }
+/* A doc's own properties (views/files.js docProps): prop-rows, quiet, as an item's (design.md §Properties) */
+.doc-props { max-width: 560px; margin: 0 0 18px; }
 .files-md { max-width: 860px; }
 .files-source { margin: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well);
   font: var(--fs-sm)/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
@@ -669,10 +679,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-outline ul { list-style: none; margin: 6px 0 0; padding: 0; }
 .files-outline li { padding-left: calc(var(--lvl, 0) * 14px); }
 .files-outline .link { text-align: left; padding: 2px 0; }
-.files-backlinks { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--border); }
-.files-backlinks h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; font-size: var(--fs-sm); color: var(--muted-foreground); }
-.files-backlinks ul { list-style: none; margin: 0; padding: 0; }
-.find-path-sm { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.files-backlinks { max-width: 860px; margin: 0 0 18px; padding-top: 12px; border-top: 1px solid var(--border); } /* a stackGroup: the items over the note, the notes at its foot */
+.files-md + .files-backlinks { margin: 24px 0 0; }
 ::highlight(tm-line) { background-color: color-mix(in srgb, var(--hl-title) 28%, transparent); }
 /* Search in files (views/find.js) */
 .find-input { width: 100%; margin-bottom: 14px; }
@@ -682,7 +690,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .find-file ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .find-line { display: flex; gap: 10px; width: 100%; padding: 3px 8px; border: 0; border-radius: var(--radius-sm); background: none;
   text-align: left; font-size: var(--fs-sm); color: var(--foreground); cursor: pointer; }
-.find-line:hover, .find-line:focus-visible { background: var(--well); }
+.find-line:hover, .find-line:focus-visible { background: var(--row-hover); }
 .find-n { flex: none; min-width: 36px; text-align: right; color: var(--muted-foreground); }
 .find-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .find-text mark { background: color-mix(in srgb, var(--hl-title) 30%, transparent); color: inherit; border-radius: 2px; }
@@ -750,8 +758,6 @@ body.card-drag .pin-empty { display: inline; }
 }
 .pin-open .icon { color: var(--muted-foreground); flex: none; }
 .pin-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pin-x { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-xs); background: none; color: var(--muted-foreground); cursor: pointer; }
-.pin-x:hover { background: var(--accent); color: var(--foreground); }
 .pin-marker { width: 2px; height: 26px; background: var(--primary); border-radius: 1px; flex: none; }
 /* Every view spans the full width (Initiatives is the reference): no per-view max-width. */
 #view { padding: 28px 40px 64px; }
@@ -777,6 +783,8 @@ body.card-drag .pin-empty { display: inline; }
   justify-content: revert; text-wrap: revert; gap: revert;
 }
 /* A page with nothing to show (ui.js pageEmpty): a quiet grey line where its rows go, as a list's empty row — no box. */
+/* emptyLine / loadingLine (ui.js): one grey line inside a panel, a tab or a group; its margins are the place's. */
+.child-empty { color: var(--muted-foreground); font-size: var(--fs-sm); }
 .page-empty { margin: 0; padding: 12px 8px; color: var(--muted-foreground); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
 .btn.danger-text { color: var(--destructive); }
 /* width: auto, not Basecoat's 100%, which with this margin would run past the page's edge */
@@ -857,8 +865,11 @@ button.chip { cursor: pointer; font-family: inherit; min-height: 26px; }
 .chip.link:hover { background: var(--accent); }
 .chip.off { opacity: .5; }
 .chip.on { background: var(--primary); color: var(--primary-foreground); }
-.chip .x { border: 0; background: none; padding: 0 0 0 2px; cursor: pointer; color: inherit; opacity: .7; display: inline-flex; }
-.chip .x:hover { opacity: 1; }
+.x-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; border: 0; padding: 0; background: none; cursor: pointer; }
+.x-btn.x-row { width: 22px; height: 22px; border-radius: var(--radius-xs); color: var(--muted-foreground); }
+.x-btn.x-row:hover { background: var(--row-hover); color: var(--foreground); }
+.x-btn.x-chip { padding: 0 0 0 2px; color: inherit; opacity: .7; }
+.x-btn.x-chip:hover { opacity: 1; }
 .chip:not(.parent):is(.t-initiative, .t-story, .t-task, .t-note, .t-meeting, .t-inbox, .t-activity, .t-prompt, .t-transcription) { text-transform: capitalize; }
 .chip.source { background: transparent; border-color: var(--border); }
 /* A person or group: tinted as a label is, one hue per name (ui.js personChip), its icon telling it from a #label */
@@ -929,7 +940,7 @@ button.status-select .select-text::before { content: ""; width: 8px; height: 8px
   --h: 220; background: hsl(var(--h) 70% var(--label-l) / var(--label-bg-a)); color: hsl(var(--h) 55% var(--label-l));
   padding: 0 8px; font-weight: 600;
 }
-.chip.label .x { margin-left: 2px; }
+.chip.label .x-btn { margin-left: 2px; }
 .label-input { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--control-h); padding: 4px 8px; border: 1px solid var(--input); border-radius: var(--radius-sm); background: var(--background); box-shadow: var(--shadow-sm); cursor: text; }
 .label-input:hover { border-color: var(--foreground); }
 .label-input input { flex: 1; min-width: 90px; height: 24px; border: 0; box-shadow: none; padding: 0 4px; background: transparent; font-size: var(--fs-sm); }
@@ -1362,7 +1373,6 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .work-groups { display: flex; flex-direction: column; gap: 8px; }
 .work-group .stack-label .tab-count { margin-left: 2px; }
 .work-group .stack-head > .stack-label { overflow: visible; } /* the name's hover and focus drawn whole */
-.work-fold:focus:not(:focus-visible) { outline: none; }
 /* A task's status and priority as two columns without a table, edited in place as a list's cells: each select as wide
    as its longest choice (select-sizer), so both line up from row to row (the subject takes the rest); quiet until the
    row is hovered, then framed with its chevron (as .grid td's) */
@@ -1379,10 +1389,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 }
 /* The group's name folds it: a chevron before it, on the column's edge as Description's (-4px) */
 /* The group's whole line up to its "+ Add" folds it, not just its name */
-.work-fold { display: flex; width: calc(100% + 4px); align-items: center; gap: 4px; margin-left: -4px; padding: 2px 6px 2px 2px; border: 0; background: none; border-radius: var(--radius-sm);
-  color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.work-fold:hover { background: var(--accent); color: var(--foreground); }
-.work-fold .icon { color: var(--muted-foreground); }
+.work-fold { width: calc(100% + 4px); gap: 4px; margin-left: -4px; padding: 2px 6px 2px 2px; }
 .row-id { flex: none; min-width: 64px; font-size: var(--fs-2xs); color: var(--muted-foreground); }
 .row-item.done .row-title { color: var(--muted-foreground); }
 .work-group .row-meta { flex: none; max-width: none; } /* the status whole; the subject is what gets cut */
@@ -1394,8 +1401,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .work-foot .pager { flex: 1; min-width: 0; padding: 0; justify-content: flex-end; } /* the pager at the right of "Show N closed" */
 .work-foot .pager .spacer { display: none; }
 @media (max-width: 600px) { .work-foot .pager > .muted.small:not(.pager-range), .work-foot .pager .pager-size { display: none; } } /* a phone: the pages, not the size */
-.work-more { color: var(--muted-foreground); padding: 0 8px; }
-.work-more:hover { color: var(--foreground); }
+.work-group .closed-toggle { align-self: flex-start; margin: 4px 0 0; font-size: var(--fs-sm); }
 /* The Issues tab: its kinds as Overview's groups, each unfolding into its table. Its pager and "Show N closed" share
    a line (the paged box gives its table and pager to this row: display contents); the table quiet, the subject takes
    what the rest leave, sideways scroll only past the least it needs. */
@@ -1407,7 +1413,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .issue-body > .paged { display: contents; }
 .issue-body .table-wrap { flex: 0 0 100%; min-width: 0; scrollbar-width: none; } /* scrolls sideways without a bar: the edge's shade says there is more */
 .issue-body .table-wrap::-webkit-scrollbar { display: none; }
-.issue-body > .work-more { order: 1; margin-left: -8px; }
+.issue-body > .closed-toggle { order: 1; }
 .issue-body .pager { order: 2; flex: 1; min-width: 0; padding: 0; justify-content: flex-end; }
 .issue-body .pager .spacer { display: none; }
 @media (max-width: 600px) { .issue-body .pager > .muted.small:not(.pager-range), .issue-body .pager .pager-size { display: none; } }
@@ -1437,9 +1443,9 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 #modal.is-create .fold-groups > .panel-section.prop-group > h4 { margin: 0; padding: 2px 0; font-size: var(--fs-sm); font-weight: 500; color: var(--muted-foreground); }
 /* In an item's tabs a group's title (Readiness, Spec and release, Global…) is the create form's section title: AREA AND
    OBJECTIVE, SETTINGS. In the create form the groups inside SETTINGS stay subtitles (above). */
-.item-tabs .fold-groups > .panel-section.prop-group > h4 { margin: 0; padding: 2px 0; min-height: 22px; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+.item-tabs .fold-groups > .panel-section.prop-group > h4 { margin: 0; padding: 2px 0; min-height: 22px; }
 :is(.item-tabs, #modal.is-create) .fold-groups > .panel-section.prop-group > h4 .icon { display: none; }
-:is(.item-tabs, #modal.is-create) .prop-readonly { min-height: var(--control-h); padding: 0 10px; border: 0; background: none; color: var(--foreground); font-weight: 400; cursor: default; }
+:is(.item-tabs, #modal.is-create, .doc-props) .prop-readonly { min-height: var(--control-h); padding: 0 10px; border: 0; background: none; color: var(--foreground); font-weight: 400; cursor: default; }
 :is(.item-tabs, #modal.is-create) .quiet textarea:not(:focus) { resize: none; }
 /* A map without a name of its own (Support due days: the group names it; On hold: a name per key) as rows of their own,
    its keys as names. */
@@ -1464,7 +1470,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .wl-rows { margin-top: 2px; }
 .wl-rows .wl-total .wl-time { font-weight: 600; }
 .wl-entry { cursor: pointer; border-radius: var(--radius-sm); margin: 0 -6px; padding: 0 6px; } /* its hover reaches a little past the names, which stay level */
-.wl-entry:hover, .wl-entry:focus-visible { background: color-mix(in srgb, var(--foreground) 5%, transparent); outline: none; }
+.wl-entry:hover, .wl-entry:focus-visible { background: var(--row-hover); outline: none; }
 .wl-entry > .wl-day { padding-left: 0; }
 .wl-value { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .wl-value .chip { flex: none; }
@@ -1472,14 +1478,12 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .wl-rows > .wl-edit { padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .progress { height: 8px; background: var(--muted); border-radius: var(--radius-xs); overflow: hidden; }
 .progress > div { height: 100%; background: var(--primary); border-radius: var(--radius-xs); }
-/* A goal's Overview head (panel.js goalHead): its description, a plain text field the width of the page, then how far
-   along it is and "Add items" on one line. */
-.goal-head { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-.goal-desc .field.span2 { display: flex; flex-direction: column; gap: 6px; }
-.goal-desc .field.span2 > span { font-size: var(--fs-xs); color: var(--muted-foreground); }
-.goal-desc textarea { width: 100%; min-height: 72px; resize: vertical; field-sizing: content; }
+/* A goal's Overview: its description (the description block), how far along it is, then its groups as another item's. */
+.item-tabs .body-wrap + .goal-progress { margin-top: 20px; }
+.item-tabs .goal-progress + .work-groups { margin-top: 20px; }
 .goal-progress { display: flex; align-items: center; gap: 10px; }
-.goal-progress .progress { width: 160px; flex: none; }
+.goal-progress .progress { flex: 0 1 160px; min-width: 48px; } /* gives way on a phone; its words never wrap */
+.goal-progress > .muted { white-space: nowrap; }
 /* The Goals view (views/goals.js): a goal's name, in its column's head or its section's, reads as a name and opens it. */
 .goal-name { color: inherit; text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .goal-name:hover { text-decoration: underline; }
@@ -1534,7 +1538,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde[data-mode="write"] .mde-panes { grid-template-columns: 1fr; }
 .mde[data-mode="write"] .mde-preview { display: none; }
 .mde[data-mode="preview"] .mde-panes { grid-template-columns: 1fr; }
-.mde[data-mode="preview"] .mde-text { display: none; }
+.mde[data-mode="preview"] :is(.mde-text, .mde-code) { display: none; } /* the coloured layer too: it is absolute, and drew the source over the preview */
 .mde[data-mode="preview"] .mde-preview { border-left: 0; }
 .page .mde-text { min-height: 420px; }
 .body-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--destructive); border-radius: var(--radius); background: color-mix(in srgb, var(--destructive) 7%, var(--background)); font-size: var(--fs-sm); }
@@ -1703,7 +1707,6 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .export-new { display: flex; gap: 8px; }
 .export-kind h4 { margin: 18px 0 8px; }
 .export-kind .export-versions { width: auto; margin-left: -4px; padding-right: 8px; font-weight: inherit; }
-.export-versions .count { color: var(--muted-foreground); font-weight: 400; }
 .export-kind + .export-kind { border-top: 1px solid var(--border); padding-top: 28px; }
 .export-new input { flex: 1; min-width: 0; }
 .export-head { display: flex; align-items: center; gap: 12px; }
@@ -1726,7 +1729,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .settings .tab-panel > .group + .group, .settings .tab-panel > :is(.stack, .themes-panel) > .group + .group { border-top: 1px solid var(--border); }
 .settings .group > header { margin-bottom: 4px; }
 /* A section's name: a small grey uppercase title, as the item page's groups and the create form's sections */
-.settings .group > header h3 { margin: 0; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+.settings .group > header h3 { margin: 0; }
 .settings .prop-rows { display: flex; flex-direction: column; gap: 0; margin-top: 6px; }
 .settings .prop-rows .field { grid-template-columns: 180px minmax(0, 1fr); min-height: 40px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
 .settings .prop-rows .field:last-child { border-bottom: 0; }
@@ -1982,15 +1985,21 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 #modal.remap-modal .field .select-btn { width: 100%; }
 
 /* attachments (attachments.js): the drop zone, the table of an item's files, the viewer */
-/* A section whose title folds what is under it (ui.js foldSection: Attachments, Area and objective); its count is a
-   pill, as a tab's, so it sits centred on the title whatever its digits. */
-.fold-head { display: flex; align-items: center; gap: 6px; width: calc(100% + 4px); margin: 2px 0 0 -4px; padding: 4px; border: 0; background: none;
+/* A header that folds what is under it (ui.js foldHead, design.md §Fold heads): one button — chevron, icon, name,
+   count (a pill, as a tab's, centred on the name whatever its digits) —, the accent on hover, the focus ring. A
+   place's class (.work-fold, .group-toggle, .docs-title…) sets only its type size and room; a sidebar-like tree keeps
+   the sidebar's hover (.docs-title). */
+.fold-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px; border: 0; background: none;
   color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--radius-sm); }
-.fold-head:hover { background: var(--accent); } /* -4px: the chevron on the column's edge, as Description's */
-.fold-head .fold-title { font-size: var(--fs-h4); font-weight: 650; }
-.fold-head .icon { color: var(--muted-foreground); }
-.fold-head .tab-count { margin-left: 2px; }
-.body-tabs .body-fold { width: auto; margin: 0 0 0 -4px; } /* the description's title: as wide as it, the icon where it was */
+.fold-head:hover { background: var(--accent); color: var(--foreground); }
+.fold-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.fold-head:focus:not(:focus-visible) { outline: none; }
+.fold-head:disabled { cursor: default; background: none; }
+.fold-head > .icon { flex: none; color: var(--muted-foreground); }
+.fold-head .fold-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-head .tab-count { flex: none; margin-left: 2px; }
+.body-fold { margin: 0 0 0 -4px; } /* the description's title: as wide as it, the chevron on the column's edge */
+.body-fold .fold-title { font-size: var(--fs-h4); font-weight: 650; }
 /* An item's Files tab (attachments.js): a drop strip — a light well with a dashed edge, lower than a box — then the
    panel's rows, a kind's icon each; while files are dragged over the list, the strip lights up. */
 .attach-list .attach-drop { margin-bottom: 6px; padding: 5px 6px 5px 12px; border: 1px dashed var(--input); border-radius: var(--radius);
@@ -2193,9 +2202,8 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .td-dot.tone-error { background: var(--tone-error); }
 @keyframes td-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .td-dot.tone-accent { animation: none; } }
-.td-x { display: inline-flex; width: 20px; height: 20px; flex: none; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-xs); background: none; color: var(--muted-foreground); cursor: pointer; opacity: 0; }
+.td-x { opacity: 0; }
 .td-row:hover .td-x, .td-row:focus-within .td-x, .td-row.active .td-x { opacity: 1; }
-.td-x:hover { background: var(--accent); color: var(--foreground); }
 .td-body { flex: 1 1 auto; min-height: 0; display: flex; container-type: inline-size; }
 .td-main { flex: 1 1 auto; min-width: 0; position: relative; }
 .td-pane { position: absolute; inset: 0; padding: 6px 4px 4px 10px; background: var(--background); }
@@ -2457,7 +2465,7 @@ body.term-open #view { padding-bottom: calc(var(--dock-room, 42vh) + 24px); }
 .row-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .row-item { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 32px; padding: 0 2px 0 8px;
   margin-left: calc(var(--depth, 0) * 14px - 8px); border-radius: var(--radius-sm); }
-.row-item:hover { background: var(--accent); }
+.row-item:hover { background: var(--row-hover); }
 .row-lead { flex: none; }
 .row-link { flex: 1; display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 0; color: inherit; text-decoration: none;
   font-size: var(--fs-sm); font-weight: 500; border-radius: var(--radius-sm); }
@@ -2502,7 +2510,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 
 /* Settings → Statuses (views/statuses.js) */
 .status-type .status-group { margin-top: 10px; }
-.status-type .status-group h4 { margin: 6px 0; font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
+.status-type .status-group h4 { margin: 6px 0; }
 .status-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .status-row input[type=text] { width: 200px; }
 .status-row input[type=color] { width: 30px; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; }
@@ -2514,7 +2522,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 /* The AI tab: its two buttons, half the row each; a session's star and origin
    in its title cell; Add a session's rows (a title over where it ran) */
 .ai-start { flex-wrap: wrap; gap: 8px; align-items: center; }
-.ai-start > .btn { flex: 1 1 0; min-width: 0; justify-content: center; } /* the two buttons: half the row each */
+.ai-start > .btn { flex: none; max-width: 100%; } /* each as wide as its text, at the left edge (Panel kit); the secondary wraps under on a narrow panel */
 .cs-main { color: var(--foreground); margin-right: 4px; vertical-align: -1px; }
 .cs-main .icon { fill: currentColor; }
 .chip.cs-source { margin-right: 6px; font-weight: 500; font-size: var(--fs-3xs); padding: 0 6px; }
@@ -2550,7 +2558,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
    focus, every one shown (an empty one says so). On a card and a page they are the side panel's first tab. */
 .im-side > .prop-list { flex: none; padding: 14px 20px 10px; gap: 6px; border-bottom: 1px solid var(--border); }
 .im-side:not(.tabbed) > .prop-list { padding: 0 0 14px; } /* the create form's side has its own padding */
-:is(.prop-list, #modal.is-create .relations, #modal.is-create .create-section) > h4 { margin: 0 var(--side-strip) 4px 0; min-height: 22px; display: flex; align-items: center; font-size: var(--fs-2xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); }
+:is(.prop-list, #modal.is-create .relations, #modal.is-create .create-section) > h4 { margin: 0 var(--side-strip) 4px 0; min-height: 22px; display: flex; align-items: center; }
 :is(.prop-rows > .fields, .prop-rows.fields, .prop-rows .prop-group > .fields) { display: flex; flex-direction: column; gap: 2px; }
 .prop-rows .field { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 36px; font-size: var(--fs-sm); }
 .prop-rows .field[hidden] { display: none; }
@@ -2666,7 +2674,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .section-tabs { padding: 0; margin: -4px 0 16px; overflow-x: auto; scrollbar-width: none; }
 .section-tabs::-webkit-scrollbar { display: none; }
 .section-tabs .tab-btn { flex: none; min-width: 0; text-decoration: none; }
-.section-tabs .tab-count:empty { display: none; } /* a 0: no badge, as tabPanels' */
 .section-tabs .tab-btn[aria-current="page"] { color: var(--foreground); border-bottom-color: var(--foreground); }
 .section-tabs .tab-btn[aria-current="page"] .tab-count { color: var(--foreground); }
 
@@ -2688,10 +2695,9 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 /* "Project is" grey, the values dark: what is filtered reads first */
 .vb-chip-text { border: 0; background: none; color: var(--muted-foreground); font: inherit; padding: 0 2px 0 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
 .vb-chip-text b { font-weight: 500; color: var(--foreground); }
-.vb-chip-x { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-right: 1px; border: 0; border-radius: 50%; background: none; color: var(--muted-foreground); cursor: pointer; }
-.vb-chip-x:hover { background: var(--accent); color: var(--foreground); }
-.vb-clear, .link-btn { border: 0; background: none; padding: 0 4px; color: var(--muted-foreground); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.vb-clear:hover, .link-btn:hover { color: var(--foreground); }
+.x-btn.vb-chip-x { margin-right: 1px; border-radius: 50%; } /* round in a round pill */
+.vb-clear { border: 0; background: none; padding: 0 4px; color: var(--muted-foreground); font: inherit; font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.vb-clear:hover { color: var(--foreground); }
 .vb-chips .vb-clear { text-decoration: none; height: 26px; padding: 0 6px; }
 .vb-chips .vb-save { color: var(--foreground); font-weight: 500; }
 .vb-pop { max-height: min(460px, calc(100vh - 24px)); overflow-y: auto; overscroll-behavior: contain; }
@@ -2727,7 +2733,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vb-foot-btn.strong { color: var(--foreground); font-weight: 500; }
 .vb-hint { margin: 2px 8px 6px; color: var(--muted-foreground); font-size: var(--fs-xs); }
 .view-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.view-head .view-count { color: var(--muted-foreground); font-size: var(--fs-sm); white-space: nowrap; }
+.view-head .view-count { font-size: var(--fs-sm); }
 .vb-hidden { margin: 12px 0 0; font-size: var(--fs-xs); }
 /* An on/off switch (the view bar's Show empty groups, the graph's panel): a track and its knob. Its look is Basecoat's
    (basecoat_css.py, family `checkbox`: aria-checked is its :checked, the span its ::before), whose focus is a ring. */
@@ -2753,7 +2759,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .list-main .group-title { flex-wrap: nowrap; gap: 8px; min-width: 0; font-size: var(--fs-sm); font-weight: 550; }
 .list-main .group-title .chip { font-size: var(--fs-sm); }
 .group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group-count { color: var(--muted-foreground); font-weight: 400; font-variant-numeric: tabular-nums; }
 .group-add { flex: none; opacity: 0; }
 .list-main tr.group-head:is(:hover, :focus-within) .group-add, .group-add:focus-visible { opacity: 1; }
 @media (hover: none) { .group-add { opacity: 1; } }
@@ -2775,14 +2780,14 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .canvas-items-title { font-weight: 600; font-size: var(--fs-sm); flex: 1; }
 .canvas-items { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .canvas-item { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-radius: var(--radius-sm); cursor: grab; font-size: var(--fs-sm); }
-.canvas-item:hover, .canvas-item:focus-visible { background: var(--muted); }
+.canvas-item:hover, .canvas-item:focus-visible { background: var(--row-hover); }
 .canvas-item[draggable="false"] { cursor: default; }
 .canvas-item.placed { cursor: pointer; }
 .canvas-item.placed .canvas-item-title, .canvas-item.placed > svg { opacity: .5; }
 .canvas-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .canvas-item-title, .canvas-item-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-item-line { font-size: var(--fs-2xs); }
-.canvas-items-empty { padding: 6px 8px; font-size: var(--fs-xs); }
+.canvas-items-empty { padding: 6px 8px; }
 /* The column's tabs (Shapes · the page's items) and the shapes panel (canvas/shapepanel.js): draw.io's, in the app's
    quiet style — the families as section labels that fold, their figures as 36 px pictures on a grid, the ink in the
    text's colour and the paper in the page's (a picture follows the theme as the canvas does). */
@@ -2793,12 +2798,8 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .shapes-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 .shapes-search { width: 100%; }
 .shapes-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; }
-.shapes-group-head { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 4px;
-  border-radius: var(--radius-sm); cursor: pointer; color: var(--muted-foreground); font-size: var(--fs-xs); font-weight: 600; }
-.shapes-group-head:hover { color: var(--foreground); background: var(--muted); }
-.shapes-group-head:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.shapes-group-head:disabled { cursor: default; background: none; }
-.shapes-group-head .muted { margin-left: auto; font-weight: 400; }
+.shapes-group-head { width: 100%; padding: 6px 4px; color: var(--muted-foreground); font-size: var(--fs-xs); font-weight: 600; } /* a foldHead */
+.shapes-group-head .tab-count { margin-left: auto; }
 .shapes-grid { display: grid; grid-template-columns: repeat(auto-fill, 36px); gap: 4px; padding: 2px 4px 8px; }
 .shape-tile { --shape-paper: var(--background); all: unset; box-sizing: border-box; width: 36px; height: 36px; display: grid; place-items: center;
   border-radius: var(--radius-sm); color: var(--foreground); cursor: grab; }
@@ -2814,16 +2815,15 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .shape-peek[hidden] { display: none; }
 .shape-peek svg { display: block; }
 .shape-peek-name { max-width: 148px; font-size: var(--fs-xs); font-weight: 500; text-align: center; }
-.shapes-none { padding: 6px 8px; font-size: var(--fs-xs); margin: 0; }
+.shapes-none { padding: 6px 8px; margin: 0; }
 .canvas-name { display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .canvas-name-err { font-size: var(--fs-xs); color: var(--destructive); margin: 0; }
 .canvas-stage { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--background); }
 .canvas-stage .wb-host { position: absolute; inset: 0; }
 .canvas-stage .wb-loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-sm); }
 .canvas-stage .wb-error, .canvas-empty.wb-error { color: var(--destructive); }
-.canvas-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; color: var(--muted-foreground); }
-.canvas-empty p { max-width: 440px; margin: 0; font-size: var(--fs-sm); }
-.canvas-empty p:first-of-type { color: var(--foreground); }
+.canvas-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px 16px; color: var(--muted-foreground); } /* one grey line + Create canvas */
+.canvas-empty > p { margin: 0; }
 /* Excalidraw's own UI in the app's font; its island shadows as soft as ours. */
 .canvas-stage .excalidraw, :root .excalidraw.excalidraw-modal-container { --ui-font: var(--font); }
 /* Excalidraw's own chrome (toolbar, properties, Library, menus, dialogs) in the app's colours, not its violet: its
@@ -2975,6 +2975,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .board-card .card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; color: var(--muted-foreground); font-size: var(--fs-xs); }
 .board-card .card-meta .mono { font-size: var(--fs-2xs); }
 /* List | Board, at the end of the bar; the Board page's type beside its title. */
+.vb-layout-slot { display: contents; } /* seg() drawn again inside it (viewbar.js paintLayout) */
 .vb-layout { flex: none; }
 .vb-layout .btn { height: var(--control-h-sm); padding: 0 9px; gap: 6px; font-size: var(--fs-xs); }
 .view-title .board-type { font-size: var(--fs-sm); color: var(--muted-foreground); }
@@ -3054,7 +3055,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .plan-sec { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; margin-top: 14px; border-bottom: 1px solid var(--border); }
 .plan-list > .plan-block:first-child > .plan-sec { margin-top: 4px; }
 .plan-sec h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.plan-sec .plan-count { color: var(--muted-foreground); font-weight: 500; font-size: var(--fs-sm); white-space: nowrap; }
+.plan-sec .plan-count { font-weight: 500; font-size: var(--fs-sm); }
 .plan-sec.past h3 { color: var(--muted-foreground); font-weight: 500; }
 .plan-sec.today { border-bottom-color: var(--foreground); }
 .plan-tag { flex: none; padding: 1px 6px; border-radius: 5px; background: var(--foreground); color: var(--background); font-size: var(--fs-2xs); font-weight: 600; line-height: 1.4; }
@@ -3112,7 +3113,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .plan-quick .qa-input:focus-visible { background: var(--background); border-color: var(--foreground); }
 .plan-closed { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 8px; margin-top: 10px; color: var(--muted-foreground); font-size: var(--fs-sm); }
 .plan-closed .plan-dot { background: var(--st-done-fg); }
-.plan-closed .link-btn { font-size: var(--fs-sm); color: var(--foreground); }
+.plan-closed .link { color: var(--foreground); }
 .plan-next { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; margin-top: 18px; border-radius: var(--radius); text-decoration: none;
   background: color-mix(in srgb, var(--muted) 60%, transparent); color: var(--muted-foreground); font-size: var(--fs-sm); }
 .plan-next b { color: var(--foreground); font-weight: 500; }
@@ -3232,11 +3233,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .gp-head { display: flex; align-items: center; gap: 2px; padding: 4px 6px 4px 4px; }
 .gp-head .btn.icon { color: var(--muted-foreground); }
 .gp-head .btn.icon:hover { color: var(--foreground); }
-.gp-fold { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 6px; border: 0; border-radius: var(--radius-sm);
-  background: none; color: var(--foreground); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
-.gp-fold svg { color: var(--muted-foreground); }
-.gp-fold:hover { background: var(--muted); }
-.gp-fold:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.gp-fold { flex: 1; height: 32px; padding: 0 6px; color: var(--foreground); font-weight: 600; } /* a foldHead */
 .gp-body { display: flex; flex-direction: column; gap: 1px; padding: 2px 12px 14px; }
 .gp-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .gp-row .select, .gp-row .seg { margin-left: auto; }
@@ -3244,7 +3241,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .gp-switch { margin: 0 -6px; padding: 0 6px; border-radius: var(--radius-sm); cursor: pointer; }
 .gp-switch:hover { background: var(--muted); }
 .gp-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-n { color: var(--muted-foreground); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.gp-n { font-size: var(--fs-xs); }
 .gp-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .gp-chips { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 2px; }
 .gp-chip { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 13px;
@@ -3297,7 +3294,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
    folder's agents as rows (name · what it does · its arguments), and an agent's page is its head, then Run and
    Definition: properties as rows (.prop-rows .quiet), the message it sends in monospace, the prompt as Markdown. */
 .agents-head .docs-title { gap: 6px; }
-.agents-count { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
+.count-plain.agents-count { margin-left: auto; font-weight: 500; }
 /* The sidebar's Inbox row (agentspane.js), and an agent's mark: its most pressing run (runmodel.js agentMarks) */
 .agents-inbox { display: flex; align-items: center; gap: 8px; min-height: 30px; margin: 2px 0 6px; padding: 0 8px; border-radius: var(--radius-sm);
   color: var(--foreground); text-decoration: none; font-size: var(--fs-sm); font-weight: 550; }
@@ -3320,7 +3317,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 /* Favourites, on top of the Agents mode's folders: the Projects mode's section title (.side-title), never folding */
 .agents-favs { padding-top: 6px; }
 .agents-favs .side-title { padding-bottom: 4px; }
-.agents-head.dim .agents-count { font-style: italic; }
+.agents-head.dim .count-plain.agents-count { font-style: italic; }
 .side-agents .tree-row .tree-name { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: -.01em; }
 .side-agents .tree-row.is-dir .tree-name { font-family: inherit; font-size: var(--fs-sm); letter-spacing: 0; }
 
@@ -3331,7 +3328,6 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-add-form .prop-rows .field { grid-template-columns: 84px minmax(0, 1fr); }
 .agents-add-form p { margin: 0; line-height: 1.5; }
 .agents-add-form code, .agents-help code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 1px 5px; border-radius: var(--radius-xs); }
-.agents-add-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* #/runs */
 .agents-intro { max-width: 620px; line-height: 1.6; }
@@ -3363,10 +3359,8 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .cs-item > .td-dot { margin-top: 6px; }
 .cs-item.unread .cs-item-title { font-weight: 700; }
 .cs-item:not(.unread) .cs-item-title.mono { font-weight: 500; }
-/* The Inbox as a board (List | Board): a column per status, sharing the page's width (no empty band at the right) */
+/* The Inbox as a board (List | Board): the app's board (boardOf), a 272px column per status */
 .agents-board { min-height: 0; }
-.agents-board .board-col { flex: 1 0 240px; }
-.agents-board .col-cards { list-style: none; margin: 0; }
 .agents-board .col-empty { margin: 2px 8px 6px; font-size: var(--fs-xs); color: var(--muted-foreground); }
 .agents-board .cs-item-meta { white-space: normal; }
 .agents-status-word { font-weight: 600; color: var(--foreground); }
@@ -3505,8 +3499,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-sched-form { gap: 18px; }
 /* The Schedule dialog: two groups (When, Run) under a small grey uppercase title, a line between them and none between
    their rows; the rows a little in from the title, and every control as wide as the column, so all end on one edge */
-.agents-sched-group > h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--muted-foreground); }
+.agents-sched-group > h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; }
 .agents-sched-note { font-size: var(--fs-2xs); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .agents-sched-group + .agents-sched-group { border-top: 1px solid var(--border); padding-top: 16px; }
 .agents-sched-form .prop-rows { gap: 4px; padding-left: 12px; }

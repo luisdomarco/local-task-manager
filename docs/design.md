@@ -41,7 +41,7 @@ localStorage) and set on the root by `index.html`'s first script before the firs
 
 | What | Tokens | Classic | Modern | Rule |
 |---|---|---|---|---|
-| Surfaces | `--background`, `--card`, `--popover`, `--well`, `--muted`, `--accent` (hover), `--sidebar` | zinc greys | Radix greys (`--base-1…12`, from `data-base`) | `--muted` mixed to ~45–70 % for soft tints (a hovered row, an empty state). |
+| Surfaces | `--background`, `--card`, `--popover`, `--well`, `--muted`, `--accent` (hover), `--row-hover` (a hovered row or ×: `--accent` today, one place to change it), `--sidebar` | zinc greys | Radix greys (`--base-1…12`, from `data-base`) | `--muted` mixed to ~45–70 % for soft tints (a hovered row, an empty state). |
 | Text | `--foreground`, `--muted-foreground` | | | Secondary text, labels, metadata: `--muted-foreground`. Never lighter. |
 | Lines | `--border` (dividers, boxes), `--input` (field outlines, ≥ 3:1) | | | A divider between rows: `1px solid var(--border)`. |
 | Accent and focus | `--primary`, `--ring`, `--focus` (2px ring on buttons and links), `--field-ring` + `--field-halo` (fields), `--brand-*` | the ink (near-black, near-white in dark) | the accent (`--brand-fill`, from `data-accent`) | Never remove a focus style without replacing it. |
@@ -215,8 +215,11 @@ of its own.
 
 ### Properties (cards, pages, create form, Settings)
 
-- One per row, name on the left: container `fields prop-rows`, each `.field` = `<span>name</span>` + control
-  (112px label column; 84px on a phone; 180px in Settings).
+- One per row, name on the left: container `fields prop-rows`, each row **`propRow(label, control, { tag, help,
+  wide, cls, attrs })`** (`ui.js`) — a `.field` = `<span>name</span>` + control (112px label column; 84px on a phone;
+  180px in Settings). `tag: 'div'` when the control is several controls or a value only read (a `<label>` would send a
+  click on the name to its first button); `help` a grey line under the control (Settings' `setRow`). Never a `.field`
+  written by hand: nine local helpers and some thirty inline rows went onto it.
 - On a card, a page and the create form add `.quiet`: controls frameless until hovered or focused, everywhere (an
   item's tabs too: §Tabs); an empty one says what goes in it, its helper text (the field's `placeholder` in
   `tm/structures`: *feat/<topic>*, *Why it was dropped*), or *Empty* when it has none (`quietBlanks()`, which fills an
@@ -293,6 +296,7 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   label is cut with "…", never over the next column); on a phone Planned reads as text. The columns shared by every list keep one width and one order (`LIST_WIDTHS`, `COLUMN_RANK`); what does not
   fit gives way, Due first and Type last (`hiddenColumns`) — the page never scrolls sideways. A group's head is a 34px
   `--well` row: fold arrow, dot or icon, name, count and a "+" on hover that adds an item with that value.
+- **Under a list's table**: its pager always (`paged({ always: true })` for every main list — `LIST_PAGE` —, even on one page; an item's tables only from a second page), then one quiet line of how the closed rows go and the way back: *4 closed are hidden · Show closed*, or *4 closed shown · Hide closed* (`.vb-hidden`, a `link-btn`).
 - **Selection**: a row's 14px box shows on hover (always on a touch screen); once one is ticked, every row shows it and
   the header gets *select all*. The `.bulk-bar` floats dark at the bottom centre: *N selected* · Status · Priority · Plan
   · Labels · Project (only where every ticked type can change it: `movesProject`) · trash · ×.
@@ -343,7 +347,7 @@ Readiness, Execution… Paused or discarded —: no tab of their own) · Files (
 a short line (`.tab-btn.apart`, the tab's `apart: true`). A structure with `child_groups` (Projects) gets one such tab per
 group instead (Initiatives · Issues · Briefs · Records), the line before the first. **Seven at most** (`foldTabs`,
 `tabfold.js`): its own sections always, then the groups while there is room; a group past the seven waits in a **+**
-after the last one shown (`.tab-btn.tab-more`, a `dropdown` of their names and counts), and shows anyway once it holds an
+after the last one shown (`.tab-btn.tab-more`, a `dropdown` of their names and counts — the tabs' grey `.count` pill, `count:`, never a keycap), and shows anyway once it holds an
 item (any status), while it is the tab open, or once picked from + until the detail closes (the editor's `openedTabs`).
 **Canvas** (`canvasTab`, a type with `canvas` in its structure: in Projects a project, initiative, story, task and
 meeting) is last, set apart by its own line, never one of the seven nor folded: the Canvas layout (`mountCanvasView`,
@@ -403,10 +407,10 @@ Properties · Activity · AI Agents · Relations · Time, last.
 - **Order**: goals by priority, then their own `order`, then title (`byGoalRank`); a goal dragged among goals of
   another priority takes theirs. Items by `goal_order` (`byGoalOrder`): a drop writes the goal and its place, and only
   the neighbours that must move (`dropInGoal`, `rules.placement`).
-- **A goal's page**: Overview shows its Description (a plain textarea, not the body editor), a progress bar with *N of
-  M closed* and **+ Add items** (an `itemPicker` of open projects, initiatives, stories and tasks in no goal); then a
+- **A goal's page**: Overview shows its Description in the description block every item has (`mdBlock`, panel.js `goalDesc`, bound
+  to the `description:` field: its body is not used), then a progress row with *N of M closed* and **+ Add items** (an `itemPicker` of open projects, initiatives, stories and tasks in no goal); then a
   group per kind it can hold, in the order of the hierarchy — Projects, Initiatives, Stories, Tasks, Notes —, shown even
-  when empty. Projects, initiatives and stories are born in their project, so their **+ Add** is an `itemPicker` of that
+  when empty, spaced as another item's groups under its description (no line of its own). Projects, initiatives and stories are born in their project, so their **+ Add** is an `itemPicker` of that
   type's open items in no goal; Tasks and Notes keep their quick add.
 
 ### Canvases (`canvas/`: Goals' Canvas, any page's)
@@ -510,6 +514,15 @@ Properties · Activity · AI Agents · Relations · Time, last.
 
 ### Forms (create, Settings)
 
+- **A form's buttons, and a confirm's, are `formActions({ lead, onCancel, actions, small })`** (`ui.js`): `lead` at
+  the left (the keys, *Delete … for good?*, an entry's Delete), a spacer, **Cancel — always a ghost button** —, then
+  the `actions`, the last one primary (or danger for a delete). `small` in a panel, a row or a table (a comment's
+  edit, a link's, Time, a Trash confirm), regular in a dialog (`openDialog`'s `foot`, or inside its `<form>` when ↵
+  submits). Never a Cancel drawn by hand: it was four ways (ghost, outlined, plain, small or not) on one page.
+- **A button that reads as a link** is `linkButton(text, onClick, { muted })`: one `.link` class, underlined, no box;
+  `muted` greys it until hover (a line under a table, Today's *3 done today · Show*). *Show 3 closed* / *Hide closed*
+  under a group is `closedToggle({ n, shown, noun, onToggle })` (`aria-pressed`). (`.link-btn` is its old name, left
+  only for the list's closed line until that moves.)
 - The create form is the card's rows (`propList`, `titleStatus`, `.quiet`, `prop-rows`), every property in view, its
   link fields as the card's Relations (`stackGroup` + `picks-quiet`). Its head is **New** and the type it creates, a
   `select()` (create.js `typePick`): the one it was opened for (the list's, or the one picked in *Add item*), any other
@@ -546,8 +559,18 @@ Properties · Activity · AI Agents · Relations · Time, last.
 
 ### Empty, loading, errors
 
-- An empty place says so in one line of `muted small` text (`child-empty`), or `emptyState(text)` on a whole page:
-  soft tint, no dashed border.
+- An empty place says so in one grey line: **`emptyLine(text, { cls })`** (`p.child-empty`, `ui.js`) inside a panel,
+  a tab or a group — no box, its margins the place's, `cls` only to place it (an indent, Graph's overlay). A whole page
+  with nothing: `emptyState(text)` (soft tint, no dashed border); a list's empty row: `pageEmpty(text)`.
+  When one action fills the place, a `secondaryButton` under the line (an item's Canvas tab: *No canvas for ACME
+  yet.* + *Create canvas*; the Canvas page with nothing open: `emptyState` + *New canvas*). What the place is for
+  goes in README and the button's tooltip, never a paragraph in the empty state.
+- Being read: **`loadingLine(text = 'Loading…')`**, the same grey line with `role="status"` (a screen reader says
+  it), in a panel or for a whole page — never an `emptyState` box that flashes before the content. The menus' and
+  pickers' *No matches* stay `.menu-empty`, inside the menu.
+- Deleting what can be undone (an item, a comment, a work-log entry, a file) is one click, and the toast's **Undo**
+  puts back the same thing in its place (`deleteItem`, `deleteComment`, `unlogWork`, `removeAttachment` in
+  `state.js`). A confirmation is for what cannot be undone.
 - Errors: `toast(message, true)`; inline warnings `small warn`.
 - A notice that something keeps working but should change (a vault of a legacy structure): the On hold tint
   (`--st-onhold-bg`, its icon in `--st-onhold-fg`), as `vault-legacy` in Settings and the quiet `vault-legacy-hint`
@@ -561,6 +584,19 @@ Properties · Activity · AI Agents · Relations · Time, last.
 - Dates for reading: `shortDate` (*Oct 20*), `longDate` (*Oct 20, 2026*), `stampLabel` (*Oct 20, 09:54*); the raw
   value goes in `title`.
 
+### Fold heads
+
+Anything that folds what is under it — a work group, a table's group, a Docs or Canvas or Agents section, a Graph
+panel's section, a shapes family, Settings' *Versions* — has one head: `foldHead({ open, title, onToggle, ico, count,
+small, class })` (`ui.js`). One button: a chevron (14px; 12px in a sidebar-like tree, `small`), its icon, its name, its
+count as the tabs' pill; `aria-expanded`, and a tooltip that says what a click does (*Hide tasks*). The caller keeps
+whether it is open (a pref, a Set, the view's state) and redraws on `onToggle(open)`. Its hover is the accent, its
+focus the ring; a sidebar-like tree (Docs, Canvas, Agents: `.docs-title`) keeps the sidebar's hover. The place's class
+(`.work-fold`, `.group-toggle`, `.gp-fold`, `.shapes-group-head`, `.body-fold`) sets only its type size and room.
+Never a hand-made ▸/▾ button. A row that opens its own detail (an agent's file, a changed file's diff) is a row, not a
+fold head. A native `<details>` is kept for a disclosure of explanatory text inside a box (a vault's warnings, *What
+does not match*, a vault row's *Folders for new items*), never for a section.
+
 ### Panel kit (the side panel's patterns, as components)
 
 The side panel (Properties · Activity · AI Agents · Relations · Time), Docs and Links are built of these; reach for them
@@ -571,12 +607,16 @@ the side panel sets 12px for all it holds (`--fs-side` on `.im-side.tabbed`, and
 |---|---|---|
 | Primary button | `btn primary` | Filled: the one action that does the job (*Work on it with Claude*, a relation's *Add*). One per place. |
 | Secondary button | `secondaryButton(label, { ico, …attrs })` → `btn secondary`; a `select()` as one: `class: 'secondary'` + `face: ['plus', label]` | A border, no fill, the accent on hover; at the left edge, as wide as its text. Opens or adds (*+ Add relation*, *Add existing session*). |
-| Tab's add button | `stackGroup(label, rows, { aside })` with a `btn small ghost tab-add` (a `select()`: `class: 'ghost tab-add'` + `face`) | In an item's tab (Links, Docs, Files), *+ Add…* on the first group's line at the right: grey, no frame, the accent on hover. The form it opens keeps its fields framed. |
+| Tab's add button | `tabAddButton(label, onClick, attrs)` → `btn small ghost tab-add`, as a `stackGroup`'s `aside` (a `select()` as one: `class: 'ghost tab-add'` + `face`) | In an item's tab (Links, Docs, Files), *+ Add…* on the first group's line at the right: grey, no frame, the accent on hover. The form it opens keeps its fields framed. |
 | Add line of empty kinds | `workGroups(…, { table: true })` with `shownKinds` (`kindgroups.js`) → `.add-kinds` of `secondaryButton(name, { ico: 'plus', class: 'small' })` | In a tab of folding groups (Initiatives · Issues · Briefs · Records), a kind that holds nothing has no group: its type's name waits on one line at the tab's foot, and a click opens its quick add in its own group. Overview's work keeps its empty groups. |
 | Quiet pickers | a `.picks-quiet` around any `select()` (or a `propField`) | Frameless until hovered: then a border and its chevron, never a fill; the focus ring while open. An empty one reads its placeholder in grey. |
 | Group | `stackGroup(label, content, { title, aside })` → `.stack-group` / `.stack-label` (`.stack-head` with an `aside`) | Its name above what it holds (grey, `--fs-sm`), a line between one group and the next; no name, only the line. `aside` goes on the name's line at the right. |
 | Rows | `rowList(rows, { ordered })` of `rowItem({ text, href, ico, meta, mono, lead, depth, actions, linkAttrs, tip })` | Plain rows: no box, no line, the accent on hover; icon + title, a muted meta at the right (an id, a folder, a link's label), text level with the group's name; `depth` steps a chain in. With `onClick` instead of `href`, a button (a file opened in a dialog); with neither, a muted line. In an item's tabs, the title in plain weight. |
 | Row action | `rowAction(ico, label, (e, btn) => …)` | A 24px icon button (× to unlink, ☆ to make it the main, ⋯ for more), shown on the row's hover. A row that opens to edit (a link's *Edit*) is a `.row-edit` li holding the same row the add button opens. |
+| Remove (×) | `removeButton(label, onClick, { size, cls, keepFocus })` | `size: 'chip'` inside a chip or a tag: its colour, at .7 until hovered. `'row'` (the default) a 22px square, muted, `--row-hover` on hover: a pinned item's, a terminal's, a filter pill's (round there, `vb-chip-x`). `label` is its tooltip and its name; where it shows is the caller's (`.td-x` only on its row's hover). A row's own × is a `rowAction('x', …)`. Its size class is `x-row` / `x-chip`, never a bare `chip`: that would make it a chip to `.chip`'s rules and selectors. |
+| Segmented choice | `seg(options, current, onPick, { aria, role, small, disabled, cls })`, `options` of `[value, label, { ico, tip, disabled, lead, attrs }]` | One `.seg` of buttons, the picked one pressed. A `label` of `null` is an icon-only button named by `tip`. `role` says what it is: `group` (`aria-pressed`, the default), `tablist` (`role="tab"`, `aria-selected`: Canvas's *Shapes · Items*) or `radiogroup` (`aria-checked`: a label filter's *And · Or*). Not for links (Planning's *Day · Week · Month* are links in a `.seg`). |
+| Section label | `sectionLabel(content, tag = 'h4')` → `.section-label` (`content` a text, or `[text, …nodes]`) | The small uppercase grey title over a block (Settings' groups, Statuses' kinds, an item's property groups, Schedule's): `--fs-2xs`, 600, `.04em`. Its margin is its place's. |
+| Count | `countOf(n, { tab, plain, cls, attrs })` | The default a pill tinted with its own colour (`.count`, at its row's end: the sidebar, a board's column, a Settings group); `tab` the same inside a tab (`.tab-count`); `plain` the muted number beside a title (`.count-plain`: a page's *3 open*, a group's, Planning's, Graph's), `cls` its size. `n` is drawn as it is — 0 is "0" — and `null` draws nothing, an empty pill hidden: `n \|\| null` hides a 0. |
 | Shown on hover | `.hover-reveal` inside a `.hover-host` | Hidden until the host is hovered or it has focus; always shown on a touch screen. |
 | White card | `.surface-card` | On the panel's grey: what someone wrote or started (a comment, a session); its own padding and layout on top. |
 | Chips by name | `labelChip`, `personChip` | One hue per name (`labelHue`), the same everywhere. |
@@ -619,10 +659,12 @@ line under them; a quiet *… →* link at their right, `.agents-home-more`), ea
 icon, the title in monospace, one muted meta line with the status word first, and at most one quiet icon button at
 the right (Stop, Run now, ▷ Run — which opens it in the dock, as on its page). **What needs you is the one box with a tint**
 (`.agents-home-alert`, the warning tone), and only while there is something in it — an empty Home is calm. The week is
-a muted line, not a row of figures. In the sidebar, Home and Inbox are two rows on top
+a muted line, not a row of figures. In the sidebar, Home, Inbox and Routines are three rows on top
 (`.agents-nav`), lit as the Explorer's views are — there with no folder yet too, and nothing else: no text, **+** in the bar adds one.
 
-In the middle, **`#/runs/inbox` is the Inbox**, a list as the type lists are: `.section-tabs` Home · Inbox, then the
+**`#/runs/routines` is Routines** (`views/routines.js`): a page's head (*Routines* · *2 on · 1 paused*), the section's tabs, the page bar's search (`searchBox`), then every agent's schedules as one `scheduleList` (agentschedules.js, `showAgent`), in `schedmodel.js routineOrder` — never a list of its own.
+
+In the middle, **`#/runs/inbox` is the Inbox**, a list as the type lists are: `.section-tabs` Home · Inbox · Routines, then the
 list's own `viewBar` (Filter chips, Order, Group, Display, List · Board; *Mark all read* as its `note`) over a
 `dataTable` in `.list-main` (40px rows, its quiet head, a list's phone layout: the dot and what it ran …… when, the
 folder under them), paged as a list (`LIST_PAGE`). Rows that are not items use `dataTable`'s `rowLabel` and `rowHref`
@@ -630,11 +672,14 @@ folder under them), paged as a list (`LIST_PAGE`). Rows that are not items use `
 `inboxview.js` (as `worklogview.js` is the Work log's); a Filter value with a `tone` draws the status dot. The status
 column is a dot (`.td-dot.tone-*`, the tones of `runmodel.js RUN_STATUSES`) and its word, what it sent is monospace
 (700 while unread, the ask in the warning tone after it when it needs you), the unread dot and a 24px ⋯ (`row-action`)
-share the last column. Group's heads carry the dot of a status or attention group. The board is the app's
-(`.board.vboard`) with a column per status, always (`boardGroups: false` hides Group on it; `.agents-board`: columns
-share the page's width, `flex: 1 0 240px`, a dot and the status's name and count in each head, an empty one a
-`.fold-strip`; each head or strip moves its column as a list's board does — `kanban.js dragsList`/`listDropZone`,
-`colorder.js`, kept in `view.colOrder.status`, *Reset column order* in Display) and `.cs-item` cards (`.agents-inbox-row`). Neither the Inbox nor the Home has a max
+share the last column. Group's heads carry the dot of a status or attention group. The board is the app's,
+drawn by `boardOf` (boardview.js), never a copy of it: a column per status, always (`boardGroups: false` hides Group on
+it), each `--board-col-w` wide as every board's, a dot and the status's name and count in its head, the head's fold
+button on hover, a folded or empty one a `.fold-strip`; heads and strips move their column (`movable` columns and
+`onReorder`, kept in `view.colOrder.status`, *Reset column order* in Display), and its cards are `.cs-item`s
+(`.agents-inbox-row`, the column's `card`). **Archived** runs (`archived_at`, runmodel.js `isArchived`) are out of the
+Inbox and the Home unless Display → *Archived runs* shows them (a `vb-row` with a Hide · Show `.seg`, as Goals'
+*Closed goals*); an agent's page keeps them, *Archived* in their meta. Neither the Inbox nor the Home has a max
 width: they take the column, as every page of the section. **The status is a dot and a word, never a filled chip**: amber needs you, blue works, green done, red
 failed, grey stopped; the same dot marks an agent's row in the sidebar and the Inbox row's count turns amber while one
 needs you. The agents themselves are listed in the sidebar only, under **Favourites** (`.agents-favs`: the Projects
@@ -690,11 +735,52 @@ in a CSS variable and a pref. The grip is 7px wide, transparent, and draws a `--
 (`#side-resizer`, `.docs-resizer`, `.td-grip`); it is a `role="separator"` with a label, and it hides where the panel
 stacks (≤760px). Never another hand-written copy.
 
+### Dialogs
+
+**Every dialog is `openDialog()` (`ui.js`)**: the one `#modal` of index.html, opened and closed the same way everywhere.
+
+```js
+const { modal, close } = openDialog({ title, ico, label, cls, head, body, foot, focus, onKey, onClose, dismissable });
+```
+
+- **Its head** is a `.modal-head`: an 18px icon (`ico`), the title (a string, or nodes: *Delete status* + its chip),
+  `head` nodes before the ✕ (an attachment's *Open in new tab* and *Download*), and the ✕ (*Close (Esc)*).
+- **Its foot** (`foot`) is a `.modal-foot`: the keys in `muted small` at the left, a `spacer`, then Cancel
+  (`btn ghost`) and the primary. A form that submits with ↵ keeps its buttons inside its `<form>` instead.
+- **What it does for every caller:** Tab stays inside (`trapFocus`); Esc, the ✕ and a press on the backdrop close it
+  (on `mousedown`, so a drag out of a field doesn't); the focus goes back to what opened it; `focus` gets the focus
+  once it's drawn (after the key that opened it, so its letter doesn't land in the field). `onKey(e)` sees each key
+  first (⌘↵ to save). `dismissable()` keeps it open while a save is in flight. `close(value)` → `onClose(value)`,
+  once; dismissed, `value` is undefined (`askArgs` resolves null).
+- **A new dialog closes the one open** and keeps its opener.
+- **A frame of its own** (the create form's `modalFrame`): `title: null` and no `body`; the caller draws into `modal`.
+- Never `getElementById('modal')` and a hand-made close: that's how ten copies came to differ (a Cancel styled three
+  ways, a backdrop on `click` here and `mousedown` there, two without a focus trap). The item card (`#item-modal`,
+  `panel.js`) is the other layer and has its own.
+
 ### Menus and pickers
 
 Use `select()` (button + searchable menu, `search: true` for long lists), `selectButton()` + `dropdown()` for action
 menus, and the app's own date picker (`dateInput()`, `pickDate()` in `datepicker.js`), never the browser's
-`<input type=date>`.
+`<input type=date>`. A menu entry's `kbd` is a shortcut (a keycap); a number of things is `count` (the grey `.count`
+pill the tabs and the sidebar use).
+
+**Everything that opens from a button over the page is a `floating(anchor, el, { layer, align, side, grow, onEsc,
+onClose })`** (`ui.js`): `dropdown()` (and so `select()`'s list and the date picker), the view bar's `popover()`,
+`itemPicker()` and *Add existing session*. A new one goes through it, never its own listeners. It gives them one way to
+behave:
+
+- **Two layers, one open in each.** A `'menu'` (the default) may open from inside a `'panel'` (a popover or a
+  picker: what you work in) and closes alone; opening a panel closes whatever was open.
+- **One Esc** closes the top one and puts the focus back on its button — the card or dialog under it stays. `onEsc()`
+  returning true keeps it open when the Esc was for something inside (*Add existing session*'s folders go back to its
+  sessions).
+- **One click outside** closes it; a click in a menu a panel opened is not outside the panel. The same button again
+  closes it: `if (floatingFrom(anchor, layer)) …`.
+- **Placed** under the button, at its left (`align: 'end'`: its right); above it when there is no room under it
+  (`side: 'top'`: always, a button at a dialog's foot), else moved up into view. `grow` (a picker whose rows change
+  with a search): anchored by the edge nearest the button, so it grows away from it. Opened from the side panel it
+  takes the panel's text size (`sideSized`).
 
 ## 4. Do / don't
 
@@ -732,7 +818,7 @@ menus, and the app's own date picker (`dateInput()`, `pickDate()` in `datepicker
 |---|---|
 | Tokens, every style | `static/css/app.css` (sections marked `/* ── … ── */`) |
 | A theme's tokens (Modern) | `static/css/themes/<id>.css`; choices and how they apply: `static/js/themeprefs.js`, `theme.js` |
-| `h`, `icon`, `select`, `dropdown`, `tabPanels`, `itemCard`, `statusChip`, `statusLabel`, `emptyState`, `carriedAction`; the Panel kit (`secondaryButton`, `stackGroup`, `rowList`, `rowItem`, `rowAction`) | `static/js/ui.js` |
+| `h`, `icon`, `select`, `dropdown`, `tabPanels`, `itemCard`, `statusChip`, `statusLabel`, `emptyState`, `openDialog`, `trapFocus`, `emptyLine`, `loadingLine`, `formActions`, `linkButton`, `closedToggle`, `propRow`, `floating`, `closeFloating`, `floatingFrom`, `carriedAction`, `foldHead`; the Panel kit (`secondaryButton`, `tabAddButton`, `stackGroup`, `rowList`, `rowItem`, `rowAction`, `removeButton`, `seg`, `sectionLabel`, `countOf`) | `static/js/ui.js` |
 | Property fields, `statusSelect`, `quietBlanks`, `planControl` | `static/js/itemform.js` |
 | The description block (`mdBlock`: rendered box, editor on a click, full screen) | `static/js/mdblock.js` |
 | Card and page layout, Properties, Relations, tabs of children | `static/js/panel.js` |

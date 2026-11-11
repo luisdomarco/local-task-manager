@@ -45,7 +45,7 @@ export const needingYou = (runs) => (runs || []).filter((r) => runStatus(r) === 
 
 /** The runs that ended, the latest to end first, at most `limit`. */
 export function recentResults(runs, limit = 6) {
-  return (runs || []).filter((r) => r.outcome && ENDED.has(runStatus(r)))
+  return (runs || []).filter((r) => r.outcome && ENDED.has(runStatus(r)) && !r.archived_at)
     .sort((a, b) => (b.ended_ts || startedAt(b)) - (a.ended_ts || startedAt(a))).slice(0, limit);
 }
 

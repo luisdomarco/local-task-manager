@@ -12,7 +12,7 @@ import { api } from '../api.js';
 import { filesHref } from '../filetree.js';
 import { pref, setPref } from '../prefs.js';
 import { toast } from '../state.js';
-import { dropdown, h, icon, select, typeIcon } from '../ui.js';
+import { dropdown, emptyLine, h, icon, secondaryButton, seg, select, typeIcon } from '../ui.js';
 import { closePopover, popover } from '../viewbar.js';
 import { emptyDrawing, fileName, serialize } from './canvasfile.js';
 import { mountShapePanel } from './shapepanel.js';
@@ -70,20 +70,20 @@ export function mountCanvasView(el, { host, provider, path = null, onOpen = () =
   const tabKey = `${prefKey}.side`;
   const shapesEl = h('div', { class: 'canvas-shapes' });
   const itemsEl = h('div', { class: 'canvas-items-pane' }, sideHead, side);
-  const seg = h('div', { class: 'seg canvas-seg', role: 'tablist', 'aria-label': 'Draw with' });
+  let segEl = h('span'); // Shapes | Items, drawn by paintTab
   const paintTab = () => {
     const now = pref(tabKey, 'shapes') === 'items' ? 'items' : 'shapes';
-    seg.replaceChildren(...[['shapes', 'Shapes'], ['items', provider.label]].map(([k, label]) => h('button', {
-      type: 'button', role: 'tab', class: `btn small ${now === k ? 'active' : ''}`, 'aria-selected': String(now === k),
-      onclick: () => { setPref(tabKey, k === 'shapes' ? null : k); paintTab(); },
-    }, label)));
+    const next = seg([['shapes', 'Shapes'], ['items', provider.label]], now, (k) => { setPref(tabKey, k === 'shapes' ? null : k); paintTab(); },
+      { aria: 'Draw with', role: 'tablist', cls: 'canvas-seg' });
+    segEl.replaceWith(next);
+    segEl = next;
     shapesEl.hidden = now !== 'shapes';
     itemsEl.hidden = now !== 'items';
   };
   // The column folds to a rail (its button stays), for the whole width to draw in; remembered per page.
   const foldKey = `${prefKey}.folded`;
   const fold = h('button', { type: 'button', class: 'btn icon small canvas-fold' }, icon('sidebar', 16));
-  const view = h('div', { class: 'canvas-view' }, h('aside', { class: 'canvas-side' }, h('div', { class: 'canvas-top' }, fold, head), seg, shapesEl, itemsEl), stage);
+  const view = h('div', { class: 'canvas-view' }, h('aside', { class: 'canvas-side' }, h('div', { class: 'canvas-top' }, fold, head), segEl, shapesEl, itemsEl), stage);
   const paintFold = () => {
     const off = !!pref(foldKey, false);
     view.classList.toggle('side-off', off);
@@ -181,11 +181,11 @@ export function mountCanvasView(el, { host, provider, path = null, onOpen = () =
   }
 
   function paintEmpty() {
+    // An empty place: one grey line and what fills it (design.md §Empty); what a canvas is, in README and the tooltip
     stage.replaceChildren(h('div', { class: 'canvas-empty' },
-      icon('canvas', 28),
-      h('p', {}, `No canvas for ${provider.whose || provider.label} yet. A canvas is a whiteboard: put ${provider.label.toLowerCase()} on it as cards, and draw around them — arrows, notes, shapes, frames.`),
-      h('p', { class: 'muted' }, `It is saved in the vault (${list?.folder || 'Docs/Canvases'}), and opens in Obsidian's Excalidraw too.`),
-      h('button', { type: 'button', class: 'btn primary', onclick: (e) => create(e.currentTarget) }, icon('plus', 14), 'Create canvas')));
+      emptyLine(`No canvas for ${provider.whose || provider.label} yet.`),
+      secondaryButton('Create canvas', { ico: 'plus', title: `A whiteboard, saved in ${list?.folder || 'Docs/Canvases'}: it opens in Obsidian's Excalidraw too`,
+        onclick: (e) => create(e.currentTarget) })));
   }
 
   function paintSide() {
@@ -212,7 +212,7 @@ export function mountCanvasView(el, { host, provider, path = null, onOpen = () =
         row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(); } });
       } else if (board) row.addEventListener('click', () => board?.wb.locate(it.id));
       return row;
-    }) : [h('p', { class: 'muted canvas-items-empty' }, `No open ${provider.label.toLowerCase()}.`)]));
+    }) : [emptyLine(`No open ${provider.label.toLowerCase()}.`, { cls: 'canvas-items-empty' })]));
   }
 
   refresh().catch((err) => { stage.replaceChildren(h('div', { class: 'canvas-empty wb-error' }, err.message)); });

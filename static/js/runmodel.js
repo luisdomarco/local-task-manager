@@ -85,6 +85,11 @@ export function runLabel(run, now = Date.now()) {
 }
 
 /** Unread: a run over whose result nobody has looked at yet (opening it, or watching it end in the dock, reads it). */
+/** Archived (tm/agentruns.py archive): out of the Inbox and the Home, still on its agent's page. A run resumed and
+ *  working again is not: what is under way always shows. */
+export const isArchived = (run) => Boolean(run.archived_at) && ['done', 'failed', 'stopped'].includes(runStatus(run));
+/** Whether a run can be archived: one that has ended. */
+export const canArchive = (run) => ['done', 'failed', 'stopped'].includes(runStatus(run));
 export const isUnread = (run) => Boolean(run.outcome) && !run.read_at && ['done', 'failed', 'stopped'].includes(runStatus(run));
 
 /** The Activity page's groups, in this order, each newest first (the server's order); empty ones left out. */

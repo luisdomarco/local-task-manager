@@ -79,6 +79,8 @@ def describe(path, body, before, result):
         return {'action': 'commented', **_item(before or res), 'detail': _text(body.get('text'))}
     if path == '/api/item/comment/delete':
         return {'action': 'deleted a comment', **_item(before or res), 'detail': ''}
+    if path == '/api/item/comment/restore':
+        return {'action': 'restored a comment', **_item(before or res), 'detail': _text((body.get('comment') or {}).get('text') if isinstance(body.get('comment'), dict) else body.get('comment'))}
     if path == '/api/item/convert':
         return {'action': 'converted', **_item(res), 'detail': f"{(before or {}).get('type')} → {res.get('type')}"}
     if path == '/api/item/action':
@@ -86,8 +88,8 @@ def describe(path, body, before, result):
     if path in ('/api/attachments/add', '/api/attachments/remove', '/api/attachments/restore'):
         verb = {'add': 'attached a file', 'remove': 'removed a file', 'restore': 'restored a file'}[path.rsplit('/', 1)[1]]
         return {'action': verb, **_item(before or {}), 'detail': _text(body.get('filename') or body.get('path'))}
-    if path in ('/api/worklog', '/api/worklog/update', '/api/worklog/delete', '/api/worklog/confirm', '/api/worklog/discard'):
-        verb = {'worklog': 'logged work', 'update': 'edited a work log entry', 'delete': 'deleted a work log entry',
+    if path in ('/api/worklog', '/api/worklog/update', '/api/worklog/delete', '/api/worklog/restore', '/api/worklog/confirm', '/api/worklog/discard'):
+        verb = {'worklog': 'logged work', 'update': 'edited a work log entry', 'delete': 'deleted a work log entry', 'restore': 'restored a work log entry',
                 'confirm': 'confirmed work log', 'discard': 'discarded tentative work log'}[path.rsplit('/', 1)[1]]
         it = before or {}
         detail = ' · '.join(x for x in (body.get('kind'), body.get('time'), body.get('date'), _text(body.get('note'), 60)) if x)
@@ -119,6 +121,7 @@ def describe(path, body, before, result):
 
 # The routes that read the item first, to say what changed or what was deleted: where its key is in the request.
 BEFORE_KEY = {'/api/item/update': 'key', '/api/item/delete': 'key', '/api/item/comment': 'key', '/api/item/comment/delete': 'key',
+              '/api/item/comment/restore': 'key',
               '/api/item/convert': 'key', '/api/item/action': 'key', '/api/attachments/remove': 'key',
               '/api/attachments/restore': 'key', '/api/worklog': 'id', '/api/item/claude': 'key', '/api/term/open': 'key',
               '/api/claude/resume': 'key', '/api/term/resume': 'key'}

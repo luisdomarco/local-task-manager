@@ -22,7 +22,7 @@ import { pref, setPref } from '../prefs.js';
 import { STRUCTURE, TYPE_DEFS } from '../rules.js';
 import { setPageTitle } from '../tabtitle.js';
 import { state } from '../state.js';
-import { h, icon, select } from '../ui.js';
+import { countOf, emptyLine, foldHead, h, icon, seg, select } from '../ui.js';
 
 const KIND_LABEL = { parent: 'Parent', project: 'Project', link: 'Link fields', relation: 'Relations', mention: 'Mentions' };
 const KIND_HELP = {
@@ -101,9 +101,10 @@ export function mount(root, param) {
   });
 
   const title = h('h1', {});
-  const count = h('span', { class: 'view-count' });
+  const count = countOf(null, { plain: true, cls: 'view-count' });
   const back = h('a', { href: '#/graph', class: 'graph-back', hidden: true }, icon('back', 13), 'Whole vault');
-  const empty = h('p', { class: 'muted small graph-empty', hidden: true });
+  const empty = emptyLine('', { cls: 'graph-empty' });
+  empty.hidden = true;
   const panel = h('aside', { class: 'graph-panel', 'aria-label': 'Graph settings' });
   const opener = h('button', {
     type: 'button', class: 'btn icon graph-panel-open', title: 'Graph settings', 'aria-label': 'Open the graph settings',
@@ -127,7 +128,7 @@ export function mount(root, param) {
     const sw = toggle(on, label);
     const row = h('label', { class: 'gp-row gp-switch', title: tip },
       dot ? h('span', { class: 'gp-dot', style: `background:${dot}` }) : null,
-      h('span', { class: 'gp-name' }, label), n != null ? h('span', { class: 'gp-n' }, String(n)) : null, sw);
+      h('span', { class: 'gp-name' }, label), n != null ? countOf(n, { plain: true, cls: 'gp-n' }) : null, sw);
     row.addEventListener('click', (e) => { e.preventDefault(); set(!on); });
     return row;
   };
@@ -147,10 +148,7 @@ export function mount(root, param) {
   function section(key, label, body, actions = []) {
     const open = f.open[key];
     const head = h('div', { class: 'gp-head' },
-      h('button', {
-        type: 'button', class: 'gp-fold', 'aria-expanded': String(open),
-        onclick: () => { f.open[key] = !open; save(); paintPanel(); },
-      }, icon(open ? 'down' : 'right', 14), h('span', {}, label)),
+      foldHead({ open, title: label, class: 'gp-fold', onToggle: (next) => { f.open[key] = next; save(); paintPanel(); } }),
       ...actions);
     return h('section', { class: `gp-section ${open ? 'open' : ''}` }, head, open ? h('div', { class: 'gp-body' }, ...body) : null);
   }
@@ -198,17 +196,14 @@ export function mount(root, param) {
         select([[null, 'Every project'], ...projects.map((p) => [p.id, p.title, 'folder'])], f.project,
           (v) => { f.project = v; save(); paint(true); }, { class: 'small', 'aria-label': 'Project' })) : null,
       focus ? h('div', { class: 'gp-row' }, h('span', { class: 'gp-name' }, 'Steps from the centre'),
-        h('div', { class: 'seg', role: 'group', 'aria-label': 'Steps from the centre' }, ...DEPTHS.map((d) => h('button', {
-          type: 'button', class: `btn small ${f.depth === d ? 'active' : ''}`, 'aria-pressed': String(f.depth === d),
-          onclick: () => { f.depth = d; save(); paint(true); },
-        }, String(d))))) : null,
+        seg(DEPTHS.map((d) => [d, String(d)]), f.depth, (d) => { f.depth = d; save(); paint(true); }, { aria: 'Steps from the centre' })) : null,
       sub('Types'),
       h('div', { class: 'gp-chips', role: 'group', 'aria-label': 'Types' }, ...types.map((t) => {
         const on = !f.hidden.has(t);
         return h('button', {
           type: 'button', class: `gp-chip ${on ? 'on' : ''}`, 'aria-pressed': String(on), title: on ? `Hide ${typeName(t)}` : `Show ${typeName(t)}`,
           onclick: () => set((v) => { v ? f.hidden.delete(t) : f.hidden.add(t); })(!on),
-        }, h('span', { class: 'gp-dot', style: `background:${dot(t)}` }), typeName(t), h('span', { class: 'gp-n' }, String(counts.get(t))));
+        }, h('span', { class: 'gp-dot', style: `background:${dot(t)}` }), typeName(t), countOf(counts.get(t), { plain: true, cls: 'gp-n' }));
       })),
       sub('Links'),
       ...EDGE_KINDS.map((k) => switchRow(KIND_LABEL[k], f.kinds.has(k), set((v) => { v ? f.kinds.add(k) : f.kinds.delete(k); }), { tip: KIND_HELP[k] })),

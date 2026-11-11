@@ -258,7 +258,7 @@ export function tagInput(values, onChange, { suggest = () => [], id = null, plac
     for (const l of labels) {
       box.insertBefore(chip(l,
         // mousedown keeps the focus in the field: open, it stays open through the save's re-render
-        h('button', { class: 'x', type: 'button', title: `Remove ${l}`, onmousedown: (e) => e.preventDefault(), onclick: (e) => { e.stopPropagation(); remove(l); } }, icon('x', 11))), more);
+        removeButton(`Remove ${l}`, (e) => { e.stopPropagation(); remove(l); }, { size: 'chip', keepFocus: true })), more);
     }
     fit();
   };
@@ -321,12 +321,15 @@ export function labelFilter(labels, mode, onChange) {
   const btn = selectButton(face, { 'aria-label': 'Label', title: 'Filter by labels' });
   const changed = () => { face.textContent = label(); onChange({ labels: picked(), mode: how }); };
   btn.addEventListener('click', () => {
-    const modes = h('div', { class: 'seg label-mode', role: 'radiogroup', 'aria-label': 'When several labels are ticked' });
-    const paintModes = () => modes.replaceChildren(...Object.entries(LABEL_MODES).map(([m, text]) => h('button', {
-      class: `btn small ${how === m ? 'active' : ''}`, role: 'radio', 'aria-checked': String(how === m),
-      title: m === 'and' ? 'Items that carry every ticked label' : 'Items that carry at least one ticked label',
-      onclick: (e) => { e.stopPropagation(); if (how === m) return; how = m; paintModes(); if (ticked.size > 1) changed(); else face.textContent = label(); },
-    }, text)));
+    let modes = h('span');
+    const paintModes = () => {
+      const next = seg(Object.entries(LABEL_MODES).map(([m, text]) => [m, text,
+        { tip: m === 'and' ? 'Items that carry every ticked label' : 'Items that carry at least one ticked label' }]), how,
+      (m, e) => { e.stopPropagation(); if (how === m) return; how = m; paintModes(); if (ticked.size > 1) changed(); else face.textContent = label(); },
+      { aria: 'When several labels are ticked', role: 'radiogroup', cls: 'label-mode' });
+      modes.replaceWith(next);
+      modes = next;
+    };
     paintModes();
     const row = (l) => {
       const box = h('input', { type: 'checkbox', checked: ticked.has(l), onchange: () => {
@@ -841,16 +844,83 @@ export function dropZone(zone, onDrop) {
   });
 }
 
-// ── dropdown menu (shadcn DropdownMenu) ─────────────────────────────────────
-let openMenu = null;
+// ── floating: what opens over the page from a button ───────────────────────────
+// Two layers, one open in each: a 'menu' (dropdown(), and select()'s and the date picker's lists, which are one) may
+// open from inside a 'panel' (the view bar's popover, itemPicker, Add existing session) and closes alone; opening a
+// panel closes whatever was open. One Esc closes the top one and gives the focus back to its button; one click outside
+// closes it — a click in a menu the panel opened is not outside the panel.
+const layers = { menu: null, panel: null };
 
-export function closeMenu() {
-  if (!openMenu) return;
-  openMenu.el.remove();
-  document.removeEventListener('mousedown', openMenu.outside, true);
-  document.removeEventListener('keydown', openMenu.esc, true);
-  openMenu.anchor.setAttribute('aria-expanded', 'false');
-  openMenu = null;
+function onFloatingDown(e) {
+  const t = e.target;
+  const { menu, panel } = layers;
+  if (menu && !menu.el.contains(t) && !menu.anchor.contains(t)) closeFloating('menu');
+  if (panel && !panel.el.contains(t) && !panel.anchor.contains(t) && !t.closest?.('.menu')) closeFloating('panel');
+}
+function onFloatingKey(e) {
+  const top = layers.menu || layers.panel;
+  if (e.key !== 'Escape' || !top) return;
+  e.stopPropagation(); // not the card's or the dialog's Esc
+  e.preventDefault();
+  if (top.onEsc?.()) return; // it stepped back inside itself
+  closeFloating(top.layer);
+  top.anchor.focus();
+}
+
+/** Close what is open in `layer` ('menu' or 'panel'), if anything. */
+export function closeFloating(layer = 'menu') {
+  const f = layers[layer];
+  if (!f) return;
+  layers[layer] = null;
+  f.el.remove();
+  f.anchor.setAttribute('aria-expanded', 'false');
+  if (!layers.menu && !layers.panel) {
+    document.removeEventListener('mousedown', onFloatingDown, true);
+    document.removeEventListener('keydown', onFloatingKey, true);
+  }
+  f.onClose?.();
+}
+export const closeMenu = () => closeFloating('menu');
+/** Is what `layer` holds the one `anchor` opened? Its button pressed again closes it (`if (floatingFrom(b)) …`). */
+export const floatingFrom = (anchor, layer = 'menu') => layers[layer]?.anchor === anchor;
+
+/**
+ * Show `el` (a `.menu`) over the page from `anchor`, in `layer`: the one there before closes (and, for a panel, the open
+ * menu too). Placed under the button at its left (`align: 'end'`: its right), above it when there is no room under it
+ * (`side: 'top'`: always), else moved up into view. `grow`: its rows change with a search, so it is anchored by the
+ * edge nearest the button and grows away from it, keeping `grow` px of room. `onEsc()` → true when Esc was for
+ * something inside it; `onClose()` runs however it closes. → { el, place() } (place() again when its size changed).
+ */
+export function floating(anchor, el, { layer = 'menu', align = 'start', side = 'auto', grow = 0, onEsc = null, onClose = null } = {}) {
+  closeFloating('menu');
+  if (layer === 'panel') closeFloating('panel');
+  document.body.append(sideSized(el, anchor));
+  const place = () => {
+    const r = anchor.getBoundingClientRect();
+    const w = el.offsetWidth;
+    el.style.left = `${Math.max(8, Math.min(align === 'end' ? r.right - w : r.left, innerWidth - w - 8))}px`;
+    el.style.top = el.style.bottom = '';
+    if (grow) {
+      if (r.bottom + 6 + grow > innerHeight - 8) el.style.bottom = `${innerHeight - r.top + 6}px`;
+      else el.style.top = `${r.bottom + 6}px`;
+      return;
+    }
+    const tall = el.offsetHeight;
+    const below = r.bottom + 6;
+    const above = r.top - 6 - tall;
+    el.style.top = `${side === 'top' ? Math.max(8, above)
+      : below + tall <= innerHeight - 8 ? below
+        : above >= 8 ? above
+          : Math.max(8, innerHeight - tall - 8)}px`;
+  };
+  place();
+  if (!layers.menu && !layers.panel) {
+    document.addEventListener('mousedown', onFloatingDown, true);
+    document.addEventListener('keydown', onFloatingKey, true);
+  }
+  layers[layer] = { layer, el, anchor, onEsc, onClose };
+  anchor.setAttribute('aria-expanded', 'true');
+  return { el, place };
 }
 
 /** A button that opens a menu but looks like a select (see select()); `label` is its text. */
@@ -892,7 +962,7 @@ export function tabPanels(tabs, active, onChange = () => {}, { more = [], onMore
       type: 'button', class: `tab-btn${t.apart ? ' apart' : ''}`, role: 'tab', 'aria-selected': 'false', 'data-tab': t.key, title: full,
       'aria-label': full && (t.count ? `${full} ${t.count}` : full), // the whole name for a screen reader too
       onclick: () => show(t.key),
-    }, h('span', { class: 'tab-label' }, text), t.count ? h('span', { class: 'tab-count' }, t.count) : null);
+    }, h('span', { class: 'tab-label' }, text), t.count ? countOf(t.count, { tab: true }) : null);
     // Short of room a tab narrows and its name is cut by the CSS too: then it is said whole on hover as well.
     const cut = () => { const l = btn.firstChild; btn.title = full || (typeof text === 'string' && l.scrollWidth > l.clientWidth ? text : ''); };
     btn.addEventListener('mouseenter', cut);
@@ -909,7 +979,7 @@ export function tabPanels(tabs, active, onChange = () => {}, { more = [], onMore
     const names = more.map((t) => t.label).join(', ');
     const plus = h('button', {
       type: 'button', class: 'tab-btn tab-more', title: `More tabs: ${names}`, 'aria-label': `More tabs: ${names}`, 'aria-haspopup': 'menu',
-      onclick: () => dropdown(plus, more.map((t) => ({ label: t.label, kbd: t.count ? String(t.count) : null, onSelect: () => onMore(t.key) })),
+      onclick: () => dropdown(plus, more.map((t) => ({ label: t.label, count: t.count || null, onSelect: () => onMore(t.key) })),
         { width: 200 }),
     }, icon('plus', 14));
     bar.insertBefore(plus, [...buttons.values()].find((b) => tabs.find((t) => t.key === b.dataset.tab)?.pinned) || null);
@@ -937,7 +1007,7 @@ export function tabPanels(tabs, active, onChange = () => {}, { more = [], onMore
   return [bar, ...panels.values()];
 }
 
-export const menuIsOpen = () => openMenu !== null;
+export const menuIsOpen = () => layers.menu !== null;
 
 /** A menu, list or calendar opened from the side panel of a card or page is drawn at the panel's one text size
  *  (app.css .menu-side: Classic's; Modern draws it as any other), though it lives on the body. */
@@ -947,12 +1017,12 @@ export function sideSized(el, anchor) {
 }
 
 /**
- * Open a menu under `anchor`. `items` are nodes, or { label, icon, kbd, onSelect,
- * danger, keepOpen } entries, or '-' for a separator. Clicking the anchor again closes it.
+ * Open a menu under `anchor`. `items` are nodes, or { label, icon, kbd, count, onSelect,
+ * danger, keepOpen } entries, or '-' for a separator. Clicking the anchor again closes it. `kbd` is a shortcut (a
+ * keycap); `count` a number of things, the grey `.count` pill the tabs and the sidebar use.
  */
 export function dropdown(anchor, items, { align = 'start', width = null, focus = true, side = 'auto' } = {}) {
-  if (openMenu && openMenu.anchor === anchor) { closeMenu(); return; }
-  closeMenu();
+  if (floatingFrom(anchor)) { closeMenu(); return; }
   const el = h('div', { class: 'menu', role: 'menu', style: width ? `width:${width}px` : null });
   for (const it of items) {
     if (it === '-') el.append(h('div', { class: 'menu-sep' }));
@@ -965,45 +1035,30 @@ export function dropdown(anchor, items, { align = 'start', width = null, focus =
         class: `menu-item ${it.danger ? 'danger' : ''}`, role: 'menuitem', title: it.title || null,
         'aria-disabled': it.disabled ? 'true' : null,
         onclick: (e) => { e.stopPropagation(); if (it.disabled) return; if (!it.keepOpen) closeMenu(); it.onSelect(btn); },
-      }, it.icon ? icon(it.icon, 15) : null, h('span', {}, it.label), it.kbd ? h('kbd', {}, it.kbd) : null);
+      }, it.icon ? icon(it.icon, 15) : null, h('span', {}, it.label), it.kbd ? h('kbd', {}, it.kbd) : null, it.count ? h('span', { class: 'count' }, String(it.count)) : null);
       el.append(btn);
     }
   }
-  document.body.append(sideSized(el, anchor));
-  const r = anchor.getBoundingClientRect();
-  const w = el.offsetWidth;
-  const left = align === 'end' ? r.right - w : r.left;
-  el.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
-  const below = r.bottom + 6;
-  const above = Math.max(8, r.top - el.offsetHeight - 6);
-  // `side: 'top'` always opens above (a button at a dialog's foot); else below, unless there is no room there.
-  el.style.top = `${side === 'top' || below + el.offsetHeight > innerHeight - 8 ? above : below}px`;
-  const outside = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) closeMenu(); };
-  const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeMenu(); anchor.focus(); } };
-  document.addEventListener('mousedown', outside, true);
-  document.addEventListener('keydown', esc, true);
-  anchor.setAttribute('aria-expanded', 'true');
-  openMenu = { el, anchor, outside, esc };
+  floating(anchor, el, { align, side }); // `side: 'top'`: a button at a dialog's foot
   if (focus) el.querySelector('button, input, select')?.focus();
 }
 
 /**
- * A section whose title folds what is under it (an item's Attachments, its Area and objective): ▸/▾, an icon, the title
- * and, given one, a count. Open or folded is kept under `key` for every item (this browser only); open at first.
- * `body` is the element folded (it needs an id); `cls` the section's classes.
+ * A header that folds what is under it (design.md §Fold heads): one button — a chevron (14px; 12 in a sidebar-like
+ * tree, `small`), its icon, its name (a string, or nodes), its count — with `aria-expanded` and a tooltip that says
+ * what a click does. The caller keeps whether it is open (a pref, a Set, a view's state) and redraws on
+ * `onToggle(open)`; `class` names the place (its type size and room in app.css), never another hover or chevron.
+ * `attrs` go on the button (aria-controls, disabled…); `what` is the tooltip's noun when the name is not a string.
  */
-export function foldSection({ key, title, ico, count = null, cls = '' }, body) {
-  const head = h('button', { type: 'button', class: 'fold-head', 'aria-controls': body.id });
-  const show = (open) => {
-    body.hidden = !open;
-    head.setAttribute('aria-expanded', String(open));
-    head.title = `${open ? 'Hide' : 'Show'} ${title.toLowerCase()}`;
-    head.replaceChildren(...[icon(open ? 'down' : 'right', 14), icon(ico, 15), h('span', { class: 'fold-title' }, title),
-      count === null ? null : h('span', { class: 'tab-count' }, String(count))].filter(Boolean));
-  };
-  show(pref(`${key}.open`, true) !== false);
-  head.addEventListener('click', () => { const open = body.hidden; show(open); setPref(`${key}.open`, open); });
-  return h('section', { class: `${cls} fold-section` }, head, body);
+export function foldHead({ open, title, onToggle, ico = null, count = null, small = false, what = null, tip = null, class: cls = '', attrs = {} }) {
+  const noun = what ?? (typeof title === 'string' ? title.toLowerCase() : null);
+  return h('button', {
+    type: 'button', ...attrs, class: `fold-head ${cls}`.trim(), 'aria-expanded': String(!!open),
+    title: tip ?? (noun ? `${open ? 'Hide' : 'Show'} ${noun}` : null),
+    onclick: (e) => onToggle(!open, e),
+  }, icon(open ? 'down' : 'right', small ? 12 : 14), typeof ico === 'string' ? icon(ico, small ? 13 : 15) : ico,
+  typeof title === 'string' ? h('span', { class: 'fold-title' }, title) : title,
+  count === null || count === undefined || count === '' ? null : countOf(count, { tab: true }));
 }
 
 /**
@@ -1024,16 +1079,171 @@ export function pageHead({ title, count = null, action = null }) {
     h('div', { class: 'view-title' }, h('h1', {}, title), count), h('span', { class: 'spacer' }), action);
 }
 /** A page's count, for pageHead: grey, on the title's baseline. */
-export const pageCount = () => h('span', { class: 'muted view-count' });
+export const pageCount = () => countOf(null, { plain: true, cls: 'view-count' });
 /** A page with nothing to show: a quiet grey line where its rows go, no box (a list's empty row). */
 export const pageEmpty = (text) => h('p', { class: 'page-empty' }, text);
 
 export function emptyState(text) {
   return h('div', { class: 'empty' }, text);
 }
+/** Nothing here, inside a panel, a tab or a group: one grey line, no box (`emptyState` is a whole page's). `cls` only
+ *  places it (an indent, an overlay). */
+export const emptyLine = (text, { cls = '' } = {}) => h('p', { class: `child-empty ${cls}`.trim() }, text);
+/** Being read: the same grey line, announced to a screen reader. A whole page's too (`views/detail.js`). */
+export const loadingLine = (text = 'Loading…', { cls = '' } = {}) =>
+  h('p', { class: `child-empty is-loading ${cls}`.trim(), role: 'status', 'aria-busy': 'true' }, text);
+
+/**
+ * A property row (docs/design.md → Properties): its name in grey, then its control, in a `prop-rows` list. `tag`
+ * 'label' when the control is one field (a click on the name focuses it), 'div' for a group of controls or a value
+ * that is only read; `help` a grey line under the control (Settings); `wide` takes the whole row of a two-column grid;
+ * `attrs` the row's own (a `title`, a `role`).
+ */
+export function propRow(label, control, { tag = 'label', help = null, wide = false, cls = '', attrs = {} } = {}) {
+  return h(tag, { ...attrs, class: `field${wide ? ' wide' : ''} ${cls}`.trim() }, h('span', {}, label),
+    help ? h('div', { class: 'set-control' }, control, h('p', { class: 'muted small set-help' }, help)) : control);
+}
+
+/**
+ * A form's actions, or a confirm's (docs/design.md → Forms): `lead` at the left (the keys, what will happen, a Delete),
+ * then Cancel — always a ghost button — and the caller's `actions` at the right, the last one primary (or danger).
+ * `small` in a panel, a row or a table; regular in a dialog. → `div.form-actions`.
+ */
+export function formActions({ lead = null, onCancel = null, cancelLabel = 'Cancel', actions = [], small = false, cls = '' }) {
+  return h('div', { class: `form-actions ${cls}`.trim() }, ...[lead].flat(), h('span', { class: 'spacer' }),
+    onCancel ? h('button', { type: 'button', class: `btn ghost${small ? ' small' : ''}`, onclick: onCancel }, cancelLabel) : null,
+    ...[actions].flat());
+}
+
+/** A button that reads as a link: underlined text, no box. `muted` greys it until hover (a line under a table). */
+export const linkButton = (text, onClick, { muted = false, cls = '', attrs = {} } = {}) =>
+  h('button', { type: 'button', ...(onClick ? { onclick: onClick } : {}), ...attrs, class: `link${muted ? ' muted' : ''} ${cls}`.trim() }, ...[text].flat());
+
+/** *Show 3 closed* / *Hide closed* under a group or a day: `n` closed, `noun` the type's word ("closed", "done"). */
+export const closedToggle = ({ n, shown, noun = 'closed', onToggle, cls = '' }) =>
+  linkButton(shown ? `Hide ${noun}` : `Show ${n} ${noun}`, () => onToggle(!shown), { muted: true, cls: `closed-toggle ${cls}`.trim(),
+    attrs: { 'aria-pressed': String(!!shown) } });
+
+// ── Dialog: the one `#modal` (index.html), opened and closed the same way everywhere (docs/design.md → Dialogs) ──
+
+/** Keep Tab inside a dialog (`#modal`, `#item-modal`). */
+export function trapFocus(root, e) {
+  const els = [...root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.disabled && el.offsetParent !== null);
+  if (!els.length) return;
+  const first = els[0]; const last = els[els.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+let openOne = null; // the dialog on screen: a new one closes it first, and keeps its opener
+
+/**
+ * Open `#modal`: a `.modal-head` (icon, title, `head` nodes, the ✕), `body`, a `.modal-foot` of `foot` nodes. Tab stays
+ * inside; Esc, the ✕ and a press on the backdrop close it, unless `dismissable()` says no (a save in flight); the focus
+ * goes back to what opened it. `title: null` leaves the head to the caller (the create form's own frame); so does an
+ * empty `body`, filled later through `modal`. `onKey(e)` sees every key first (⌘↵ to save). `focus` is the element (or
+ * a function) to focus once it's drawn; the ✕ without one. → `{ modal, close(value) }`; `onClose(value)` runs once,
+ * after it closes (`value` undefined when dismissed).
+ */
+export function openDialog({ title = null, ico = null, label = null, cls = '', head = [], body = [], foot = null,
+  focus = null, onKey = null, onClose = null, dismissable = () => true }) {
+  const backdrop = document.getElementById('modal-backdrop');
+  const modal = document.getElementById('modal');
+  const opener = openOne ? openOne.opener : document.activeElement;
+  if (openOne) openOne.close(undefined, { refocus: false });
+  let closed = false;
+  const close = (value, { refocus = true } = {}) => {
+    if (closed) return;
+    closed = true;
+    if (openOne === self) openOne = null;
+    backdrop.hidden = true;
+    backdrop.onmousedown = null;
+    modal.onkeydown = null;
+    modal.className = '';
+    modal.removeAttribute('aria-label');
+    modal.replaceChildren();
+    if (refocus && opener && document.contains(opener)) opener.focus();
+    onClose?.(value);
+  };
+  const dismiss = () => { if (dismissable()) close(); };
+  const self = { modal, close, opener };
+  openOne = self;
+  const closeBtn = title === null ? null
+    : h('button', { type: 'button', class: 'btn icon', title: 'Close (Esc)', 'aria-label': 'Close', onclick: dismiss }, icon('x', 16));
+  modal.className = cls;
+  modal.setAttribute('aria-label', label || (typeof title === 'string' ? title : '') || 'Dialog');
+  modal.replaceChildren(...[
+    title === null ? null : h('div', { class: 'modal-head' }, h('h2', {}, ico ? icon(ico, 18) : null, title), ...head, closeBtn),
+    ...[body].flat(),
+    foot ? h('div', { class: 'modal-foot' }, ...[foot].flat()) : null,
+  ].filter(Boolean));
+  backdrop.hidden = false;
+  backdrop.onclick = null; // an older dialog's
+  // On mousedown, not click: a drag that starts in a field and ends outside it is not a press on the backdrop.
+  backdrop.onmousedown = (e) => { if (e.target === backdrop) dismiss(); };
+  modal.onkeydown = (e) => {
+    onKey?.(e);
+    if (e.defaultPrevented) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismiss(); } // only the top layer
+    else if (e.key === 'Tab') trapFocus(modal, e);
+  };
+  // After the key that opened it is done, or its letter lands in the field.
+  setTimeout(() => {
+    if (closed) return;
+    if (typeof focus === 'function') focus();
+    else (focus || closeBtn)?.focus();
+  }, 0);
+  return self;
+}
 
 // ── Panel kit: the side panel's patterns, as components (docs/design.md §3 Panel kit; their CSS in app.css under the
 // same name). Built for the side panel, usable anywhere: the size comes from where they sit.
+
+const SEG_ROLES = { group: [null, 'aria-pressed'], tablist: ['tab', 'aria-selected'], radiogroup: ['radio', 'aria-checked'] };
+/**
+ * A segmented control: one `.seg` of buttons, the picked one `.active` (List | Board, is | is not, Hide | Show).
+ * `options` are `[value, label, { ico, tip, disabled, lead, attrs }]`: `label` text or a node, or null for an icon
+ * alone (`ico`, its `tip` the name). `role` 'group' (aria-pressed), 'tablist' (tabs, aria-selected) or 'radiogroup'.
+ * `onPick(value, event)`. Small buttons unless `small: false` (Settings → Themes).
+ */
+export function seg(options, current, onPick, { aria = null, role = 'group', cls = '', small = true, disabled = false } = {}) {
+  const [itemRole, state] = SEG_ROLES[role] || SEG_ROLES.group;
+  return h('div', { class: `seg ${cls}`.trim(), role, 'aria-label': aria }, ...options.map(([value, label, o = {}]) => {
+    const on = current === value;
+    const iconOnly = o.ico && (label === null || label === undefined || label === '');
+    return h('button', {
+      type: 'button', ...(o.attrs || {}), role: itemRole, [state]: String(on), disabled: disabled || !!o.disabled,
+      class: `btn${small ? ' small' : ''}${iconOnly ? ' icon' : ''}${on ? ' active' : ''}`, title: o.tip ?? null,
+      'aria-label': iconOnly ? o.tip : null, onclick: (e) => onPick(value, e),
+    }, o.lead ?? null, o.ico ? icon(o.ico, 13) : null, iconOnly ? null : label);
+  }));
+}
+
+/** A small grey uppercase section title (*PROPERTIES*, *WHEN*): `.section-label`, the recipe app.css shares with the
+ *  titles that wear it by place (Settings' groups, Statuses', a card's prop groups). */
+export const sectionLabel = (content, tag = 'h4') => h(tag, { class: 'section-label' }, content); // content: text, or [text, …nodes]
+
+/** A tab's or a group's "+ Add …" on its first line (Links, Files, a project's work groups): a small ghost button, the
+ *  plus and its words. (Docs' is a `select()` with the same face: `class: 'ghost tab-add'`.) */
+/** The × that removes or closes one thing, named by `label` (its tooltip and its name for a screen reader). `size`
+ * 'chip' sits inside a chip or a tag and takes its colour; 'row' is a square beside a row, a pinned item or a filter
+ * pill. `keepFocus` keeps a field's focus through the click (a tag input). Where it shows (on hover) is its caller's.
+ * Its size class is `x-row` / `x-chip`: a bare `chip` would make it a chip to every `.chip` rule and selector. */
+export const removeButton = (label, onClick, { size = 'row', cls = '', keepFocus = false, attrs = {} } = {}) => h('button', {
+  type: 'button', ...attrs, class: `x-btn x-${size} ${cls}`.trim(), title: label, 'aria-label': label,
+  onmousedown: keepFocus ? (e) => e.preventDefault() : null, onclick: onClick,
+}, icon('x', size === 'chip' ? 11 : 12));
+
+/** A count. The default is the tinted pill (`.count`, pushed to its row's end; `tab` the one inside a tab, `.tab-count`);
+ * `plain` is the muted number beside a group's or a page's title, `cls` naming where it sits. It draws `n` as it is:
+ * 0 is "0", and null, undefined or false draw nothing (an empty pill hides) — pass `n || null` to hide a 0. */
+export const countOf = (n, { tab = false, plain = false, cls = '', attrs = {} } = {}) =>
+  h('span', { ...attrs, class: `${plain ? 'count-plain' : tab ? 'tab-count' : 'count'} ${cls}`.trim() },
+    n === null || n === undefined || n === false ? '' : String(n));
+
+export const tabAddButton = (label, onClick, attrs = {}) =>
+  h('button', { type: 'button', ...attrs, class: `btn small ghost tab-add ${attrs.class || ''}`.trim(), onclick: onClick }, icon('plus', 14), label);
 
 /** A secondary button: a border and no fill (the accent on hover). "+ Add relation", "Add existing session". */
 export const secondaryButton = (label, { ico = null, class: cls = '', ...attrs } = {}) =>
@@ -1078,7 +1288,7 @@ export function rowAction(ico, label, onClick, attrs = {}) {
 export function section(title, items, opts = {}, actions = null) {
   if (!items.length && !opts.showEmpty) return null;
   return h('section', { class: `group ${opts.class || ''}` },
-    h('header', {}, h('h3', {}, title, h('span', { class: 'count' }, items.length || '')), actions),
+    h('header', {}, h('h3', {}, title, countOf(items.length || null)), actions),
     items.length ? h('div', { class: 'cards' }, items.map((i) => itemCard(i, opts))) : emptyState(opts.emptyText || 'Nothing here.'));
 }
 

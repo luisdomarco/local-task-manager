@@ -7,42 +7,24 @@
 // values — a box, a status's dot, the name and how many items hold it (a value no item holds is grey) — with is / is
 // not. Group picks what the rows (or a board's columns) group by; Display, which closed items show, the order and the
 // columns or card properties on show. The view is the page's own (viewmodel.js), saved by the page as it changes.
-import { closeMenu, h, icon, priorityChip, searchBox as searchBoxOf, select, statusLabel, typeIcon, cssKey } from './ui.js';
+import { closeFloating, cssKey, floating, floatingFrom, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, typeIcon } from './ui.js';
 import { cardShows, columnOn, fresh, filterParts, filterText, groupLabel, matches, valueCounts } from './viewmodel.js';
 
 const CLOSED_MODES = [['none', 'None'], ['week', 'Last week'], ['all', 'All']];
 const EMPTY_MODES = [['show', 'Show'], ['fold', 'Fold'], ['hide', 'Hide']];
 
-// ── the popover: a menu that stays open while you pick (one at a time; Esc or a click outside closes it) ─────────
-let open = null;
-export function closePopover() {
-  if (!open) return;
-  document.removeEventListener('mousedown', open.outside, true);
-  document.removeEventListener('keydown', open.esc, true);
-  open.el.remove();
-  open.anchor.setAttribute('aria-expanded', 'false');
-  open = null;
-}
+// ── the popover: a menu that stays open while you pick (a 'panel' of ui.js floating: one at a time, Esc or a click
+// outside closes it, a select's list opened from it does not) ─────────
+let open = null; // { anchor, render } of the one open; cleared however it closes
+export const closePopover = () => { if (open) closeFloating('panel'); };
 /** A popover under `anchor`, drawn by render(el): a page's own (Work log's date range) as the bar's. */
 export function popover(anchor, render, { width = 260, align = 'start' } = {}) {
-  if (open?.anchor === anchor) { closePopover(); return null; }
-  closePopover();
-  closeMenu();
+  if (floatingFrom(anchor, 'panel')) { closePopover(); return null; }
   const el = h('div', { class: 'menu vb-pop', role: 'dialog', style: `width:${width}px` });
-  document.body.append(el);
-  const place = () => {
-    const r = anchor.getBoundingClientRect();
-    const w = el.offsetWidth;
-    el.style.left = `${Math.max(8, Math.min(align === 'end' ? r.right - w : r.left, innerWidth - w - 8))}px`;
-    el.style.top = `${Math.min(r.bottom + 6, Math.max(8, innerHeight - el.offsetHeight - 8))}px`;
-  };
-  // A pick in a menu the popover opened (a select's list) is not a click outside it.
-  const outside = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target) && !e.target.closest?.('.menu')) closePopover(); };
-  const esc = (e) => { if (e.key === 'Escape' && !document.querySelector('.menu:not(.vb-pop)')) { e.stopPropagation(); closePopover(); anchor.focus(); } };
-  document.addEventListener('mousedown', outside, true);
-  document.addEventListener('keydown', esc, true);
-  anchor.setAttribute('aria-expanded', 'true');
-  open = { el, anchor, outside, esc, render: () => { render(el); place(); } };
+  const me = { anchor };
+  const { place } = floating(anchor, el, { layer: 'panel', align, onClose: () => { if (open === me) open = null; } });
+  me.render = () => { render(el); place(); };
+  open = me;
   open.render();
   el.querySelector('input, button')?.focus();
   return open;
@@ -139,10 +121,8 @@ export function viewBar(opts) {
         h('button', { type: 'button', class: 'btn icon small', title: 'Back to the fields', 'aria-label': 'Back', onclick: () => { level = null; repaint(); } }, icon('left', 14)),
         h('strong', {}, f.label),
         h('span', { class: 'spacer' }),
-        h('div', { class: 'seg vb-op', role: 'group', 'aria-label': 'Match' }, ...[['is', 'is'], ['isnot', 'is not']].map(([k, l]) => h('button', {
-          type: 'button', class: `btn small ${op === k ? 'active' : ''}`, 'aria-pressed': String(op === k),
-          onclick: () => (on ? setValues(f.key, on.values, k) : (pending = k, repaint())),
-        }, l)))),
+        seg([['is', 'is'], ['isnot', 'is not']], op, (k) => (on ? setValues(f.key, on.values, k) : (pending = k, repaint())),
+          { aria: 'Match', cls: 'vb-op' })),
       h('div', { class: 'vb-values' }, ...f.values(ctx(), items()).map((v) => {
         const n = counts[v.value] || 0;
         const box = h('input', { type: 'checkbox', checked: picked.has(v.value) });
@@ -196,7 +176,7 @@ export function viewBar(opts) {
           type: 'button', class: 'vb-chip-text', title: 'Change this filter',
           onclick: (e) => { level = f.field; pending = f.op; popover(e.currentTarget, renderFilter, { width: 280 }); },
         }, `${parts.head} `, h('b', {}, parts.values)),
-        h('button', { type: 'button', class: 'vb-chip-x', 'aria-label': `Remove ${filterText(f, fs, ctx(), items())}`, onclick: () => setValues(f.field, []) }, icon('x', 12)));
+        removeButton(`Remove ${filterText(f, fs, ctx(), items())}`, () => setValues(f.field, []), { cls: 'vb-chip-x' }));
     }),
     ...(on.length ? [h('button', { type: 'button', class: 'vb-clear', onclick: () => change({ filters: [] }) }, 'Clear')] : []),
     ...(on.length && opts.saveAs ? [saveAsBtn('vb-clear vb-save')] : []));
@@ -212,10 +192,8 @@ export function viewBar(opts) {
     const dir = opts.dir?.() ?? 1;
     el.replaceChildren(
       h('div', { class: 'vb-pop-head' }, h('strong', {}, 'Order by'), h('span', { class: 'spacer' }),
-        unordered() ? null : h('div', { class: 'seg vb-op', role: 'group', 'aria-label': 'Direction' }, ...[[1, 'Ascending', 'up'], [-1, 'Descending', 'down']].map(([d, l, ico]) => h('button', {
-          type: 'button', class: `btn small icon ${dir === d ? 'active' : ''}`, 'aria-pressed': String(dir === d), title: l, 'aria-label': l,
-          onclick: () => { opts.onDir?.(d); update(); repaint(); },
-        }, icon(ico, 13))))),
+        unordered() ? null : seg([[1, null, { ico: 'up', tip: 'Ascending' }], [-1, null, { ico: 'down', tip: 'Descending' }]], dir,
+          (d) => { opts.onDir?.(d); update(); repaint(); }, { aria: 'Direction', cls: 'vb-op' })),
       ...ordersNow().map(([k, l]) => h('button', {
         type: 'button', class: `menu-item ${opts.order() === k ? 'current' : ''}`, 'aria-pressed': String(opts.order() === k),
         onclick: () => { opts.onOrder(k); update(); repaint(); },
@@ -260,13 +238,10 @@ export function viewBar(opts) {
   const displayBtn = h('button', { type: 'button', class: 'btn ghost small vb-btn', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Display' }, icon('columns', 14), h('span', { class: 'vb-btn-text' }, 'Display'));
   function renderDisplay(el) {
     const row = (label, control) => h('div', { class: 'vb-row' }, h('span', {}, label), control);
-    const seg = (pairs, current, pick, aria) => h('div', { class: 'seg', role: 'group', 'aria-label': aria }, ...pairs.map(([k, l]) => h('button', {
-      type: 'button', class: `btn small ${current === k ? 'active' : ''}`, 'aria-pressed': String(current === k), onclick: () => pick(k),
-    }, l)));
     el.replaceChildren(...[
       ...(opts.displayRows?.() || []),
-      closable ? row('Show closed', seg(opts.closedModes || CLOSED_MODES, view.closed, (k) => change({ closed: k }), 'Show closed')) : null,
-      isBoard() ? row('Empty columns', seg(EMPTY_MODES, view.emptyCols || 'fold', (k) => change({ emptyCols: k, boardFold: {} }), 'Empty columns')) : null,
+      closable ? row('Show closed', seg(opts.closedModes || CLOSED_MODES, view.closed, (k) => change({ closed: k }), { aria: 'Show closed' })) : null,
+      isBoard() ? row('Empty columns', seg(EMPTY_MODES, view.emptyCols || 'fold', (k) => change({ emptyCols: k, boardFold: {} }), { aria: 'Empty columns' })) : null,
       props.length && !isBoard() ? pills(opts.propsLabel || 'Show columns', props, (k) => columnOn(view.props, k),
         (k) => change({ props: { ...view.props, [k]: !columnOn(view.props, k) } })) : null,
       cardProps.length && isBoard() ? pills('Show on cards', cardProps, (k) => cardShows(view, k),
@@ -283,11 +258,9 @@ export function viewBar(opts) {
   displayBtn.addEventListener('click', () => popover(displayBtn, renderDisplay, { width: 300, align: 'end' }));
 
   // ── List | Board ──
-  const layoutSeg = layout ? h('div', { class: 'seg vb-layout', role: 'group', 'aria-label': 'Layout' }) : null;
-  const paintLayout = () => layoutSeg?.replaceChildren(...LAYOUTS.map(([k, l, ico]) => h('button', {
-    type: 'button', class: `btn small ${layout.current() === k ? 'active' : ''}`, 'aria-pressed': String(layout.current() === k), title: `Show as a ${l.toLowerCase()}`,
-    onclick: () => { if (layout.current() !== k) { closePopover(); layout.pick(k); } },
-  }, icon(ico, 14), h('span', { class: 'vb-layout-text' }, l))));
+  const layoutSeg = layout ? h('div', { class: 'vb-layout-slot' }) : null;
+  const paintLayout = () => layoutSeg?.replaceChildren(seg(LAYOUTS.map(([k, l, ico]) => [k, h('span', { class: 'vb-layout-text' }, l), { ico, tip: `Show as a ${l.toLowerCase()}` }]),
+    layout.current(), (k) => { if (layout.current() !== k) { closePopover(); layout.pick(k); } }, { aria: 'Layout', cls: 'vb-layout' }));
 
   const bar = h('div', { class: 'view-bar', role: 'toolbar', 'aria-label': 'View' },
     searchBox, filterBtn, ...(opts.lead || []), h('span', { class: 'spacer' }), opts.note ? h('span', { class: 'vb-note' }, opts.note) : null, orderBtn, groupBtn, displayBtn, layoutSeg);

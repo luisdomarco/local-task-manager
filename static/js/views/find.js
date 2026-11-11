@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { filesHref } from '../filetree.js';
 import { state } from '../state.js';
-import { h, icon } from '../ui.js';
+import { emptyLine, h, icon } from '../ui.js';
 import { openFileAtLine } from './files.js';
 
 export const findHref = (q) => `#/find/${encodeURIComponent(q)}`;
@@ -49,7 +49,7 @@ export function mount(root, param) {
   if (q.length >= 2) {
     api.searchFiles(q).then((out) => {
       if (!live) return;
-      if (!out.results.length) { body.replaceChildren(h('p', { class: 'muted' }, `Nothing found for “${q}”.`)); return; }
+      if (!out.results.length) { body.replaceChildren(emptyLine(`Nothing found for “${q}”.`)); return; }
       const groups = new Map();
       for (const r of out.results) groups.set(r.path, [...(groups.get(r.path) || []), r]);
       body.replaceChildren(

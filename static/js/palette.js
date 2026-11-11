@@ -11,7 +11,7 @@ import { bodyHits, groupByType, matches, norm, typeOrder } from './search.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, filesHref } from './filetree.js';
 import { state } from './state.js';
-import { TYPE_ICON_NAME, h, icon, typeIcon } from './ui.js';
+import { emptyLine, h, icon, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
 // The views every vault has (main.js FIXED_VIEWS); each type's list joins them from the vault's structure (views()).
@@ -150,7 +150,7 @@ export function openPalette() {
       h('span', { class: 'palette-label' }, r.label), r.meta ? h('span', { class: 'muted small' }, r.meta) : null, r.kbd ? h('kbd', {}, r.kbd) : null));
     });
     list.replaceChildren(...(groups.length ? groups.map((g) => h('div', { class: 'palette-group' }, h('div', { class: 'menu-label' }, g.name), g.rows))
-      : [h('p', { class: 'muted small palette-empty' }, 'Nothing matches.')]));
+      : [emptyLine('Nothing matches.', { cls: 'palette-empty' })]));
     input.setAttribute('aria-activedescendant', current.length ? `palette-opt-${active}` : '');
     list.querySelector('.palette-row.active')?.scrollIntoView({ block: 'nearest' });
   };

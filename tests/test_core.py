@@ -849,6 +849,47 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.s.assign_missing_ids(), [{'path': 'a/b/manual.md', 'id': 'TSK-0001'}])
         self.assertEqual(self.s.find('TSK-0001')['title'], 'Manual')
 
+    def test_a_deleted_comment_comes_back_the_same_at_its_place(self):
+        # The page's Undo: delete_comment says what went, restore_comment puts that same comment back.
+        self.s.create('task', 'T')
+        for text in ('one', 'two', 'three'):
+            self.s.add_comment('TSK-0001', text)
+        self.s.edit_comment('TSK-0001', 1, 'two, fixed')
+        was = self.s.read('TSK-0001')['fields']['comments'][1]
+        out = self.s.delete_comment('TSK-0001', 1)
+        self.assertEqual(out['removed'], was)
+        back = self.s.restore_comment('TSK-0001', 1, out['removed'])['fields']['comments']
+        self.assertEqual(back[1], was)  # its text, its `at`, its `edited`
+        self.assertEqual([c['text'] for c in back], ['one', 'two, fixed', 'three'])
+        # The list shortened meanwhile: it goes last, never out of range
+        self.s.delete_comment('TSK-0001', 2)
+        self.assertEqual(self.s.restore_comment('TSK-0001', 9, {'text': 'late'})['fields']['comments'][-1]['text'], 'late')
+        with self.assertRaises(StoreError) as e:
+            self.s.restore_comment('TSK-0001', 0, {'text': '  '})
+        self.assertEqual(e.exception.status, 400)
+
+    def test_a_deleted_work_log_entry_comes_back_the_same_at_its_place(self):
+        self.s.create('task', 'A')
+        self.s.log_work('TSK-0001', 'Analysis', 'dig', '2026-10-14', time='01:30')
+        self.s.log_work('TSK-0001', 'Testing', '', '2026-10-14', time='00:15')
+        out = self.s.unlog_work('2026-10-14', 0)
+        self.assertEqual((out['removed']['kind'], out['removed']['note'], out['removed']['time']), ('Analysis', 'dig', '01:30'))
+        back = self.s.restore_log('2026-10-14', 0, out['removed'])
+        self.assertEqual(back['index'], 0)
+        self.assertEqual([(e['kind'], e['time']) for e in self.s.worklog()], [('Analysis', '01:30'), ('Testing', '00:15')])
+        # The day's only entry: its file goes with it, and comes back with it
+        self.s.log_work('TSK-0001', 'Coding', '', '2026-10-15')
+        gone = self.s.unlog_work('2026-10-15', 0)['removed']
+        self.s.restore_log('2026-10-15', 0, {**gone, 'stray': 'x'})
+        last = [e for e in self.s.worklog() if e['date'] == '2026-10-15']
+        self.assertEqual([e['kind'] for e in last], ['Coding'])
+        self.assertNotIn('stray', last[0])  # only a log entry's own keys
+        for bad in ({'kind': 'Coding'}, 'Coding', None):
+            with self.assertRaises(StoreError):
+                self.s.restore_log('2026-10-15', 0, bad)
+        with self.assertRaises(StoreError):
+            self.s.restore_log('15/10/2026', 0, gone)
+
     def test_delete_goes_to_trash(self):
         self.s.create('note', 'N')
         self.s.delete('NOTE-0001')

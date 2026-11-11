@@ -24,7 +24,7 @@ import { cssWidth, wireResizer } from '../resizer.js';
 import { TYPE_DEFS, isDone } from '../rules.js';
 import { refOf } from '../shownid.js';
 import { onChange, state, toast } from '../state.js';
-import { h, icon, typeIcon } from '../ui.js';
+import { emptyLine, emptyState, foldHead, h, icon, secondaryButton, typeIcon } from '../ui.js';
 import { goalsProvider } from './goals.js';
 import { pathOfParam } from '../filetree.js';
 
@@ -107,14 +107,13 @@ function paint() {
   panel.replaceChildren(...sections().flatMap((s) => {
     const isFolded = off.has(s.host);
     const head = h('div', { class: 'docs-head', 'data-host': s.host },
-      h('button', { class: 'docs-title', 'aria-expanded': String(!isFolded), title: `${all?.folder || 'Docs/Canvases'}/${s.host}`, onclick: () => toggle(s.host) },
-        icon(isFolded ? 'right' : 'down', 12), s.ico, h('span', {}, s.title)),
+      foldHead({ open: !isFolded, title: s.title, ico: s.ico, small: true, class: 'docs-title', tip: `${all?.folder || 'Docs/Canvases'}/${s.host}`, onToggle: () => toggle(s.host) }),
       h('button', { class: 'btn icon docs-add', title: `New canvas in ${s.title}`, 'aria-label': `New canvas in ${s.title}`,
         onclick: (e) => create(e.currentTarget, s.host) }, icon('plus', 14)));
     const rows = isFolded ? [] : s.canvases.length ? s.canvases.map((c) => h('a', {
       class: `canvas-row ${c.path === shown ? 'active' : ''}`, href: canvasHref(c.path), title: c.path,
       'aria-current': c.path === shown ? 'page' : null,
-    }, icon('canvas', 14), h('span', {}, c.name))) : [h('p', { class: 'muted small canvas-none' }, 'No canvas yet')];
+    }, icon('canvas', 14), h('span', {}, c.name))) : [emptyLine('No canvas yet', { cls: 'canvas-none' })];
     return [head, ...rows];
   }));
 }
@@ -136,9 +135,9 @@ export function mount(root, param) {
     grip, main));
   let view = null;
   let gone = false;
-  const empty = (text) => main.replaceChildren(h('div', { class: 'empty docs-empty' }, icon('canvas', 22), h('p', {}, text),
-    h('p', { class: 'muted small' }, 'A canvas is a whiteboard: shapes, arrows, notes, and items as cards. Each is a file in Docs/Canvases, and opens in Obsidian\'s Excalidraw too.'),
-    h('button', { type: 'button', class: 'btn primary', onclick: (e) => create(e.currentTarget, FREE) }, icon('plus', 14), 'New canvas')));
+  const empty = (text) => main.replaceChildren(h('div', { class: 'docs-empty' }, emptyState(text),
+    secondaryButton('New canvas', { ico: 'plus', title: 'A whiteboard, saved in Docs/Canvases: it opens in Obsidian\'s Excalidraw too',
+      onclick: (e) => create(e.currentTarget, FREE) })));
   load().then(() => {
     if (gone) return;
     const c = shown && all?.canvases.find((x) => x.path === shown);

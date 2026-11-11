@@ -14,7 +14,7 @@ import { pref, setPref } from '../prefs.js';
 import { cssWidth, wireResizer } from '../resizer.js';
 import { onChange } from '../state.js';
 import { treePane } from '../treepane.js';
-import { dropdown, h, icon } from '../ui.js';
+import { dropdown, emptyState, foldHead, h, icon } from '../ui.js';
 import { mountFiles } from './files.js';
 
 let groups = null; // docsGroups of the latest /api/docs/roots
@@ -52,8 +52,7 @@ function addMenu(anchor, g) {
 function head(g) {
   const isFolded = folded().has(g.path);
   return h('div', { class: `docs-head ${g.dim ? 'dim' : ''}`, 'data-docs': g.path },
-    h('button', { class: 'docs-title', 'aria-expanded': String(!isFolded), title: g.project ? `${g.project} · ${g.path}` : g.path, onclick: () => toggleFold(g.path) },
-      icon(isFolded ? 'right' : 'down', 12), h('span', {}, g.title)),
+    foldHead({ open: !isFolded, title: g.title, small: true, class: 'docs-title', tip: g.project ? `${g.project} · ${g.path}` : g.path, onToggle: () => toggleFold(g.path) }),
     h('button', { class: 'btn icon docs-add', title: `New in ${g.title}`, 'aria-label': `New doc or folder in ${g.title}`, 'aria-haspopup': 'menu', onclick: (e) => addMenu(e.currentTarget, g) }, icon('plus', 14)));
 }
 
@@ -92,9 +91,7 @@ export function mount(root, param) {
     grip, main));
   const file = shown ? mountFiles(main, param, { href: docsHref }) : null;
   if (!file) {
-    main.replaceChildren(h('div', { class: 'empty docs-empty' }, icon('book', 22),
-      h('p', {}, 'Pick a doc on the left, or start a doc or a folder with “+” on a section.'),
-      h('p', { class: 'muted small' }, 'Docs are the files in each project’s Docs folder, and in No project’s for those of no project: not items, just documents.')));
+    main.replaceChildren(h('div', { class: 'docs-empty' }, emptyState('Pick a doc on the left, or start a doc or a folder with “+” on a section.')));
   }
   pane.render();
   load().then(() => { if (shown && live) pane.reveal(shown); });

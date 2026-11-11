@@ -9,10 +9,9 @@
 import {
   addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, personToGroup, renameLabel, state, updateGroup, updatePerson,
 } from '../state.js';
-import { trapFocus } from '../create.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { saveSort, savedSort } from '../prefs.js';
-import { GROUP_ICON, h, icon, labelChip, pageCount, pageEmpty, pageHead, personChip, rowAction, searchBox, select, tagInput } from '../ui.js';
+import { countOf, formActions, GROUP_ICON, h, icon, labelChip, openDialog, pageCount, pageEmpty, pageHead, personChip, propRow, rowAction, searchBox, select, tagInput } from '../ui.js';
 
 /**
  * The control of one of cfg.fields, holding `value`: `kind` text (the default), textarea (several lines), select
@@ -37,7 +36,7 @@ function fieldInput(f, value) {
 const same = (a, b) => (Array.isArray(a) || Array.isArray(b) ? (a || []).join('\n') === (b || []).join('\n') : (a || '') === (b || ''));
 const isEmpty = (v) => (Array.isArray(v) ? !v.length : !v);
 /** A field's label wrapper: several lines and people take the whole row. */
-const fieldBox = (f, el) => h('label', { class: `field ${f.kind === 'textarea' || f.kind === 'people' ? 'wide' : ''}` }, h('span', {}, f.label), el);
+const fieldBox = (f, el) => propRow(f.label, el, { wide: f.kind === 'textarea' || f.kind === 'people' });
 /** Enter in a one-line text field (not in a chip field, where it adds a chip) saves; ⌘↵ saves from anywhere. */
 const savesOnEnter = (e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey
   || (e.target.tagName === 'INPUT' && e.target.type === 'text' && !e.target.closest('.tag-field')));
@@ -47,13 +46,7 @@ const savesOnEnter = (e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey
  * cfg.create(name, values) adds with the fields; without it (or with none filled), cfg.add(name).
  */
 function openAddModal(cfg) {
-  const opener = document.activeElement;
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const close = () => {
-    backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-    if (opener && document.contains(opener)) opener.focus();
-  };
+  let close = () => {};
   const title = `New ${cfg.singular}`;
   const name = h('input', { type: 'text', placeholder: cfg.addPlaceholder, autocomplete: 'off', 'aria-required': 'true' });
   const inputs = (cfg.fields || []).map((f) => [f, fieldInput(f, f.initial ?? '')]);
@@ -70,25 +63,15 @@ function openAddModal(cfg) {
       close();
     } catch { busy = false; } // toasted
   };
-  modal.className = 'tag-modal';
-  modal.setAttribute('aria-label', title);
-  modal.replaceChildren(
-    h('div', { class: 'modal-head' }, h('h2', {}, icon('plus', 18), title),
-      h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: close }, icon('x', 16))),
-    h('div', { class: 'person-fields' },
-      h('label', { class: 'field' }, h('span', {}, cfg.nameLabel || 'Name'), name),
+  ({ close } = openDialog({
+    title, ico: 'plus', cls: 'tag-modal', focus: name,
+    body: h('div', { class: 'person-fields' },
+      propRow(cfg.nameLabel || 'Name', name),
       inputs.map(([f, i]) => fieldBox(f, i.el))),
-    h('div', { class: 'modal-foot' }, h('span', { class: 'muted small' }, '↵ adds · Esc cancels'), h('span', { class: 'spacer' }),
-      h('button', { class: 'btn ghost', onclick: close }, 'Cancel'),
-      h('button', { class: 'btn primary', onclick: submit }, icon('plus', 15), `Add ${cfg.singular}`)));
-  backdrop.hidden = false;
-  backdrop.onmousedown = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
-    if (savesOnEnter(e)) { e.preventDefault(); submit(); }
-    if (e.key === 'Tab') trapFocus(modal, e);
-  };
-  setTimeout(() => name.focus(), 0);
+    foot: formActions({ lead: h('span', { class: 'muted small' }, '↵ adds · Esc cancels'), onCancel: () => close(),
+      actions: h('button', { class: 'btn primary', onclick: submit }, icon('plus', 15), `Add ${cfg.singular}`) }),
+    onKey: (e) => { if (savesOnEnter(e)) { e.preventDefault(); submit(); } },
+  }));
 }
 
 /**
@@ -153,31 +136,28 @@ function tagScreen(cfg) {
           }));
           queueMicrotask(() => { input.focus(); input.select(); });
           const note = h('span', { class: 'muted small' }, r.count ? `Used by ${r.count} item${r.count > 1 ? 's' : ''}: a new name reaches all of them.` : 'Not used by any item yet.');
-          const buttons = [
-            cfg.convert ? h('button', { class: 'btn small ghost', title: cfg.convert.title, onclick: async () => {
+          const buttons = formActions({ small: true, onCancel: () => { open = null; api.update(); },
+            lead: cfg.convert ? h('button', { class: 'btn small ghost', title: cfg.convert.title, onclick: async () => {
               open = null;
               try { await cfg.convert.run(r); } catch { /* toasted */ }
             } }, icon(cfg.convert.icon, 13), cfg.convert.label) : null,
-            h('button', { class: 'btn small ghost', onclick: () => { open = null; api.update(); } }, 'Cancel'),
-            h('button', { class: 'btn small primary', onclick: save }, 'Save')];
+            actions: h('button', { class: 'btn small primary', onclick: save }, 'Save') });
           return h('tr', { class: 'tag-edit' }, h('td', { colspan: span }, cfg.fields
             ? h('div', { class: 'person-edit' },
               h('div', { class: 'person-fields' },
-                h('label', { class: 'field' }, h('span', {}, cfg.nameLabel || 'Name'), input),
+                propRow(cfg.nameLabel || 'Name', input),
                 inputs.map(([f, i]) => fieldBox(f, i.el))),
-              h('div', { class: 'tag-edit-row' }, note, h('span', { class: 'spacer' }), ...buttons))
-            : h('div', { class: 'tag-edit-row' }, input, note, h('span', { class: 'spacer' }), ...buttons)));
+              h('div', { class: 'tag-edit-row' }, note, h('span', { class: 'spacer' }), buttons))
+            : h('div', { class: 'tag-edit-row' }, input, note, h('span', { class: 'spacer' }), buttons)));
         }
         if (isOpen && open.mode === 'delete') {
-          return h('tr', { class: 'tag-edit' }, h('td', { colspan: span }, h('div', { class: 'tag-edit-row' },
-            cfg.chip(r.name),
-            h('span', { class: 'small' }, confirmText(r)),
-            h('span', { class: 'spacer' }),
-            h('button', { class: 'btn small ghost', onclick: () => { open = null; api.update(); } }, 'Cancel'),
-            h('button', { class: 'btn small danger', onclick: async () => {
+          return h('tr', { class: 'tag-edit' }, h('td', { colspan: span }, formActions({ cls: 'tag-edit-row', small: true,
+            lead: [cfg.chip(r.name), h('span', { class: 'small' }, confirmText(r))],
+            onCancel: () => { open = null; api.update(); },
+            actions: h('button', { class: 'btn small danger', onclick: async () => {
               open = null;
               try { await cfg.remove(r.name); } catch { /* toasted */ }
-            } }, icon('trash', 13), `Delete ${cfg.singular}`))));
+            } }, icon('trash', 13), `Delete ${cfg.singular}`) })));
         }
         const edit = () => { open = { name: r.name, mode: 'edit' }; api.update(); };
         return h('tr', {
@@ -202,7 +182,7 @@ function tagScreen(cfg) {
             .sort((a, b) => (sort.col === 'name' ? a.name.localeCompare(b.name) * sort.dir
               : byCol ? (byCol.text(a) || '\uffff').localeCompare(byCol.text(b) || '\uffff') * sort.dir || a.name.localeCompare(b.name)
                 : (a.count - b.count) * sort.dir || a.name.localeCompare(b.name)));
-          const page = paged({ key: `tags.${cfg.plural}`, rows: matching, size: LIST_PAGE, onChange: () => api.update() });
+          const page = paged({ key: `tags.${cfg.plural}`, rows: matching, size: LIST_PAGE, always: true, onChange: () => api.update() });
           const { rows } = page;
           table.replaceChildren(...[matching.length || search
             ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed tag-grid', style: FIXED.style, 'aria-label': cfg.title }, FIXED.colgroup.cloneNode(true),
@@ -232,7 +212,7 @@ export const labels = tagScreen({
 const contactTabs = (on) => () => h('nav', { class: 'tabs-bar section-tabs', 'aria-label': 'Contacts' },
   [['people', 'People', 'user', '#/contacts', state.people.length], ['groups', 'Groups', 'users', '#/contacts/groups', state.groups.length]].map(([key, text, ico, href, n]) => h('a', {
     class: `tab-btn ${key === on ? 'active' : ''}`, href, ...(key === on ? { 'aria-current': 'page' } : {}),
-  }, icon(ico, 14), text, h('span', { class: 'tab-count' }, n || ''))));
+  }, icon(ico, 14), text, countOf(n || null, { tab: true }))));
 
 const dash = () => h('span', { class: 'muted' }, '—');
 /** Free text in a cell: its first line, the whole of it on hover (the cell's title). */

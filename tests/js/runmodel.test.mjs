@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { agentMarks, costLabel, durationLabel, filterRuns, groupActivity, inboxCount, isUnread, runLabel, runStatus } from '../../static/js/runmodel.js';
+import { agentMarks, canArchive, costLabel, durationLabel, filterRuns, groupActivity, inboxCount, isArchived, isUnread, runLabel, runStatus } from '../../static/js/runmodel.js';
 
 describe('runmodel', () => {
   it('reads what a run is doing now first', () => {
@@ -78,5 +78,14 @@ describe('runmodel', () => {
     assert.deepEqual(agentMarks(runs.slice(3)), { 'd1 qa:ask': 'unread' });
     assert.equal(inboxCount({ needs_you: 1, running: 4, unread: 2 }), 3);
     assert.equal(inboxCount(null), 0);
+  });
+  it('archives only what ended, and what works again is never hidden', () => {
+    const done = { outcome: 'success' };
+    assert.equal(canArchive(done), true);
+    assert.equal(canArchive({ live: true, busy: true }), false);
+    assert.equal(canArchive({ live: true, pending: 1 }), false);
+    assert.equal(isArchived({ ...done, archived_at: 'x' }), true);
+    assert.equal(isArchived(done), false);
+    assert.equal(isArchived({ outcome: 'success', archived_at: 'x', live: true, busy: true }), false); // resumed: working
   });
 });

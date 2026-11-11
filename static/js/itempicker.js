@@ -4,18 +4,11 @@
 import { matchItems } from './composer.js';
 import { hasField, isDone } from './rules.js';
 import { state } from './state.js';
-import { h, icon, sideSized, typeIcon } from './ui.js';
+import { closeFloating, floating, floatingFrom, h, icon, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
-let open = null;
-
-export function closeItemPicker() {
-  if (!open) return;
-  open.el.remove();
-  document.removeEventListener('mousedown', open.outside, true);
-  open.anchor.setAttribute('aria-expanded', 'false');
-  open = null;
-}
+/** Close it (a 'panel' of ui.js floating: whatever panel is open). */
+export const closeItemPicker = () => closeFloating('panel');
 
 /** The name a session shows for its item: "TSK-0001 · title". */
 export const itemName = (it) => `${refOf(it) || it.type} · ${it.title}`;
@@ -29,8 +22,7 @@ export const itemName = (it) => `${refOf(it) || it.type} · ${it.title}`;
 export function itemPicker(anchor, current, onPick, {
   keeps = (it) => hasField(it.type, 'claude_sessions'), first = null, none = 'No item (general history)', label = 'The item this session is about',
 } = {}) {
-  if (open?.anchor === anchor) { closeItemPicker(); return; }
-  closeItemPicker();
+  if (floatingFrom(anchor, 'panel')) { closeItemPicker(); return; }
   const now = current ? state.items.find((it) => it.key === current) : null;
   const input = h('input', { type: 'search', class: 'ip-search', placeholder: 'Find an item by id or title', 'aria-label': 'Find an item',
     autocomplete: 'off', spellcheck: 'false' });
@@ -62,25 +54,14 @@ export function itemPicker(anchor, current, onPick, {
     mark(0);
   };
   input.addEventListener('input', paint);
-  // Its keys stay here: the page's (Escape closes the card, letters are shortcuts) and the dock's never see them.
+  // Its keys stay here: the page's (letters are shortcuts) and the dock's never see them; Esc is floating's.
   el.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mark(at + (e.key === 'ArrowDown' ? 1 : -1)); }
     else if (e.key === 'Enter' && rows[at]) { e.preventDefault(); pick(rows[at].it); }
-    else if (e.key === 'Escape') { e.preventDefault(); closeItemPicker(); anchor.focus(); }
   });
   paint();
 
-  document.body.append(sideSized(el, anchor));
-  const r = anchor.getBoundingClientRect();
-  const w = el.offsetWidth;
-  el.style.left = `${Math.max(8, Math.min(r.left, innerWidth - w - 8))}px`;
-  // Its rows change with the search: anchored by the edge nearest the button, so it grows away from it.
-  if (r.bottom + 6 + 320 > innerHeight - 8) el.style.bottom = `${innerHeight - r.top + 6}px`;
-  else el.style.top = `${r.bottom + 6}px`;
-  const outside = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) closeItemPicker(); };
-  document.addEventListener('mousedown', outside, true);
-  anchor.setAttribute('aria-expanded', 'true');
-  open = { el, anchor, outside };
+  floating(anchor, el, { layer: 'panel', grow: 320 }); // its rows change with the search: it grows away from the button
   input.focus();
 }

@@ -14,7 +14,7 @@ import { warningGroups } from '../housekeeping.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
 import { keyboardHelp } from '../shortcuts.js';
-import { h, icon, pageHead, renderMarkdown, select, tabPanels } from '../ui.js';
+import { countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select, tabPanels } from '../ui.js';
 import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
@@ -41,7 +41,7 @@ function showStopped(onDemand) {
 
 /** Settings → Documentation: the user guide (docs/user-guide.md), read once when the tab is first shown. */
 function guidePanel() {
-  const el = h('div', { class: 'md guide' }, h('p', { class: 'muted' }, 'Loading the guide…'));
+  const el = h('div', { class: 'md guide' }, loadingLine('Loading the guide…'));
   let loaded = false;
   const load = async () => {
     if (loaded) return;
@@ -76,7 +76,7 @@ function appPanel() {
   const load = async () => {
     let s;
     try { s = await api.serverStatus(); } catch (e) { el.replaceChildren(h('p', { class: 'muted' }, `Cannot reach the server: ${e.message}`)); return; }
-    const row = (k, v) => h('div', { class: 'field' }, h('span', {}, k), h('span', { class: 'mono set-value' }, v)); // a property row
+    const row = (k, v) => propRow(k, h('span', { class: 'mono set-value' }, v), { tag: 'div' }); // a value, read
     el.replaceChildren(
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Server')),
@@ -197,9 +197,9 @@ function vaultsEditor(c, edit) {
       const isDefault = h('label', { class: 'cp-default', title: 'The vault a page shows when its address names none' },
         h('input', { type: 'radio', name: 'vault-default', checked: edit.default === v, onchange: () => { edit.default = v; } }), 'Default');
       const remove = v.confirm
-        ? [h('span', { class: 'muted small' }, 'Take it out of the list? Its files are not touched.'),
-          h('button', { class: 'btn small danger', onclick: () => { edit.vaults.splice(i, 1); render(); } }, 'Remove'),
-          h('button', { class: 'btn small', onclick: () => { v.confirm = false; render(); } }, 'Cancel')]
+        ? [formActions({ small: true, lead: h('span', { class: 'muted small' }, 'Take it out of the list? Its files are not touched.'),
+          onCancel: () => { v.confirm = false; render(); },
+          actions: h('button', { class: 'btn small danger', onclick: () => { edit.vaults.splice(i, 1); render(); } }, 'Remove') })]
         : [h('button', { class: 'btn icon row-action', title: `Remove ${v.name || 'this vault'} from the list`, disabled: edit.vaults.length < 2,
           onclick: () => { v.confirm = true; render(); } }, icon('x', 14))];
       // Only a structure of one folder per type lets a vault move them: its own, else the structure's default.
@@ -207,8 +207,7 @@ function vaultsEditor(c, edit) {
       const folders = movable.length
         ? h('details', {}, h('summary', {}, 'Folders for new items'),
           h('p', { class: 'muted small' }, 'Relative to the vault. Every one must exist for the vault to match its structure.'),
-          h('div', { class: 'fields' }, movable.map(([t, def]) => h('label', { class: 'field' }, h('span', {}, t),
-            h('input', { type: 'text', value: v.folders?.[t] || def, oninput: (e) => { v.folders = { ...v.folders, [t]: e.target.value.trim() }; } })))))
+          h('div', { class: 'fields' }, movable.map(([t, def]) => propRow(t, h('input', { type: 'text', value: v.folders?.[t] || def, oninput: (e) => { v.folders = { ...v.folders, [t]: e.target.value.trim() }; } })))))
         : null;
       return h('div', { class: 'vault-row' },
         h('div', { class: 'vault-row-head' }, name, path,
@@ -296,7 +295,7 @@ export function mount(root, param) {
       };
       agentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addAgentPath(); } });
       const renderAgentPaths = () => agentsBox.replaceChildren(
-        ...(agentPaths.length ? [] : [h('p', { class: 'muted small' }, 'None yet.')]),
+        ...(agentPaths.length ? [] : [emptyLine('None yet.')]),
         ...agentPaths.map((p, i) => h('div', { class: 'cp-row agents-dir-row' },
           h('input', { type: 'text', class: 'cp-name', value: agentNames[p] || '', placeholder: p.split('/').pop() || 'Name', 'aria-label': `Name of ${p}`,
             title: 'What the sidebar shows for this folder (empty: its last part)', oninput: (e) => { agentNames[p] = e.target.value; } }),
@@ -359,8 +358,7 @@ export function mount(root, param) {
         saveBar(),
       ];
       // A setting as a row (its name, then its control with what it does under it), as a card's properties.
-      const setRow = (label, control, help) => h('div', { class: 'field' }, h('span', {}, label),
-        h('div', { class: 'set-control' }, control, help ? h('p', { class: 'muted small set-help' }, help) : null));
+      const setRow = (label, control, help) => propRow(label, control, { tag: 'div', help });
       const general = [
         h('section', { class: 'group' },
           h('div', { class: 'fields prop-rows' },
@@ -372,22 +370,22 @@ export function mount(root, param) {
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Work with Claude')),
           h('p', { class: 'muted' }, 'The button on every item (and the terminal in the top bar) opens a terminal and starts Claude. It runs in the item\'s Local path, or its parent\'s, else in the default folder below; the dialog can pick any saved folder for one launch. It starts with the model and effort chosen here, and can change them for one launch too.'),
-          h('div', { class: 'field claude-paths-field' }, h('span', {}, 'Saved folders'), pathsBox)),
+          propRow('Saved folders', pathsBox, { tag: 'div', cls: 'claude-paths-field' })),
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'How Claude starts')),
           h('p', { class: 'muted' }, `The command, the app for "Open in Terminal", and the model and effort every launch starts with. The terminal inside the app takes Claude Code's own theme (now ${c.claude_theme === 'light' ? 'light' : 'dark'}; /theme in Claude changes it).`),
           h('div', { class: 'fields prop-rows' },
-            h('label', { class: 'field' }, h('span', {}, 'Command'), claudeCmd),
-            h('div', { class: 'field' }, h('span', {}, 'Terminal app'), terminalSel),
-            h('div', { class: 'field' }, h('span', {}, 'Default model'), modelSel),
-            h('div', { class: 'field' }, h('span', {}, 'Default effort'), effortSel))),
+            propRow('Command', claudeCmd),
+            propRow('Terminal app', terminalSel, { tag: 'div' }),
+            propRow('Default model', modelSel, { tag: 'div' }),
+            propRow('Default effort', effortSel, { tag: 'div' }))),
         saveBar(),
       ];
       const agents = [
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Agent folders')),
           h('p', { class: 'muted' }, 'The folders the sidebar\'s Agents mode reads (⌘⇧E goes round the modes). Every command in a folder\'s .claude/commands is an agent, run from its page as a chat in the dock, in that folder, so Claude loads that folder\'s commands, settings and CLAUDE.md. A folder may be anywhere: a repository, a system, outside every vault. Taking one out of the list leaves its files as they are.'),
-          h('div', { class: 'field claude-paths-field' }, h('span', {}, 'Folders'), agentsBox)),
+          propRow('Folders', agentsBox, { tag: 'div', cls: 'claude-paths-field' })),
         saveBar(),
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Scheduled runs')),
@@ -396,7 +394,7 @@ export function mount(root, param) {
       ];
       const maintenance = [
         h('section', { class: 'group' },
-          h('header', {}, h('h3', {}, 'Items without ID', h('span', { class: 'count' }, missing.length || ''))),
+          h('header', {}, h('h3', {}, 'Items without ID', countOf(missing.length || null))),
           missing.length
             ? h('div', {}, h('p', { class: 'muted' }, 'Found by type but missing an id (hand-written or from another tool). Relations need ids.'),
               h('ul', {}, missing.map((i) => h('li', { class: 'mono' }, i.path))),
@@ -431,7 +429,7 @@ export function mount(root, param) {
 
 // ── Agents → Scheduled runs: every agent's schedules (agentschedules.js), read apart from the save above ──
 function schedulesPanel() {
-  const el = h('div', { class: 'agents-sched-all' }, h('p', { class: 'muted small' }, 'Reading…'));
+  const el = h('div', { class: 'agents-sched-all' }, loadingLine('Reading…'));
   let stamp = 0;
   const load = async () => {
     const mine = ++stamp;
@@ -440,7 +438,7 @@ function schedulesPanel() {
     if (mine !== stamp) return;
     el.replaceChildren(items.length
       ? scheduleList(items, { showAgent: true, changed: load, openAgent: (x) => { location.hash = agentHref(x.dir, x.cmd); } })
-      : h('p', { class: 'muted small' }, 'None yet.'));
+      : emptyLine('None yet.'));
   };
   return { el, load };
 }
@@ -474,10 +472,10 @@ function exportPanel() {
   const row = (r) => {
     const cols = EXPORT_COLUMNS(r.kind || 'system').length;
     if (confirming === r.name) {
-      return h('tr', { class: 'tag-edit' }, h('td', { colspan: cols }, h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, `Delete ${r.name}? It cannot be undone.`), h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small ghost', onclick: () => { confirming = null; render(); } }, 'Cancel'),
-        h('button', { class: 'btn small danger', onclick: () => run(async () => { confirming = null; await api.deleteExport(r.name); await load(); }) }, icon('trash', 13), 'Delete'))));
+      return h('tr', { class: 'tag-edit' }, h('td', { colspan: cols }, formActions({ cls: 'tag-edit-row', small: true,
+        lead: h('span', { class: 'small' }, `Delete ${r.name}? It cannot be undone.`),
+        onCancel: () => { confirming = null; render(); },
+        actions: h('button', { class: 'btn small danger', onclick: () => run(async () => { confirming = null; await api.deleteExport(r.name); await load(); }) }, icon('trash', 13), 'Delete') })));
     }
     return h('tr', { class: 'export-row hover-host' },
       h('td', { title: r.name }, String(r.created_at || '').replace('T', ' ').slice(0, 16) || '—'),
@@ -493,8 +491,8 @@ function exportPanel() {
         h('button', { type: 'button', class: 'btn icon row-action', title: 'Show in Finder', 'aria-label': `Show ${r.name} in Finder`, onclick: () => run(() => api.revealExport(r.name)) }, icon('folder', 14)),
         h('button', { type: 'button', class: 'btn icon row-action', title: `Delete ${r.name}`, 'aria-label': `Delete ${r.name}`, onclick: () => { confirming = r.name; render(); } }, icon('trash', 14))));
   };
-  const table = (list, kind) => (rows === null ? h('p', { class: 'muted' }, 'Loading…')
-    : !list.length ? h('p', { class: 'muted' }, `No ${kind} exports yet.`)
+  const table = (list, kind) => (rows === null ? loadingLine()
+    : !list.length ? emptyLine(`No ${kind} exports yet.`)
       : h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed export-grid', style: EXPORT_FIXED[kind].style, 'aria-label': `${kind} exports` },
         EXPORT_FIXED[kind].colgroup.cloneNode(true),
         h('thead', {}, h('tr', {}, ['Exported', ...(kind === 'vault' ? ['Vault'] : []), 'PC', 'Version', 'Note', 'Size'].map((c) => h('th', { scope: 'col', class: c === 'Size' ? 'num' : '' }, c)),
@@ -505,9 +503,7 @@ function exportPanel() {
   // (export.open.<kind> remembers it unfolded); exporting unfolds it, to show the new one.
   const sections = EXPORT_KINDS.map((k) => {
     let open = pref(`export.open.${k.kind}`, false) === true;
-    const toggle = h('button', { type: 'button', class: 'export-versions group-toggle', 'aria-controls': `export-${k.kind}-versions` });
     const setOpen = (v) => { open = v; setPref(`export.open.${k.kind}`, v || null); render(); };
-    toggle.addEventListener('click', () => setOpen(!open));
     const note = h('input', { type: 'text', class: 'wide', maxlength: '500', placeholder: 'Note — what changed, why you export now (optional)', 'aria-label': `${k.title} export note` });
     const btn = h('button', { class: 'btn primary' }, icon('archive', 15), k.button);
     const box = h('div', { id: `export-${k.kind}-versions` });
@@ -529,26 +525,27 @@ function exportPanel() {
       h('input', { type: 'checkbox', checked: allVaults, onchange: (e) => { allVaults = e.target.checked; setPref('export.allVaults', allVaults || null); render(); } }),
       'Every vault') : null;
     const limited = h('p', { class: 'muted small', hidden: true });
+    const head = h('h4', { class: 'export-head' }); // Versions (a foldHead, drawn with its count by render) and the scope
     const el = h('section', { class: 'group export-kind' },
       h('header', {}, h('h3', {}, k.title)),
       h('p', { class: 'muted' }, typeof k.about === 'function' ? k.about() : k.about),
       limited,
       h('div', { class: 'export-new' }, note, btn),
-      h('h4', { class: 'export-head' }, toggle, scope),
+      head,
       box);
-    return { k, el, box, btn, limited, toggle, isOpen: () => open };
+    return { k, el, box, btn, limited, head, scope, setOpen, isOpen: () => open };
   });
   const render = () => {
     origin.replaceChildren(...whereText());
-    sections.forEach(({ k, box, btn, limited, toggle, isOpen }) => {
+    sections.forEach(({ k, box, btn, limited, head, scope, setOpen, isOpen }) => {
       // The installed app whose checkout is gone exports only vaults: say why instead of failing on the button.
       const blocked = k.kind !== 'vault' && !!from?.limited;
       btn.disabled = blocked;
       limited.hidden = !blocked;
       limited.textContent = blocked ? `Not here: ${from.limited}.` : '';
       const list = (rows || []).filter((r) => (r.kind || 'system') === k.kind && (k.kind !== 'vault' || allVaults || !r.vault_id || r.vault_id === vaultId()));
-      toggle.setAttribute('aria-expanded', String(isOpen()));
-      toggle.replaceChildren(icon(isOpen() ? 'down' : 'right', 14), 'Versions', rows === null ? '' : h('span', { class: 'count' }, String(list.length)));
+      head.replaceChildren(foldHead({ open: isOpen(), title: 'Versions', count: rows === null ? null : list.length, class: 'group-toggle export-versions',
+        attrs: { 'aria-controls': `export-${k.kind}-versions` }, onToggle: setOpen }), scope);
       box.hidden = !isOpen();
       if (isOpen()) box.replaceChildren(table(list, k.kind));
     });

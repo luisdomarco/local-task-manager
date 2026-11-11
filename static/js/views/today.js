@@ -14,7 +14,7 @@ import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
 import { PLANNABLE, byManualOrder, carriedOverDay, isDone, isEnabled, isPlannedToday } from '../rules.js';
 import { TODAY_DEFAULT, placeInPlan, planDay, saveTodayLists, slugId, state, todayListOf, updateMany } from '../state.js';
-import { byPriority, dropZone, dropdown, h, icon } from '../ui.js';
+import { byPriority, dropdown, dropZone, h, icon, linkButton } from '../ui.js';
 import { daySummary } from '../dayline.js';
 import { isTentative, toMinutes } from '../worktime.js';
 import { boardOf } from '../boardview.js';
@@ -135,7 +135,7 @@ function paintList(box, { carried, planned, doneToday }, view, change) {
       h('div', { class: 'plan-quick' }, quickAddBar({ values: { plan_day: t, plan_week: thisWeek() } }, { placeholder: '+ Add a task for today…' }))),
     doneToday ? h('p', { class: 'plan-closed' }, h('span', { class: 'plan-dot' }),
       `${doneToday} done today ·`,
-      h('button', { type: 'button', class: 'link-btn', onclick: () => change({ closed: view.closed === 'none' ? 'all' : 'none' }) }, view.closed === 'none' ? 'Show' : 'Hide')) : null,
+      linkButton(view.closed === 'none' ? 'Show' : 'Hide', () => change({ closed: view.closed === 'none' ? 'all' : 'none' }), { muted: true, attrs: { 'aria-pressed': String(view.closed !== 'none') } })) : null,
   ].filter(Boolean));
 }
 

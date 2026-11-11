@@ -12,7 +12,7 @@ import { openQuickModal } from './quickadd.js';
 import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, inSomeProject, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
 import { shiftWeek, thisWeek, weekDays } from './dates.js';
 import { byType, createVaultFolders, firstLoad, onChange, progress, reload, saveSidebarOrder, state, toast } from './state.js';
-import { cssKey, h, icon, menuIsOpen, select, typeIcon } from './ui.js';
+import { countOf, cssKey, emptyLine, h, icon, menuIsOpen, select, typeIcon } from './ui.js';
 import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sections.js';
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
@@ -107,7 +107,7 @@ function renderNav(s) {
     const types = s.types.filter((t) => t.nav?.group === box.dataset.navGroup && !inSection.has(t.route)).sort((a, b) => a.nav.order - b.nav.order);
     box.replaceChildren(...types.flatMap((t, i) => [
       i && t.nav.section !== types[i - 1].nav.section ? h('div', { class: 'nav-sep', role: 'separator' }) : null,
-      h('a', { href: `#/${t.route}`, 'data-view': t.route }, icon(t.icon, 16), t.plural, h('span', { class: 'count', 'data-count': t.route })),
+      h('a', { href: `#/${t.route}`, 'data-view': t.route }, icon(t.icon, 16), t.plural, countOf(null, { attrs: { 'data-count': t.route } })),
       // Docs (views/docs.js) — documents, not a type — sits under Notes, ending their section; Canvas right after it
       ...(t.name === 'note' ? [DOCS_LINK(), CANVAS_LINK()] : []),
     ]).filter(Boolean));
@@ -339,7 +339,7 @@ function renderSidebar() {
     });
     el.addEventListener('dragend', () => el.classList.remove('dragging'));
     return el;
-  }) : [h('p', { class: 'muted small' }, 'No favourites — star an initiative on its page.')]));
+  }) : [emptyLine('No favourites — star an initiative on its page.')]));
 }
 
 /** Views: the ones saved from a list's bar (savedviews.js), each a link to its page drawn as it was saved; × forgets it

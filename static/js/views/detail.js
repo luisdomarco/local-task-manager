@@ -4,10 +4,10 @@
 import { createPageEditor, disposeEditor } from '../panel.js';
 import { TYPE_DEFS, findByPageRef } from '../rules.js';
 import { firstLoad, state } from '../state.js';
-import { h } from '../ui.js';
+import { h, loadingLine } from '../ui.js';
 
 function mountDetail(type, root, param) {
-  const page = h('div', { class: 'page' }, h('p', { class: 'muted' }, 'Loading…'));
+  const page = h('div', { class: 'page' }, loadingLine());
   root.replaceChildren(page);
   const back = `#/${TYPE_DEFS[type]?.route || 'today'}`; // its type's list
   const ed = createPageEditor(page, { onGone: () => { location.hash = back; } });

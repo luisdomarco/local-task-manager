@@ -223,7 +223,12 @@ export async function deleteMany(keys) {
 /** Inbox item → task / initiative / note / meeting (new id, new folder). */
 export const convertItem = (key, type, values = {}) => mutate(() => api.convert(key, type, values));
 export const addComment = (key, text) => mutate(() => api.addComment(key, text));
-export const deleteComment = (key, index) => mutate(() => api.deleteComment(key, index));
+/** Delete a comment, with an Undo in the toast that puts the same comment back at its place. */
+export async function deleteComment(key, index) {
+  const out = await mutate(() => api.deleteComment(key, index));
+  toast('Comment deleted', false, out.removed ? { label: 'Undo', run: () => mutate(() => api.restoreComment(key, index, out.removed)) } : null);
+  return out;
+}
 export const editComment = (key, index, text, was) => mutate(() => api.editComment(key, index, text, was));
 /** Open Terminal with claude on the item (or on a bare prompt, key null); the launch is recorded, so the state reloads. */
 export const claudeLaunch = (key, instruction, model, effort, cwd, target) => mutate(() => api.claudeLaunch(key, instruction, model, effort, cwd, target));
@@ -372,7 +377,12 @@ export const personToGroup = (name) => mutate(() => api.personToGroup(name));
 export const addGroup = (name, values) => mutate(() => api.addGroup(name, values));
 export const updateGroup = (name, values) => mutate(() => api.updateGroup(name, values));
 export const deleteGroup = (name) => mutate(() => api.deleteGroup(name));
-export const unlogWork = (date, index) => mutate(() => api.unlogWork(date, index));
+/** Delete a work-log entry, with an Undo in the toast that logs the same entry back at its place in its day. */
+export async function unlogWork(date, index) {
+  const out = await mutate(() => api.unlogWork(date, index));
+  toast('Entry deleted', false, out.removed ? { label: 'Undo', run: () => mutate(() => api.restoreLog(date, index, out.removed)) } : null);
+  return out;
+}
 export const confirmLog = (date, index = null) => mutate(() => api.confirmLog(date, index));
 export const discardLog = (date, index = null) => mutate(() => api.discardLog(date, index));
 // The trash: what was deleted, kept in <root>/.task-manager/trash until it is restored or emptied.

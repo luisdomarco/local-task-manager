@@ -14,7 +14,7 @@ import { dragsList, listDropZone, addListColumn, listHeader, moveEntries, moveLi
 import { quickAddBar } from './quickadd.js';
 import { STATUSES, anyStatusRank } from './rules.js';
 import { saveBoard, slugId, state, toast } from './state.js';
-import { cssKey, dropZone, dropdown, h, icon, itemCard, select, statusLabel } from './ui.js';
+import { countOf, cssKey, dropdown, dropZone, h, icon, itemCard, select, statusLabel } from './ui.js';
 
 /**
  * The board. `columns`: [{ key, face (nodes: its dot or icon and name), items, cls?, head? (a header of its own: a
@@ -74,7 +74,7 @@ function column(c, { onFold, onOpen, projectName, shows, move = null }) {
   if (head) head.insertBefore(fold, head.lastChild); // a list's: fold before its ⋯
   else {
     head = h('header', { class: 'list-head vb-col-head' }, h('span', { class: 'group-title' }, ...c.face),
-      h('span', { class: 'count' }, String(c.items.length)), c.aside || null, c.unfoldable ? null : fold);
+      countOf(c.items.length), c.aside || null, c.unfoldable ? null : fold);
     if (move) {
       Object.assign(head, { tabIndex: 0, title: `${c.label} — ${moveTip}` });
       head.setAttribute('role', 'group');

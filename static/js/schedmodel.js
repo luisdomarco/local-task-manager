@@ -49,3 +49,14 @@ export function scheduleState(s) {
   if (s.error) return { key: 'error', label: 'Could not start', tone: 'error' };
   return { key: 'on', label: 'On', tone: 'success' };
 }
+
+/** Routines' order: the ones on first, the next to fire first (one with no next time after them), then the paused ones;
+ *  ties by agent, then rule. */
+export function routineOrder(schedules) {
+  const next = (s) => (s.paused ? Infinity : s.next_ts || Number.MAX_SAFE_INTEGER);
+  return (schedules || []).slice().sort((a, b) => Number(!!a.paused) - Number(!!b.paused) || next(a) - next(b)
+    || `${a.cmd}`.localeCompare(`${b.cmd}`) || `${a.label}`.localeCompare(`${b.label}`));
+}
+
+/** Whether a schedule matches Routines' search (lower case): its agent, its folder, its rule in words, its arguments. */
+export const routineMatches = (s, q) => !q || [s.cmd, s.dir_name, s.label, s.args].join(' ').toLowerCase().includes(q);

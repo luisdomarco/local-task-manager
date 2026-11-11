@@ -15,9 +15,12 @@ SHELL = ['sh', '-c', 'printf "hi %s\\n" "$TERM"; stty size; while read -r l; do 
 ENV = {**os.environ, 'TERM': 'xterm-256color'}
 
 
-def drain(q, until, timeout=5):
-    """Chunks from the queue until `until` shows up in what was read (or the sentinel / timeout)."""
-    got, deadline = b'', time.time() + timeout
+def drain(q, until, timeout=5, got=b''):
+    """Chunks from the queue until `until` shows up in what was read (or the sentinel / timeout).
+
+    `got` is where to start: pass the subscribe() snapshot, since what the process printed before the subscribe is
+    there and not on the queue (on a fast machine the first lines are often printed by then)."""
+    deadline = time.time() + timeout
     while until not in got and time.time() < deadline:
         try:
             chunk = q.get(timeout=0.2)
@@ -54,8 +57,8 @@ class TermTest(unittest.TestCase):
 
     def test_output_input_resize_and_exit(self):
         term = self.terms.open('t1', SHELL, self.work, 80, 24, ENV, 'demo')
-        _, q = term.subscribe()
-        got = drain(q, b'24 80')
+        snap, q = term.subscribe()
+        got = drain(q, b'24 80', got=snap)
         self.assertIn(b'hi xterm-256color', got)  # the environment reached the process
         self.assertIn(b'24 80', got)  # and so did the size, before it started
         term.write(b'pwd\n')
@@ -90,8 +93,8 @@ class TermTest(unittest.TestCase):
         tpty.BUFFER_BYTES = 2000
         self.addCleanup(setattr, tpty, 'BUFFER_BYTES', old)
         term = self.terms.open('t2', SHELL, self.work, 80, 24, ENV)
-        _, q = term.subscribe()
-        drain(q, b'24 80')
+        snap, q = term.subscribe()
+        drain(q, b'24 80', got=snap)
         # DO""NE prints DONE, but its echo does not hold it: wait for the output, not for the typed line coming back
         term.write(b'i=0; while [ $i -lt 200 ]; do printf "%050d\\n" $i; i=$((i+1)); done; echo DO""NE\n')
         drain(q, b'DONE')
@@ -102,8 +105,8 @@ class TermTest(unittest.TestCase):
     def test_reattach_hands_back_the_live_terminal_and_kill_ends_it(self):
         term = self.terms.open('t3', SHELL, self.work, 80, 24, ENV)
         self.assertIs(self.terms.open('t3', SHELL, self.work, 80, 24, ENV), term)  # no second process
-        _, q = term.subscribe()
-        drain(q, b'24 80')
+        snap, q = term.subscribe()
+        drain(q, b'24 80', got=snap)
         term.kill()
         self.assertFalse(term.alive)
         drain_to_end(q)  # the subscriber is told it ended (after whatever was still in flight)

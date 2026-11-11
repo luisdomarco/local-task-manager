@@ -80,7 +80,11 @@ class HttpTest(unittest.TestCase):
         out = self.call('/api/item/comment/edit', {'key': note['id'], 'index': 0, 'text': 'typo', 'was': c['text']})
         self.assertEqual(out['fields']['comments'][0]['text'], 'typo')
         self.assertEqual(self.request('/api/item/comment/edit', {'key': note['id'], 'index': 0, 'text': ' '})[0], 400)
-        self.assertEqual(self.call('/api/item/comment/delete', {'key': note['id'], 'index': 0})['fields']['comments'], [])
+        out = self.call('/api/item/comment/delete', {'key': note['id'], 'index': 0})
+        self.assertEqual(out['fields']['comments'], [])
+        # Mirrors api.restoreComment: the toast's Undo
+        back = self.call('/api/item/comment/restore', {'key': note['id'], 'index': 0, 'comment': out['removed']})
+        self.assertEqual(back['fields']['comments'][0]['text'], 'typo')
 
     def test_pins_round_trip(self):
         # Mirrors api.pins() / api.savePins(items) in static/js/api.js

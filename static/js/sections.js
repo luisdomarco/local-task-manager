@@ -5,7 +5,7 @@
 import { STRUCTURE, inSomeProject } from './rules.js';
 import { pref, setPref } from './prefs.js';
 import { state } from './state.js';
-import { h, icon } from './ui.js';
+import { countOf, h, icon } from './ui.js';
 
 export const PLANNING = {
   key: 'planning', label: 'Planning', icon: 'calendar',
@@ -66,6 +66,6 @@ export function sectionHead(route, ownTitle) {
     sec.tabs.map((t) => h('a', {
       class: `tab-btn ${t.route === route ? 'active' : ''}`, href: `#/${t.route}`,
       ...(t.route === route ? { 'aria-current': 'page' } : {}),
-    }, icon(t.icon, 14), t.label, h('span', { class: 'tab-count', 'data-tab-count': t.route }, counts[t.route] || ''))));
+    }, icon(t.icon, 14), t.label, countOf(counts[t.route] || null, { tab: true, attrs: { 'data-tab-count': t.route } }))));
   return { title: sec.label, tabs };
 }

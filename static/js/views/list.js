@@ -16,7 +16,7 @@ import { bulkPatches } from '../bulk.js';
 import { saveView, viewsChanged } from '../savedviews.js';
 import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
-import { cssKey, h, statusLabel, icon, priorityChip, select, statusChip, typeIcon } from '../ui.js';
+import { countOf, cssKey, h, icon, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
 import { cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, sortColumn } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
@@ -174,7 +174,7 @@ export function listView(type, { page = null } = {}) {
       if (sort.col === 'redmine') sort = { ...sort, col: 'extref' };
       const tableBox = h('div', { class: 'list-main' });
       const hiddenLine = h('p', { class: 'vb-hidden muted', hidden: true });
-      const count = h('span', { class: 'view-count' });
+      const count = countOf(null, { plain: true, cls: 'view-count' });
       // Rows ticked for a bulk action (the first column): their keys, kept while they are still in the list.
       const picked = new Set();
       const bulkBar = h('div', { class: 'bulk-bar', role: 'toolbar', 'aria-label': 'Selected rows', hidden: true });
@@ -351,7 +351,7 @@ export function listView(type, { page = null } = {}) {
                   : named(icon('calendar', 14));
       };
       /** A group's header in the list: its face and how many rows. */
-      const groupHeader = (k, members) => h('span', { class: 'group-title' }, ...groupFace(view.groupBy, k), h('span', { class: 'group-count' }, String(members.length)));
+      const groupHeader = (k, members) => h('span', { class: 'group-title' }, ...groupFace(view.groupBy, k), countOf(members.length, { plain: true, cls: 'group-count' }));
       /** The "+" beside a group's header: a new item with that group's value. */
       const groupAdd = (k) => (many ? null : h('button', {
         type: 'button', class: 'btn icon small group-add', title: `Add ${lower(label)} here`, 'aria-label': `Add ${lower(label)} to this group`,
@@ -491,9 +491,15 @@ export function listView(type, { page = null } = {}) {
             ? closedShown(filtered, view.closed, { isClosed: (i) => isClosed(i) && !asked.has(i.fields.status) }) : { items: filtered, hidden: 0 };
           const q = text.toLowerCase();
           const rows = shownRows.filter((i) => !q || idMatches(i, q) || `${i.title}`.toLowerCase().includes(q));
-          hiddenLine.hidden = !hidden;
-          hiddenLine.replaceChildren(...(hidden ? [`${hidden} ${scopes.closed.toLowerCase()} ${hidden === 1 ? 'is' : 'are'} hidden · `,
-            h('button', { type: 'button', class: 'link-btn', onclick: () => change({ closed: 'all' }) }, `Show ${scopes.closed.toLowerCase()}`)] : []));
+          // Under the table, how the closed rows go and the way back: "4 closed are hidden · Show closed" while some are
+          // hidden, "4 closed shown · Hide closed" while Display shows them (a closed status the filter asks for stays).
+          const closedWord = scopes.closed.toLowerCase();
+          const shownClosed = closable && view.closed && view.closed !== 'none' ? rows.filter((i) => isClosed(i) && !asked.has(i.fields.status)).length : 0;
+          hiddenLine.hidden = !hidden && !shownClosed;
+          hiddenLine.replaceChildren(...(hidden ? [`${hidden} ${closedWord} ${hidden === 1 ? 'is' : 'are'} hidden · `,
+            h('button', { type: 'button', class: 'link-btn', onclick: () => change({ closed: 'all' }) }, `Show ${closedWord}`)]
+            : shownClosed ? [`${shownClosed} ${closedWord} shown · `,
+              h('button', { type: 'button', class: 'link-btn', onclick: () => change({ closed: 'none' }) }, `Hide ${closedWord}`)] : []));
           tableBox.classList.toggle('as-board', board());
           root.classList.toggle('board-layout', board());
           if (board()) { picked.clear(); paintBulk(); paintBoard(rows, items, fs, ctx); return; }
@@ -552,7 +558,7 @@ export function listView(type, { page = null } = {}) {
             flex: roomy ? { subject: null } : { subject: subjectLeast(width || 1200) },
             widths: roomy ? { ...widthsNow, subject: SUBJECT_WIDTH } : widthsNow,
             rowClass: (i) => `${isClosed(i) ? 'done' : ''} ${picked.has(i.key) ? 'picked' : ''}`,
-            rows, sort, label: cfg.title, group, paging: { key, size: LIST_PAGE }, doneLast: true,
+            rows, sort, label: cfg.title, group, paging: { key, size: LIST_PAGE, always: true }, doneLast: true,
             // Ordered by its column even when the width or Display leaves it out: never by the ticks, which would move
             // a row as it is ticked.
             sortColumns: [...cfg.columns, pickCol],

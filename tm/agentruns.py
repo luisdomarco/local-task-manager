@@ -10,7 +10,7 @@ from tm.launch import SESSION_RE
 
 MAX = 500
 TEXT_MAX = 300  # characters of a run's arguments kept (the message itself is cut at server.py AGENT_ARGS_MAX)
-SHORT = ('dir', 'cmd', 'mode', 'model', 'effort', 'target', 'source', 'schedule', 'outcome', 'branch', 'base', 'read_at')
+SHORT = ('dir', 'cmd', 'mode', 'model', 'effort', 'target', 'source', 'schedule', 'outcome', 'branch', 'base', 'read_at', 'archived_at')
 LONG = ('worktree',)  # paths
 INTS = ('started_ts', 'ended_ts', 'closed_ts', 'removed_ts', 'exit_code', 'turns')  # whole numbers (the times in ms; removed: its worktree)
 UNTRACKED_MAX = 2000  # files not tracked by git when a run started (its Changes leave them out): at most these
@@ -95,6 +95,25 @@ def mark_read(path, ids, at):
         hits = [r for r in runs if r['id'] in wanted and not r.get('read_at')]
         for r in hits:
             r['read_at'] = at
+        if hits:
+            _save(path, runs)
+    return len(hits)
+
+
+def archive(path, ids, at, on=True):
+    """Archives the runs of `ids` at `at` (the Inbox leaves them out; their agent's page still lists them), and an
+    archived run is read too; `on=False` brings them back. Which runs may be archived (ended ones) is the caller's
+    business. → how many changed."""
+    wanted = {str(i or '').strip().lower() for i in ids or []}
+    with _lock:
+        runs = load(path)
+        hits = [r for r in runs if r['id'] in wanted and bool(r.get('archived_at')) != on]
+        for r in hits:
+            if on:
+                r['archived_at'] = at
+                r.setdefault('read_at', at)
+            else:
+                r.pop('archived_at', None)
         if hits:
             _save(path, runs)
     return len(hits)

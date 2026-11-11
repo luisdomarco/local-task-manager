@@ -4,7 +4,7 @@
 import { dictation } from './dictation.js';
 import { highlight as colour } from './highlight.js';
 import { HIGHLIGHTS, TEXT_COLOURS, colourRange } from './mdcolour.js';
-import { closeMenu, dropdown, h, icon, renderMarkdown } from './ui.js';
+import { closeMenu, dropdown, h, icon, renderMarkdown, seg } from './ui.js';
 
 const ACTIONS = [
   { key: 'heading', label: 'Heading', icon: 'heading', run: (ed) => ed.prefixLines('## ') },
@@ -240,11 +240,10 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
       onclick: (e) => a.run(api, e.currentTarget),
     }, icon(a.icon, 16)))),
     mic ? [h('span', { class: 'mde-sep' }), mic.el] : null,
-    prev ? h('div', { class: 'seg mde-modes', role: 'group', 'aria-label': 'Layout' }, MODES.map(([m, text]) => h('button', {
-      type: 'button', class: 'btn small', 'aria-pressed': String(m === mode), 'data-mode': m,
-      onmousedown: (e) => e.preventDefault(),
-      onclick: () => { mode = m; api.el.dataset.mode = m; bar.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === m))); },
-    }, text))) : null);
+    prev ? seg(MODES.map(([m, text]) => [m, text, { attrs: { 'data-mode': m, onmousedown: (e) => e.preventDefault() } }]), mode, (m) => {
+      mode = m; api.el.dataset.mode = m;
+      bar.querySelectorAll('[data-mode]').forEach((b) => { const on = b.dataset.mode === m; b.setAttribute('aria-pressed', String(on)); b.classList.toggle('active', on); });
+    }, { aria: 'Layout', cls: 'mde-modes' }) : null);
 
   const write = hl ? h('div', { class: `mde-code ${wrap ? '' : 'nowrap'}` }, h('pre', { class: 'mde-hl', 'aria-hidden': 'true' }, hl), ta) : ta;
   api.el = h('div', { class: `mde ${prev ? 'with-preview' : ''} ${hl ? 'coloured' : ''}`, 'data-mode': mode }, bar,

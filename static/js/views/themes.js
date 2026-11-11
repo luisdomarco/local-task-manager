@@ -4,7 +4,7 @@
 // it has no Save. The sidebar's light / dark / system switch is the same choice as the mode here.
 import { setTheme, setThemes, themeNow } from '../theme.js';
 import { OPTIONS, PRESETS, presetOf, presetValues, shuffled } from '../themeprefs.js';
-import { h, icon, statusChip } from '../ui.js';
+import { h, icon, propRow, seg, statusChip } from '../ui.js';
 
 const LOOKS = [
   ['classic', 'Classic', 'The app as it has always looked: compact, monochrome, 13.5px text.'],
@@ -40,11 +40,11 @@ const FACES = {
 };
 
 /** A row of buttons, one per [value, text, extra], the picked one pressed. */
-function seg(aria, pairs, picked, pick, disabled = false) {
-  return h('div', { class: 'seg', role: 'group', 'aria-label': aria }, ...pairs.map(([value, text, extra = {}]) => h('button', {
-    type: 'button', class: `btn ${picked === value ? 'active' : ''}`, 'aria-pressed': String(picked === value), disabled,
-    onclick: () => pick(value), style: extra.style || null,
-  }, extra.dot ? h('span', { class: 'swatch-dot', 'data-sw': value, 'aria-hidden': 'true' }) : null, text)));
+function choice(aria, pairs, picked, pick, disabled = false) {
+  return seg(pairs.map(([value, text, extra = {}]) => [value, text, {
+    lead: extra.dot ? h('span', { class: 'swatch-dot', 'data-sw': value, 'aria-hidden': 'true' }) : null,
+    attrs: extra.style ? { style: extra.style } : {},
+  }]), picked, pick, { aria, small: false, disabled });
 }
 
 /** The accents as round swatches: their name on hover and for a screen reader. */
@@ -88,8 +88,8 @@ export function themesPanel() {
     const t = themeNow();
     const modern = t.skin === 'modern';
     const off = !modern;
-    const row = (name, about, control) => h('div', { class: 'field' }, h('span', {}, name),
-      h('div', { class: 'ap-control' }, control, about ? h('span', { class: 'muted small' }, about) : null));
+    const row = (name, about, control) => propRow(name,
+      h('div', { class: 'ap-control' }, control, about ? h('span', { class: 'muted small' }, about) : null), { tag: 'div' });
     const preset = presetOf(t);
     const control = (key) => {
       if (key === 'accent') return swatches(t.accent, (v) => setTheme('accent', v), off);
@@ -97,7 +97,7 @@ export function themesPanel() {
         dot: key === 'base',
         style: (key === 'font' || key === 'heading') && FACES[v] ? `font-family:${FACES[v]}` : null,
       }]);
-      return seg(ROWS.find((r) => r[0] === key)[1], pairs, t[key], (v) => setTheme(key, v), off);
+      return choice(ROWS.find((r) => r[0] === key)[1], pairs, t[key], (v) => setTheme(key, v), off);
     };
     el.replaceChildren(
       h('section', { class: 'group' },
@@ -115,15 +115,15 @@ export function themesPanel() {
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Appearance')),
         h('div', { class: 'fields prop-rows' },
-          row('Mode', null, seg('Mode', MODES, t.mode, (v) => setTheme('mode', v))),
-          row('Density', null, seg('Density', OPTIONS.density.map((d) => [d, label(d)]), t.density, (v) => setTheme('density', v), off)))),
+          row('Mode', null, choice('Mode', MODES, t.mode, (v) => setTheme('mode', v))),
+          row('Density', null, choice('Density', OPTIONS.density.map((d) => [d, label(d)]), t.density, (v) => setTheme('density', v), off)))),
       h('section', { class: 'group ap-look' },
         h('header', {}, h('h3', {}, 'Look')),
         off ? h('p', { class: 'muted' }, 'The look is Modern’s: choose Modern above to change it. Classic keeps its own.') : null,
         h('div', { class: 'ap-layout' },
           h('div', { class: 'fields prop-rows' },
             row('Preset', preset || off ? null : 'Your own: no preset has these choices.', h('div', { class: 'ap-presets' },
-              seg('Preset', Object.keys(PRESETS).map((p) => [p, label(p)]), preset, (p) => setThemes(presetValues(p)), off),
+              choice('Preset', Object.keys(PRESETS).map((p) => [p, label(p)]), preset, (p) => setThemes(presetValues(p)), off),
               h('div', { class: 'ap-preset-actions' },
                 h('button', { type: 'button', class: 'btn small', disabled: off, onclick: () => setThemes(shuffled()) }, icon('sparkles', 14), 'Shuffle'),
                 h('button', { type: 'button', class: 'btn small ghost', disabled: off || preset === 'modern', onclick: () => setThemes(presetValues('modern')) },

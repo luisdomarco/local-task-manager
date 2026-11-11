@@ -2,7 +2,7 @@
 // board (free columns): a draggable list header with a ⋯ menu, inline rename,
 // list reordering by drag, and the "Add another list" column. Card dragging
 // lives in ui.js (dropZone); lists use their own MIME type so the two never mix.
-import { h, icon } from './ui.js';
+import { countOf, h, icon } from './ui.js';
 
 export const LIST_MIME = 'application/x-tm-list';
 const isListDrag = (e) => [...e.dataTransfer.types].includes(LIST_MIME);
@@ -37,7 +37,7 @@ export function listHeader({ list, idx, dragIdx = idx, count, countTitle = null,
   // The header is the drag handle that reorders lists (keyboard: ⋯ → Move left/right).
   const head = h('header', { class: `list-head ${cls}`, title: 'Drag to reorder the list' },
     before, name,
-    h('span', { class: 'count', title: countTitle || `${count} cards` }, count),
+    countOf(count, { attrs: { title: countTitle || `${count} cards` } }),
     more);
   return dragsList(head, dragIdx);
 }

@@ -1536,6 +1536,22 @@ def read_agent_runs(ids):
     return {'read': agentruns.mark_read(runs_path(), ids[:500], now_stamp())}
 
 
+def archive_agent_runs(ids, archived=True):
+    """Archives runs (or brings them back): only a run that has ended — never one working or waiting for you, whose
+    chat is still under way (as static/js/runmodel.js runStatus reads it)."""
+    if not isinstance(ids, list):
+        raise StoreError(400, 'ids must be a list')
+    on = archived is not False
+    wanted = {str(i or '').strip().lower() for i in ids[:500]}
+    runs = {r['id']: _run_now(r) for r in agentruns.load(runs_path()) if r['id'] in wanted}
+    if on:
+        busy = [sid for sid, r in runs.items() if r['pending'] or (r['live'] and (r['busy'] or not r.get('outcome')))]
+        if busy and len(busy) == len(runs):
+            raise StoreError(409, 'a run that is working or waiting for you cannot be archived')
+        runs = {sid: r for sid, r in runs.items() if sid not in busy}
+    return {'archived' if on else 'unarchived': agentruns.archive(runs_path(), list(runs), now_stamp(), on)}
+
+
 def _run_on_record(session_id):
     r = agentruns.find(runs_path(), session_id)
     if not r:
@@ -2080,6 +2096,7 @@ ROUTES = {
     ('POST', '/api/chat/close'): lambda s, q, b: CHATS.close(b.get('id')),
     ('POST', '/api/item/comment'): lambda s, q, b: s.add_comment(b.get('key'), b.get('text')),
     ('POST', '/api/item/comment/delete'): lambda s, q, b: s.delete_comment(b.get('key'), int(b.get('index', -1))),
+    ('POST', '/api/item/comment/restore'): lambda s, q, b: s.restore_comment(b.get('key'), int(b.get('index', 0)), b.get('comment')),
     ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), int(b.get('index', -1)), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
@@ -2091,6 +2108,7 @@ ROUTES = {
     ('POST', '/api/exports/delete'): lambda s, q, b: export.delete(source_dir(), b.get('name')),
     ('POST', '/api/exports/reveal'): lambda s, q, b: open_local(export.path_of(source_dir(), b.get('name'))),
     ('POST', '/api/worklog/delete'): lambda s, q, b: s.unlog_work(b['date'], int(b['index'])),
+    ('POST', '/api/worklog/restore'): lambda s, q, b: s.restore_log(b.get('date'), int(b.get('index', 0)), b.get('entry')),
     ('GET', '/api/guide'): lambda s, q, b: user_guide(),
     ('GET', '/api/agents'): lambda s, q, b: list_agents(),
     ('GET', '/api/agents/command'): lambda s, q, b: agent_command(q.get('dir'), q.get('cmd')),
@@ -2109,6 +2127,7 @@ ROUTES = {
     ('POST', '/api/agents/runs/forget'): lambda s, q, b: forget_agent_run(b.get('session_id')),
     ('GET', '/api/agents/activity'): lambda s, q, b: agent_activity(),
     ('POST', '/api/agents/runs/read'): lambda s, q, b: read_agent_runs(b.get('ids')),
+    ('POST', '/api/agents/runs/archive'): lambda s, q, b: archive_agent_runs(b.get('ids'), b.get('archived', True)),
     ('GET', '/api/agents/runs/changes'): lambda s, q, b: agent_run_changes(q.get('id')),
     ('GET', '/api/agents/runs/diff'): lambda s, q, b: agent_run_diff(q.get('id'), q.get('path')),
     ('GET', '/api/agents/schedules'): lambda s, q, b: agent_schedules(q.get('dir'), q.get('cmd')),
@@ -2131,7 +2150,7 @@ GLOBAL_ROUTES = {
     ('GET', '/api/exports'), ('POST', '/api/exports/delete'), ('POST', '/api/exports/reveal'), ('GET', '/api/guide'),
     ('GET', '/api/agents'), ('GET', '/api/agents/command'), ('GET', '/api/agents/related'), ('GET', '/api/agents/file'), ('POST', '/api/agents/file'), ('POST', '/api/agents/open-file'), ('POST', '/api/agents/reveal'),
     ('POST', '/api/agents/launch'), ('GET', '/api/agents/runs'), ('POST', '/api/agents/runs/forget'),
-    ('GET', '/api/agents/activity'), ('POST', '/api/agents/runs/read'), ('GET', '/api/agents/runs/changes'), ('GET', '/api/agents/runs/diff'),
+    ('GET', '/api/agents/activity'), ('POST', '/api/agents/runs/read'), ('POST', '/api/agents/runs/archive'), ('GET', '/api/agents/runs/changes'), ('GET', '/api/agents/runs/diff'),
     ('POST', '/api/agents/runs/worktree/remove'), ('GET', '/api/agents/schedules'), ('POST', '/api/agents/schedules'),
     ('POST', '/api/agents/schedules/pause'), ('POST', '/api/agents/schedules/delete'), ('POST', '/api/agents/schedules/run'),
 }

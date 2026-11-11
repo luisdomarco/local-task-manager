@@ -14,7 +14,7 @@ import { opener } from './links.js';
 import { pref, setPref } from './prefs.js';
 import { PLANNABLE, isDone, isEnabled, isOverdue } from './rules.js';
 import { state } from './state.js';
-import { checkbox, h, icon, itemCard, priorityChip, statusChip, typeIcon } from './ui.js';
+import { checkbox, countOf, h, icon, itemCard, priorityChip, statusChip, typeIcon } from './ui.js';
 import { fresh } from './viewmodel.js';
 
 /** Where an item belongs, for its row or card: its parent (initiative, story…), else its project. */
@@ -146,7 +146,7 @@ export function planSection({ title, count = '', dot = null, tag = null, action 
     dot ? h('span', { class: `plan-dot ${dot}` }) : null,
     h('h3', {}, title),
     tag ? h('span', { class: 'plan-tag' }, tag) : null,
-    count !== '' && count !== null ? h('span', { class: 'plan-count' }, String(count)) : null,
+    count !== '' && count !== null ? countOf(count, { plain: true, cls: 'plan-count' }) : null,
     action ? h('span', { class: 'plan-sec-act' }, action) : null);
 }
 

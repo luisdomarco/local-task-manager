@@ -31,7 +31,7 @@ import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
 import { allContacts, allLabels, state } from './state.js';
-import { TYPE_ICON_NAME, checkSelect, dropdown, h, icon, labelInput, parentOptions, select, tagInput, typeIcon } from './ui.js';
+import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
 /** The kind a binding's item falls under (Ticketing): a project's own, else its project's; none for an item with no
@@ -149,8 +149,6 @@ export function planControl(get, set, attrs = {}, { short = false } = {}) {
 
 // ── the fields ───────────────────────────────────────────────────────────────
 
-const field = (label, control) => h('label', { class: 'field' }, h('span', {}, label), control);
-
 /**
  * The property fields, two per row (Labels takes the whole row), always in this order (a type skips the ones
  * that do not apply to it):
@@ -171,8 +169,7 @@ export function itemFields(b) {
     return el;
   };
   // Who: tags like the labels, suggested from the people and the groups of Contacts (an email list invited to a meeting).
-  const person = (label, key) => h('div', { class: 'field' }, h('span', {}, label),
-    tagInput(peopleOf(b.get(key)), (names) => b.set(key, names), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: key }));
+  const person = (label, key) => propRow(label, tagInput(peopleOf(b.get(key)), (names) => b.set(key, names), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: key }), { tag: 'div' });
   const date = (key) => {
     const el = dateInput(b.get(key) || '', { 'data-fk': key });
     el.addEventListener(b.live ? 'input' : 'change', () => b.set(key, el.value));
@@ -180,10 +177,10 @@ export function itemFields(b) {
   };
   // A meeting's or an activity's day and time: when it starts, or when it came. A blank time is "not known" (an all-day event).
   const dateTime = () => {
-    out.push(field('Date', date('date')));
+    out.push(propRow('Date', date('date')));
     const time = h('input', { type: 'time', value: b.get('time') || '', 'data-fk': 'time' });
     time.addEventListener('change', () => b.set('time', time.value));
-    out.push(field('Time', time));
+    out.push(propRow('Time', time));
   };
 
   // Priority, then why it has it (free text, a row of its own), on any type that has one: right after Status on a
@@ -200,14 +197,13 @@ export function itemFields(b) {
     }
     if (!hasField(type, 'priority')) return;
     prioritized = true;
-    out.push(field('Priority', select(PRIORITIES.map((p) => [p, p]), PRIORITIES.includes(b.get('priority')) ? b.get('priority') : defaultOf('priority', 'Normal'),
+    out.push(propRow('Priority', select(PRIORITIES.map((p) => [p, p]), PRIORITIES.includes(b.get('priority')) ? b.get('priority') : defaultOf('priority', 'Normal'),
       (v) => b.set('priority', v), { class: 'prio-select', 'aria-label': 'Priority', 'data-fk': 'priority' })));
-    out.push(h('label', { class: 'field span2' }, h('span', {}, 'Priority reason'),
-      text('priority_reason', { placeholder: 'Why this priority', 'aria-label': 'Priority reason' })));
+    out.push(propRow('Priority reason', text('priority_reason', { placeholder: 'Why this priority', 'aria-label': 'Priority reason' }), { cls: 'span2' }));
   };
 
   if (type === 'activity') { // where the message came from comes before what it is about
-    out.push(field('Source', select(ACTIVITY_SOURCES.map((s) => [s, s]), b.get('source') || 'Email', (v) => b.set('source', v), { 'data-fk': 'source' })));
+    out.push(propRow('Source', select(ACTIVITY_SOURCES.map((s) => [s, s]), b.get('source') || 'Email', (v) => b.set('source', v), { 'data-fk': 'source' })));
     out.push(person('From', 'from'));
     dateTime();
     priorityFields();
@@ -216,40 +212,39 @@ export function itemFields(b) {
   // A project's key is set once, here: every item of it names it (and in Ticketing every ticket's id carries it). A
   // Ticketing project's kind is chosen once too, among its Settings (a field of its own with `once`).
   if (type === 'project' && b.creating) {
-    out.push(field('Key', text('project_key', { placeholder: 'HB — 2 to 4 capital letters', 'aria-label': 'Project key' })));
+    out.push(propRow('Key', text('project_key', { placeholder: 'HB — 2 to 4 capital letters', 'aria-label': 'Project key' })));
   }
 
   // A Ticketing item's project. On an item's card or page it is the first row of the Relations tab instead, and
   // on the create form the first section of its right column (b.aside).
-  if (hasField(type, 'project') && type !== 'project' && !aside('project')) out.push(field('Project', projectControl(b)));
+  if (hasField(type, 'project') && type !== 'project' && !aside('project')) out.push(propRow('Project', projectControl(b)));
 
   if (b.titleStatus) { // a card's or page's status sits beside its title (statusSelect); priority keeps its place here
     priorityFields();
   } else if (plannable) {
     // select() recolours the status / priority pill itself, so the create form (which never re-renders) stays right too.
     const statuses = statusesOf(type);
-    out.push(field('Status', select(statuses.map((s) => [s, s]), statuses.includes(b.get('status')) ? b.get('status') : statuses[0],
+    out.push(propRow('Status', select(statuses.map((s) => [s, s]), statuses.includes(b.get('status')) ? b.get('status') : statuses[0],
       (v) => b.set('status', v), { class: 'status-select', 'aria-label': 'Status', 'data-fk': 'status' })));
     priorityFields();
   } else if (hasField(type, 'status')) { // a status without planning (a Ticketing error, an agent)
     const statuses = statusesOf(type);
-    out.push(field('Status', select(statuses.map((s) => [s, s]), statuses.includes(b.get('status')) ? b.get('status') : statuses[0],
+    out.push(propRow('Status', select(statuses.map((s) => [s, s]), statuses.includes(b.get('status')) ? b.get('status') : statuses[0],
       (v) => b.set('status', v), { class: 'status-select', 'aria-label': 'Status', 'data-fk': 'status' })));
     if (hasField(type, 'priority')) priorityFields(); // an agent's, as a task's: Status · Priority, then why
   }
   priorityFields(); // a type with a priority and no status
 
-  if (PARENT_TYPES[type].length && !aside('related_to')) out.push(field(relatedLabel(type), relatedControl(b)));
+  if (PARENT_TYPES[type].length && !aside('related_to')) out.push(propRow(relatedLabel(type), relatedControl(b)));
 
-  if (type !== 'prompt' && !aside('session_name')) out.push(field('Session', text('session_name', { placeholder: 'Claude session handling this' })));
+  if (type !== 'prompt' && !aside('session_name')) out.push(propRow('Session', text('session_name', { placeholder: 'Claude session handling this' })));
 
   // When, on one row: Planned (Today / This week / Next week / This month, or a day through the date picker), Start (a
   // project's) and Due.
   const when = [
-    plannable ? h('label', { class: 'field plan-field' }, h('span', {}, 'Planned'),
-      planControl(() => b.get('planned'), (v) => b.set('planned', v), { 'data-fk': 'planned' })) : null,
-    hasField(type, 'start') ? field('Start', date('start')) : null,
-    hasField(type, 'due') ? field('Due', date('due')) : null,
+    plannable ? propRow('Planned', planControl(() => b.get('planned'), (v) => b.set('planned', v), { 'data-fk': 'planned' }), { cls: 'plan-field' }) : null,
+    hasField(type, 'start') ? propRow('Start', date('start')) : null,
+    hasField(type, 'due') ? propRow('Due', date('due')) : null,
   ].filter(Boolean);
   if (when.length && b.propList) out.push(...when); // one row each in the list of properties
   else if (when.length) out.push(h('div', { class: `field-row${when.length > 2 ? ' cols-3' : ''}` }, when));
@@ -264,11 +259,10 @@ export function itemFields(b) {
       duration.value = clean;
       b.set('duration', clean);
     });
-    out.push(field('Duration', duration));
+    out.push(propRow('Duration', duration));
     out.push(person('Attendees', 'attendees'));
   }
-  out.push(h('div', { class: 'field span2' }, h('span', {}, 'Labels'),
-    labelInput(b.get('labels') || [], (labels) => b.set('labels', labels), { suggest: allLabels })));
+  out.push(propRow('Labels', labelInput(b.get('labels') || [], (labels) => b.set('labels', labels), { suggest: allLabels }), { tag: 'div', cls: 'span2' }));
 
   // The type's own fields (a Ticketing support ticket's level, origin, disposition…), as its structure lists them.
   // An item's card or page shows here only its properties (tab 'main'); the rest sit in their side tab (panel.js). The
@@ -336,8 +330,8 @@ export function aimFields(b) {
   area.addEventListener(b.live ? 'input' : 'change', () => b.set('area', area.value));
   const objective = h('textarea', { rows: 2, placeholder: 'The observable end state that lets it close', 'data-fk': 'objective' }, b.get('objective') || '');
   objective.addEventListener(b.live ? 'input' : 'change', () => b.set('objective', objective.value));
-  return h('div', { class: 'fields prop-rows quiet' }, h('label', { class: 'field span2' }, h('span', {}, 'Area'), area),
-    h('label', { class: 'field span2' }, h('span', {}, 'Objective'), objective));
+  return h('div', { class: 'fields prop-rows quiet' }, propRow('Area', area, { cls: 'span2' }),
+    propRow('Objective', objective, { cls: 'span2' }));
 }
 
 /** The groups of one tab's props without a title of their own (a tab of the page holds them); null without any. */
@@ -441,7 +435,7 @@ export function propGroups(props, b) {
 export function propField(b, p) {
   // Chosen once, on creation: the create form offers its options; after, it is read-only (its option's label).
   if (p.once && b.creating) p = { ...p, kind: p.options ? 'select' : 'text', readonly: false };
-  else if (p.once && p.options) return field(p.label, h('span', { class: 'prop-readonly' }, p.options.find(([v]) => v === b.get(p.key))?.[1] || shown(b.get(p.key))));
+  else if (p.once && p.options) return propRow(p.label, h('span', { class: 'prop-readonly' }, p.options.find(([v]) => v === b.get(p.key))?.[1] || shown(b.get(p.key))));
   const value = b.get(p.key);
   const fk = { 'data-fk': p.key };
   const input = (attrs) => {
@@ -449,7 +443,7 @@ export function propField(b, p) {
     el.addEventListener(b.live ? 'input' : 'change', () => b.set(p.key, el.value));
     return el;
   };
-  if (p.kind === 'readonly' || (p.readonly && p.kind !== 'link')) return field(p.label, h('span', { class: 'prop-readonly' }, shown(value)));
+  if (p.kind === 'readonly' || (p.readonly && p.kind !== 'link')) return propRow(p.label, h('span', { class: 'prop-readonly' }, shown(value)));
   if (p.kind === 'select') {
     // One the create form marks optional (b.optional) starts on none: nothing is written until it is picked, and the
     // new file keeps its template's value.
@@ -458,40 +452,40 @@ export function propField(b, p) {
     const current = unpicked ? null : value ?? p.default ?? opts[0][0];
     // What the form shows is what it creates: a new item gets the value on screen, not the server's own default.
     if (b.creating && value === undefined && current) b.set(p.key, current);
-    return field(p.label, select(opts, current, (v) => b.set(p.key, v ?? ''), fk));
+    return propRow(p.label, select(opts, current, (v) => b.set(p.key, v ?? ''), fk));
   }
   // Several of its options, ticked in a menu; the `fixed` ones always on (a project's core types).
   if (p.kind === 'checks') {
     const fixed = p.fixed || [];
     const ticked = [...new Set([...fixed, ...(Array.isArray(value) ? value : [])])];
-    return field(p.label, checkSelect(p.options.map(([v, l]) => [v, l || v]), ticked,
+    return propRow(p.label, checkSelect(p.options.map(([v, l]) => [v, l || v]), ticked,
       (v) => b.set(p.key, [...new Set([...fixed, ...v])]), { any: '—', text: (v) => v.join(', '), fixed, ...fk }));
   }
   if (p.kind === 'textarea') {
     const el = h('textarea', { rows: 2, placeholder: p.placeholder || null, ...fk }, value ?? '');
     el.addEventListener(b.live ? 'input' : 'change', () => b.set(p.key, el.value));
-    return h('label', { class: 'field span2' }, h('span', {}, p.label), el);
+    return propRow(p.label, el, { cls: 'span2' });
   }
-  if (p.kind === 'number') return field(p.label, input({ type: 'number' }));
+  if (p.kind === 'number') return propRow(p.label, input({ type: 'number' }));
   if (p.kind === 'date') {
     const el = dateInput(value || '', { placeholder: p.placeholder || 'Pick a date', ...fk });
     el.addEventListener('change', () => b.set(p.key, el.value));
-    return field(p.label, el);
+    return propRow(p.label, el);
   }
   if (p.kind === 'link' || p.kind === 'links') {
     const pool = state.items.filter((i) => (p.types || []).includes(i.type) && i.key !== b.key);
     if (p.readonly) {
       const target = pool.find((i) => i.key === value);
-      return field(p.label, h('span', { class: 'prop-readonly' }, target ? itemLabel(target) : shown(value)));
+      return propRow(p.label, h('span', { class: 'prop-readonly' }, target ? itemLabel(target) : shown(value)));
     }
     if (p.kind === 'link') {
-      return field(p.label, select([[null, '— none —'], ...pool.map((i) => [i.key, itemLabel(i)])], value || null,
+      return propRow(p.label, select([[null, '— none —'], ...pool.map((i) => [i.key, itemLabel(i)])], value || null,
         (v) => b.set(p.key, v || ''), { ...fk, search: true, clearable: true }));
     }
     // Several: the ids, comma separated (as the list shows them).
     const el = h('input', { type: 'text', value: (value || []).join(', '), placeholder: 'ACME-INI-012, ACME-SUP-003', ...fk });
     el.addEventListener('change', () => b.set(p.key, el.value.split(',').map((x) => x.trim()).filter(Boolean)));
-    return field(p.label, el);
+    return propRow(p.label, el);
   }
   if (p.kind === 'map') {
     const cur = value && typeof value === 'object' ? value : {};
@@ -509,7 +503,7 @@ export function propField(b, p) {
         return h('label', { class: 'prop-map-cell' }, h('span', { class: 'prop-map-key' }, named?.[k] || k.replace('_', ' ')), el);
       })));
   }
-  return field(p.label, input({ type: 'text' }));
+  return propRow(p.label, input({ type: 'text' }));
 }
 
 // ── link labels ──────────────────────────────────────────────────────────────

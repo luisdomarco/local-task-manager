@@ -7,7 +7,7 @@ import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { trashSummary } from '../housekeeping.js';
 import { emptyTrash, purgeFile, purgeFromTrash, restoreFile, restoreFromTrash, state } from '../state.js';
 import { saveSort, savedSort } from '../prefs.js';
-import { h, icon, pageCount, pageEmpty, pageHead, rowAction, searchBox, typeIcon } from '../ui.js';
+import { countOf, formActions, h, icon, pageCount, pageEmpty, pageHead, rowAction, searchBox, typeIcon } from '../ui.js';
 
 // Keys of the shared column widths (datatable.js fixedColumns).
 const FIXED = fixedColumns(['id', 'subject', 'type', 'deleted_at', 'path', 'unlinked', 'actions'].map((key) => ({ key })));
@@ -43,11 +43,10 @@ export function mount(root) {
   const withItems = (e) => (e.holds ? ` and its ${items(e.holds)}` : '');
   const row = (e) => {
     if (confirm === e.trashed) {
-      return h('tr', { class: 'tag-edit' }, h('td', { colspan: COLS }, h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, `Delete ${e.ref || e.id || e.title}${withItems(e)} for good? It cannot be undone.`),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
-        h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever'))));
+      return h('tr', { class: 'tag-edit' }, h('td', { colspan: COLS }, formActions({ cls: 'tag-edit-row', small: true,
+        lead: h('span', { class: 'small' }, `Delete ${e.ref || e.id || e.title}${withItems(e)} for good? It cannot be undone.`),
+        onCancel: () => { confirm = null; api.update(); },
+        actions: h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFromTrash(e.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever') })));
     }
     return h('tr', { class: 'trash-row hover-host' },
       h('td', {}, h('span', { class: 'mono' }, e.ref || e.id || '—')),
@@ -64,11 +63,10 @@ export function mount(root) {
   // Files and folders deleted from the Explorer: where they were, when; Restore puts one back there.
   const fileRow = (f) => {
     if (confirm === f.trashed) {
-      return h('tr', { class: 'tag-edit' }, h('td', { colspan: 3 }, h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, `Delete ${f.path} for good? It cannot be undone.`),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
-        h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFile(f.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever'))));
+      return h('tr', { class: 'tag-edit' }, h('td', { colspan: 3 }, formActions({ cls: 'tag-edit-row', small: true,
+        lead: h('span', { class: 'small' }, `Delete ${f.path} for good? It cannot be undone.`),
+        onCancel: () => { confirm = null; api.update(); },
+        actions: h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await purgeFile(f.trashed); } catch { /* toasted */ } } }, icon('trash', 13), 'Delete forever') })));
     }
     return h('tr', { class: 'trash-row hover-host' },
       h('td', { class: 'trash-file' }, icon(f.kind === 'dir' ? 'folder' : 'file', 15), h('span', { class: 'mono', title: f.path }, f.path)),
@@ -80,7 +78,7 @@ export function mount(root) {
   const filesSection = () => {
     const files = state.trashedFiles.filter((f) => !search || f.path.toLowerCase().includes(search));
     if (!state.trashedFiles.length) return [];
-    return [h('h2', { class: 'trash-files-title' }, 'Deleted files and folders', h('span', { class: 'count' }, String(state.trashedFiles.length))),
+    return [h('h2', { class: 'trash-files-title' }, 'Deleted files and folders', countOf(state.trashedFiles.length)),
       h('p', { class: 'muted small' }, 'Deleted from the sidebar\'s Explorer. They are no items: restoring one puts it back where it was.'),
       files.length
         ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid tag-grid trash-grid', 'aria-label': 'Deleted files and folders' },
@@ -100,15 +98,14 @@ export function mount(root) {
       if (!summary.canEmpty && confirm === 'all') confirm = null;
       note.textContent = summary.note;
       note.hidden = !summary.note;
-      banner.replaceChildren(...(confirm === 'all' ? [h('div', { class: 'tag-edit-row' },
-        h('span', { class: 'small' }, summary.confirm),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'btn small ghost', onclick: () => { confirm = null; api.update(); } }, 'Cancel'),
-        h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await emptyTrash(); } catch { /* toasted */ } } }, icon('trash', 13), 'Empty trash'))] : []));
+      banner.replaceChildren(...(confirm === 'all' ? [formActions({ cls: 'tag-edit-row', small: true,
+        lead: h('span', { class: 'small' }, summary.confirm),
+        onCancel: () => { confirm = null; api.update(); },
+        actions: h('button', { class: 'btn small danger', onclick: async () => { confirm = null; try { await emptyTrash(); } catch { /* toasted */ } } }, icon('trash', 13), 'Empty trash') })] : []));
       const key = { id: (e) => e.id || '', title: (e) => e.title.toLowerCase(), type: (e) => e.type || '', deleted_at: (e) => e.deleted_at, original_path: (e) => e.original_path, unlinked: (e) => e.unlinked }[sort.col];
       const matching = all.filter((e) => !search || `${e.ref} ${e.id} ${e.title} ${e.type} ${e.original_path}`.toLowerCase().includes(search))
         .sort((a, b) => { const x = key(a); const y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * sort.dir; });
-      const page = paged({ key: 'trash', rows: matching, size: LIST_PAGE, onChange: () => api.update() });
+      const page = paged({ key: 'trash', rows: matching, size: LIST_PAGE, always: true, onChange: () => api.update() });
       const { rows } = page;
       table.replaceChildren(...[all.length
         ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed tag-grid trash-grid', style: FIXED.style, 'aria-label': 'Trash' }, FIXED.colgroup.cloneNode(true),

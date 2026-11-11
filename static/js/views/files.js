@@ -17,7 +17,8 @@ import { openItem } from '../panel.js';
 import { pref, setPref } from '../prefs.js';
 import { TYPE_DEFS, hasPage } from '../rules.js';
 import { allLabels, allPeople, reload, state, toast } from '../state.js';
-import { cssKey, h, icon, renderMarkdown, select, tagInput, typeIcon } from '../ui.js';
+import { refOf } from '../shownid.js';
+import { cssKey, emptyLine, h, icon, linkButton, loadingLine, renderMarkdown, rowItem, rowList, seg, select, stackGroup, tagInput, typeIcon } from '../ui.js';
 
 const MAX_TEXT = 2 * 1024 * 1024; // larger text is not read into the page: download it (nor edited: Store.SAVE_MAX)
 const AUTOSAVE_MS = 800;
@@ -158,11 +159,8 @@ function fileView(node, mode, setMode, body, editable) {
   const download = at(h('a', { class: 'btn small', download: node.name }, icon('download', 13), 'Download'), 'href', url);
   const modes = tableKind(node.path) ? MODES.table : MODES[kind];
   const shown = kind === 'text' && mode === 'preview' && !tableKind(node.path) ? 'source' : mode;
-  const toggle = modes ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Show as' },
-    modes.map(([m, ico, label]) => h('button', {
-      class: `btn small ${shown === m ? 'active' : ''}`, 'aria-pressed': String(shown === m), onclick: () => setMode(m),
-      disabled: m === 'edit' && !editable, title: m === 'edit' ? (editable ? 'Edit it here (saved as you type)' : 'Not readable as text here') : null,
-    }, icon(ico, 13), label))) : null;
+  const toggle = modes ? seg(modes.map(([m, ico, label]) => [m, label, { ico, disabled: m === 'edit' && !editable,
+    tip: m === 'edit' ? (editable ? 'Edit it here (saved as you type)' : 'Not readable as text here') : null }]), shown, (m) => setMode(m), { aria: 'Show as' }) : null;
   return [
     h('div', { class: 'files-head' }, h('h1', { title: node.path }, node.item ? typeIcon(node.item.type, 20) : icon(kind === 'image' ? 'image' : 'file', 20),
       node.item?.title || node.name), h('span', { class: 'spacer' }), toggle, reveal(node.path), download),
@@ -209,7 +207,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
   /** A CSV/TSV as a table: its first row the header, the first TABLE_MAX rows. */
   const tableBody = (kind) => {
     const { rows, more } = parseTable(text, kind, TABLE_MAX + 1);
-    if (!rows.length) return h('p', { class: 'muted' }, 'No rows.');
+    if (!rows.length) return emptyLine('No rows.');
     const [head, ...data] = rows;
     const width = Math.max(...rows.map((r) => r.length));
     const cells = (r, tag) => Array.from({ length: width }, (_, i) => h(tag, {}, r[i] ?? ''));
@@ -236,11 +234,11 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     const viaDocs = new Set(itemsLinking(path, state.items).map((it) => it.path)); // shown above, as items
     const links = backlinks.links?.filter((l) => !viaDocs.has(l.path));
     if (!links?.length) return null;
-    return h('section', { class: 'files-backlinks' }, h('h3', {}, icon('link', 14), `Linked from · ${links.length}`),
-      h('ul', {}, links.map((l) => h('li', {},
-        h('button', { class: 'find-line', title: `${l.path} · line ${l.line}`, onclick: () => openFileAtLine(l.path, l.line) },
-          h('span', { class: 'find-path-sm' }, l.path.split('/').pop().replace(/\.md$/i, '')),
-          h('span', { class: 'find-text muted' }, l.text), l.count > 1 ? h('span', { class: 'chip' }, `×${l.count}`) : null)))));
+    // Panel kit rows (design.md): the note's name, the line that links here as its grey meta
+    return stackGroup(`Linked from · ${links.length}`, rowList(links.map((l) => rowItem({
+      ico: icon('file', 14), text: l.path.split('/').pop().replace(/\.md$/i, ''), tip: `${l.path} · line ${l.line}`,
+      meta: l.count > 1 ? `${l.text} · ×${l.count}` : l.text, onClick: () => openFileAtLine(l.path, l.line) }))),
+    { class: 'files-backlinks' });
   };
   // The headings of a long note, to jump to (two or more).
   const outline = (md) => {
@@ -249,7 +247,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     return h('details', { class: 'files-outline', open: heads.length <= 12 },
       h('summary', {}, `On this page · ${heads.length}`),
       h('ul', {}, heads.map((el) => h('li', { style: `--lvl:${Number(el.tagName[1]) - 1}` },
-        h('button', { class: 'link', onclick: () => el.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, el.textContent)))));
+        linkButton(el.textContent, () => el.scrollIntoView({ block: 'start', behavior: 'smooth' }))))));
   };
 
   // A doc (TSK-039: `fileClass: Doc`, plans/TSK-039 §3.6): its own properties as fields, each saved as it changes
@@ -269,30 +267,31 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     const people = [...new Set([...allPeople(), owner].filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const tags = get('tags').replace(/^\[|\]$/g, '').split(',').map((t) => t.trim().replace(/^(['"])(.*)\1$/, '$2')).filter(Boolean); // "ux" in a [..] list
     const here = docsGroupOf(docGroups, path);
-    const field = (label, control) => h('div', { class: 'doc-prop' }, h('span', { class: 'doc-prop-label' }, label), control);
-    return h('div', { class: 'doc-props', role: 'group', 'aria-label': 'Doc properties' },
+    // One per row, the name on the left, quiet (design.md §Properties), as an item's properties
+    const field = (label, control) => h('div', { class: 'field' }, h('span', {}, label), control);
+    return h('div', { class: 'fields prop-rows quiet doc-props', role: 'group', 'aria-label': 'Doc properties' },
       field('Status', select([['draft', 'Draft'], ['published', 'Published']], get('doc_status') || 'draft',
         (v) => save({ doc_status: v || 'draft' }), { 'aria-label': 'Doc status', search: false })),
-      field('Owner', select([[null, '—'], ...people.map((p) => [p, p])], owner || null, (v) => save({ owner: v || '' }), { 'aria-label': 'Owner' })),
+      field('Owner', select([[null, 'No owner'], ...people.map((p) => [p, p])], owner || null, (v) => save({ owner: v || '' }), { 'aria-label': 'Owner' })),
       // × clears it: no project, so the doc goes to the vault's own Docs
       field('Project', docGroups.length ? select([[null, 'No project'], ...docGroups.filter((g) => g.project).map((g) => [g.project, g.title])],
         here?.project ?? null, (v) => save({ project: v || null }), { 'aria-label': 'Project', search: false, clearable: true }) : h('span', { class: 'muted' }, '…')),
       field('Tags', tagInput(tags, (list) => save({ tags: list }), { suggest: allLabels, placeholder: 'Add a tag' })),
-      field('Updated', h('span', { class: 'muted' }, get('updated_date') || '—')));
+      field('Updated', h('span', { class: 'prop-readonly' }, get('updated_date') || 'Empty')));
   };
 
   // The initiatives and tasks whose `docs` link this doc, or a folder that holds it (TSK-039 phase 3).
   const linkedItems = () => {
     const items = itemsLinking(path, state.items);
     if (!items.length) return null;
-    return h('section', { class: 'files-backlinks' }, h('h3', {}, icon('link', 14), `Linked from items · ${items.length}`),
-      h('ul', {}, items.map((it) => h('li', {}, h('a', { class: 'find-line', href: itemHref(it), title: it.key },
-        typeIcon(it.type, 14), h('span', { class: 'find-path-sm' }, it.id || ''), h('span', { class: 'find-text' }, it.title))))));
+    return stackGroup(`Linked from items · ${items.length}`, rowList(items.map((it) => rowItem({
+      ico: typeIcon(it.type, 14), text: it.title, meta: refOf(it), mono: true, href: itemHref(it), tip: it.key }))),
+    { class: 'files-backlinks' });
   };
 
   const markdownBody = (node) => {
     if (failed) return h('p', { class: 'muted' }, `Could not read it (${failed}).`);
-    if (text === null) return h('p', { class: 'muted' }, 'Loading…');
+    if (text === null) return loadingLine();
     if (mode === 'source') return codeBlock('markdown', true);
     const { props: all, body } = splitFrontmatter(text);
     const isDoc = all.some(([k, v]) => k === 'fileClass' && v === 'Doc');
@@ -407,7 +406,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
 
   function render() {
     const tree = fileTree();
-    if (!tree) { root.replaceChildren(h('p', { class: 'muted' }, 'Loading…')); return; }
+    if (!tree) { root.replaceChildren(loadingLine()); return; }
     const node = findNode(tree, path);
     if (!node) {
       root.replaceChildren(crumbs(path, href), h('div', { class: 'empty' }, 'This file is not in the vault any more.'));
@@ -431,7 +430,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
       const lang = codeLanguage(node.path);
       const table = tableKind(node.path);
       body = failed ? h('p', { class: 'muted' }, `Could not read it (${failed}).`)
-        : text === null ? h('p', { class: 'muted' }, 'Loading…')
+        : text === null ? loadingLine()
           : table && mode === 'preview' ? tableBody(table)
             : codeBlock(lang, !lang); // code scrolls sideways; prose wraps
     } else if (kind === 'other') {

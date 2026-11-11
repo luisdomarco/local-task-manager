@@ -133,6 +133,7 @@ export const api = {
   // Activity and the sidebar's Inbox: every agent's runs (the newest), and what needs you / runs / is unread.
   agentActivity: () => get('/api/agents/activity'),
   agentRunsRead: (ids) => post('/api/agents/runs/read', { ids }),
+  agentRunsArchive: (ids, archived = true) => post('/api/agents/runs/archive', { ids, archived }),
   // Scheduled runs (server.py tick, tm/schedules.py): of one agent, or all; saved (new, or changed by id), paused, run now.
   agentSchedules: (dir = '', cmd = '') => get(`/api/agents/schedules?dir=${encodeURIComponent(dir)}&cmd=${encodeURIComponent(cmd)}`),
   agentScheduleSave: (body) => post('/api/agents/schedules', body),
@@ -178,6 +179,7 @@ export const api = {
   convert: (key, type, values) => post('/api/item/convert', { key, type, values }),
   addComment: (key, text) => post('/api/item/comment', { key, text }),
   deleteComment: (key, index) => post('/api/item/comment/delete', { key, index }),
+  restoreComment: (key, index, comment) => post('/api/item/comment/restore', { key, index, comment }),
   editComment: (key, index, text, was) => post('/api/item/comment/edit', { key, index, text, was }),
   assignIds: () => post('/api/assign-ids'),
   board: () => get('/api/board'),
@@ -211,6 +213,7 @@ export const api = {
   logWork: (id, kind, note, date, time) => post('/api/worklog', { id, kind, note, date, time }),
   updateLog: (date, index, values) => post('/api/worklog/update', { date, index, ...values }),
   unlogWork: (date, index) => post('/api/worklog/delete', { date, index }),
+  restoreLog: (date, index, entry) => post('/api/worklog/restore', { date, index, entry }),
   // Tentative entries (proposed by the worklog proposal command): one by its index, or every one of the day (index null)
   confirmLog: (date, index = null) => post('/api/worklog/confirm', { date, ...(index === null ? {} : { index }) }),
   discardLog: (date, index = null) => post('/api/worklog/discard', { date, ...(index === null ? {} : { index }) }),

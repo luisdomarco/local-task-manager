@@ -14,7 +14,7 @@ import {
 import { mdBlock } from './mdblock.js';
 import { openQuickModal } from './quickadd.js';
 import { createItem, state, toast } from './state.js';
-import { dropdown, h, icon, select, stackGroup } from './ui.js';
+import { dropdown, formActions, h, icon, openDialog, propRow, sectionLabel, select, stackGroup } from './ui.js';
 import { refOf } from './shownid.js';
 
 // From the vault's structure (rules.js), in its order. Live bindings: they change with it.
@@ -42,19 +42,6 @@ const BODY_PLACEHOLDER = { activity: 'Paste the email / Slack message / comment 
 const OPTIONAL = new Set(['priority_reason', 'level_reason', 'planned', 'start', 'size', 'regime', 'origin', 'area', 'affected', 'rollback_plan',
   'written', 'author', 'local_path']);
 
-let lastFocus = null;
-let onClose = null; // what the open form lets go of when it closes (its description's editor, full screen…)
-
-function closeModal() {
-  if (onClose) { onClose(); onClose = null; }
-  const backdrop = document.getElementById('modal-backdrop');
-  backdrop.hidden = true;
-  const modal = document.getElementById('modal');
-  modal.className = '';
-  modal.replaceChildren();
-  if (lastFocus && document.contains(lastFocus)) lastFocus.focus();
-}
-
 /**
  * Form modal to create one item of `type` (the list it is opened from, or the one picked in the sidebar's "Add item"),
  * which its head's picker can still switch. `values` pre-fills fields (e.g. related_to from the initiative being
@@ -64,8 +51,7 @@ function closeModal() {
 const NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)') : { matches: false };
 
 export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) {
-  lastFocus = document.activeElement;
-  const backdrop = document.getElementById('modal-backdrop');
+  let closeModal = () => {};
   const modal = document.getElementById('modal');
   const form = { type, subject: '', status: values.status || defaultOf('status', 'ToDo'), priority: values.priority || defaultOf('priority', 'Normal'), priority_reason: '',
     project: values.project || null, project_key: '', project_kind: 'simple', // a new project starts simple: initiatives and tasks
@@ -81,7 +67,6 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   // Its description, as on the item's page (mdblock.js): a box that opens the editor on a click. Made once, so what is
   // being written stays when the form is drawn again (another type, another project).
   const body = mdBlock({ fk: 'cf-body', minHeight: '220px', write: async (text) => { form.body = text; return text; } });
-  onClose = () => body.reset();
   // What a create was refused for, before it was sent (rules.js missingOnCreate): each field marked in red until it is
   // filled in, no toast; a value given but wrong (a key taken) says why under it. A field is never marked before a
   // create is tried.
@@ -222,10 +207,10 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     const relationsSection = () => {
       const props = propsIn(form.type, 'relations', kindOfBinding(binding)).filter(askedOnCreate);
       return props.length ? h('section', { class: 'panel-section relations quiet', 'aria-label': 'Relations' },
-        h('h4', {}, 'Relations'),
+        sectionLabel('Relations'),
         ...props.map((p) => stackGroup(p.label, h('div', { class: 'rel-pick picks-quiet' }, quietBlanks(propField(binding, { ...p, label: '' })))))) : null;
     };
-    const localPath = () => h('label', { class: 'field ext-ref' }, h('span', {}, 'Local path'), input('local_path', { type: 'text', placeholder: '~/work/pricing' }));
+    const localPath = () => propRow('Local path', input('local_path', { type: 'text', placeholder: '~/work/pricing' }), { cls: 'ext-ref' });
     // As on its card (panel.js externalRef): a type without ids of its own (a Ticketing plan) has no ticket, nothing
     // there — but a project, named by its key, has its ticket and local path; one with a folder and no ticket (a Tasks
     // project, an agent) has its local path on its own.
@@ -262,14 +247,12 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     if (propsList) {
       propsList.append(...[
         // Its Parent: one field for its project and what it hangs from (itemform.js parentControl).
-        ...(hasProject || hasParent ? [h('div', { class: 'field' }, h('span', {}, parentLabel(form.type)), parentControl(binding))] : []),
+        ...(hasProject || hasParent ? [propRow(parentLabel(form.type), parentControl(binding), { tag: 'div' })] : []),
         ...(ticketRef ? [
-          h('label', { class: 'field ext-ref' }, h('span', {}, `${ref.label} ID`), input(ref.id_key, { type: 'text', placeholder: ref.id_placeholder })),
-          ref.tracker_key && hasField(form.type, ref.tracker_key) ? h('label', { class: 'field ext-ref' }, h('span', {}, 'Tracker'),
-            input(ref.tracker_key, { type: 'text', placeholder: ref.tracker_placeholder || '', list: 'cf-trackers', autocomplete: 'off' }),
-            h('datalist', { id: 'cf-trackers' }, [...new Set(state.items.map((i) => i.fields[ref.tracker_key]).filter(Boolean))].sort()
-              .map((t) => h('option', { value: t })))) : null,
-          h('label', { class: 'field ext-ref' }, h('span', {}, `${ref.label} URL`), input(ref.url_key, { type: 'text', inputmode: 'url', placeholder: ref.url_placeholder })),
+          propRow(`${ref.label} ID`, input(ref.id_key, { type: 'text', placeholder: ref.id_placeholder }), { cls: 'ext-ref' }),
+          ref.tracker_key && hasField(form.type, ref.tracker_key) ? propRow('Tracker', [input(ref.tracker_key, { type: 'text', placeholder: ref.tracker_placeholder || '', list: 'cf-trackers', autocomplete: 'off' }), h('datalist', { id: 'cf-trackers' }, [...new Set(state.items.map((i) => i.fields[ref.tracker_key]).filter(Boolean))].sort()
+              .map((t) => h('option', { value: t })))], { cls: 'ext-ref' }) : null,
+          propRow(`${ref.label} URL`, input(ref.url_key, { type: 'text', inputmode: 'url', placeholder: ref.url_placeholder }), { cls: 'ext-ref' }),
           localPath(),
         ] : ownLocal ? [localPath()] : []),
       ].filter(Boolean));
@@ -282,7 +265,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       quietBlanks(propsList);
     }
     const propsSection = propsList ? h('section', { class: 'panel-section prop-list prop-rows quiet', 'aria-label': 'Properties' },
-      h('h4', {}, 'Properties'), propsList) : null;
+      sectionLabel('Properties'), propsList) : null;
     const sideSections = form.type === 'prompt' ? [] : [propsSection, relationsSection()];
     const saveFoot = h('footer', { class: 'drawer-foot' },
       folderEl,
@@ -294,7 +277,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
         h('span', { class: 'muted' }, 'New'),
         typePick,
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: closeModal }, icon('x', 16)),
+        h('button', { type: 'button', class: 'btn icon', title: 'Close (Esc)', 'aria-label': 'Close', onclick: () => closeModal() }, icon('x', 16)),
       ],
       title: modalTitle(form.type, subject, statusSelect(binding)),
       // Its sections one under another, each under a small grey title (as PROPERTIES), none folding: a project's, an
@@ -308,12 +291,11 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
         section(bodyLabel, body.el),
       ],
       // The actions sit in a bar under both columns, so they stay in view however long the form is.
-      foot: [
-        h('span', { class: 'muted small create-keys' }, '↵ in the subject creates · ⌘↵ anywhere · Esc cancels'),
-        h('span', { class: 'spacer' }),
-        h('button', { class: 'btn ghost', onclick: closeModal }, 'Cancel'),
-        h('button', { class: 'btn primary', onclick: submit }, icon('plus', 16), `Create ${label.toLowerCase()}`),
-      ],
+      foot: [formActions({
+        lead: h('span', { class: 'muted small create-keys' }, '↵ in the subject creates · ⌘↵ anywhere · Esc cancels'),
+        onCancel: () => closeModal(),
+        actions: h('button', { class: 'btn primary', onclick: submit }, icon('plus', 16), `Create ${label.toLowerCase()}`),
+      })],
       // The right column (sideSections). With none of them (a prompt) the form is one column, and where it will be
       // saved goes under the main column instead.
       side: sideSections.some(Boolean) ? [...sideSections, saveFoot] : [],
@@ -332,27 +314,15 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     recheck(); // drawn again (another type, another project): what is still missing, marked again
   };
   // A section of the main column: its title small and grey, never folding; null without a body.
-  const section = (title, content) => (content ? h('section', { class: 'im-section create-section', 'aria-label': title }, h('h4', {}, title), content) : null);
+  const section = (title, content) => (content ? h('section', { class: 'im-section create-section', 'aria-label': title }, sectionLabel(title), content) : null);
 
+  // Its own frame (modalFrame, as the item card): the dialog only opens, traps and closes it; render() draws it.
+  ({ close: closeModal } = openDialog({
+    onKey: (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } },
+    focus: () => modal.querySelector('#cf-subject')?.focus(),
+    onClose: () => body.reset(), // lets go of its description's editor (full screen, the outside-click watch)
+  }));
   render();
-  backdrop.hidden = false;
-  backdrop.onmousedown = (e) => { if (e.target === backdrop) closeModal(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeModal(); } // only the top layer
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
-    if (e.key === 'Tab') trapFocus(modal, e);
-  };
-  setTimeout(() => modal.querySelector('#cf-subject').focus(), 0);
-}
-
-/** Keep Tab inside a dialog. */
-export function trapFocus(root, e) {
-  const els = [...root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-    .filter((el) => !el.disabled && el.offsetParent !== null);
-  if (!els.length) return;
-  const first = els[0]; const last = els[els.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
 /** Sidebar "Add item": the Inbox capture and the forms of the types made most often, in their groups (rules.js

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { fieldsOf, inLabel, nextLabel, ruleFrom, scheduleState } from '../../static/js/schedmodel.js';
+import { fieldsOf, inLabel, nextLabel, routineMatches, routineOrder, ruleFrom, scheduleState } from '../../static/js/schedmodel.js';
 
 describe('schedmodel', () => {
   it('builds a rule with only what its kind uses', () => {
@@ -30,5 +30,19 @@ describe('schedmodel', () => {
     assert.equal(scheduleState({ paused: true, error: 'x' }).key, 'paused');
     assert.equal(scheduleState({ error: 'claude missing' }).tone, 'error');
     assert.equal(scheduleState({}).label, 'On');
+  });
+  it("orders Routines: on ones by their next time, then those with none, then the paused", () => {
+    const got = routineOrder([
+      { id: 'p', cmd: 'a', paused: true, next_ts: 1 },
+      { id: 'late', cmd: 'b', next_ts: 300 },
+      { id: 'none', cmd: 'c' },
+      { id: 'soon', cmd: 'd', next_ts: 100 },
+    ]).map((s) => s.id);
+    assert.deepEqual(got, ['soon', 'late', 'none', 'p']);
+  });
+  it('searches a routine by its agent, folder, rule and arguments', () => {
+    const s = { cmd: 'dev:status', dir_name: 'Shop', label: 'Every weekday at 9:00', args: 'STY-5' };
+    for (const q of ['', 'dev:', 'shop', 'weekday', 'sty-5']) assert.equal(routineMatches(s, q), true, q);
+    assert.equal(routineMatches(s, 'nightly'), false);
   });
 });

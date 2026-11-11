@@ -10,7 +10,7 @@ import { api } from './api.js';
 import { historyText } from './historytext.js';
 import { COL, DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
 import { relDay, shiftWeek, stampLabel, thisMonth, thisWeek, today } from './dates.js';
-import { TYPES, TYPE_ICON, TYPE_LABEL, trapFocus } from './create.js';
+import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
 import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, planKey, propField, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
@@ -35,7 +35,7 @@ import {
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
-import { closeMenu, dropdown, h, icon, rowAction, rowItem, rowList, secondaryButton, select, stackGroup, statusLabel, tabPanels, tagInput, typeIcon, withMentions } from './ui.js';
+import { closedToggle, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
 import { refOf } from './shownid.js';
 import { MEMBER_TYPES, byGoalOrder, goalCandidates, goalProgress, inGoal, nextGoalOrder } from './goals.js';
 import { mountCanvasView } from './canvas/canvasview.js';
@@ -51,7 +51,6 @@ const backdrop = () => document.getElementById('item-backdrop');
 const editors = new Set();
 
 const save = (item, values) => updateItem(item.key, values).catch(() => {});
-const field = (label, control, cls = '') => h('label', { class: `field ${cls}` }, h('span', {}, label), control);
 
 /** Ids that may not become this item's related_to: itself and everything under it. */
 function descendants(id) {
@@ -275,7 +274,7 @@ function docsTab(item, rerender) {
   const none = choices.length ? 'No docs linked yet' : 'No docs to link yet'; // on the button's line, as a group's name
   return { key: 'docs', label: 'Docs', count: docs.length, // a number: 0 hides the badge (ui.js tabPanels)
     content: [h('section', { class: 'panel-section relations quiet docs-links' },
-    stackGroup(mentioned.length ? 'Linked' : rows.length ? null : none, rows.length ? rowList(rows) : mentioned.length ? h('p', { class: 'muted small rel-none' }, none) : null, { aside: pick }),
+    stackGroup(mentioned.length ? 'Linked' : rows.length ? null : none, rows.length ? rowList(rows) : mentioned.length ? emptyLine(none, { cls: 'rel-none' }) : null, { aside: pick }),
     mentioned.length ? stackGroup('Mentioned in', rowList(mentioned.map((p) => rowItem({ ico: icon('note', 14), href: docsHref(p), linkAttrs: { title: p },
       text: p.split('/').pop().replace(/\.md$/i, ''), meta: where(p) || null })))) : null)] };
 }
@@ -479,7 +478,7 @@ function relationsSection(item, rerender) {
     ] }));
     const addMore = many && !p.readonly ? pool.filter((i) => !keys.includes(i.key)) : [];
     return group(p.label, [
-      targets.length ? rowList(rows) : p.readonly ? h('p', { class: 'muted small rel-none' }, '—')
+      targets.length ? rowList(rows) : p.readonly ? emptyLine('—', { cls: 'rel-none' })
         : many ? null : h('div', { class: 'rel-pick picks-quiet' }, propField(b, { ...p, label: '' })),
       addMore.length ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, `Add ${p.label.toLowerCase()}…`], ...addMore.map((i) => [i.key, `${refOf(i)} · ${i.title}`, TYPE_ICON[i.type] || null])],
         null, (v) => v && set([...keys, v], `${p.label}: ${name(state.items.find((i) => i.key === v) || v)}`), { class: 'small', search: true, 'aria-label': `Add ${p.label.toLowerCase()}` })) : null,
@@ -584,8 +583,8 @@ function links(item, rerender) {
       if (e.key === 'Escape') { e.stopPropagation(); close(); rerender(); }
     });
     ok.addEventListener('click', submit);
-    return h('div', { class: 'link-row link-edit' }, slot, url, ok,
-      h('button', { type: 'button', class: 'btn small ghost', onclick: () => { close(); rerender(); } }, 'Cancel'));
+    return h('div', { class: 'link-row link-edit' }, slot, url,
+      formActions({ small: true, onCancel: () => { close(); rerender(); }, actions: ok }));
   };
   const several = all.length > 1;
   const editing = editingLink.get(item.key);
@@ -610,8 +609,8 @@ function links(item, rerender) {
   // rows; with only unlabelled links, no name. "+ Add link" at the right of the first group's name; it opens the row
   // that adds one, above the groups.
   const adding = addingLink.has(item.key);
-  const addBtn = adding ? null : h('button', { type: 'button', class: 'btn small ghost tab-add', 'data-fk': 'add-link',
-    onclick: () => { editingLink.delete(item.key); addingLink.add(item.key); rerender(); focusUrl(); } }, icon('plus', 14), 'Add link');
+  const addBtn = adding ? null : tabAddButton('Add link', () => { editingLink.delete(item.key); addingLink.add(item.key); rerender(); focusUrl(); },
+    { 'data-fk': 'add-link' });
   const groups = groupLinks(all);
   const named = groups.length > 1 || groups[0]?.label;
   const blocks = groups.map((g, n) => stackGroup(named ? g.label || 'Other links' : null, rowList(g.items.map(({ link, index }) => row(link, index))),
@@ -653,7 +652,7 @@ function externalRef(item, ext) {
     el.addEventListener('change', () => save(item, { [key]: el.value.trim() || null }));
     return el;
   };
-  const local = field('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), 'span2');
+  const local = propRow('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), { cls: 'span2' });
   // A project is named by its key (a Ticketing project's note has no id) and has its ticket and folder as any work does;
   // any other item without an id (a Ticketing plan) has no ticket of its own.
   const named = !!item.id || item.type === 'project';
@@ -662,9 +661,9 @@ function externalRef(item, ext) {
     return named && hasField(item.type, 'local_path') ? [local] : [];
   }
   return [ // the tracker first: it says what the ticket is
-    ext.tracker_key && hasField(item.type, ext.tracker_key) ? field('Tracker', trackerInput(input, ext)) : null,
-    field(`${ext.label} ID`, input(ext.id_key, { type: 'text', placeholder: ext.id_placeholder })),
-    field(`${ext.label} URL`, h('div', { class: 'inline' }, input(ext.url_key, { type: 'text', inputmode: 'url', placeholder: ext.url_placeholder }), openUrlBtn(f[ext.url_key]))),
+    ext.tracker_key && hasField(item.type, ext.tracker_key) ? propRow('Tracker', trackerInput(input, ext)) : null,
+    propRow(`${ext.label} ID`, input(ext.id_key, { type: 'text', placeholder: ext.id_placeholder })),
+    propRow(`${ext.label} URL`, h('div', { class: 'inline' }, input(ext.url_key, { type: 'text', inputmode: 'url', placeholder: ext.url_placeholder }), openUrlBtn(f[ext.url_key]))),
     local].filter(Boolean);
 }
 
@@ -676,8 +675,7 @@ function externalRef(item, ext) {
 function watchers(item) {
   if (!item.id || !hasField(item.type, 'watchers')) return null;
   const names = item.fields.watchers || [];
-  return h('div', { class: 'field span2 watchers', title: 'People and groups to tell when its status changes' }, h('span', {}, 'Watchers'),
-    tagInput(names, (list) => save(item, { watchers: list }), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: 'watchers' }));
+  return propRow('Watchers', tagInput(names, (list) => save(item, { watchers: list }), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: 'watchers' }), { tag: 'div', cls: 'span2 watchers', attrs: { title: 'People and groups to tell when its status changes' } });
 }
 
 
@@ -702,7 +700,7 @@ function propertiesSection(item, { inline = false } = {}) {
   // `inline`: the copy under the title that narrow screens show instead of the tab (app.css), where the side column
   // would come last. It keeps a heading; the tab is named by its button.
   return h('section', { class: `panel-section prop-list prop-rows quiet ${inline ? 'prop-inline' : ''}`, 'aria-label': 'Properties' },
-    inline ? h('h4', {}, 'Properties') : null, list);
+    inline ? sectionLabel('Properties') : null, list);
 }
 
 // Unsent "Log work" forms, per item: a re-render (a comment, a status change) must not wipe what was typed.
@@ -771,8 +769,7 @@ function workLog(item, rerender) {
   return h('section', { class: 'panel-section log-panel' },
     addForm,
     entries.length ? h('div', { class: 'fields prop-rows quiet wl-rows', 'aria-label': 'Work log entries' },
-      h('div', { class: 'field prop-break wl-total' }, h('span', {}, 'Logged'),
-        h('span', {}, h('span', { class: 'wl-time' }, sumTime(entries)), h('span', { class: 'muted' }, ` · ${days} day${days > 1 ? 's' : ''}`))),
+      propRow('Logged', h('span', {}, h('span', { class: 'wl-time' }, sumTime(entries)), h('span', { class: 'muted' }, ` · ${days} day${days > 1 ? 's' : ''}`)), { tag: 'div', cls: 'prop-break wl-total' }),
       ...entries.map((e, i) => {
         const el = row(e);
         if (i === 0) el.classList.add('prop-break');
@@ -847,7 +844,7 @@ function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPi
   const tabs = [
     // Overview: its description, then its work and records in groups (Tasks, Notes, Meetings…), first.
     { key: 'description', label: item.type === 'activity' ? 'Message' : 'Overview',
-      content: [item.type === 'goal' ? goalHead(item, b, c.rerender) : c.bodyEl, workGroups(item, work, c.rerender)].filter(Boolean) },
+      content: [...(item.type === 'goal' ? [c.goalDescEl, goalProgressRow(item)] : [c.bodyEl]), workGroups(item, work, c.rerender)].filter(Boolean) },
     c.resolutionEl ? { key: 'resolution', label: 'Resolution', content: c.resolutionEl } : null,
     settings ? { key: 'settings', label: 'Settings', content: settings } : null,
     // Its attachments and its links, a tab each (the tab names them). Counts as numbers: a 0 shows none, as the side panel's.
@@ -867,22 +864,19 @@ function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPi
   return h('section', { class: 'item-tabs' }, ...tabPanels(shown, current, onPick, { more, onMore })); // an unknown `current`: the first
 }
 
-/** A goal's Overview head, where another item has its description: its description (a plain text field), how far
- *  along it is (its items closed of all) and "Add items…", a search over what can join it (goals.js goalCandidates). */
-function goalHead(item, b, rerender) {
-  const desc = TYPE_DEFS.goal?.props?.find((p) => p.key === 'description');
+/** Under a goal's description (its own block, the editor's goalDesc): how far along it is (its items closed of all) and
+ *  "Add items…", a search over what can join it (goals.js goalCandidates). Its groups follow, as another item's. */
+function goalProgressRow(item) {
   const p = goalProgress(state.items, item.id, isDone);
   const add = secondaryButton('Add items', { ico: 'plus', class: 'small', 'data-fk': 'goal-add', 'aria-haspopup': 'dialog',
     title: 'Add projects, initiatives, stories or tasks to this goal',
     onclick: (e) => itemPicker(e.currentTarget, null, (it) => it && updateItem(it.key, { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) }),
       { keeps: (k) => goalCandidates([k], isDone).length > 0, first: () => goalCandidates(state.items, isDone).slice(0, 12),
         none: null, label: 'Add an item to this goal' }) });
-  return h('section', { class: 'goal-head' },
-    desc ? h('div', { class: 'goal-desc prop-rows quiet' }, propField(b, { ...desc, label: 'Description' })) : null,
-    h('div', { class: 'goal-progress' },
-      h('div', { class: 'progress', title: `${p.done} of ${p.total} closed` }, h('div', { style: `width:${p.pct}%` })),
-      h('span', { class: 'muted small' }, p.total ? `${p.done} of ${p.total} closed` : 'Nothing in it yet'),
-      h('span', { class: 'spacer' }), add));
+  return h('div', { class: 'goal-progress' },
+    h('div', { class: 'progress', title: `${p.done} of ${p.total} closed` }, h('div', { style: `width:${p.pct}%` })),
+    h('span', { class: 'muted small' }, p.total ? `${p.done} of ${p.total} closed` : 'Nothing in it yet'),
+    h('span', { class: 'spacer' }), add);
 }
 
 // The kinds that stay in the bar under an item's sections: its work and its records. Every other kind that hangs from
@@ -984,12 +978,12 @@ function workGroups(item, tables, rerender, { table = false } = {}) {
     const folded = !adding && (left == null ? table && !g.all.some((k) => !isDone(k)) : !!left);
     // A goal's projects, initiatives and stories are born in their project: its "+ Add" picks one that is in no goal.
     const joins = !g.qa && item.type === 'goal' && MEMBER_TYPES.includes(g.type);
-    const addBtn = (g.qa || joins) && !adding ? h('button', { type: 'button', class: 'btn small ghost tab-add', 'data-fk': `add-${g.type}`,
-      onclick: (e) => (joins ? itemPicker(e.currentTarget, null, (it) => it && updateItem(it.key, { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) }),
+    const addBtn = (g.qa || joins) && !adding ? tabAddButton(`Add ${noun}`,
+      (e) => (joins ? itemPicker(e.currentTarget, null, (it) => it && updateItem(it.key, { goal: item.id, goal_order: nextGoalOrder(state.items, item.id) }),
         { keeps: (k) => k.type === g.type && goalCandidates([k], isDone).length > 0, first: () => goalCandidates(state.items, isDone).filter((k) => k.type === g.type).slice(0, 12),
           none: null, label: `Add ${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun} to this goal` })
         : startAdding(g.type)),
-    }, icon('plus', 14), `Add ${noun}`) : null;
+      { 'data-fk': `add-${g.type}` }) : null;
     // Its quick add, framed, opened by "+ Add": Enter adds (and it stays open for the next one), Esc or Close shuts it,
     // and so does a click anywhere else while nothing is written in it.
     const qa = adding ? (() => {
@@ -1012,13 +1006,12 @@ function workGroups(item, tables, rerender, { table = false } = {}) {
       .sort((a, b) => Number(isDone(a)) - Number(isDone(b))); // the closed ones, when shown, after the open (a stable sort)
     const prio = hasField(g.type, 'priority');
     const more = [
-      closed.length ? h('button', { type: 'button', class: 'btn small ghost work-more', onclick: () => { (showClosed ? workClosed.delete(id) : workClosed.add(id)); rerender(); } },
-        showClosed ? `Hide ${g.labels.closed.toLowerCase()}` : `Show ${closed.length} ${g.labels.closed.toLowerCase()}`) : null,
+      closed.length ? closedToggle({ n: closed.length, shown: showClosed, noun: g.labels.closed.toLowerCase(),
+        onToggle: (show) => { (show ? workClosed.add(id) : workClosed.delete(id)); rerender(); } }) : null,
     ].filter(Boolean);
     // Its name, a button that folds it: a chevron before it, its count after.
-    const label = h('button', { type: 'button', class: 'work-fold', 'aria-expanded': String(!folded), title: folded ? `Show ${g.title.toLowerCase()}` : `Hide ${g.title.toLowerCase()}`,
-      onclick: () => { setPref(foldKey, !folded); rerender(); } },
-    icon(folded ? 'right' : 'down', 14), g.title, Number(t.count) ? h('span', { class: 'tab-count' }, t.count) : null); // its open ones
+    const label = foldHead({ open: !folded, title: g.title, count: Number(t.count) ? t.count : null, class: 'work-fold', // its open ones
+      onToggle: (open) => { setPref(foldKey, !open); rerender(); } });
     const group = (body) => stackGroup(label, folded ? [] : body, { aside: addBtn, class: `work-group ${table ? 'issue-group' : ''} ${folded ? 'folded' : ''}` });
     // An issue kind: its table (its columns, its sort, its pages; the closed ones, when shown, after the open), with
     // "Show N closed" on its pager's line.
@@ -1277,9 +1270,8 @@ function activity(item, { heading = true, rerender = null } = {}) {
     box.input.addEventListener('input', () => { editing.text = box.input.value; });
     box.input.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); cancel(); } }); // not the card's Esc
     card = h('article', { class: 'activity-card surface-card hover-host editing' }, head, box.input,
-      h('div', { class: 'activity-edit-actions' },
-        h('button', { class: 'btn small', onclick: cancel }, 'Cancel'),
-        h('button', { class: 'btn small primary', onclick: save }, 'Save')));
+      formActions({ small: true, cls: 'activity-edit-actions', onCancel: cancel,
+        actions: h('button', { class: 'btn small primary', onclick: save }, 'Save') }));
     return card;
   };
 
@@ -1291,7 +1283,7 @@ function activity(item, { heading = true, rerender = null } = {}) {
         ...dayEntries.map((e) => (e.system
           ? h('div', { class: 'activity-event' }, h('span', {}, e.text), h('time', { class: 'muted small', datetime: e.at, title: when(e.at) }, clock(e.at)))
           : commentCard(e)))))
-        : h('p', { class: 'muted small' }, 'No activity yet.')),
+        : emptyLine('No activity yet.')),
     h('div', { class: 'activity-compose' }, input,
       h('button', { class: 'btn small primary', title: 'Add comment', onclick: add }, icon('arrow', 14))));
   // Newest at the bottom, next to the composer: show it, also when the Activity tab is opened later.
@@ -1374,7 +1366,12 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     label: 'Resolution', emptyText: 'What was done about it? Writing a resolution marks the activity resolved…',
     placeholder: 'What was done about it? Writing a resolution marks the activity resolved.',
   });
-  const blocks = [body, resolution];
+  // A goal's description is a field of its frontmatter (its body is not used), drawn as every other description.
+  const goalDesc = mdBlock({
+    fk: 'goal-description', minHeight: editorMinHeight,
+    write: async (text) => (await updateItem(current, { description: text.trim() || null })).fields.description || '',
+  });
+  const blocks = [body, resolution, goalDesc];
   // While one item stays open: its Canvas tab's view (canvasTab: { key, el, view }), and the tabs picked from "+".
   let canvas = null;
   const openedTabs = new Set();
@@ -1398,6 +1395,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         listRev = state.all.find((i) => i.key === full.key)?.body_rev ?? bodyRev;
         body.reset(full.body);
         resolution.reset(full.fields?.resolution);
+        goalDesc.reset(full.fields?.description);
         return true;
       } catch (e) {
         toast(e.message, true);
@@ -1439,7 +1437,6 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     const more = h('button', { class: 'btn icon', title: 'More actions', 'aria-haspopup': 'menu' }, icon('more', 16));
     // Copy path, Expand (on a card, not a prompt's: a page has none), Archive (and a note's Convert to doc…), Delete.
     more.addEventListener('click', () => {
-      let armed = false;
       const onCard = modal().contains(more) && !modal().classList.contains('is-prompt'); // the card, not a page
       // On a phone the head keeps Claude, ⋯ and × only: Pin and Minimize move in here.
       const phone = typeof matchMedia === 'function' && matchMedia(PHONE).matches;
@@ -1455,11 +1452,8 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         { label: f.archived ? 'Unarchive' : 'Archive', icon: 'archive', onSelect: () => setArchived(item, !f.archived).catch(() => {}) },
         item.type === 'note' ? { label: 'Convert to doc…', icon: 'book', onSelect: () => setTimeout(() => convertToDoc(item, more, () => { current = null; onGone(); })) } : null,
         '-',
-        { label: 'Delete', icon: 'trash', danger: true, keepOpen: true, onSelect: (btn) => {
-          if (armed) { closeMenu(); remove(); return; }
-          armed = true;
-          btn.querySelector('span').textContent = 'Click again to delete';
-        } },
+        // One click: it goes to the trash, and the toast's Undo brings it back (design.md §4: no confirm for what undoes)
+        { label: 'Delete', icon: 'trash', danger: true, onSelect: () => remove() },
       ], { align: 'end' });
     });
     // The subject wraps instead of being cut (a phone, a long subject): a one-line textarea that grows with its text.
@@ -1493,9 +1487,14 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     }
     if (!body.isEditing() || !body.ready()) body.render();
     if (item.type === 'activity' && (!resolution.isEditing() || !resolution.ready())) resolution.render();
+    if (item.type === 'goal') {
+      const hint = TYPE_DEFS.goal?.props?.find((p) => p.key === 'description')?.placeholder || '';
+      goalDesc.configure({ label: 'Description', emptyText: hint ? `${hint}…` : 'Add a description…', placeholder: hint, title: item.title, tabbed: true });
+      if (!goalDesc.isEditing() || !goalDesc.ready()) goalDesc.render();
+    }
 
     const ctx = {
-      subject, bodyEl: body.el, resolutionEl: item.type === 'activity' ? resolution.el : null, more, pin: pinButton(item), minimize: minimizeButton(), sidebar: sidebarButton(item), claude: claudeButton(item), rerender: () => ed.render(),
+      subject, bodyEl: body.el, resolutionEl: item.type === 'activity' ? resolution.el : null, goalDescEl: item.type === 'goal' ? goalDesc.el : null, more, pin: pinButton(item), minimize: minimizeButton(), sidebar: sidebarButton(item), claude: claudeButton(item), rerender: () => ed.render(),
       openedTabs, canvas: (key) => {
         if (canvas?.key !== key) { dropCanvas(); canvas = { key, el: h('div', { class: 'item-canvas' }), view: null }; }
         return canvas;
@@ -1584,7 +1583,7 @@ function modalLayout(item, c) {
       h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), TYPE_DEFS[item.type]?.label || item.type),
       h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
       parent ? h('span', { class: 'muted small im-in' }, 'in ',
-        h('button', { class: 'link', ...opener(parent, openFromItem) }, parent.title)) : null,
+        linkButton(parent.title, null, { attrs: opener(parent, openFromItem) })) : null,
       f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
       item.type === 'activity' ? (f.resolved_at ? h('span', { class: 'chip ok' }, icon('check', 12), 'resolved') : h('span', { class: 'chip warn' }, 'unresolved')) : null,
       h('span', { class: 'spacer' }),

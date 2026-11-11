@@ -3,10 +3,9 @@
 // it. The files live in the vault's Attachments/ folder and the item names them in `attachments` (tm/attachments.py).
 import { zoomableImage } from './zoom.js';
 import { attachmentUrl } from './api.js';
-import { trapFocus } from './create.js';
 import { addAttachments, removeAttachment, toast } from './state.js';
 import { fileKind } from './linkgroups.js';
-import { foldSection, h, icon, rowAction, rowItem, rowList, stackGroup } from './ui.js';
+import { h, icon, openDialog, rowAction, rowItem, rowList, stackGroup, tabAddButton } from './ui.js';
 
 const MAX_BYTES = 25 * 1024 * 1024; // tm/attachments.py MAX_BYTES: said here before sending 25 MB for nothing
 const IMAGE = /\.(png|jpe?g|gif|webp|svg|avif|bmp|ico)$/i;
@@ -17,20 +16,13 @@ const nameOf = (path) => path.split('/').pop();
 // An <a>/<img>/<iframe> pointing at the app's own address: set as a property, as h() only takes outside links.
 const at = (el, prop, url) => { el[prop] = url; return el; };
 
-/** The Attachments section of an item. */
-export function attachmentsSection(item) {
-  // The title folds the zone and the list; the choice is kept for every item (this browser only).
-  return foldSection({ key: 'attachments', title: 'Attachments', ico: 'paperclip', count: (item.fields.attachments || []).length,
-    cls: 'panel-section attachments' }, attachmentsBody(item));
-}
-
 /** The item's files, without a title (a project page's Files tab holds them under its own): a drop strip with the hint
  *  and "+ Add files", then a row per file, the newest first. A file dropped anywhere on them is added; the strip lights
  *  up while one is dragged over. */
 export function attachmentsBody(item) {
   const files = item.fields.attachments || [];
   const input = h('input', { type: 'file', multiple: true, hidden: true, 'aria-label': 'Files to attach' });
-  const add = h('button', { type: 'button', class: 'btn small ghost tab-add', onclick: (e) => { e.stopPropagation(); input.click(); } }, icon('plus', 14), 'Add files');
+  const add = tabAddButton('Add files', (e) => { e.stopPropagation(); input.click(); });
   const text = h('span', {}, 'Drop files here · up to 25 MB each');
   const hint = h('span', { class: 'stack-label attach-hint' }, icon('upload', 14), text);
   const send = async (list) => {
@@ -100,30 +92,13 @@ export function fileViewer(url, name, kind) {
 
 /** One attachment in a dialog over the card: an image, a PDF or plain text shown; anything else to download. */
 export function openAttachment(path) {
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const opener = document.activeElement;
-  const close = () => {
-    backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-    if (opener && document.contains(opener)) opener.focus();
-  };
   const url = attachmentUrl(path);
   const name = nameOf(path);
   const view = fileViewer(url, name, IMAGE.test(path) ? 'image' : PDF.test(path) ? 'pdf' : TEXT.test(path) ? 'text' : 'other');
   const download = at(h('a', { class: 'btn small', download: name }, icon('download', 13), 'Download'), 'href', url);
   // A PDF's own tab, where the browser's viewer has the whole window (and works wherever a frame would not).
   const newTab = PDF.test(path) ? at(h('a', { class: 'btn small', target: '_blank', rel: 'noopener' }, icon('external', 13), 'Open in new tab'), 'href', url) : null;
-  modal.className = 'attach-modal';
-  modal.setAttribute('aria-label', name);
-  modal.replaceChildren(
-    h('div', { class: 'modal-head' }, h('h2', { title: path }, icon('paperclip', 16), name), h('span', { class: 'spacer' }), newTab, download,
-      h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: close }, icon('x', 16))),
-    h('div', { class: 'attach-view' }, view));
-  backdrop.hidden = false;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
-    if (e.key === 'Tab') trapFocus(modal, e);
-  };
-  modal.querySelector('.modal-head .btn.icon').focus();
+  const { modal } = openDialog({ title: name, ico: 'paperclip', label: name, cls: 'attach-modal',
+    head: [h('span', { class: 'spacer' }), newTab, download].filter(Boolean), body: h('div', { class: 'attach-view' }, view) });
+  modal.querySelector('.modal-head h2').title = path;
 }

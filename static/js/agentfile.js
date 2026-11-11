@@ -12,7 +12,7 @@ import { highlight } from './highlight.js';
 import { mdEditor } from './mdeditor.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
-import { h, icon, renderMarkdown } from './ui.js';
+import { h, icon, loadingLine, renderMarkdown, seg } from './ui.js';
 
 const MODE_KEY = 'agents.fileMode';
 const AUTOSAVE_MS = 800;
@@ -34,19 +34,18 @@ export function agentFile({ dir, cmd, path = '', onSaved = () => {} }) {
   let conflict = false;
 
   const pathEl = h('span', { class: 'mono agents-file-path', title: path || '' }, path || '…');
-  const seg = h('div', { class: 'seg agents-file-seg', role: 'group', 'aria-label': 'Show as' });
-  const body = h('div', { class: 'agents-file-body' }, h('p', { class: 'muted small' }, 'Reading…'));
-  const el = h('section', { class: 'agents-doc' }, h('div', { class: 'agents-doc-head' }, icon('text', 13), pathEl, seg), body);
+  let segEl = h('span'); // its seg, drawn by paintSeg
+  const body = h('div', { class: 'agents-file-body' }, loadingLine('Reading…'));
+  const el = h('section', { class: 'agents-doc' }, h('div', { class: 'agents-doc-head' }, icon('text', 13), pathEl, segEl), body);
 
   const kind = () => (file?.markdown ? 'markdown' : 'text');
   const shown = () => (mode === 'preview' && kind() !== 'markdown' ? 'source' : mode);
 
   function paintSeg() {
-    const now = shown();
-    seg.replaceChildren(...MODES[kind()].map(([m, ico, label]) => h('button', {
-      class: `btn small ${now === m ? 'active' : ''}`, type: 'button', 'aria-pressed': String(now === m), disabled: !file,
-      title: m === 'edit' ? 'Edit it here (saved as you type)' : null, onclick: () => setMode(m),
-    }, icon(ico, 13), label)));
+    const next = seg(MODES[kind()].map(([m, ico, label]) => [m, label, { ico, disabled: !file, tip: m === 'edit' ? 'Edit it here (saved as you type)' : null }]),
+      shown(), (m) => setMode(m), { aria: 'Show as', cls: 'agents-file-seg' });
+    segEl.replaceWith(next);
+    segEl = next;
   }
 
   function setMode(m) {

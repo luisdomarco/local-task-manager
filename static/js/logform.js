@@ -1,7 +1,7 @@
 // The form for one work-log entry: type, time spent and day side by side, the notes below.
 // It adds entries (the item's Log work), edits them (the Work log table) and accepts suggestions.
 import { dateInput } from './datepicker.js';
-import { select, h, icon } from './ui.js';
+import { formActions, h, icon, propRow, select } from './ui.js';
 import { state, toast } from './state.js';
 import { cleanTime } from './worktime.js';
 
@@ -58,19 +58,16 @@ export function logForm(values, { submitLabel, onSubmit, onChange = () => {}, on
   const editing = onCancel || onDelete;
   const quickRow = quick ? h('div', { class: 'log-quick', role: 'group', 'aria-label': 'Time spent' },
     ...QUICK_TIMES.map(([t, label]) => h('button', { type: 'button', class: 'btn small', title: `Set the time to ${t}`, 'data-fk': `${fk}-quick-${label}`, onclick: () => setQuick(t) }, label))) : null;
-  const actions = editing ? h('div', { class: 'log-actions' },
-    onDelete ? h('button', { class: 'btn small danger', onclick: onDelete }, icon(deleteIcon, 13), deleteLabel) : null,
-    h('span', { class: 'spacer' }),
-    onCancel ? h('button', { class: 'btn small ghost', onclick: onCancel }, 'Cancel') : null,
-    submitBtn) : null;
+  const actions = editing ? formActions({ small: true, cls: 'log-actions', onCancel,
+    lead: onDelete ? h('button', { class: 'btn small danger', onclick: onDelete }, icon(deleteIcon, 13), deleteLabel) : null,
+    actions: submitBtn }) : null;
   if (rows) {
-    const row = (tag, name, ...controls) => h(tag, { class: 'field' }, h('span', {}, name), ...controls);
     return h('div', { class: 'log-form log-rows fields prop-rows quiet' },
-      row('div', 'Time', h('div', { class: 'log-time-row' }, time, quickRow)),
-      row('label', 'Type', kind),
-      row('label', 'Day', date),
-      row('label', 'Notes', note),
-      row('div', '', actions || h('div', { class: 'log-actions' }, submitBtn)));
+      propRow('Time', h('div', { class: 'log-time-row' }, time, quickRow), { tag: 'div' }),
+      propRow('Type', kind),
+      propRow('Day', date),
+      propRow('Notes', note),
+      propRow('', actions || h('div', { class: 'log-actions' }, submitBtn), { tag: 'div' }));
   }
   return h('div', { class: 'log-form' },
     quickRow,

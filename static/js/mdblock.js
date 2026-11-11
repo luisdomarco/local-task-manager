@@ -5,7 +5,7 @@ import { sourceOffset } from './clickmap.js';
 import { mdEditor } from './mdeditor.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
-import { h, icon, renderMarkdown } from './ui.js';
+import { foldHead, h, icon, renderMarkdown } from './ui.js';
 
 // Height at which a rendered description gets clipped behind "See more" (keep in sync with .md-wrap.clamped).
 const CLAMP_PX = 240;
@@ -66,7 +66,7 @@ function scrollerOf(el) {
  *   write(text) → Promise<string>                 saves a draft, returns the saved text
  *   heading() → nodes                             the title row's content (default: icon + label)
  *   fold: key                                     its title folds the block (the item's description), open or folded
- *                                                 kept under `<key>.open` for every item, like foldSection (ui.js)
+ *                                                 kept under `<key>.open` for every item (its head: ui.js foldHead)
  */
 const AUTOSAVE_MS = 800;
 const RETRY_MS = [2000, 5000, 10000, 30000]; // a save that failed for any reason but a conflict (server down…) tries again, then every 30s
@@ -180,15 +180,16 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       const open = !foldKey || pref(`${foldKey}.open`, true) !== false;
       const title = cfg.tabbed ? [] : heading ? heading() : [icon('text', 15), cfg.label];
       const toggle = h('div', { class: 'body-tabs' },
-        h('h4', {}, ...(foldKey ? [h('button', {
-          type: 'button', class: 'fold-head body-fold', 'aria-expanded': String(open), title: `${open ? 'Hide' : 'Show'} the ${cfg.label.toLowerCase()}`,
-          onclick: async () => {
+        h('h4', {}, ...(foldKey ? [foldHead({
+          open, class: 'body-fold', what: `the ${cfg.label.toLowerCase()}`,
+          title: title.map((n) => (typeof n === 'string' ? h('span', { class: 'fold-title' }, n) : n)),
+          onToggle: async (next) => {
             if (editing && !(await blk.flush())) return; // a save that needs a choice keeps it open
             editing = false;
-            setPref(`${foldKey}.open`, !open);
+            setPref(`${foldKey}.open`, next);
             blk.render();
           },
-        }, icon(open ? 'down' : 'right', 14), ...title.map((n) => (typeof n === 'string' ? h('span', { class: 'fold-title' }, n) : n)))] : title)),
+        })] : title)),
         h('span', { class: 'muted unsaved small' }, blk.hasUnsaved() ? '● unsaved' : ''),
         text.trim() ? h('button', {
           class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,

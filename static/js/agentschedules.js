@@ -7,21 +7,14 @@ import { RUN_MODES, RUN_PLACES } from './agentsmodel.js';
 import { refreshActivity } from './agentactivity.js';
 import { api } from './api.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from './claude.js';
-import { trapFocus } from './create.js';
 import { DAY_NAMES, REPEATS, fieldsOf, inLabel, nextLabel, ruleFrom, scheduleState } from './schedmodel.js';
 import { state, toast } from './state.js';
-import { dropdown, h, icon, select } from './ui.js';
+import { dropdown, formActions, h, icon, openDialog, propRow, sectionLabel, select } from './ui.js';
 
 /** The Schedule dialog. `agent`/`folder` of the agent's page; `preset` the composer's { args, mode, model, effort,
  *  where } for a new one; `existing` a schedule to change instead. `onSaved(schedule)` once the server took it. */
 export function scheduleDialog({ folder, agent, preset = {}, existing = null, onSaved = () => {} }) {
-  const backdrop = document.getElementById('modal-backdrop');
-  const modal = document.getElementById('modal');
-  const opener = document.activeElement;
-  const close = () => {
-    backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-    if (opener && document.contains(opener)) opener.focus();
-  };
+  let close = () => {};
   const src = existing || preset;
   const f = fieldsOf(existing?.rule);
   const v = { mode: src.mode || 'default', model: src.model ?? (state.config.claude_model || ''), effort: src.effort ?? (state.config.claude_effort || ''),
@@ -46,9 +39,8 @@ export function scheduleDialog({ folder, agent, preset = {}, existing = null, on
   const effort = pick(CLAUDE_EFFORTS.map(([val, l]) => [val, val ? l : 'Default effort', 'flame']), v.effort, (x) => { v.effort = x; }, 'Effort');
   const where = folder.git ? pick(RUN_PLACES, v.where, (x) => { v.where = x || 'here'; }, 'Where') : null;
 
-  const row = (label, control, tag = 'label') => h(tag, { class: 'field' }, h('span', {}, label), control);
-  const daysRow = row('Days', days, 'div');
-  const hoursRow = row('Every', h('span', { class: 'agents-sched-inline' }, hours, h('span', { class: 'muted small' }, 'hours, from the time above')));
+  const daysRow = propRow('Days', days, { tag: 'div' });
+  const hoursRow = propRow('Every', h('span', { class: 'agents-sched-inline' }, hours, h('span', { class: 'muted small' }, 'hours, from the time above')));
   function paint() {
     daysRow.hidden = f.every !== 'week';
     hoursRow.hidden = f.every !== 'hours';
@@ -69,30 +61,21 @@ export function scheduleDialog({ folder, agent, preset = {}, existing = null, on
     } catch (err) { toast(err.message, true); save.disabled = false; }
   } },
   // Two groups of rows, as Settings: when it fires, and how it runs — one choice a row, each its own width.
-  h('section', { class: 'agents-sched-group' }, h('h4', {}, 'When', h('span', { class: 'agents-sched-note' }, 'this Mac\'s time')),
+  h('section', { class: 'agents-sched-group' }, sectionLabel(['When', h('span', { class: 'agents-sched-note' }, 'this Mac\'s time')]),
     h('div', { class: 'fields prop-rows' },
-      row('Repeats', repeat, 'div'),
-      row('At', at),
+      propRow('Repeats', repeat, { tag: 'div' }),
+      propRow('At', at),
       daysRow, hoursRow)),
-  h('section', { class: 'agents-sched-group' }, h('h4', {}, 'Run'),
+  h('section', { class: 'agents-sched-group' }, sectionLabel('Run'),
     h('div', { class: 'fields prop-rows' },
-      row('Arguments', h('span', { class: 'agents-sched-inline agents-sched-args' }, h('code', {}, `/${agent.name}`), args)),
-      row('Mode', mode, 'div'),
-      row('Model', model, 'div'),
-      row('Effort', effort, 'div'),
-      where ? row('Where', where, 'div') : null)),
-  h('div', { class: 'agents-add-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), save));
-  modal.className = 'agents-modal';
-  modal.setAttribute('aria-label', `Schedule /${agent.name}`);
-  modal.replaceChildren(h('div', { class: 'modal-head' }, h('h2', {}, icon('clock', 18), existing ? `Schedule of /${agent.name}` : `Schedule /${agent.name}`),
-    h('button', { class: 'btn icon', type: 'button', title: 'Close (Esc)', onclick: close }, icon('x', 16))), form);
-  backdrop.hidden = false;
-  backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
-  modal.onkeydown = (e) => {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
-    if (e.key === 'Tab') trapFocus(modal, e);
-  };
-  at.focus();
+      propRow('Arguments', h('span', { class: 'agents-sched-inline agents-sched-args' }, h('code', {}, `/${agent.name}`), args)),
+      propRow('Mode', mode, { tag: 'div' }),
+      propRow('Model', model, { tag: 'div' }),
+      propRow('Effort', effort, { tag: 'div' }),
+      where ? propRow('Where', where, { tag: 'div' }) : null)),
+  formActions({ onCancel: () => close(), actions: save }));
+  ({ close } = openDialog({ title: existing ? `Schedule of /${agent.name}` : `Schedule /${agent.name}`, label: `Schedule /${agent.name}`,
+    ico: 'clock', cls: 'agents-modal', body: form, focus: at }));
 }
 
 /** One schedule's facts under its rule: when next (or why not), the last run, what went wrong. */

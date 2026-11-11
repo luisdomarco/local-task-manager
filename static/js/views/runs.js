@@ -14,6 +14,7 @@ import { scheduleDialog, scheduleList } from '../agentschedules.js';
 import { agentFile } from '../agentfile.js';
 import { startAgent, startChoices } from '../agentstart.js';
 import { homePage } from './agentshome.js';
+import { routinesPage } from './routines.js';
 import { agentDirs, onAgents, loadAgents, addFolderDialog, isFavourite, toggleFavourite } from '../agentspane.js';
 import { agentHref, parseRunsParam, runMessage, runMeta, RUN_MODES, RUN_PLACES } from '../agentsmodel.js';
 import { api } from '../api.js';
@@ -26,15 +27,15 @@ import { diffBlock } from '../diffview.js';
 import { agentStats } from '../homemodel.js';
 import { INBOX_GROUPS, INBOX_ORDERS, INBOX_PROPS, filtersFromOld, groupName, groupRuns, groupTone, inboxFields, inboxGroupLabel, orderValue, runMs, sortRuns, sourceLabel } from '../inboxview.js';
 import { wantsNewTab } from '../links.js';
-import { costLabel, durationLabel, filterRuns, inboxCount, isUnread, RUN_STATUSES, runLabel, runStatus } from '../runmodel.js';
+import { canArchive, costLabel, durationLabel, filterRuns, inboxCount, isArchived, isUnread, RUN_STATUSES, runLabel, runStatus } from '../runmodel.js';
 import { closePopover, viewBar } from '../viewbar.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
-import { dragsList, listDropZone } from '../kanban.js';
+import { boardOf } from '../boardview.js';
 import { columnOn, fresh, matches } from '../viewmodel.js';
 import { parseUnifiedDiff } from '../udiff.js';
 import { toast } from '../state.js';
 import { setAlertTitle, setPageTitle } from '../tabtitle.js';
-import { dropdown, emptyState, h, icon, pageEmpty, pageHead, secondaryButton, select, tabPanels } from '../ui.js';
+import { countOf, dropdown, emptyLine, emptyState, formActions, h, icon, linkButton, loadingLine, openDialog, pageEmpty, pageHead, propRow, secondaryButton, select, tabPanels } from '../ui.js';
 
 const SIDE_KEY = 'tm.agentsSidePanel'; // its Runs panel folded or not: one choice for every agent
 
@@ -45,7 +46,7 @@ export function mount(root, param) {
   const draw = () => {
     if (!live) return;
     const dirs = agentDirs();
-    if (!dirs) { root.replaceChildren(emptyState('Reading the agent folders…')); return; }
+    if (!dirs) { root.replaceChildren(loadingLine('Reading the agent folders…')); return; }
     if (!dirs.length) { view?.stop(); view = null; root.replaceChildren(...intro()); setPageTitle('Agents'); return; }
     if (!dir) { // the Home
       if (view?.sig === '~home') { view.refresh(dirs); return; }
@@ -53,6 +54,14 @@ export function mount(root, param) {
       view = homePage(dirs, { sectionTabs });
       root.replaceChildren(...view.nodes);
       setPageTitle('Agents');
+      return;
+    }
+    if (dir === 'routines' && !name) {
+      if (view?.sig === '~routines') { view.refresh(dirs); return; }
+      view?.stop();
+      view = routinesPage(dirs, { sectionTabs });
+      root.replaceChildren(...view.nodes);
+      setPageTitle('Routines');
       return;
     }
     if (dir === 'inbox' && !name) {
@@ -90,14 +99,14 @@ function intro() {
       h('p', {}, 'Run your Claude Code agents from here instead of a terminal.'))];
 }
 
-/** Home · Inbox: the pages of the section that are not an agent's, as a section's tab links; the Inbox's
+/** Home · Inbox · Routines: the pages of the section that are not an agent's, as a section's tab links; the Inbox's
  *  with what waits for you or ended unseen. */
 const sectionTabs = (on) => {
   const n = inboxCount(activity()?.counts);
   return h('nav', { class: 'tabs-bar section-tabs', 'aria-label': 'Agents' },
-    [['home', 'Home', 'home', '#/runs'], ['inbox', 'Inbox', 'inbox', '#/runs/inbox']].map(([key, text, ico, href]) => h('a', {
+    [['home', 'Home', 'home', '#/runs'], ['inbox', 'Inbox', 'inbox', '#/runs/inbox'], ['routines', 'Routines', 'clock', '#/runs/routines']].map(([key, text, ico, href]) => h('a', {
       class: `tab-btn ${key === on ? 'active' : ''}`, href, ...(key === on ? { 'aria-current': 'page' } : {}),
-    }, icon(ico, 14), text, key === 'inbox' && n ? h('span', { class: 'tab-count' }, String(n)) : null)));
+    }, icon(ico, 14), text, key === 'inbox' && n ? countOf(n, { tab: true }) : null)));
 };
 
 // ── #/runs/inbox: the Inbox ──────────────────────────────────────────────────
@@ -131,13 +140,13 @@ const runHref = (r) => `${agentHref(r.dir, r.cmd)}?run=${encodeURIComponent(r.id
 function inboxPage(dirs) {
   const { view, save } = inboxView();
   let q = '';
-  const count = h('span', { class: 'muted view-count' });
+  const count = countOf(null, { plain: true, cls: 'view-count' });
   const list = h('div', { class: 'agents-inbox-list' });
   const readAll = h('button', { class: 'btn small ghost', type: 'button', title: 'Mark every run that ended as seen',
     onclick: () => markRead((activity()?.runs || []).filter(isUnread).map((r) => r.id)) }, icon('check', 13), 'Mark all read');
   const ctx = () => ({ dirs });
   const all = () => activity()?.runs || [];
-  const searched = () => filterRuns(all(), { q });
+  const searched = () => filterRuns(all().filter((r) => view.archived || !isArchived(r)), { q });
   const order = () => view.orderBy || 'started';
   const dir = () => view.orderDir || -1;
   const isBoard = () => view.layout === 'board';
@@ -152,10 +161,15 @@ function inboxPage(dirs) {
     placeholder: 'Search runs', onText: (text) => { q = text; paint(true); },
     note: readAll,
     // A board whose columns were moved: Display puts them back in the Inbox's order (Group, where a list's board has it, is not there)
-    displayRows: () => (isBoard() && view.colOrder?.status?.length ? [h('button', { type: 'button', class: 'menu-item',
+    // Archived runs: Hide (the default) or Show, as Goals' Closed goals; then, a board whose columns were moved puts
+    // them back in the Inbox's order (Group, where a list's board has it, is not there).
+    displayRows: () => [h('div', { class: 'vb-row' }, h('span', {}, 'Archived runs'), h('div', { class: 'seg', role: 'group', 'aria-label': 'Archived runs' },
+      ...[[false, 'Hide'], [true, 'Show']].map(([v, l]) => h('button', { type: 'button', class: `btn small ${!!view.archived === v ? 'active' : ''}`,
+        'aria-pressed': String(!!view.archived === v), onclick: () => { view.archived = v; save(); vb.update(); paint(true); } }, l)))),
+    ...(isBoard() && view.colOrder?.status?.length ? [h('button', { type: 'button', class: 'menu-item',
       onclick: () => { const { status: _, ...rest } = view.colOrder; view.colOrder = rest; save(); closePopover(); paint(true); } }, h('span', {}, 'Reset column order')),
-    h('div', { class: 'menu-sep' })] : []),
-    onReset: () => { view.groupBy = 'attention'; view.orderInGroups = null; view.folded = []; view.boardFold = {}; view.colOrder = {}; },
+    h('div', { class: 'menu-sep' })] : [])],
+    onReset: () => { view.groupBy = 'attention'; view.orderInGroups = null; view.folded = []; view.boardFold = {}; view.colOrder = {}; view.archived = false; },
     onChange: () => paint(true),
   });
   vb.bar.classList.add('agents-inbox-bar');
@@ -199,7 +213,7 @@ function inboxPage(dirs) {
       header: (key, rows) => {
         const tone = groupTone(view.groupBy, key);
         return [tone ? h('span', { class: `td-dot tone-${tone}`, 'aria-hidden': 'true' }) : null,
-          h('strong', {}, groupName(view.groupBy, key, ctx(), rows)), h('span', { class: 'group-count' }, String(rows.length))];
+          h('strong', {}, groupName(view.groupBy, key, ctx(), rows)), countOf(rows.length, { plain: true, cls: 'group-count' })];
       },
       collapsed: folded,
       onToggle: (k) => { view.folded = folded.has(k) ? view.folded.filter((x) => x !== k) : [...view.folded, k]; save(); paint(true); },
@@ -209,7 +223,7 @@ function inboxPage(dirs) {
       onSort: ({ col, dir: d }) => { view.orderBy = col; view.orderDir = d; save(); vb.update(); paint(true); },
       onRow: (r) => openRun(r), rowHref: runHref, rowLabel: (r) => `${runMessage(r.cmd, r.args)}, ${RUN_STATUSES[runStatus(r)].label}`,
       rowClass: (r) => `hover-host${isUnread(r) ? ' unread' : ''}`,
-      label: 'Runs', empty: 'No run matches.', group, paging: { key: 'agents.inbox', size: LIST_PAGE },
+      label: 'Runs', empty: 'No run matches.', group, paging: { key: 'agents.inbox', size: LIST_PAGE, always: true },
       flex: { run: 260 }, widths: WIDTHS,
     }));
   }
@@ -221,8 +235,8 @@ function inboxPage(dirs) {
     if (!force && now === drawn) return;
     drawn = now;
     vb.update();
-    if (!data) { list.replaceChildren(pageEmpty('Reading the runs…')); return; }
-    const runs = all();
+    if (!data) { list.replaceChildren(loadingLine('Reading the runs…', { cls: 'page-empty' })); return; }
+    const runs = all().filter((r) => view.archived || !isArchived(r));
     readAll.hidden = !runs.some(isUnread);
     count.textContent = runs.length ? `${runs.length} run${runs.length === 1 ? '' : 's'}` : '';
     if (!runs.length) { list.replaceChildren(pageEmpty('No runs yet. Open an agent in the sidebar and Run it: its run shows here, and here is where it tells you when it needs you.')); return; }
@@ -231,55 +245,36 @@ function inboxPage(dirs) {
     if (!shown.length) { list.replaceChildren(pageEmpty('No run matches.')); return; }
     list.replaceChildren(isBoard() ? board(sortRuns(shown, order(), dir())) : table(shown));
   }
-  /** The board: a column per status, in the Inbox's order (what needs you first) until one is dragged by its head (or
-   *  moved with Shift+←/→): then in yours, kept with the view (view.colOrder.status, colorder.js), as a list's board;
-   *  an empty one folds to a strip, or shows or hides (Display → Empty columns). Started only when a run is. */
+  /** The board: a column per status, drawn by the app's board (boardview.js boardOf) as every list's — 272px columns
+   *  (--board-col-w), each folds to a strip from its head and opens from it, moves by its head or strip (or Shift+←/→),
+   *  in the Inbox's order (what needs you first) until one is moved: then in yours, kept with the view
+   *  (view.colOrder.status, colorder.js). An empty one folds, shows or hides (Display → Empty columns). Started only
+   *  when a run is. */
   function board(runs) {
     const by = new Map(Object.keys(RUN_STATUSES).map((k) => [k, []]));
     for (const r of runs) by.get(runStatus(r))?.push(r);
     const empties = view.emptyCols || 'fold';
     const fold = view.boardFold || {};
-    const setFold = (k, f) => { view.boardFold = { ...fold, [k]: f }; save(); paint(true); };
     const saved = view.colOrder?.status;
     const keys = applyOrder([...by.keys()], saved).filter((k) => (k !== 'started' || by.get(k).length) && (by.get(k).length || empties !== 'hide'));
-    const move = (from, to) => { view.colOrder = { ...(view.colOrder || {}), status: reorderColumns(saved, keys, from, to) }; save(); paint(true); };
-    const tip = 'drag, or Shift+←/→, to move the column';
-    const handle = (el, k, idx) => {
-      dragsList(el, idx);
-      el.dataset.colHandle = '';
-      el.addEventListener('keydown', (e) => {
-        if (!e.shiftKey || e.target !== el || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
-        const to = idx + (e.key === 'ArrowLeft' ? -1 : 1);
-        if (to < 0 || to >= keys.length) return;
-        e.preventDefault();
-        move(idx, to);
-        requestAnimationFrame(() => list.querySelector(`.board-col[data-list="${k}"] [data-col-handle]`)?.focus()); // drawn again: back on it
-      });
-      return el;
-    };
-    const face = (k) => [h('span', { class: `td-dot tone-${RUN_STATUSES[k].tone}`, 'aria-hidden': 'true' }), RUN_STATUSES[k].label];
-    const el = h('div', { class: 'board vboard agents-board', role: 'list', 'aria-label': 'Runs by status' },
-      keys.map((k, idx) => {
-        const rs = by.get(k);
-        const attrs = { role: 'listitem', 'aria-label': `${RUN_STATUSES[k].label} column`, 'data-list': k };
-        if (fold[k] ?? (!rs.length && empties === 'fold')) {
-          return h('section', { class: 'board-col folded', ...attrs },
-            handle(h('button', { class: 'fold-strip', type: 'button', title: `Open ${RUN_STATUSES[k].label} — ${tip}`, onclick: () => setFold(k, false) },
-              h('span', { class: 'strip-name' }, ...face(k)), h('span', { class: 'strip-count' }, String(rs.length))), k, idx));
-        }
-        return h('section', { class: 'board-col', ...attrs },
-          handle(h('header', { class: 'list-head vb-col-head', tabindex: '0', title: `${RUN_STATUSES[k].label} — ${tip}` },
-            h('span', { class: 'group-title' }, ...face(k)), h('span', { class: 'count' }, String(rs.length))), k, idx),
-          rs.length ? h('ul', { class: 'col-cards cs-list' }, rs.map(inboxCard)) : h('p', { class: 'col-empty' }, 'None'));
-      }));
-    listDropZone(el, move);
+    const el = boardOf({
+      columns: keys.map((k) => ({
+        key: k, label: RUN_STATUSES[k].label, items: by.get(k), movable: true, card: inboxCard, empty: 'None',
+        face: [h('span', { class: `td-dot tone-${RUN_STATUSES[k].tone}`, 'aria-hidden': 'true' }), RUN_STATUSES[k].label],
+        folded: fold[k] ?? (!by.get(k).length && empties === 'fold'),
+      })),
+      onFold: (k, f) => { view.boardFold = { ...fold, [k]: f }; save(); paint(true); },
+      onReorder: (from, to) => { view.colOrder = { ...(view.colOrder || {}), status: reorderColumns(saved, keys, from, to) }; save(); paint(true); },
+    });
+    el.classList.add('agents-board');
+    el.setAttribute('aria-label', 'Runs by status');
     return el;
   }
   function inboxCard(r) {
     const title = runMessage(r.cmd, r.args);
     const unread = isUnread(r);
     const open = () => openRun(r);
-    return h('li', { class: `cs-item surface-card hover-host agents-inbox-row${unread ? ' unread' : ''}`, tabindex: '0', role: 'button',
+    return h('div', { class: `cs-item surface-card hover-host agents-inbox-row${unread ? ' unread' : ''}`, tabindex: '0', role: 'button',
       title: [title, `${r.dir_name || ''} · started ${when(r.at)}`, r.live && ['needs_you', 'working'].includes(runStatus(r)) ? 'Opens in the dock' : 'Shows what it did and changed'].join('\n'),
       ...hrefOpen(runHref(r), open), onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); } },
     statusDot(r),
@@ -291,6 +286,18 @@ function inboxPage(dirs) {
     unread ? h('span', { class: 'agents-unread', title: 'Ended: not seen yet', 'aria-label': 'Not seen yet' }) : null,
     h('div', { class: 'cs-item-actions hover-reveal' }, more(r)));
   }
+  /** Archives runs (or brings them back), with Undo in the toast. */
+  async function archiveRuns(rs, on) {
+    const ids = rs.map((r) => r.id);
+    const what = rs.length === 1 ? 'Run' : `${rs.length} runs`;
+    try {
+      await api.agentRunsArchive(ids, on);
+      await refreshActivity();
+      toast(on ? `${what} archived` : `${what} back in the Inbox`, false, { label: 'Undo', run: async () => {
+        try { await api.agentRunsArchive(ids, !on); await refreshActivity(); } catch (e) { toast(e.message, true); }
+      } });
+    } catch (e) { toast(e.message, true); }
+  }
   function inboxMenu(anchor, r) {
     dropdown(anchor, [
       { label: 'Show its detail', icon: 'panel', onSelect: () => { location.hash = runHref(r); } },
@@ -298,6 +305,8 @@ function inboxPage(dirs) {
       isUnread(r) ? { label: 'Mark as read', icon: 'check', onSelect: () => markRead([r.id]) } : null,
       { label: 'Copy session id', icon: 'copy', onSelect: () => navigator.clipboard.writeText(r.id).then(() => toast('Session id copied'), () => toast('Could not copy', true)) },
       '-',
+      r.archived_at ? { label: 'Unarchive', icon: 'archive', title: 'Back in the Inbox', onSelect: () => archiveRuns([r], false) }
+        : canArchive(r) ? { label: 'Archive', icon: 'archive', title: 'Out of the Inbox; its agent\'s page still lists it', onSelect: () => archiveRuns([r], true) } : null,
       { label: 'Forget this run', icon: 'trash', danger: true, title: 'The conversation itself stays in Claude Code', onSelect: async () => {
         try { await api.agentRunForget(r.id); await refreshActivity(); } catch (e) { toast(e.message, true); }
       } },
@@ -408,8 +417,7 @@ function agentPage(folder, agent, openRunId = '') {
     const l = stats.last;
     const st = l ? runStatus(l) : null;
     statsBox.replaceChildren(
-      stat('Last run', l ? h('button', { class: 'link-btn agents-stat-run', type: 'button', onclick: () => runs.show(l.id), title: 'Its detail' },
-        statusDot(l), RUN_STATUSES[st].label) : 'Never',
+      stat('Last run', l ? linkButton([statusDot(l), RUN_STATUSES[st].label], () => runs.show(l.id), { cls: 'agents-stat-run', attrs: { title: 'Its detail' } }) : 'Never',
       l ? agoLabel(l.at) : 'not yet'),
       stat('Runs', String(stats.runs), 'in the last 30 days'),
       stat('Success', stats.success == null ? '—' : `${Math.round(stats.success * 100)}%`,
@@ -510,29 +518,17 @@ function agentPage(folder, agent, openRunId = '') {
  *  → the arguments, or null when cancelled. */
 function askArgs(agent, value) {
   return new Promise((resolve) => {
-    const backdrop = document.getElementById('modal-backdrop');
-    const modal = document.getElementById('modal');
-    const opener = document.activeElement;
-    const close = (out) => {
-      backdrop.hidden = true; modal.className = ''; modal.replaceChildren();
-      if (opener && document.contains(opener)) opener.focus();
-      resolve(out);
-    };
+    let close = () => {};
     const input = h('input', { class: 'input mono', value, placeholder: agent.argument_hint, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Arguments' });
     const form = h('form', { class: 'agents-add-form', onsubmit: (e) => { e.preventDefault(); close(input.value); } },
-      h('label', { class: 'field' }, h('span', {}, 'Arguments'), input),
+      propRow('Arguments', input),
       h('p', { class: 'muted small' }, 'Terminal sends ', h('code', {}, `/${agent.name} …`), ' as soon as it opens.'),
-      h('div', { class: 'agents-add-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => close(null) }, 'Cancel'),
-        h('button', { class: 'btn primary', type: 'submit' }, icon('terminal', 14), 'Open in Terminal')));
-    modal.className = 'agents-modal';
-    modal.setAttribute('aria-label', `Open /${agent.name} in Terminal`);
-    modal.replaceChildren(h('div', { class: 'modal-head' }, h('h2', {}, icon('terminal', 18), `/${agent.name} in Terminal`),
-      h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: () => close(null) }, icon('x', 16))), form);
-    backdrop.hidden = false;
-    backdrop.onclick = (e) => { if (e.target === backdrop) close(null); };
-    modal.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
-    input.focus();
-    input.select();
+      formActions({ onCancel: () => close(null), actions: h('button', { class: 'btn primary', type: 'submit' }, icon('terminal', 14), 'Open in Terminal') }));
+    ({ close } = openDialog({
+      title: `/${agent.name} in Terminal`, label: `Open /${agent.name} in Terminal`, ico: 'terminal', cls: 'agents-modal', body: form,
+      focus: () => { input.focus(); input.select(); },
+      onClose: (out) => resolve(out ?? null), // dismissed: null, cancelled
+    }));
   });
 }
 
@@ -563,7 +559,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
   const setCount = (n, tab = 'runs') => {
     const btn = bar.querySelector(`[data-tab="${tab}"]`);
     btn.querySelector('.tab-count')?.remove();
-    if (n) btn.append(h('span', { class: 'tab-count' }, String(n)));
+    if (n) btn.append(countOf(n, { tab: true }));
   };
 
   // Its Schedules tab (agentschedules.js): this agent's schedules, each with Run now, Edit, Pause, Delete.
@@ -579,7 +575,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
     setCount(items.length, 'schedules');
     schedBox.replaceChildren(
       items.length ? scheduleList(items, { edit: editSchedule, changed: loadSchedules })
-        : h('p', { class: 'muted small cs-empty' }, 'Not scheduled. Schedule… runs it on its own — every day, every weekday, on some days or every few hours.'));
+        : emptyLine('Not scheduled. Schedule… runs it on its own — every day, every weekday, on some days or every few hours.'));
   }
   loadSchedules();
 
@@ -657,6 +653,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
       h('span', { class: 'cs-item-meta muted' }, ...[runLabel(r), last].filter(Boolean).flatMap((part, i) => [i ? ' · ' : null, h('span', { class: 'nowrap' }, part)]),
         r.target === 'terminal' ? [' · ', h('span', { class: 'nowrap', title: 'Started in Terminal' }, icon('terminal', 11), ' Terminal')] : null,
         r.branch ? [' · ', h('span', { class: 'nowrap', title: `In a worktree on ${r.branch}${r.removed_ts ? ' (removed)' : ''}` }, icon('branch', 11), ' Worktree')] : null,
+        isArchived(r) ? [' · ', h('span', { class: 'nowrap', title: 'Not in the Inbox: archived' }, icon('archive', 11), ' Archived')] : null,
         unsaved ? h('span', { class: 'chip warn', title: 'Claude Code has no conversation saved for this run: it cannot be resumed' }, 'not saved') : null)),
     h('div', { class: 'cs-item-actions hover-reveal' }, go, more));
   };
@@ -763,7 +760,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
     let shown = null;
     if (open) {
       const got = changes.diffs.get(f.path);
-      shown = !got ? h('p', { class: 'muted small agents-changes-msg' }, 'Reading…')
+      shown = !got ? loadingLine('Reading…', { cls: 'agents-changes-msg' })
         : got.error ? h('p', { class: 'muted small agents-changes-msg' }, got.error)
           : got.binary ? h('p', { class: 'muted small agents-changes-msg' }, 'A binary file: no lines to show.')
             : [diffBlock(parseUnifiedDiff(got.diff)), got.truncated ? h('p', { class: 'muted small agents-changes-msg' }, 'Cut short: the rest is too long to show here.') : null];
@@ -772,12 +769,12 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
   }
 
   const render = () => {
-    if (!list) { box.replaceChildren(h('p', { class: 'muted small cs-empty' }, 'Reading its runs…')); return; }
+    if (!list) { box.replaceChildren(loadingLine('Reading its runs…', { cls: 'cs-empty' })); return; }
     setCount(list.length);
     const r = detail && list.find((x) => x.id === detail);
     if (detail && !r) {
       box.replaceChildren(h('button', { class: 'btn small ghost agents-back', type: 'button', onclick: () => show(null) }, icon('left', 13), 'Runs'),
-        h('p', { class: 'muted small cs-empty' }, 'That run is not on record any more.'));
+        emptyLine('That run is not on record any more.', { cls: 'cs-empty' }));
       return;
     }
     if (r) {
@@ -789,7 +786,7 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
       return;
     }
     if (!list.length) {
-      box.replaceChildren(h('p', { class: 'muted small cs-empty' }, 'No runs yet — Run opens it in the dock, Open in ▾ in Terminal. Each one resumes from here.'));
+      box.replaceChildren(emptyLine('No runs yet — Run opens it in the dock, Open in ▾ in Terminal. Each one resumes from here.'));
       return;
     }
     const page = paged({ key: 'agents.runs', at: `agents.runs.${folder.id} ${agent.name}`, rows: list, size: DETAIL_PAGE * 2, onChange: render });
@@ -830,4 +827,4 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
   return { nodes: [bar, ...panels], load, showSchedules, show, showing: () => Boolean(detail), stop: () => { off(); stamp += 1; schedStamp += 1; } };
 }
 
-const prop = (label, value) => h('div', { class: 'field' }, h('span', {}, label), h('div', { class: 'agents-value' }, value));
+const prop = (label, value) => propRow(label, h('div', { class: 'agents-value' }, value), { tag: 'div' });

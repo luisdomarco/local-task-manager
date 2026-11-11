@@ -264,6 +264,25 @@ class RunOutcomeTest(AgentsBase):
         with self.assertRaises(StoreError):
             server.read_agent_runs('x')
 
+    def test_only_a_run_that_ended_is_archived_and_it_comes_back(self):
+        chat, sid = self.started()
+        chat.busy = True  # its chat live, a turn under way: working, never archived
+        with mock.patch.object(server.CHATS, 'live', return_value=chat), self.assertRaises(StoreError) as caught:
+            server.archive_agent_runs([sid])
+        self.assertEqual(caught.exception.status, 409)
+        chat.busy = False
+        chat.on_result({'type': 'result', 'is_error': False})
+        self.assertEqual(server.archive_agent_runs([sid.upper(), 'nope']), {'archived': 1})
+        run = server.agent_runs()['runs'][0]
+        self.assertTrue(run['archived_at'])
+        self.assertTrue(run['read_at'])  # archived is read: it no longer counts in the Inbox
+        self.assertEqual(server.agent_activity()['counts']['unread'], 0)
+        self.assertEqual(server.archive_agent_runs([sid]), {'archived': 0})  # already
+        self.assertEqual(server.archive_agent_runs([sid], False), {'unarchived': 1})
+        self.assertNotIn('archived_at', server.agent_runs()['runs'][0])
+        with self.assertRaises(StoreError):
+            server.archive_agent_runs('x')
+
 
 class ChatHooksTest(unittest.TestCase):
     def test_hooks_never_stop_the_chat(self):
@@ -309,6 +328,11 @@ class RunsFileTest(unittest.TestCase):
         self.assertIsNone(agentruns.update(path, '12345678-1234-4123-8123-000000000000', outcome='x'))
         self.assertEqual(agentruns.mark_read(path, [sid], 'now'), 1)
         self.assertEqual(agentruns.mark_read(path, [sid], 'later'), 0)  # already read
+        self.assertEqual(agentruns.archive(path, [sid], 'then'), 1)
+        self.assertEqual((agentruns.find(path, sid)['archived_at'], agentruns.find(path, sid)['read_at']), ('then', 'now'))  # read kept
+        self.assertEqual(agentruns.archive(path, [sid], 'again'), 0)
+        self.assertEqual(agentruns.archive(path, [sid], '', on=False), 1)
+        self.assertNotIn('archived_at', agentruns.find(path, sid))
         with mock.patch.object(agentruns, 'MAX', 2):
             for i in range(3):
                 agentruns.add(path, {'id': f'12345678-1234-4123-8123-12345678900{i}', 'cwd': '/x'})

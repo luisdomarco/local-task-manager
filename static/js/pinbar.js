@@ -11,7 +11,7 @@ import { opener } from './links.js';
 import { discardMinimized, minimizedList, openItem, restoreItem } from './panel.js';
 import { toggleSidebar } from './sidebar.js';
 import { pin, state, unpin } from './state.js';
-import { h, icon, typeIcon } from './ui.js';
+import { h, icon, removeButton, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
 const PIN_MIME = 'application/x-tm-pin';
@@ -44,7 +44,7 @@ function chip(item, idx, total) {
   const active = !!pageHref(item) && location.hash === pageHref(item);
   const el = h('div', { class: `pin-chip t-${item.type} ${active ? 'active' : ''}`, draggable: 'true', 'data-id': item.id },
     open,
-    h('button', { class: 'pin-x', title: `Unpin ${item.title}`, onclick: (e) => { e.stopPropagation(); unpin(item.id); } }, icon('x', 12)));
+    removeButton(`Unpin ${item.title}`, (e) => { e.stopPropagation(); unpin(item.id); }, { cls: 'pin-x' }));
   el.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData(PIN_MIME, item.id);
     e.dataTransfer.effectAllowed = 'move';
@@ -136,5 +136,5 @@ export function renderPinbar() {
   bar().querySelector('.min-chips').replaceChildren(...mins.map(([m, it]) => h('div', { class: `min-chip t-${it.type}` },
     h('button', { class: 'pin-open', title: `Restore ${refOf(it)} · ${it.title}`.trim(), ...opener(it, () => restoreItem(m.key)) },
       icon('minimize', 13), typeIcon(it.type, 13), h('span', { class: 'pin-title' }, it.title)),
-    h('button', { class: 'pin-x', title: `Forget ${it.title}`, onclick: () => discardMinimized(m.key) }, icon('x', 12)))));
+    removeButton(`Forget ${it.title}`, () => discardMinimized(m.key), { cls: 'pin-x' }))));
 }

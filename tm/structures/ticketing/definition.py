@@ -165,7 +165,7 @@ PROPS = {
               P(key='branch', label='Branch', kind='text', placeholder='feat/<topic>'), P(key='baseline', label='Baseline', kind='text', placeholder='<sha> it started from'),
               P(key='changelog_ref', label='Changelog', kind='text', placeholder='The changelog entry, or "none"'), *IN_GOAL),
     'task': IN_GOAL,
-    # Its description is a plain text field, drawn at the head of its Overview (the file's body is not used).
+    # Its description is this field (Markdown; the file's body is not used), drawn as every item's description block.
     'goal': (P(key='description', label='Description', kind='textarea', placeholder='What it is for, and how you will know it is met',
                tab='hidden'),),
     'spec': (P(key='capability', label='Capability', kind='text', placeholder='checkout · weekly report · …'),
