@@ -2979,15 +2979,17 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vb-layout .btn { height: var(--control-h-sm); padding: 0 9px; gap: 6px; font-size: var(--fs-xs); }
 .view-title .board-type { font-size: var(--fs-sm); color: var(--muted-foreground); }
 /* The bar on a narrow page (a tablet's, the sidebar open): the search keeps a usable width, Order and Group drop their
-   "Order:" / "Group:", and List | Board shows its icons alone (their names stay as tooltips). */
+   "Order:" / "Group:", and List | Board shows its icons alone (their names stay as tooltips). The steps are what the
+   bar needs, measured on the sample vaults with each menu's longest pick (Order: Attendees, Group: Initiative): 737px
+   whole, 574 without the names, plus a little slack. */
 .view-bar { container-type: inline-size; }
 .view-bar .vb-search-box { min-width: 120px; }
-@container (max-width: 640px) {
+@container (max-width: 744px) {
   .vb-btn > .muted { display: none; }
   .vb-layout-text { display: none; }
   .vb-layout .btn { padding: 0 7px; }
 }
-@container (max-width: 560px) { .vb-btn-text { display: none; } .view-bar .vb-search-box { min-width: 88px; } }
+@container (max-width: 580px) { .vb-btn-text { display: none; } .view-bar .vb-search-box { min-width: 88px; } }
 .view-title .select-btn.board-type { height: 30px; padding: 0 8px; border-color: transparent; box-shadow: none; background: none; color: var(--muted-foreground); font-size: var(--fs-base); }
 .view-title .select-btn.board-type:hover, .view-title .select-btn.board-type[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
 

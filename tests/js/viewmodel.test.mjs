@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { NONE } from '../../static/js/grouping.js';
 import {
-  cardProps, cardShows, closedLast, closedShown, columnOrder, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, planText, valueCounts,
+  cardProps, cardShows, closedLast, closedShown, columnOrder, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, planText, sortColumn, valueCounts,
 } from '../../static/js/viewmodel.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -176,6 +176,17 @@ describe('viewmodel', () => {
     // a type's own columns between the common ones and Created / Updated, which close every list
     assert.deepEqual(keys(['id', 'subject', 'labels', 'project', 'created_at', 'updated_at', 'prop:size', 'date']),
       ['id', 'subject', 'project', 'date', 'labels', 'prop:size', 'created_at', 'updated_at']);
+  });
+
+  it('sorts by the sort\'s column even when it is not shown, never by the ticks', () => {
+    const pick = { key: 'pick' };
+    const all = [{ key: 'id' }, { key: 'subject' }, { key: 'updated_at' }, pick];
+    // Updated left out for width: the table draws [pick, id, subject] but still orders by Updated
+    assert.equal(sortColumn({ col: 'updated_at', dir: -1 }, all).key, 'updated_at');
+    assert.equal(sortColumn({ col: 'pick', dir: 1 }, all), pick); // the ticks, when that is what was clicked
+    // a sort by a column that is gone: the first one the list has, not the ticks drawn first
+    assert.equal(sortColumn({ col: 'redmine', dir: 1 }, all).key, 'id');
+    assert.equal(sortColumn(undefined, all).key, 'id');
   });
 
   describe('a row\'s Planned', () => {

@@ -292,6 +292,14 @@ export function columnOrder(columns) {
 }
 
 /**
+ * The column a table's sort ({ col, dir }) orders by: `sort.col` among `columns`, every column it may name, shown or
+ * not (one left out for width, or turned off in Display, still orders the rows); not there, the first of them.
+ */
+export function sortColumn(sort, columns) {
+  return columns.find((c) => c.key === sort?.col) || columns[0];
+}
+
+/**
  * A row's Planned, short: "Today", "Tue 10", "W45", "Nov", or "Not planned"; past its plan, how late
  * ("19 d late", dates.js lateBy) with `late` set, for red.
  */

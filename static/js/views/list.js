@@ -18,7 +18,7 @@ import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
 import { cssKey, h, statusLabel, icon, priorityChip, select, statusChip, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
-import { cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView } from '../viewmodel.js';
+import { cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, sortColumn } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
 import { addList, boardOf, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
@@ -359,7 +359,7 @@ export function listView(type, { page = null } = {}) {
       }, icon('plus', 14)));
       /** Ordered by `by` ({ col, dir }), the closed ones last. */
       const orderBy = (by) => {
-        const get = (cfg.columns.find((c) => c.key === by.col) || cfg.columns[0]).get;
+        const { get } = sortColumn(by, cfg.columns);
         return (a, b) => Number(isClosed(a)) - Number(isClosed(b)) || ((x, y) => (x < y ? -1 : x > y ? 1 : 0))(get(a), get(b)) * by.dir;
       };
       /** The order inside a list's group: Order in groups, else the list's. */
@@ -553,6 +553,9 @@ export function listView(type, { page = null } = {}) {
             widths: roomy ? { ...widthsNow, subject: SUBJECT_WIDTH } : widthsNow,
             rowClass: (i) => `${isClosed(i) ? 'done' : ''} ${picked.has(i.key) ? 'picked' : ''}`,
             rows, sort, label: cfg.title, group, paging: { key, size: LIST_PAGE }, doneLast: true,
+            // Ordered by its column even when the width or Display leaves it out: never by the ticks, which would move
+            // a row as it is ticked.
+            sortColumns: [...cfg.columns, pickCol],
             onSort: (st) => { sort = st; saveSort(sortKey, st); api.update(); },
             onRow: openItem,
             empty: items.length ? `No ${lower(cfg.title)} match.` : many ? 'No items yet.' : `No ${lower(cfg.title)} yet — “Add ${lower(label)}” to create one.`,

@@ -10,7 +10,7 @@ import { planControl, planKey, planValues } from './itemform.js';
 import { noMonth, progressOf, setStatus, state, updateItem } from './state.js';
 import { itemHref, opener, wantsNewTab } from './links.js';
 import { cssKey, h, icon, labelChip, select, typeIcon } from './ui.js';
-import { planText } from './viewmodel.js';
+import { planText, sortColumn } from './viewmodel.js';
 
 export { pageHref } from './links.js'; // the types with a page (rules.js hasPage); everything else opens as a card modal
 
@@ -120,9 +120,11 @@ export function pagedBox(build) {
  * then turns its own pages, without its caller re-rendering it.
  * `doneLast` puts the closed rows after the open ones, each in the sort; `flex` and `widths` as in fixedColumns.
  * Rows that are not items (the Inbox's runs) say what they are with `rowLabel(row)` and open in a new tab at `rowHref(row)`.
+ * `sortColumns` (default `columns`): every column the sort may name, shown or not (viewmodel.js sortColumn), so a
+ * column left out for width still orders the rows.
  */
-export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {}, rowLabel = null, rowHref = null }) {
-  const col = columns.find((c) => c.key === sort.col) || columns[0];
+export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {}, rowLabel = null, rowHref = null, sortColumns = columns }) {
+  const col = sortColumn(sort, sortColumns);
   const sorted = rows.slice().sort((a, b) => {
     const x = col.get(a); const y = col.get(b);
     return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;

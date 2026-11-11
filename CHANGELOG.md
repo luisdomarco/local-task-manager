@@ -4,6 +4,9 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **The view bar never runs past its edge.** A list's bar drops *Order:* / *Group:* and List | Board's names at
+  744px (was 640) and Filter's and Display's at 580 (was 560): between 640 and 737px its last buttons ran past the
+  bar, as at a 1000px window with the sidebar open. The steps are measured with each menu's longest pick.
 - **Deleting a project takes its folder to the trash, and a restore brings it all back.** Before, only the project's note went, its folder stayed behind and the vault went read-only. Now the whole folder goes as one row of the Trash (*with 23 items*), what pointed into it from outside is detached and relinked on restore, and Delete forever takes it all. A ticket deleted before its project was renamed goes back into the project's new folder with its project; one whose project is in the trash waits for it. A restore that would break the vault's structure is refused instead. A vault left read-only by a project deleted before this is put right by restoring that project from the Trash.
 - **Renaming a project no longer breaks the vault.** A new title renamed the project's note but not its folder, so the vault stopped matching its structure and went read-only. Now the folder is renamed with it (everything in it goes along), links to the project and `docs` links into its folder follow, its page stays open, and a name that is taken is refused without changing anything.
 - **Settings → Themes.** Pick how the app looks in this browser: **Classic** (as it always was) or **Modern** (larger

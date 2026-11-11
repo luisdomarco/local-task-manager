@@ -352,9 +352,10 @@
 :root[data-skin="modern"] .md :is(th, td) { border-width: 0 0 1px; padding: calc(var(--spacing) * 2) calc(var(--spacing) * 2.5); text-align: left; }
 :root[data-skin="modern"] .md th { font-weight: 500; }
 /* the view bar (.view-bar, a container: app.css) shortens itself in two steps, as Classic's does, but sooner: Modern's
-   controls are larger, so its bar needs ~725px whole and ~570 with List | Board as icons (Classic's 717 and 561, which
-   app.css's 640 and 560 never reach: its fix belongs to main). Step 1 drops Order's and Group's names and List |
-   Board's words; step 2 the buttons' words, the search at 88px */
+   controls are larger, so its bar needs ~725px whole and ~570 with List | Board as icons. app.css's steps (744 and
+   580, not scoped to a skin) reach Modern too and come a few px sooner, so they are the ones that act; these keep
+   Modern's own measure. Step 1 drops Order's and Group's names and List | Board's words; step 2 the buttons' words,
+   the search at 88px */
 @container (max-width: 736px) {
   :root[data-skin="modern"] .vb-btn > .muted, :root[data-skin="modern"] .vb-layout-text { display: none; }
   :root[data-skin="modern"] .vb-layout .btn { padding: 0 7px; }
