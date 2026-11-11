@@ -2,7 +2,8 @@
 // What it lays out is graphlayout.js's, how each edge looks graphstyle.js's; this file draws them and takes the pointer:
 // drag the background to pan, the wheel (or a pinch) to zoom, drag a node to move it, hover one to light up what it is
 // tied to (in the accent, the rest dimmed), click it to open it, double-click it to centre the graph on it. + / − / 0
-// zoom from the keyboard. How it looks (colours, arrows, names, sizes) is `look`; how it settles, `forces`.
+// zoom from the keyboard. A finger has no hover: it taps a node to light it up, again to open it, and reaches further.
+// How it looks (colours, arrows, names, sizes) is `look`; how it settles, `forces`.
 import { createSimulation, fit, forceOptions, nearest, unclutter, zoomAt } from './graphlayout.js';
 import { degrees } from './graphmodel.js';
 import { edgeStyle, labelAlpha, nodeColor } from './graphstyle.js';
@@ -14,6 +15,8 @@ const HOVER_WIDTH = 0.7; // an edge of the hovered node is drawn at this share o
 /** The panel's local graph: its type colours and arrows, every name. The Graph view passes its own (LOOK_DEFAULTS). */
 const PANEL_LOOK = { colorBy: 'type', groups: [], arrows: true, fade: 0, nodeSize: 1, linkWidth: 1 };
 const CLICK_SLOP = 4; // px a press may move and still be a click
+const TOUCH_SLOP = 10; // a finger's: it moves more
+const TOUCH_REACH = 18; // px a finger may land off a node and still take it (a mouse: 4)
 
 /** A node's radius in layout units: a little bigger the more it is tied to. */
 const radiusOf = (deg) => 4 + Math.min(8, Math.sqrt(deg) * 1.6);
@@ -242,11 +245,13 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
   let pinch = null; // { d (the fingers' distance at the start), view (the view then), cx, cy (their middle) }
   const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
   const world = (sx, sy) => [(sx - view.tx) / view.k, (sy - view.ty) / view.k];
-  const hitAt = (sx, sy) => {
+  const hitAt = (sx, sy, touch = false) => {
     if (!sim) return -1;
     const [wx, wy] = world(sx, sy);
-    return nearest(sim, wx, wy, (i) => (radius[i] * lk.nodeSize * Math.min(1, Math.sqrt(view.k)) + 4) / view.k);
+    const reach = touch ? TOUCH_REACH : 4;
+    return nearest(sim, wx, wy, (i) => (radius[i] * lk.nodeSize * Math.min(1, Math.sqrt(view.k)) + reach) / view.k);
   };
+  const isTouch = (e) => e.pointerType === 'touch' || e.pointerType === 'pen';
 
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -260,8 +265,9 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
       pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, view: { ...view }, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       return;
     }
-    const i = hitAt(sx, sy);
-    press = { i, sx, sy, tx: view.tx, ty: view.ty, moved: false };
+    const touch = isTouch(e);
+    const i = hitAt(sx, sy, touch);
+    press = { i, sx, sy, tx: view.tx, ty: view.ty, moved: false, touch };
     if (i >= 0) { const [wx, wy] = world(sx, sy); sim.fix(i, wx, wy); }
     hideTip();
   });
@@ -276,7 +282,7 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
       return;
     }
     if (press) {
-      if (Math.hypot(sx - press.sx, sy - press.sy) > CLICK_SLOP) press.moved = true;
+      if (Math.hypot(sx - press.sx, sy - press.sy) > (press.touch ? TOUCH_SLOP : CLICK_SLOP)) press.moved = true;
       if (!press.moved) return;
       if (press.i >= 0) { // a node dragged: it follows, the rest makes room
         const [wx, wy] = world(sx, sy);
@@ -288,6 +294,7 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
       }
       return;
     }
+    if (isTouch(e)) return; // a finger lights a node by tapping it (end)
     const i = hitAt(sx, sy);
     if (i !== hover) { hover = i; canvas.style.cursor = i >= 0 ? 'pointer' : ''; draw(); }
     if (i >= 0) showTip(i, sx, sy); else hideTip();
@@ -296,14 +303,18 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
     pointers.delete(e.pointerId);
     if (pinch) { if (pointers.size < 2) pinch = null; return; }
     if (!press) return;
-    const { i, moved: dragged } = press;
+    const { i, moved: dragged, touch, sx, sy } = press;
     press = null;
     if (i >= 0) { sim.release(i); sim.alphaTarget = 0; }
-    if (i >= 0 && !dragged && e.type === 'pointerup') onOpen(nodes[i]);
+    if (dragged || e.type !== 'pointerup') return;
+    // A finger has no hover: its first tap on a node lights it and what it is tied to (and shows its card), a second
+    // tap on it opens it; a tap on the background puts the lights out.
+    if (touch && i !== hover) { hover = i; draw(); if (i >= 0) showTip(i, sx, sy); else hideTip(); return; }
+    if (i >= 0) onOpen(nodes[i]);
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
-  canvas.addEventListener('pointerleave', () => { if (!press && hover >= 0) { hover = -1; canvas.style.cursor = ''; draw(); } hideTip(); });
+  canvas.addEventListener('pointerleave', (e) => { if (isTouch(e)) return; if (!press && hover >= 0) { hover = -1; canvas.style.cursor = ''; draw(); } hideTip(); });
   canvas.addEventListener('dblclick', (e) => {
     const i = hitAt(...local(e));
     if (i >= 0) onFocus(nodes[i]);

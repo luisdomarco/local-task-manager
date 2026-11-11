@@ -4,6 +4,47 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A phone gets its own sizes, over Classic or Modern** (phase 1 of the phone pass). On a screen of 760px or less
+  that you touch — a narrow window with a mouse is unchanged, as is every computer — text is 16px, buttons, fields and
+  menu rows 44px, and the page stays clear of the notch and the home indicator. Fields are 16px on any touch screen,
+  so iOS no longer zooms into them, and the page can be pinched again. A centred menu opens over a real dim (a tap on
+  it only closes the menu, where it used to open the row underneath), lists to pick from no longer bring the keyboard
+  up on their own, a single tap on a palette or picker row acts on it, and what a computer shows on hover shows from
+  the start on a touch screen. `static/css/phone.css` is a new last cascade layer (docs/design.md §2 *The phone
+  layer*).
+
+- **The phone's shell** (phase 2 of the phone pass). On a phone screen the sidebar drawer's rows are 44px and a tap on
+  any link closes it (the page already shown too), Explorer folders open in place, and a long press on a tree row
+  opens its menu. The top bar shows the page's title everywhere, with the pinned items and minimized cards behind one
+  pin button that lists them. The view bar's chips, the date picker (a day a 44px square across the menu), ⌘K (with a
+  Cancel), dialogs (their foot stays above the keyboard), the create form (the whole screen, names above fields) and
+  Settings (tabs, swatches, statuses on one row, row actions) are sized for a finger; Settings → Keyboard is left out
+  on a touch screen. A computer is unchanged.
+
+- **Lists, boards and planning on a phone** (phase 3 of the phone pass). On a phone screen a list's rows show their
+  subject whole on two lines, with a 44px box to tick and status dot, and the bulk bar has *Select all · N* and its ×
+  first; Today, Week and Planning show the whole subject with its priority and date under it; boards are a screen
+  wide per column, and each card's ⋯ moves it to another column; Month opens a day's entries on a tap; Labels and
+  Contacts are two-line rows; quick adds have an Add button. Goals open as a list on a phone. A computer is unchanged.
+
+- **An item, a page, Docs and the Graph on a phone** (phase 4 of the phone pass). On a phone screen an item's card
+  takes the whole screen, its resolve, Promote, Escalate and Convert sit under its title, Properties put names above
+  values, and its tabs are a finger's height. The description opens with **Edit** and closes with **Done** (scrolling
+  no longer closes it), its toolbar stays on screen; a comment's Return makes a new line; typing is not interrupted
+  when something else saves. Docs folds its trees under **Browse docs** while a doc is open, and keeps Done on screen
+  while one is edited. In the Graph a first tap on a node lights it and its links, a second opens it. A computer is
+  unchanged.
+
+- **A title keeps its size on a touch screen.** An item's or a page's title was drawn at 16px on a touch screen, by
+  the rule that keeps fields from being zoomed into; it is 24px again.
+
+- **An Inbox item keeps its "Related to"** (Projects vaults). It is the item's own `file_under:` (a link, as
+  Obsidian reads it), shown in its card's Properties and kept by the row's picker; *Convert to* makes it the new
+  item's parent when the new type can have one, and lists those types first.
+
+- **Enter in a quick add while a word is being composed** (an accent, a suggestion) only ends the word; it no longer
+  creates the item half-typed.
+
 - **Routines: everything scheduled, of every agent, in one place.** A **Routines** row in the Agents sidebar (and a tab beside Home and Inbox) lists every agent's schedules, the next to fire first and the paused ones last, with a search; each keeps Run now, Edit…, Go to its agent, Pause / Resume and Delete.
 
 - **Closed items shown can be hidden again, and every list has its pager.** After *Show closed* under a list, the line reads *4 closed shown · Hide closed* (before, nothing took you back but Display). The pager (*1–18 of 18*, pages, Rows per page) shows under every main list — Tasks, Initiatives…, the Agents Inbox, Labels, Trash, Claude history — even when all rows fit on one page.

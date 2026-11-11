@@ -21,11 +21,13 @@ import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
 import { themesPanel } from './themes.js';
+import { isTouch } from '../phone.js';
 
 const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
-// The tabs only a computer has (features.js): a phone shows the others.
+// The tabs only a computer has (features.js): a phone shows the others. Keyboard only where there is one to speak of:
+// a touch screen (phone.js) leaves it out.
 const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server' };
-const tabs = () => ALL_TABS.filter(([key]) => !TAB_FEATURE[key] || has(TAB_FEATURE[key]));
+const tabs = () => ALL_TABS.filter(([key]) => (!TAB_FEATURE[key] || has(TAB_FEATURE[key])) && !(key === 'keyboard' && isTouch()));
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);

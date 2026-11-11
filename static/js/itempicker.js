@@ -4,7 +4,7 @@
 import { matchItems } from './composer.js';
 import { hasField, isDone } from './rules.js';
 import { state } from './state.js';
-import { closeFloating, floating, floatingFrom, h, icon, typeIcon } from './ui.js';
+import { closeFloating, floating, floatingFrom, h, icon, keyboardShy, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
 /** Close it (a 'panel' of ui.js floating: whatever panel is open). */
@@ -43,7 +43,7 @@ export function itemPicker(anchor, current, onPick, {
       it ? typeIcon(it.type, 14) : icon('clock', 14),
       h('span', { class: 'ip-text' }, it ? h('span', {}, h('b', {}, refOf(it) || it.type), ` ${it.title}`) : none),
       on ? icon('check', 14) : null);
-    b.addEventListener('mousemove', () => mark(rows.findIndex((r) => r.el === b)));
+    b.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') mark(rows.findIndex((r) => r.el === b)); }); // a finger's tap moves too (palette.js)
     return { el: b, it };
   };
   const paint = () => {
@@ -63,5 +63,5 @@ export function itemPicker(anchor, current, onPick, {
   paint();
 
   floating(anchor, el, { layer: 'panel', grow: 320 }); // its rows change with the search: it grows away from the button
-  input.focus();
+  if (!keyboardShy()) input.focus(); // on a phone the keyboard waits for a tap on the search
 }

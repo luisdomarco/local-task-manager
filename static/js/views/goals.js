@@ -29,6 +29,7 @@ import { countOf, cssKey, dropdown, dropZone, h, icon, priorityChip, seg, status
 import { viewBar } from '../viewbar.js';
 import { cardShows, closedShown, filterFields, matches } from '../viewmodel.js';
 import { vaultCtx } from './list.js';
+import { isPhone } from '../phone.js';
 
 const write = (patches) => (patches.length ? updateMany(patches.map(([i, v]) => [i.key, v])).catch(() => {}) : null);
 const find = (key) => state.items.find((i) => i.key === key);
@@ -130,7 +131,8 @@ export const goalsProvider = {
 const noGoalsLine = () => h('p', { class: 'muted goals-empty' }, 'No open goals. Add one to put your projects, initiatives, stories and tasks behind it.');
 
 export function mount(root) {
-  const { view, save } = planViewOf('goals', { layout: 'board', closed: 'none', goalsClosed: false });
+  // Never picked: a list on a phone (a board's columns are a screen each there), the board elsewhere.
+  const { view, save } = planViewOf('goals', { layout: isPhone() ? 'list' : 'board', closed: 'none', goalsClosed: false });
   if (view.layout === 'canvas' && !has('canvas')) view.layout = 'board'; // a phone has no canvas (features.js)
   const types = () => MEMBER_TYPES.filter(isEnabled);
   const fields = () => filterFields(types(), vaultCtx());

@@ -23,6 +23,7 @@ import { attachmentsBody } from './attachments.js';
 import { shownKinds } from './kindgroups.js';
 import { groupLinks, linkIcon, shortUrl } from './linkgroups.js';
 import { quickAddBar } from './quickadd.js';
+import { isPhone, isTouch } from './phone.js';
 import {
   EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, isShortId, kindFor, leavesProject, matchesWhere, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectFree, projectHas, projectOf, propsIn, statusesOf,
 } from './rules.js';
@@ -1152,9 +1153,11 @@ function sideTabs(item, rerender, current, onPick) {
 const commentDrafts = new Map(); // item key → text of the comment being written
 const commentEdits = new Map(); // `${key}#${index}` → { was, text }
 
-/** A comment box: grows with its text, Enter sends, Shift+Enter or Alt+Enter breaks the line. */
+/** A comment box: grows with its text, Enter sends, Shift+Enter or Alt+Enter breaks the line. On a touch screen its
+ *  keyboard's Return breaks the line, as a message app's does: the button beside it sends (or Save, editing one). */
 function commentBox(attrs, onEnter) {
-  const input = h('textarea', { rows: 1, class: 'comment-input', ...attrs });
+  const touch = isTouch();
+  const input = h('textarea', { rows: 1, class: 'comment-input', ...attrs, ...(touch ? { title: null } : {}) });
   const grow = () => {
     input.style.height = 'auto';
     const borders = input.offsetHeight - input.clientHeight; // height is border-box, scrollHeight is not
@@ -1164,6 +1167,7 @@ function commentBox(attrs, onEnter) {
   input.addEventListener('input', grow);
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.isComposing) return;
+    if (touch && !(e.metaKey || e.ctrlKey)) { queueMicrotask(grow); return; } // a new line; ⌘↵ on a tablet's keyboard still sends
     e.preventDefault();
     if (e.shiftKey || e.altKey) { // browsers only break the line on Shift+Enter, so do it by hand
       input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
@@ -1310,9 +1314,21 @@ const FOCUSABLE = 'input, select, textarea, button, a[href]';
  * Re-rendering rebuilds the editor, which would drop focus after every save.
  * Remember the focused control (by data-fk, else by position) and restore it.
  */
+// A field being typed in, on a touch screen: drawing it again would close the keyboard under the finger (iOS gives a
+// field focused by script no keyboard). The comment box is not waited for: what it sends must show at once.
+const TYPING = 'input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=button]), textarea, [contenteditable]';
+const waiting = new WeakSet();
+
 function keepFocus(root, render) {
   const el = document.activeElement;
   const inside = el && root.contains(el);
+  if (inside && isTouch() && el.matches(TYPING) && !el.matches('.comment-input')) {
+    if (!waiting.has(el)) { // drawn once it is left, with what changed meanwhile
+      waiting.add(el);
+      el.addEventListener('blur', () => { waiting.delete(el); setTimeout(() => { if (root.isConnected) keepFocus(root, render); }); }, { once: true });
+    }
+    return;
+  }
   const fk = inside ? el.dataset.fk : null;
   const idx = inside ? [...root.querySelectorAll(FOCUSABLE)].indexOf(el) : -1;
   let sel = null;
@@ -1539,9 +1555,19 @@ export async function convertTo(item, type, values = {}) {
 
 function convertButton(item) {
   const btn = h('button', { class: 'btn small primary', 'aria-haspopup': 'menu' }, 'Convert to', icon('down', 14));
-  btn.addEventListener('click', () => dropdown(btn, TYPES.map((t) => ({
-    label: TYPE_LABEL[t], icon: TYPE_ICON[t], onSelect: () => convertTo(item, t),
-  })), { align: 'end' }));
+  btn.addEventListener('click', () => {
+    // Its "Related to" (file_under), as saved now (the head is not drawn again on a save): the types that can hang
+    // from it first, under a heading; the server carries it over.
+    const under = (state.items.find((i) => i.key === item.key) || item).fields.file_under;
+    const parent = under ? state.byId.get(under) : null;
+    const fits = parent ? TYPES.filter((t) => (PARENT_TYPES[t] || []).includes(parent.type)) : TYPES;
+    const rest = parent ? TYPES.filter((t) => !fits.includes(t)) : [];
+    const row = (t) => ({ label: TYPE_LABEL[t], icon: TYPE_ICON[t], onSelect: () => convertTo(item, t) });
+    dropdown(btn, [
+      ...(parent ? [{ heading: `Can relate to ${refOf(parent)}` }] : []), ...fits.map(row),
+      ...(rest.length ? [{ heading: 'Unrelated' }, ...rest.map(row)] : []),
+    ], { align: 'end' });
+  });
   return btn;
 }
 
@@ -1581,6 +1607,7 @@ function modalLayout(item, c) {
   const parent = f.related_to ? state.byId.get(f.related_to) : null;
   const back = parentView ? state.all.find((i) => i.key === parentView.key) : null;
   const kids = item.type === 'prompt' ? { work: [], groups: [] } : splitChildren(relatedSections(item, c.rerender));
+  const phone = isPhone();
   return modalFrame({
     head: [
       back ? h('button', { class: 'btn small ghost im-back', title: 'Back', onclick: goBack },
@@ -1594,10 +1621,13 @@ function modalLayout(item, c) {
       h('span', { class: 'spacer' }),
       // An inbox item's Convert to and an activity's Mark resolved first, then Claude, left of the rest (on the page too,
       // with the Favourites star right after Claude).
-      item.type === 'inbox' ? convertButton(item) : resolveButton(item), c.claude, ...ticketActions(item), c.pin, c.minimize, c.more,
-      h('button', { class: 'btn icon', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
+      // On a phone the head is one row (the ref, ⋯ and × must fit): an item's own actions go under its title instead.
+      item.type === 'inbox' ? convertButton(item) : phone ? null : resolveButton(item), c.claude, ...(phone ? [] : ticketActions(item)), c.pin, c.minimize, c.more,
+      h('button', { class: 'btn icon im-close', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
     ],
-    title: modalTitle(item.type, c.subject, item.type === 'prompt' ? null : statusSelect(editBinding(item))),
+    title: modalTitle(item.type, c.subject, item.type === 'prompt' ? null
+      : phone ? h('div', { class: 'im-title-acts' }, statusSelect(editBinding(item)), resolveButton(item), ...ticketActions(item))
+        : statusSelect(editBinding(item))),
     main: [
       // A prompt keeps its few fields here (it has no side column); everything else has them at the top of its side.
       item.type === 'prompt' ? h('div', { class: 'im-props' }, itemFields(editBinding(item))) : propertiesSection(item, { inline: true }),

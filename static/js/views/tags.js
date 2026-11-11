@@ -11,6 +11,7 @@ import {
 } from '../state.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { saveSort, savedSort } from '../prefs.js';
+import { isPhone } from '../phone.js';
 import { countOf, formActions, GROUP_ICON, h, icon, labelChip, openDialog, pageCount, pageEmpty, pageHead, personChip, propRow, rowAction, searchBox, select, tagInput } from '../ui.js';
 
 /**
@@ -185,7 +186,7 @@ function tagScreen(cfg) {
           const page = paged({ key: `tags.${cfg.plural}`, rows: matching, size: LIST_PAGE, always: true, onChange: () => api.update() });
           const { rows } = page;
           table.replaceChildren(...[matching.length || search
-            ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed tag-grid', style: FIXED.style, 'aria-label': cfg.title }, FIXED.colgroup.cloneNode(true),
+            ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid fixed tag-grid', style: isPhone() ? null : FIXED.style, 'aria-label': cfg.title }, FIXED.colgroup.cloneNode(true),
               h('thead', {}, h('tr', {}, th('name', cfg.nameLabel || cfg.singular[0].toUpperCase() + cfg.singular.slice(1)), extra.map((c) => th(c.key, c.label)), th('count', 'Items'), h('th', { scope: 'col', class: 'c-actions' }, h('span', { class: 'sr-only' }, 'Actions')))),
               h('tbody', {}, rows.length ? rows.map(rowView) : h('tr', {}, h('td', { colspan: span, class: 'empty' }, `No ${cfg.plural} match.`)))))
             : pageEmpty(cfg.empty), page.pager].filter(Boolean));

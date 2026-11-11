@@ -7,7 +7,8 @@
 // values — a box, a status's dot, the name and how many items hold it (a value no item holds is grey) — with is / is
 // not. Group picks what the rows (or a board's columns) group by; Display, which closed items show, the order and the
 // columns or card properties on show. The view is the page's own (viewmodel.js), saved by the page as it changes.
-import { closeFloating, cssKey, floating, floatingFrom, focusFirst, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, typeIcon } from './ui.js';
+import { closeFloating, cssKey, floating, floatingFrom, focusFirst, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, touchSearch, typeIcon } from './ui.js';
+import { isPhone } from './phone.js';
 import { cardShows, columnOn, fresh, filterParts, filterText, groupLabel, matches, valueCounts } from './viewmodel.js';
 
 const CLOSED_MODES = [['none', 'None'], ['week', 'Last week'], ['all', 'All']];
@@ -81,7 +82,7 @@ export function viewBar(opts) {
   const change = (patch) => { Object.assign(view, patch); save(); onChange(); repaint(); };
 
   const search = h('input', {
-    type: 'search', class: 'vb-search', placeholder: opts.placeholder || 'Filter by subject or ID…', 'data-filter': '',
+    type: 'search', class: 'vb-search', placeholder: isPhone() ? 'Filter…' : opts.placeholder || 'Filter by subject or ID…', 'data-filter': '', // a phone's box is narrow: its label says the rest
     'aria-label': opts.placeholder || 'Filter by subject or ID',
   });
   search.addEventListener('input', () => opts.onText(search.value));
@@ -100,7 +101,7 @@ export function viewBar(opts) {
     const fs = fields();
     if (!level) {
       const q = query.toLowerCase();
-      const input = h('input', { type: 'search', class: 'vb-find', placeholder: 'Filter by…', value: query, 'aria-label': 'Filter by' });
+      const input = touchSearch(h('input', { type: 'search', class: 'vb-find', placeholder: 'Filter by…', value: query, 'aria-label': 'Filter by' }));
       input.addEventListener('input', () => { query = input.value; renderFilter(el); el.querySelector('.vb-find')?.focus(); });
       el.replaceChildren(input, ...fs.filter((f) => !q || f.label.toLowerCase().includes(q)).map((f) => h('button', {
         type: 'button', class: 'menu-item', onclick: () => { level = f.key; repaint(); el.querySelector('input[type=checkbox], button')?.focus(); },

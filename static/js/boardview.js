@@ -15,6 +15,7 @@ import { quickAddBar } from './quickadd.js';
 import { STATUSES, anyStatusRank } from './rules.js';
 import { saveBoard, slugId, state, toast } from './state.js';
 import { countOf, cssKey, dropdown, dropZone, h, icon, itemCard, select, statusLabel } from './ui.js';
+import { isPhone } from './phone.js';
 
 /**
  * The board. `columns`: [{ key, face (nodes: its dot or icon and name), items, cls?, head? (a header of its own: a
@@ -31,8 +32,25 @@ export function boardOf({ columns, onFold, onOpen, projectName, after = null, on
   if (onReorder) listDropZone(board, onReorder);
   const movable = onReorder ? columns.filter((c) => c.movable) : [];
   const moveOf = (c) => (movable.includes(c) ? { idx: movable.indexOf(c), last: movable.length - 1, onReorder } : null);
-  board.append(...columns.map((c) => (c.folded ? strip(c, onFold, moveOf(c)) : column(c, { onFold, onOpen, projectName, shows, move: moveOf(c) }))), ...(after ? [after] : []));
+  // A phone has no drag to speak of (a long press is iOS's): each card's "Move to…" names the columns it can go to.
+  const targets = isPhone() ? columns.filter((c) => c.drop) : [];
+  board.append(...columns.map((c) => (c.folded ? strip(c, onFold, moveOf(c))
+    : column(c, { onFold, onOpen, projectName, shows, move: moveOf(c), targets }))), ...(after ? [after] : []));
   return board;
+}
+
+/** A card's "Move to…" on a phone: the other columns a drop would set (their value at their end). */
+function moveTo(card, item, from, targets) {
+  const others = targets.filter((t) => t !== from);
+  if (!others.length) return card;
+  const btn = h('button', { type: 'button', class: 'btn icon card-move', title: 'Move to…', 'aria-label': `Move ${item.title} to…`, 'aria-haspopup': 'menu' }, icon('more', 16));
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // the card under it opens on a tap
+    dropdown(btn, [{ heading: 'Move to' }, ...others.map((t) => ({ label: t.label, onSelect: () => t.drop(item.key, t.items.length) }))], { align: 'end' });
+  });
+  card.classList.add('has-move');
+  card.append(btn);
+  return card;
 }
 
 /** A movable column's handle (its header, or its strip folded): dragged, it moves the column (kanban.js, a card's drag
@@ -64,7 +82,7 @@ function strip(c, onFold, move = null) {
   return el;
 }
 
-function column(c, { onFold, onOpen, projectName, shows, move = null }) {
+function column(c, { onFold, onOpen, projectName, shows, move = null, targets = [] }) {
   const fold = h('button', {
     type: 'button', class: 'btn icon small col-fold', title: `Fold ${c.label}`, 'aria-label': `Fold ${c.label}`, 'aria-expanded': 'true',
     onclick: (e) => { e.stopPropagation(); onFold(c.key, true); },
@@ -81,10 +99,19 @@ function column(c, { onFold, onOpen, projectName, shows, move = null }) {
       head.setAttribute('aria-label', `${c.label}: Shift+Left or Shift+Right moves the column`);
       head.setAttribute('aria-keyshortcuts', 'Shift+ArrowLeft Shift+ArrowRight');
       moves(head, c, move);
+      // Moved by a finger: its ⋯ says where (a phone, where the header does not drag).
+      if (isPhone()) {
+        const more = h('button', { type: 'button', class: 'btn icon small col-more', 'aria-label': `${c.label}: move the column`, 'aria-haspopup': 'menu' }, icon('more', 16));
+        more.addEventListener('click', (e) => { e.stopPropagation(); dropdown(more, [{ heading: c.label }, ...moveEntries(move.idx, move.last, move.onReorder)], { align: 'end' }); });
+        head.append(more);
+      }
     }
   }
   const cards = h('div', { class: 'col-cards' }, c.items.length || !c.empty
-    ? c.items.map((i) => (c.card ? c.card(i) : itemCard(i, { onOpen, variant: 'board', projectName, shows, draggable: !!c.drop })))
+    ? c.items.map((i) => {
+      const card = c.card ? c.card(i) : itemCard(i, { onOpen, variant: 'board', projectName, shows, draggable: !!c.drop && !isPhone() });
+      return c.drop && targets.length ? moveTo(card, i, c, targets) : card;
+    })
     : h('p', { class: 'col-empty' }, c.empty));
   if (c.drop) dropZone(cards, (key, index) => c.drop(key, index));
   return h('section', { class: `board-col ${c.cls || ''}`, 'aria-label': `${c.label} column`, ...(c.attrs || {}), ...(move ? { 'data-list': c.key } : {}) },

@@ -12,6 +12,7 @@ import { findByPageRef } from './rules.js';
 import { createFile, deletePath, duplicateFile, makeFolder, movePath, renamePath, state, toast, updateItem, uploadFiles } from './state.js';
 import { cssKey, dropdown, h, icon, searchBox, typeIcon } from './ui.js';
 import { openFileInEdit } from './views/files.js';
+import { isPhone, isTouch } from './phone.js';
 
 const FILE_ICON = { image: 'image', pdf: 'file', text: 'text', markdown: 'note', other: 'file' };
 // Dragging a row onto a folder moves it there; files dragged in from the computer (Finder) are brought into it.
@@ -105,7 +106,11 @@ export function treePane(cfg) {
       ...(isDir ? { 'aria-expanded': String(expanded) } : {}),
       // A folder unfolds as it opens in the middle; clicked again once shown there, it folds. While filtering,
       // everything that matched stays unfolded.
-      onclick: () => { if (isDir && !filtering) toggle(node.path, !(set.has(node.path) && current() === node.path)); },
+      // A phone: the tree is a drawer over the page, and a folder unfolds in place (its page would close the drawer).
+      onclick: (e) => {
+        if (isDir && !filtering && isPhone()) { e.preventDefault(); toggle(node.path); return; }
+        if (isDir && !filtering) toggle(node.path, !(set.has(node.path) && current() === node.path));
+      },
     },
     h('span', { class: 'tree-chevron', 'aria-hidden': 'true' }, isDir ? icon(expanded ? 'down' : 'right', 12) : null),
     mark,
@@ -114,6 +119,7 @@ export function treePane(cfg) {
     h('button', { class: 'btn icon tree-more', tabindex: '-1', title: `Actions on ${node.name}`, 'aria-haspopup': 'menu',
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); rowMenu(e.currentTarget, node); } }, icon('more', 14)));
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); rowMenu(el.querySelector('.tree-more'), node); });
+    longPress(el, () => rowMenu(el.querySelector('.tree-more'), node));
     cfg.decorate?.(node, el);
     if (cfg.readonly) { /* nothing moves */ } else if (cfg.ordered) { draggableRow(el, node); orderedDrop(el, node, siblings); } else {
       draggableRow(el, node);
@@ -265,6 +271,7 @@ export function treePane(cfg) {
   }
 
   function draggableRow(el, node) {
+    if (isTouch()) return; // a finger's long press opens the row's menu (longPress), never a drag
     el.draggable = true;
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.clearData(); // not the link's URL: the pin bar would take it for a card
@@ -458,4 +465,35 @@ export function treePane(cfg) {
   }
 
   return { render, reveal, startNew, dropTarget, editing: () => !!editing };
+}
+
+// A touch screen's right-click: a finger held still on a row (LONG ms) opens its menu. The click its lifting may make
+// would land on what just opened (a phone's backdrop, ui.js floating): swallowed. A mouse keeps contextmenu.
+const LONG = 500;
+let releasedAt = 0;
+let swallowing = false;
+function longPress(el, open) {
+  if (!isTouch()) return;
+  if (!swallowing) {
+    swallowing = true;
+    document.addEventListener('click', (e) => {
+      if (Date.now() - releasedAt > 600) return;
+      releasedAt = 0;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+  }
+  let timer = null;
+  let fired = false;
+  let start = null;
+  const stop = () => { clearTimeout(timer); timer = null; };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || e.target.closest('.tree-more')) return;
+    start = [e.clientX, e.clientY];
+    fired = false;
+    timer = setTimeout(() => { timer = null; fired = true; open(); }, LONG);
+  });
+  el.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - start[0], e.clientY - start[1]) > 10) stop(); });
+  el.addEventListener('pointerup', () => { stop(); if (fired) { fired = false; releasedAt = Date.now(); } });
+  el.addEventListener('pointercancel', stop);
 }

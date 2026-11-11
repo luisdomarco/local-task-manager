@@ -46,7 +46,7 @@ localStorage) and set on the root by `index.html`'s first script before the firs
 | Lines | `--border` (dividers, boxes), `--input` (field outlines, ≥ 3:1) | | | A divider between rows: `1px solid var(--border)`. |
 | Accent and focus | `--primary`, `--ring`, `--focus` (2px ring on buttons and links), `--field-ring` + `--field-halo` (fields), `--brand-*` | the ink (near-black, near-white in dark) | the accent (`--brand-fill`, from `data-accent`) | Never remove a focus style without replacing it. |
 | Meaning | `--destructive`; `--st-*-bg/-fg` and `--st-dot` per status; `--pr-icon-1/2/3`, `--pr-1-bg`; `--t-<type>`; `--graph-*` | | Radix steps 3/11/9/6 | Status and priority colours come from `statusCss()` / `.s-*` / `.pr-*`, never hard-coded. |
-| Type | `--fs-3xs` · `--fs-caption` · `--fs-2xs` · `--fs-xs` · `--fs-sm` · `--fs-base` · `--fs-h4` · `--fs-lg` · `--fs-h3` · `--fs-title`; Markdown's `--fs-doc-h1/h2/h3` | 11 · 11.5 · 12 · 12.5 · 13 · **13.5** · 14 · 15 · 17 · 22; 19/16/14.5 | 12 at least, **14** the body, 16 · 16 · 18 · 24; 22/18/16 (compact: 13 the body, the rest Classic's but 12 at least) | No other font sizes, but three a glyph fits a box by (a badge's count 9.5, a week number 10, an agent's status 10.5) none of them changed on a phone (index.html's viewport, `maximum-scale=1`, stops iOS zooming into a field under 16px). Weights: 400, 500 (labels), 600 (headings). |
+| Type | `--fs-3xs` · `--fs-caption` · `--fs-2xs` · `--fs-xs` · `--fs-sm` · `--fs-base` · `--fs-h4` · `--fs-lg` · `--fs-h3` · `--fs-title`; Markdown's `--fs-doc-h1/h2/h3` | 11 · 11.5 · 12 · 12.5 · 13 · **13.5** · 14 · 15 · 17 · 22; 19/16/14.5 | 12 at least, **14** the body, 16 · 16 · 18 · 24; 22/18/16 (compact: 13 the body, the rest Classic's but 12 at least) | No other font sizes, but three a glyph fits a box by (a badge's count 9.5, a week number 10, an agent's status 10.5). A phone sets the scale again (16 the body; *The phone layer*), and `--fs-field` (16) is a field's size on any touch screen, under which iOS zooms into it. Weights: 400, 500 (labels), 600 (headings). |
 | Size | `--control-h`, `--control-h-sm`, `--row-h`, `--spacing` | 32 · 28 · 48 · not set | 36 · 30 · 40 · 4.5 (compact 28 · 24 · 32 · 3.5) | Controls ≥ `--control-h` (`-sm` for `.small` in dense rows). Modern measures in steps of `--spacing`, as Basecoat does. |
 | Panels | `--side-w`: every right panel (an item's card, a page's, an agent's) | `clamp(360px, 32vw, 500px)` | | One width for every right panel. |
 | Radii | `--radius` 8 · `--radius-sm` 6 · `--radius-xs` 4 · `--radius-full` 999 | | `data-radius` changes them | A card: `--radius` + 4px. A radius that is half a box's height stays a number. |
@@ -68,13 +68,40 @@ Classic's blocks for the Basecoat components (below).
 ### Cascade layers
 
 `static/css/main.css` names them: `vendor` (third-party CSS the app dresses: Inter, Basecoat) < `app` (app.css, then
-the statuses' `<style>`, Excalidraw's and xterm's stylesheets) < `themes`. A later layer wins whatever the
+the statuses' `<style>`, Excalidraw's and xterm's stylesheets) < `themes` < `phone` (phone.css, *The phone layer*). A later layer wins whatever the
 specificity, so a theme's tokens beat Classic's. Third-party CSS loaded at run time goes through
 `layeredCss(href, layer)` (`layeredcss.js`), never a bare `<link>`: unlayered CSS would beat every layer. Generated CSS
 goes inside `@layer app { … }` (ui.js `statusCss`). `!important` reverses the order: an app-layer `!important` beats
 the themes layer, so a forced size that is Classic's alone is scoped to `:where(:root[data-skin="classic"])`.
 `modern.css` repeats the layer statement at its top: it can reach the page before main.css, and the first sheet to
 name the layers fixes their order.
+
+### The phone layer
+
+A phone is **760px or less and a coarse pointer** (`phone.js` `PHONE_TOUCH`; `isPhone()` in JS). A narrow window on a
+computer is not one: it keeps app.css's own ≤760 / ≤640 rules, and `PHONE_POP`'s centred popups, as before.
+`static/css/phone.css` is the last layer, so it beats Classic and every theme without `!important` or a
+`[data-skin]`, and holds **only two blocks** (`tests/js/phone.test.mjs` fails on a rule outside them):
+
+- `@media (max-width: 760px) and (pointer: coarse)` — the phone's scale and layout.
+- `@media (pointer: coarse)` — any touch screen, a tablet too: `--fs-field` (16), what shows on hover shown from the
+  start, keyboard hints hidden.
+
+A computer never matches either, so the desktop is unchanged by construction (§5, item 6, checks it).
+
+| Rule | How |
+|---|---|
+| **Tokens first** | The phone sets the tokens the page already reads: type (`--fs-base` 16, `--fs-sm` 15 … `--fs-title` 24), `--control-h` 44, `--control-h-sm` 44, `--row-h` 52, Basecoat's `--spacing` 5.5px (its buttons, menus and tabs come out at 44). A component with its own number gets a token with the computer's value as fallback (`--icon-btn`, 30 in Classic; `--fs-menu-side`, Classic's side menus) that the phone sets. A token set again lower down (`.list-main`'s `--row-h`, `.im-side.tabbed`'s `--fs-side`) is set there too. |
+| **Targets** | `--tap` (44): a menu row, a palette row, a toast's action. A target that cannot grow gets a 44px hit area, not a bigger box. |
+| **Safe areas** | `viewport-fit=cover` (index.html), and `env(safe-area-inset-*)` on the top bar, the drawer, the page's foot, Settings' save bar, the toast and the bulk bar. Never `maximum-scale`: fields are 16px, so the page keeps its pinch. |
+| **What floats** | On a phone `floating()` puts a real `.float-backdrop` under it: a tap on the dim closes that layer and is swallowed. A centred menu is one scroller, as tall as what the keyboard leaves (`--vvh`, `phone.js` `trackViewport`), and is placed again when the keyboard comes and goes. |
+| **The keyboard** | `keyboardShy()` (ui.js: ≤760 or a coarse pointer): a picker focuses its current row, not its search, and `focusFirst` skips text fields. A prompt whose only job is typing keeps its focus. |
+| **One tap acts** | iOS withholds the click of a tap whose mousemove changed the page. Hover in a list (the palette, the item picker) reacts to `pointerType === 'mouse'` only; tooltips too. |
+| **Hover** | What hover reveals shows from the start on `(pointer: coarse)`; a hover background that would stick after a tap is in `@media (hover: hover)` in app.css. |
+| **The shell** | The drawer, the top bar, the view bar, the date picker, ⌘K, dialogs, Settings and the create form are sized in phone.css (`--control-h-sm` is 44 there). What a phone does differently in JS asks `isPhone()` / `isTouch()`: the drawer's focus and close (sidebar.js), long press on a tree row (treepane.js `longPress`), the Pinned button (pinbar.js), ⌘K's Cancel, `touchSearch()` (ui.js) on a search field, Settings' Keyboard tab. |
+| **Collections** | A list's row, an agenda's row (`.plan-row`, a grid of areas *tick · subject · act* over *tick · meta · act*), Labels' and Contacts' rows are two lines: the subject whole on two lines, what it carries under it. A box that cannot grow (a list's tick, held at 20px by app.css's `!important`) sits in a 44px `label.pick-hit` that list.js builds only on a phone. A drag has a tap's way too: a board card's ⋯ *Move to…* and a column's ⋯ (boardview.js), Month's day sheet (month.js). A layout that is a screen of columns defaults to its list on a phone (Goals; Today already did). |
+| **Item, pages, Docs, graph** | The card is the whole screen (`#item-modal:not(.is-prompt)`, its height `--vvh`); panel.js on a phone puts the head's resolve, Promote, Escalate and Convert under the title (`.im-title-acts`). On a touch screen a description opens with its **Edit** (`.body-edit`) and closes with **Done** (`.body-done`), its outside close listens to `click` (mdblock.js), a comment's Return is a newline (panel.js `commentBox`), and a render waits until a focused field is left (`keepFocus`). `.mde` is `overflow: clip` there, so its toolbar can stick. Docs folds its trees under `.docs-fold` when a doc is open (views/docs.js); graphcanvas.js gives a touch pointer `TOUCH_REACH` and `TOUCH_SLOP`, and tap-to-light in place of hover. A box too small to grow gets an `::after` hit area (`.vb-switch`). |
+| **Desktop untouched** | A control only a phone has is **built only when `isPhone()`**, never built and hidden: an extra element changes a computer's DOM (and the §5 gate's hash). `replaceChildren(...)` writes a `null` as the text "null": filter the list first. app.css's ≤640 rules a phone shares are widened with `, (max-width: 760px) and (pointer: coarse)`, which no computer matches. |
 
 ### Modern's options
 
@@ -810,10 +837,12 @@ behave:
 1. Both suites green (CLAUDE.md *Done means*).
 2. On a sample server (`python3 tools/serve_sample.py`, `--legacy` to also see an Initiatives vault): the changed screens at **375, 820, 1000, 1303 px**,
    light **and** dark, no horizontal scroll, no console errors (README §6 *Checking a layout change*).
-3. Hover and touch: whatever is quiet until hover must be visible on a phone (`@media (hover: none)`).
+3. Hover and touch: whatever is quiet until hover must be visible on a touch screen (phone.css's `(pointer: coarse)`
+   block). A phone is checked with a coarse pointer: the browser pane's `mobile` preset (it reports `pointer: coarse`),
+   then the iOS Simulator; a 375px window with a mouse is a narrow desktop, not a phone.
 4. Open a few selects on the changed screens: they must open (a name clash once broke every menu).
 5. README §7 says what a user now sees; CHANGELOG under *Unreleased*.
-6. A change to Basecoat's families or to a theme's tokens: Classic compared with `main`'s on two sample servers, each
+6. A change to Basecoat's families, to a theme's tokens or to the phone layer: Classic (and Modern for the phone layer) compared with `main`'s on two sample servers, each
    page's every element's computed style (colour, sizes, spacing, radius, shadow, display, flex, font, transition…)
    hashed and compared, at the four widths in light and dark. Equal hashes, or each difference explained.
 

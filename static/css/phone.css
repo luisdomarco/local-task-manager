@@ -1,0 +1,369 @@
+/* A phone, over whichever theme is chosen (docs/design.md §2 *The phone layer*). This file is the `phone` cascade layer,
+   the last one (main.css): what it says beats Classic (app.css) and every theme whatever their selectors' weight, so
+   it needs neither `!important` nor a `[data-skin]`.
+   Two blocks and nothing outside them (tests/js/phone.test.mjs holds it to that), so a computer never sees a rule:
+   - `(max-width: 760px) and (pointer: coarse)`: a phone (phone.js PHONE_TOUCH, verbatim) — its sizes and its layout.
+     A narrow window with a mouse is not one: it keeps the desktop's (app.css's own ≤760 / ≤640 rules).
+   - `(pointer: coarse)`: any touch screen, a tablet too — what a finger needs whatever the width.
+   Tokens first: a size here is a token the page already reads (app.css, the themes, Basecoat's --spacing), so every
+   component follows; a rule for one component only where it has its own number. */
+
+/* ── any touch screen ─────────────────────────────────────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  :root { --fs-field: 16px; } /* under 16px iOS zooms into a field as it gets the focus */
+  html { -webkit-text-size-adjust: 100%; touch-action: manipulation; } /* no double-tap zoom (pinch still works) */
+  /* (a title's field is already bigger than 16px: it keeps its own size) */
+  input:not([type=checkbox], [type=radio], [type=range], [type=color], .title-input), select, textarea:not(.title-input) { font-size: var(--fs-field); }
+
+  /* What shows on hover shows from the start: there is no hover (design.md §5). */
+  .tree-more, .td-x, .cv-copy { opacity: 1; }
+  .hover-host .hover-reveal { opacity: 1; } /* app.css's own (hover: none) twin loses to the hiding rule's weight; this layer wins */
+  .picks-quiet .select-btn:not(:focus-visible, [aria-expanded="true"]),
+  .work-meta .select-btn.small:not(:focus-visible, [aria-expanded="true"]),
+  .quiet .field :is(input:not([type=checkbox], [type=radio]), textarea, .select-btn):not(:focus, [aria-expanded="true"]),
+  .quiet .field .label-input:not(:focus-within) { border-color: var(--input); }
+  .picks-quiet .select-btn, .work-meta .select-btn.small, .quiet .field .select-btn { background-image: var(--chevron); }
+
+  /* Keys there is no keyboard for */
+  .kbd-hint, .create-keys, .menu-item kbd { display: none; }
+}
+
+/* ── a phone ─────────────────────────────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 760px) and (pointer: coarse) {
+  /* The scale (iOS: 16–17px text, 44pt targets). --spacing is Basecoat's step: buttons, menus, tabs and the calendar
+     are so many of it, so 5.5px makes them 44 (Modern's comfortable density is 4.5, compact 3.5). */
+  :root {
+    --fs-base: 16px; --fs-sm: 15px; --fs-xs: 14px; --fs-2xs: 13px; --fs-3xs: 12px; --fs-caption: 12.5px;
+    --fs-h4: 17px; --fs-lg: 17px; --fs-h3: 20px; --fs-title: 24px;
+    --fs-doc-h1: 24px; --fs-doc-h2: 20px; --fs-doc-h3: 17px;
+    --text-sm: var(--fs-base); --text-xs: var(--fs-2xs);
+    --control-h: 44px; --control-h-sm: 44px; --row-h: 52px; --spacing: 5.5px;
+    --tap: 44px;
+    --icon-btn: var(--tap);          /* Classic's icon button (app.css: 30px on a computer) */
+    --fs-menu-side: var(--fs-sm);    /* Classic's menus from the item's side column (app.css: 12px on a computer) */
+  }
+  /* Where a token is set again further down the page, set it there too */
+  .im-side.tabbed { --fs-side: var(--fs-field); }
+  .list-main { --row-h: 52px; }
+
+  /* Safe areas: the notch and the home indicator (index.html's viewport-fit=cover lets the page under them) */
+  #pinbar { padding-top: env(safe-area-inset-top); padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  #sidebar { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  #view { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
+  :is(.settings-save, .status-settings .save-bar) { padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+
+  /* The view bar slides sideways, so its chips keep their names (app.css ≤640): Modern's narrow-bar steps, which drop
+     them for icons, are for a desktop's narrow pane (modern.css's container queries) */
+  .view-bar .vb-btn > .muted, .view-bar .vb-btn-text, .view-bar .vb-layout-text { display: inline; }
+
+  /* What floats (ui.js floating): in the middle of what the keyboard leaves (--vvh, phone.js), over a real backdrop
+     — a tap on the dim closes it and goes nowhere else — with one scroller and rows a finger hits. */
+  .float-backdrop { position: fixed; inset: 0; z-index: var(--z-popover); background: var(--overlay); overscroll-behavior: contain; animation: fade .12s ease-out; }
+  .float-backdrop ~ .float-backdrop { background: none; } /* a menu opened from a panel: the page is dimmed once */
+  .menu.centered { box-shadow: var(--shadow-lg); max-height: min(calc(var(--vvh, 100dvh) - 24px), 640px); }
+  .menu.centered .menu-list { max-height: none; }
+  .menu-item, .menu-list > [role=option] { min-height: var(--tap); padding-block: 6px; } /* a name on two lines keeps its air */
+
+  /* ⌘K: clear of the notch, its list above the keyboard, rows a finger hits */
+  .palette-backdrop { padding: max(12px, env(safe-area-inset-top)) 12px 0; }
+  .palette-input { height: var(--tap); }
+  .palette-list { max-height: calc(var(--vvh, 100dvh) - 120px - env(safe-area-inset-top)); }
+  .palette-row { min-height: var(--tap); }
+  .palette-head { padding: 4px 6px 4px 14px; }
+  .palette-input { -webkit-appearance: none; appearance: none; font-size: var(--fs-field); }
+  .palette-input::-webkit-search-cancel-button { display: none; } /* Cancel is beside it */
+  .palette-cancel { flex: none; height: var(--tap); padding: 0 10px; color: var(--primary); font-size: var(--fs-base); }
+
+  /* The toast across the bottom, clear of the home indicator (and of the bulk bar when it shows) */
+  #toast { left: 12px; right: 12px; max-width: none; bottom: calc(16px + env(safe-area-inset-bottom)); }
+  body:has(.bulk-bar:not([hidden])) #toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  #toast .toast-action { height: var(--control-h-sm); }
+  .bulk-bar { bottom: calc(16px + env(safe-area-inset-bottom)); }
+
+  /* ── the shell (phase 2) ── */
+  /* The drawer: every row a finger's height, its own scroll (the page under it stays put), no ring on the drawer
+     itself when it takes the focus (sidebar.js) */
+  #sidebar { overscroll-behavior: contain; }
+  #sidebar:focus { outline: none; }
+  #sidebar nav a, .side-ini, .tree-row { min-height: var(--tap); }
+  .side-group > summary { min-height: var(--tap); font-size: var(--fs-xs); }
+  .brand #side-collapse { width: var(--tap); height: var(--tap); margin: -8px -10px -8px auto; }
+  .side-switches { flex-wrap: wrap; row-gap: 8px; }
+  :is(.side-mode, .theme-switch) .btn.icon { width: var(--tap); height: 40px; }
+  .side-view-x, .docs-add, .tree-more { width: var(--tap); height: var(--tap); }
+  .side-view-x { margin-right: -12px; }
+  .tree-more { margin-right: -10px; }
+  .docs-title { height: var(--tap); }
+  .tree-row { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* a long press opens its menu (treepane.js), not iOS's */
+
+  /* The top bar: the page's title on every page, the pins and minimized cards behind Pinned (n) (pinbar.js) */
+  #pinbar-title { display: block; flex: 1 1 auto; min-width: 0; font-weight: 650; font-size: var(--fs-h3); letter-spacing: -.015em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pinbar :is(.pin-chips, .min-chips) { display: none; }
+  #pinbar-pins { position: relative; flex: none; }
+  #pinbar-pins[hidden] { display: none; }
+  #pinbar-pins .pins-count { position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full);
+    background: var(--primary); color: var(--primary-foreground); font-size: var(--fs-3xs); font-weight: 650; line-height: 18px; text-align: center; }
+  /* A page head that only says its title again (the top bar says it): gone. One with a control keeps its row. */
+  #view > .view-head:not(:has(button, input, select, a, .select-btn)) { display: none; }
+
+  /* The view bar: the box, the chips, the layout switch and the filters applied, at a finger's height */
+  .view-bar .vb-search-box, .view-bar .vb-btn, .view-bar .vb-layout { height: var(--tap); }
+  .view-bar .vb-layout .btn { height: 38px; }
+  .vb-chip { height: 40px; border-radius: 20px; font-size: var(--fs-sm); }
+  .vb-chip .vb-chip-text { align-self: stretch; }
+  .vb-chip .vb-chip-x { width: 38px; height: 38px; }
+  .vb-chips .vb-clear { height: 40px; padding: 0 10px; font-size: var(--fs-sm); }
+  .view-bar { mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); } /* more to slide to: it fades out at the edge */
+  .vb-pop .vb-find { height: var(--tap); }
+  .vb-op .btn { height: 36px; padding: 0 12px; }
+  .vb-value { min-height: var(--tap); }
+  .vb-value input { width: 20px; height: 20px; }
+  .vb-pop { max-height: min(calc(var(--vvh, 100dvh) - 24px), 640px); }
+  .vb-pop-foot .btn { min-height: var(--tap); }
+
+  /* The date picker: seven days across the menu's width, each a finger's square */
+  .cal { width: min(100%, 360px); }
+  .cal-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 4px; }
+  .cal-day { width: 100%; height: var(--tap); font-size: var(--fs-base); }
+  .cal-nav { width: var(--tap); height: var(--tap); }
+  .cal-title { font-size: var(--fs-base); }
+  .cal-foot .btn { min-height: var(--tap); }
+  input:is([type=time], [type=date], [type=datetime-local]) { min-height: var(--tap); }
+
+  /* Dialogs: a close button a thumb finds; a form's foot stays on screen above the keyboard */
+  .modal-head > .btn.icon:last-child { width: var(--tap); height: var(--tap); margin: -8px -10px -8px 0; }
+  #modal-backdrop:not(:has(> #modal.card-modal:not(.is-prompt))) { padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); }
+  #modal:not(.card-modal) { max-height: calc(var(--vvh, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; padding: 18px 16px 0; }
+  #modal:not(.card-modal) > .modal-foot { position: sticky; bottom: 0; margin: 0 -16px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--popover); border-top: 1px solid var(--border); }
+  .modal-foot .btn { min-height: var(--tap); }
+  /* The create form (a card-modal, as the item card): the whole screen, its fields' names above them as in Settings */
+  #modal-backdrop:has(> #modal.card-modal:not(.is-prompt)) { --modal-gap: 0px; padding: 0; }
+  #modal.card-modal:not(.is-prompt) { height: var(--vvh, 100dvh); max-height: none; border-radius: 0; box-shadow: none; padding-top: env(safe-area-inset-top); }
+  #modal.is-create .prop-rows .field { grid-template-columns: minmax(0, 1fr); row-gap: 4px; padding: 6px 0; }
+  .full-btn { width: var(--tap); height: var(--tap); }
+
+  /* Settings: tabs, swatches, switches and row actions a finger hits; the fold heads of Export too */
+  .settings .tab-btn, .settings .tabs-bar .btn { height: var(--tap); }
+  .swatch { width: var(--tap); height: var(--tap); }
+  .seg .btn { height: 40px; }
+  .btn.icon.row-action { width: var(--tap); height: var(--tap); }
+  .settings :is(.btn.small, .fold-head, summary) { min-height: var(--tap); }
+  .settings input:is([type=checkbox], [type=radio]) { width: 22px; height: 22px; }
+  /* A status on one row: its colour, its name taking what is left, its count, its group */
+  .status-settings .status-row { margin: 0; padding: 4px 0; min-height: var(--tap); flex-wrap: nowrap; }
+  .status-settings .status-row input[type=text] { flex: 1 1 0; }
+  .status-settings .status-row input[type=color] { width: 28px; height: 28px; margin: 0 2px; }
+
+  /* ── collections (phase 3): lists, tables, Inbox, boards, planning ── */
+  /* A list's row (app.css's two-line row, from 760 on a phone): the subject in full on up to two lines; the box to tick
+     and the status's dot each a finger's target (list.js wraps the box in .pick-hit) */
+  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 38px 30px auto minmax(0, 1fr) auto; column-gap: 6px; min-height: 64px; padding: 8px 4px 8px 0; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { font-size: var(--fs-base); line-height: 1.3; white-space: normal; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .item-link { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-initiative, .c-project, .c-parent) { font-size: var(--fs-2xs); }
+  .list-main .grid tbody tr > td.c-status .select-btn { width: var(--tap); max-width: none; height: var(--tap); margin: 0 -7px; }
+  /* (app.css holds the cell at 20px with !important: it stays, centred, and its target spills over it) */
+  .list-main .grid tbody tr:not(.group-head) > td.c-pick { overflow: visible; justify-self: center; justify-content: center; }
+  .pick-hit { display: flex; align-items: center; justify-content: center; flex: none; width: var(--tap); height: var(--tap); margin: 0 -12px; cursor: pointer; }
+  .pick-hit .row-pick { width: 22px; height: 22px; margin: 0; }
+  .list-main tr.group-head > td { height: var(--tap); }
+  .group-toggle { height: var(--tap); }
+  .group-add { width: var(--tap); height: var(--tap); }
+  :is(.closed-toggle, .vb-hidden .link-btn) { display: inline-flex; align-items: center; min-height: var(--tap); }
+  /* The pager: back and forth a thumb finds; how many rows a page shows is a computer's choice */
+  .pager .btn.icon { width: var(--tap); height: var(--tap); }
+  .pager > .spacer, .pager > .spacer ~ * { display: none; }
+  /* The bulk bar: across the screen, × first (list.js), every control a finger's height */
+  .bulk-bar { left: 12px; right: 12px; transform: none; width: auto; max-width: none; padding: 6px; }
+  .bulk-bar :is(.select-btn, .btn) { height: var(--tap); }
+  .bulk-bar .btn.icon { width: var(--tap); }
+  .bulk-bar .bulk-count { margin-right: 2px; }
+
+  /* A task's tick: 20–22px, its target (::after) a finger's square */
+  .check { width: 22px; height: 22px; }
+  .check::after { inset: -11px; }
+  :is(.plan-row, .board-card) .check { width: 20px; height: 20px; }
+  :is(.plan-row, .board-card) .check .icon { width: 14px; height: 14px; }
+  :is(.plan-row, .board-card) .check::after { inset: -12px; }
+
+  /* An agenda's row (Today, Week, Planning; app.css's ≤640 from 760): the subject whole on two lines, what it carries
+     (its priority's bars, when) under it, the tick and the arrow a finger's target each:
+       [☐]  Subject that may take two lines …          [→]
+            ▮▮ · Due Fri                                       */
+  .plan-row { grid-template-columns: 32px minmax(0, 1fr) var(--tap); grid-template-areas: "tick subject act" "tick meta act";
+    column-gap: 8px; row-gap: 2px; min-height: 60px; padding: 8px 0 8px 4px; }
+  .plan-row > :is(.check, .plan-lead) { grid-area: tick; justify-self: center; }
+  .plan-row > .plan-subject { grid-area: subject; font-size: var(--fs-base); line-height: 1.3; }
+  .plan-row .plan-title { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+  .plan-row > .plan-meta { grid-area: meta; justify-content: flex-start; max-width: none; font-size: var(--fs-2xs); }
+  .plan-row > .plan-meta.cols { display: flex; gap: 8px; }
+  .plan-row > .plan-meta.cols > span:empty { display: none; }
+  .plan-row > .plan-act { grid-area: act; }
+  .plan-row:not(:has(> .plan-act > *)) { grid-template-columns: 32px minmax(0, 1fr); grid-template-areas: "tick subject" "tick meta"; padding-right: 4px; }
+  .plan-row:not(:has(> .plan-act > *)) > .plan-act { display: none; }
+  .plan-move.btn.icon { width: var(--tap); height: var(--tap); }
+  .plan-sec { min-height: var(--tap); }
+  .plan-sec-btn.btn.small { height: var(--tap); padding: 0 10px; }
+  .plan-add.btn.icon { width: var(--tap); height: var(--tap); }
+  .plan-empty { min-height: var(--tap); }
+  .plan-empty-names .plan-slot { min-height: var(--tap); padding: 0 8px; margin: 0 -2px; }
+  .plan-closed { min-height: var(--tap); }
+  .plan-closed .link, .plan-next { min-height: var(--tap); }
+  .plan-quick { padding-left: 4px; }
+  .plan-quick .qa-input { height: var(--tap); font-size: var(--fs-field); }
+  /* The period head (Day | Week | Month, ‹ This week ›): a finger's height */
+  .period-head :is(.period-seg .btn, .period-step, .period-now) { height: var(--tap); min-width: var(--tap); }
+
+  /* The capture box and every quick add: as tall as a field a thumb hits, with Add beside it (quickadd.js) */
+  .quick-add.has-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .quick-add.has-add > .qa-input { flex: 1 1 0; min-width: 0; }
+  .quick-add.has-add > .qa-add { flex: none; height: var(--tap); padding: 0 16px; }
+  .quick-add.has-add > .qa-preview { flex: 1 1 100%; margin-top: 0; }
+  .qa-input { height: 48px; font-size: var(--fs-field); }
+  .board-col .qa-input { height: var(--tap); }
+  /* Inbox (Projects): "Related to" is in the card's Properties (file_under), Convert to in its head; the row is its
+     subject alone (inbox.js .triage-in-card) */
+  .cards.rows .card.triage-in-card > .card-extra { display: none; }
+  .cards.rows .card { min-height: 60px; padding: 10px 4px; }
+  .cards.rows .card-title { font-size: var(--fs-base); }
+
+  /* A board: a column a screen wide, one after the other with a snap; each column scrolls on its own */
+  .board { scroll-snap-type: x mandatory; scroll-padding-inline: 12px; gap: 10px; }
+  .board-col { flex-basis: calc(100vw - 48px); scroll-snap-align: start; }
+  .board-col.folded { scroll-snap-align: none; }
+  .col-cards { overscroll-behavior: contain; }
+  .board-col .card-title, .board-card .card-title { font-size: var(--fs-base); }
+  .list-head { min-height: var(--tap); }
+  .list-head .btn.icon, .col-fold.btn.icon, .col-more.btn.icon { width: var(--tap); height: var(--tap); }
+  .col-fold.btn.icon { opacity: 1; }
+  .fold-strip { width: var(--tap); }
+  .board-card .card-meta .plan-move.btn.icon { width: var(--tap); height: var(--tap); margin: -10px -10px -10px 0; }
+  /* "Move to…" on each card (boardview.js): its top right, the card's subject clear of it */
+  .card.has-move { position: relative; padding-right: 46px; }
+  .card-move.btn.icon { position: absolute; top: 2px; right: 2px; width: var(--tap); height: var(--tap); color: var(--muted-foreground); }
+  .board-card, .card[draggable] { -webkit-touch-callout: none; }
+  .view-title .select-btn.board-type { height: var(--tap); }
+
+  /* Labels and Contacts: a row's name on its line, the rest under it; a tap edits it (tags.js), its trash a finger's */
+  .tag-grid { width: 100%; } /* no min-width on a phone (tags.js) */
+  .tag-grid colgroup, .tag-grid thead { display: none; }
+  .tag-grid, .tag-grid tbody { display: block; }
+  .tag-grid tbody tr:not(.tag-edit) { display: grid; grid-template-columns: minmax(0, 1fr) auto var(--tap); grid-auto-flow: row dense; align-items: center;
+    column-gap: 8px; min-height: 56px; padding: 6px 0 6px 8px; border-bottom: 1px solid var(--border); }
+  .tag-grid tbody tr:not(.tag-edit) > td { display: block; height: auto; padding: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tag-grid tbody tr:not(.tag-edit) > td.c-name { grid-column: 1; font-size: var(--fs-base); }
+  .tag-grid tbody tr:not(.tag-edit) > td.c-count { grid-column: 2; grid-row: 1; }
+  .tag-grid tbody tr:not(.tag-edit) > td.c-actions { grid-column: 3; grid-row: 1 / span 2; }
+  .tag-grid tbody tr:not(.tag-edit) > td:not(.c-name, .c-count, .c-actions) { grid-column: 1 / 3; font-size: var(--fs-2xs); color: var(--muted-foreground); }
+  .tag-grid tbody tr:not(.tag-edit) > td:not(.c-name, .c-count, .c-actions):has(> .muted:only-child) { display: none; } /* a — says nothing */
+  .tag-grid td.c-actions .row-action:first-child { display: none; } /* Edit: the row is */
+  .tag-grid tr.tag-edit, .tag-grid tr.tag-edit > td { display: block; }
+  .person-edit { position: static; max-width: none; }
+  .person-fields { grid-template-columns: minmax(0, 1fr); }
+  .th-btn { min-height: var(--tap); }
+  .section-tabs .tab-btn { height: var(--tap); }
+
+  /* Month: a tap on a day opens its agenda (month.js); its dots are only to see, its +N says how many more */
+  .plan-carry .sep { display: none; } /* its names one under the other (they are a finger's height): no dots between */
+  .mcal-day.tappable { cursor: pointer; }
+  .mcal-day.tappable :is(.mcal-pill, .mcal-more) { pointer-events: none; }
+  .mcal-day.tappable:active { background: var(--accent); }
+  .mcal-wk > b { font-size: var(--fs-3xs); }
+  .mcal-more { font-size: var(--fs-3xs); }
+  .mcal-sheet-list { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; }
+  .mcal-sheet-list .mcal-pill { width: 100%; height: var(--tap); padding: 0 12px; justify-content: flex-start; font-size: var(--fs-base); }
+  .mcal-sheet-list .mcal-pill > span:last-child { display: inline; }
+
+  /* The work log, Overview's and Issues' rows: their fold heads and links a finger's height */
+  :is(.log-grid, .work-group) .group-toggle, .fold-head { min-height: var(--tap); }
+  :is(.plan-carry, .log-grid) :is(.item-link, .link), .goal-name { display: inline-flex; align-items: center; min-height: var(--tap); }
+  #view .btn.small.ghost { min-height: var(--tap); }
+
+  /* ── the item card, pages and docs (phase 4) ── */
+  /* The card is the whole screen (a prompt keeps its smaller card): no gap, no corners, clear of the notch, as tall as
+     what the keyboard leaves */
+  #item-backdrop:has(> #item-modal:not(.is-prompt)) { --modal-gap: 0px; padding: 0; }
+  #item-modal:not(.is-prompt) { height: var(--vvh, 100dvh); max-height: none; border: 0; border-radius: 0; box-shadow: none; padding-top: env(safe-area-inset-top); }
+  #item-modal .im-body { overscroll-behavior: contain; }
+  /* Its head: one row, the type and ref, ⋯ and × always there (panel.js puts its own actions under its title) */
+  #item-modal .im-head { gap: 4px; padding: 4px 4px 4px 12px; }
+  #item-modal .im-head > :is(.btn, .chip, .mono) { flex: none; }
+  #item-modal .im-head > .btn.icon { width: var(--tap); height: var(--tap); }
+  #item-modal .im-head > .im-back { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .im-title { flex-wrap: wrap; row-gap: 10px; }
+  .im-title-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
+  .im-title-acts .btn { min-height: var(--tap); }
+  .im-main { padding: 16px 16px calc(28px + env(safe-area-inset-bottom)); gap: 18px; }
+  .im-side { padding-bottom: env(safe-area-inset-bottom); }
+  /* Detail | Properties | Activity, and every tab bar inside: a finger's height */
+  .pane-switch .seg .btn { height: 40px; }
+  :is(#item-modal, .page) :is(.tabs-bar .tab-btn, .tab-btn) { min-height: var(--tap); }
+  /* Properties: each name above its value, as Settings and the create form have them */
+  :is(#item-modal, .page) .prop-rows .field { grid-template-columns: minmax(0, 1fr); row-gap: 4px; padding: 6px 0; }
+  :is(#item-modal, .page) .prop-map-row { grid-template-columns: minmax(0, 1fr); }
+  /* A label's or a watcher's ×: a bigger target than the chip it sits in, spilling over its edge */
+  .x-btn.x-chip { min-width: 32px; min-height: 32px; margin: -8px -8px -8px -4px; opacity: .8; }
+  .x-btn.x-row { width: 36px; height: 36px; }
+  .label-input input { height: 36px; }
+  /* The description: Edit, Copy and Full screen on a row above the box (mdblock.js), Done under it; the text whole */
+  .body-wrap.in-tab:not(.full) > .body-tabs { position: static; justify-content: flex-end; gap: 4px; margin-bottom: 6px; }
+  .body-wrap.in-tab:not(.full) > :is(.md-wrap, .body-empty) { padding-right: 14px; }
+  .body-wrap.in-tab:not(.full) > .mde .mde-bar { padding-right: 0; }
+  .body-tabs .btn.icon, .body-wrap.in-tab:not(.full) > .body-tabs .btn.icon { width: var(--tap); height: var(--tap); }
+  .body-tabs .body-edit { min-height: var(--tap); }
+  .body-actions { justify-content: flex-end; }
+  .body-actions .body-done { min-height: var(--tap); padding: 0 22px; }
+  .md-wrap { cursor: auto; }
+  .mde-bar { position: sticky; top: 0; z-index: 1; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; background: var(--card); }
+  .mde { overflow: clip; } /* still clipped to its corners, but no longer a scroller: its toolbar can stick */
+  .mde-bar > * { flex: none; }
+  .mde-bar .btn.icon, .mde-bar .dictation-btn { width: var(--tap); height: var(--tap); }
+  .mde-modes .btn { height: 36px; }
+  .mde-modes [data-mode=split] { display: none; } /* side by side does not fit: Markdown or View */
+  .mde textarea, .mde-hl { font-size: var(--fs-field); }
+  .see-more.btn { min-height: var(--tap); }
+  /* Comments: a box a thumb types in (Return is a new line there, panel.js), its send button beside it */
+  .activity-compose { padding-bottom: env(safe-area-inset-bottom); }
+  .activity-compose .comment-input { min-height: var(--tap); font-size: var(--fs-field); }
+  .activity-compose > .btn { width: var(--tap); height: var(--tap); }
+  .activity-card .btn.icon, .activity-edit-actions .btn { min-width: var(--tap); min-height: var(--tap); }
+  /* What hangs from it, its relations, links, files and time: rows and their actions a finger's */
+  /* A row of what hangs from it (row-list): its name whole on its line, its status and priority under it */
+  .row-item { flex-wrap: wrap; row-gap: 0; min-height: var(--tap); padding: 4px 0 6px 8px; }
+  /* (room left at its end for two 44px buttons, a link's ☆ and ⋯; a status and a priority go under it) */
+  .row-item > .row-link { flex: 1 1 calc(100% - 2 * var(--tap) - 8px); min-width: 0; min-height: 36px; padding: 6px 0 2px; }
+  .row-item > .row-link :is(.row-title, span) { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+  .row-item .work-meta .select-btn.small { height: 40px; }
+  .row-item > .btn.icon, .row-item .row-action { width: var(--tap); height: var(--tap); }
+  .rel-row, .link-row { min-height: var(--tap); }
+  :is(.rel-row, .link-row) .btn.icon { width: var(--tap); height: var(--tap); }
+  .link-row { flex-wrap: wrap; }
+  .im-section .fold-head, .panel-section .fold-head, .im-section > h4 .btn, .panel-section > h4 .btn { min-height: var(--tap); }
+  .log-actions { flex-wrap: wrap; }
+  /* The graph: its zoom buttons a finger's (graphcanvas.js gives a finger a wider reach and tap-to-light) */
+  .graph-controls .btn.icon { width: var(--tap); height: var(--tap); }
+  .gp-row { min-height: var(--tap); }
+  .gp-row .seg .btn { height: 36px; }
+  .gp-chip { height: 36px; padding: 0 12px; border-radius: 18px; }
+  .gp-search-input { height: 40px; }
+  /* A switch keeps its drawn size; its target spills 13px over and under it (it has no ::after of its own) */
+  .vb-switch::after { content: ''; position: absolute; inset: -13px -8px; }
+  /* A page (an initiative's, a project's): its crumbs' and tabs' targets */
+  .crumbs > a { display: inline-flex; align-items: center; min-height: var(--tap); }
+  /* Docs: with a doc open its trees fold under "Browse docs" (views/docs.js); the doc's buttons and outline a finger's */
+  .docs-panel-title { min-height: var(--tap); }
+  .docs-fold { margin-left: auto; min-height: var(--tap); font-size: var(--fs-sm); font-weight: 500; }
+  .docs-fold[aria-expanded=true] > .icon:last-child { transform: rotate(180deg); }
+  .docs-page.tree-folded .docs-tree { display: none; }
+  .docs-page.tree-folded .docs-panel { padding-bottom: 4px; }
+  .files-head .btn, .zoom-bar .btn { min-height: var(--tap); }
+  .files-outline > summary { display: flex; align-items: center; min-height: var(--tap); }
+  .files-outline .link { min-height: 36px; }
+  /* A doc being edited: Done stays at the bottom of the screen however long the doc is */
+  .files-edit .mde-bar { top: calc(52px + env(safe-area-inset-top)); } /* under the top bar, which scrolls with it in #main */
+  .files-edit > .body-actions { position: sticky; bottom: 0; z-index: 1; margin: 0 -16px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); background: var(--background); border-top: 1px solid var(--border); }
+  .files-edit > .body-actions > .muted:first-child { display: none; }
+  .files-edit > .body-actions > .btn { min-height: var(--tap); padding: 0 22px; }
+}

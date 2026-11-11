@@ -179,6 +179,33 @@ class ConvertTest(ShortIdsBase):
         self.assertEqual(self.s.create('task', 'Next', {})['id'], '2')
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
+    def test_related_to_on_the_card_becomes_the_parent(self):
+        # The inbox card's "Related to" is kept as file_under (only that key is written) and carried over on convert.
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        inb = self.s.create('inbox', 'Try passkeys', {})
+        before = read(self.root, inb['path'])
+        self.s.update(inb['id'], {'file_under': ini['id']})
+        after = read(self.root, inb['path'])
+        self.assertIn('\nfile_under: "[[INI-1 Checkout]]"\n', after)  # a link, as Obsidian reads every other one
+        self.assertEqual([l for l in after.splitlines() if not l.startswith(('file_under', 'updated_date'))],
+                         [l for l in before.splitlines() if not l.startswith('updated_date')])
+        task = self.s.convert(inb['id'], 'task', {})
+        self.assertEqual(task['fields']['related_to'], ini['id'])
+        self.assertNotIn('file_under', read(self.root, task['path']))
+        self.assertTrue(self.s.check()['ok'], self.s.check())
+
+    def test_a_related_to_the_new_type_cannot_take_is_dropped(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
+        other = self.s.create('initiative', 'Billing', {'project': 'ACME'})
+        a = self.s.create('inbox', 'A support ticket', {})
+        self.s.update(a['id'], {'file_under': ini['id']})
+        sup = self.s.convert(a['id'], 'support', {'project': 'ACME'})  # a support ticket hangs from nothing
+        self.assertFalse(sup['fields'].get('related_to'))
+        b = self.s.create('inbox', 'A note', {})
+        self.s.update(b['id'], {'file_under': ini['id']})
+        note = self.s.convert(b['id'], 'note', {'related_to': other['id']})  # what the conversion names wins
+        self.assertEqual(note['fields']['related_to'], other['id'])
+
 
 class ProjectMoveTest(ShortIdsBase):
     """With short ids a ticket can change project, or be in none: its file moves to that project's folder (or to its

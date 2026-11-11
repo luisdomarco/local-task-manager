@@ -3,6 +3,7 @@
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
 import { mdEditor } from './mdeditor.js';
+import { isTouch } from './phone.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
 import { foldHead, h, icon, renderMarkdown } from './ui.js';
@@ -81,7 +82,9 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
   let editing = false;
   let expanded = false; // long text shown in full ("See less") instead of clipped ("See more")
   let outside = null; // while editing: a press anywhere outside the block finishes, as Done does
-  const stopOutside = () => { if (outside) document.removeEventListener('pointerdown', outside, true); outside = null; };
+  // On a touch screen a tap, not a press: a finger that scrolls the card presses outside the block too.
+  const OUTSIDE = isTouch() ? 'click' : 'pointerdown';
+  const stopOutside = () => { if (outside) document.removeEventListener(OUTSIDE, outside, true); outside = null; };
   let cfg = { label: 'Description', emptyText: 'Add a more detailed description…', placeholder: '', title: '' };
   const el = h('div', { class: `body-wrap ${cls}` }); // kept across re-renders so the textarea never loses focus
   // Full screen: the block covers the card (on a page, the window) until Close or Esc. Only a class on `el`,
@@ -142,6 +145,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
     },
     render() {
       const text = draft ?? saved;
+      const touch = isTouch(); // a tap on the text scrolls or follows a link: an Edit button opens the editor
       stopOutside();
       // `at` ({ offset, y }): opened by a click on the text — the caret goes where it was, and that line stays under
       // the pointer. Without it (an empty block) the editor opens at the top.
@@ -191,6 +195,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           },
         })] : title)),
         h('span', { class: 'muted unsaved small' }, blk.hasUnsaved() ? '● unsaved' : ''),
+        touch && !editing && text.trim() ? h('button', { class: 'btn small body-edit', onclick: () => startEdit() }, icon('pencil', 14), 'Edit') : null,
         text.trim() ? h('button', {
           class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,
           onmousedown: (e) => e.preventDefault(), // while editing: no blur, no save
@@ -234,9 +239,10 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           stopOutside();
           done();
         };
-        document.addEventListener('pointerdown', outside, true);
-        el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content, h('div', { class: 'body-actions' },
-          h('span', { class: 'muted small' }, 'Markdown · saves as you type · a click outside, ⌘↵ or Esc leaves the editor')));
+        document.addEventListener(OUTSIDE, outside, true);
+        el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content, h('div', { class: 'body-actions' }, touch
+          ? h('button', { class: 'btn primary body-done', onmousedown: (e) => e.preventDefault(), onclick: () => done() }, 'Done')
+          : h('span', { class: 'muted small' }, 'Markdown · saves as you type · a click outside, ⌘↵ or Esc leaves the editor')));
         return;
       } else if (!text.trim()) {
         content = h('button', { class: 'body-empty', onclick: () => startEdit() }, cfg.emptyText);
@@ -258,12 +264,14 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       if (editing || !text.trim()) { el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content); return; }
 
       // A long description is clipped with a "See more" toggle; measured before the next paint.
-      const wrap = h('div', { class: 'md-wrap', title: 'Click to edit' }, content);
+      const wrap = h('div', { class: 'md-wrap', title: touch ? null : 'Click to edit' }, content);
       // One click anywhere in the box opens the editor, unless it was a link, a checklist box, or the end of a text selection.
-      wrap.addEventListener('click', (e) => {
-        if (e.target.closest('input, a') || window.getSelection().toString()) return;
-        startEdit(clickInSource(content, text, e));
-      });
+      if (!touch) {
+        wrap.addEventListener('click', (e) => {
+          if (e.target.closest('input, a') || window.getSelection().toString()) return;
+          startEdit(clickInSource(content, text, e));
+        });
+      }
       const more = h('button', { class: 'btn small ghost see-more', hidden: true, onclick: () => {
         expanded = !expanded;
         wrap.classList.toggle('clamped', !expanded);

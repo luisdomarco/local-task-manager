@@ -15,7 +15,8 @@ import { dayLabel, isoWeek, monthLabel, shiftMonth, shiftWeek, thisMonth, thisWe
 import { openItem } from '../panel.js';
 import { MONTH_HORIZONS, PLANNABLE, byManualOrder, carriedOverDay, isDone, isLate, monthBuckets, planHorizon } from '../rules.js';
 import { noMonth, placeInPlan, planWeek, state, updateMany } from '../state.js';
-import { byPriority, cssKey, dropZone, h } from '../ui.js';
+import { byPriority, cssKey, dropZone, h, openDialog } from '../ui.js';
+import { isPhone } from '../phone.js';
 import { opener } from '../links.js';
 import { boardOf } from '../boardview.js';
 import { viewBar } from '../viewbar.js';
@@ -94,6 +95,26 @@ export function mount(root) {
     return el;
   }
 
+  /** A phone's day is too narrow for its subjects (dots only, app.css): a tap opens its agenda, each entry named. */
+  function daySheet(cell, d) {
+    cell.classList.add('tappable');
+    cell.setAttribute('role', 'button');
+    cell.tabIndex = 0;
+    cell.setAttribute('aria-label', `${dayLabel(d.day)}: ${d.entries.length} ${d.entries.length === 1 ? 'entry' : 'entries'}`);
+    cell.addEventListener('click', () => {
+      const { close } = openDialog({
+        title: dayLabel(d.day), ico: 'calendar', cls: 'mcal-sheet',
+        body: [h('div', { class: 'mcal-sheet-list' }, d.entries.map((entry) => {
+          const el = pill(entry);
+          el.removeAttribute('draggable');
+          // The sheet goes first: the item's card opens where the sheet was.
+          el.addEventListener('click', (e) => { e.stopImmediatePropagation(); close(); openItem(entry.item, e); }, { capture: true });
+          return el;
+        }))],
+      });
+    });
+  }
+
   function paintCalendar(keep) {
     const month = monthNow();
     const items = state.items.filter(keep);
@@ -101,7 +122,7 @@ export function mount(root) {
     const late = items.filter((i) => PLANNABLE.has(i.type) && isLate(i)).sort(byManualOrder(byPriority));
     const t = today();
     const line = (cls, lead, list, action = null) => h('div', { class: `plan-carry ${cls}` }, ...lead,
-      ...list.flatMap((i, n) => [n ? h('span', { class: 'muted' }, '·') : null,
+      ...list.flatMap((i, n) => [n ? h('span', { class: 'muted sep' }, '·') : null,
         h('button', { type: 'button', class: 'item-link', title: i.title, ...opener(i, openItem) }, i.title)].filter(Boolean)),
       action);
     const out = [];
@@ -128,6 +149,7 @@ export function mount(root) {
         const cell = h('div', { class: `mcal-day ${d.out ? 'out' : ''} ${d.past ? 'past' : ''} ${d.today ? 'today' : ''}`, role: 'gridcell', 'aria-label': dayLabel(d.day) },
           h('span', { class: 'mcal-num' }, String(Number(d.day.slice(8)))));
         fill(cell, d.entries, d.day);
+        if (isPhone() && d.entries.length) daySheet(cell, d);
         const planned = d.entries.filter((e) => e.kind === 'plan').map((e) => e.item);
         dropZone(cell, (key) => {
           const it = find(key);

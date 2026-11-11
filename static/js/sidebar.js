@@ -12,6 +12,7 @@ import { has } from './features.js';
 import { pref, setPref } from './prefs.js';
 import { cssWidth, wireResizer } from './resizer.js';
 import { h, icon } from './ui.js';
+import { isPhone } from './phone.js';
 
 const root = document.documentElement;
 const width = cssWidth({ cssVar: '--sidebar-w', key: 'sidebar.w', def: 248, min: 180, max: 420,
@@ -87,7 +88,10 @@ function setDrawer(open) {
   root.classList.toggle('side-drawer-open', open);
   document.getElementById('main')?.toggleAttribute('inert', open);
   document.getElementById('side-expand')?.setAttribute('aria-expanded', String(open));
-  if (open) document.querySelector('#sidebar a:not([hidden]), #sidebar button')?.focus({ preventScroll: true });
+  // Focus inside it, for the keyboard. A phone: the drawer itself, not its first button, which would draw a ring on it.
+  const side = document.getElementById('sidebar');
+  if (open && isPhone()) { side.tabIndex = -1; side.focus({ preventScroll: true }); }
+  else if (open) document.querySelector('#sidebar a:not([hidden]), #sidebar button')?.focus({ preventScroll: true });
   else if (document.getElementById('sidebar').contains(document.activeElement)) document.getElementById('side-expand')?.focus();
 }
 
@@ -131,6 +135,11 @@ export function initSidebar() {
   document.getElementById('side-collapse').addEventListener('click', () => toggleSidebar(true));
   document.getElementById('side-backdrop').addEventListener('click', () => setDrawer(false));
   addEventListener('hashchange', () => setDrawer(false)); // a link followed, a file opened: the page is what you wanted
+  // A phone: the link to the page already shown changes no hash, and closes the drawer too.
+  document.getElementById('sidebar').addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[href^="#"]');
+    if (a && isPhone() && drawerOpen() && a.getAttribute('href') === location.hash) setDrawer(false);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && drawerOpen() && !e.defaultPrevented) { e.preventDefault(); setDrawer(false); }
   });

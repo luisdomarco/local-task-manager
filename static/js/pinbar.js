@@ -3,7 +3,8 @@
 // view on the bar to pin it; × (or Delete on a focused chip) unpins. Items that no longer exist are
 // skipped, not shown as broken chips. Right, fixed: the Claude terminal (a prompt with no item).
 // On a phone (app.css, ≤ 640px) a list's page moves its head up here: ☰, its title, search and its Add as "+" — the
-// pins give way.
+// pins give way. A phone you touch (phone.js) shows the title on every page, and its pins and minimized cards behind one
+// button, Pinned (n), that lists them (phone.css).
 import { openClaudeDialog } from './claude.js';
 import { pageHref } from './datatable.js';
 import { openPalette } from './palette.js';
@@ -11,7 +12,8 @@ import { opener } from './links.js';
 import { discardMinimized, minimizedList, openItem, restoreItem } from './panel.js';
 import { toggleSidebar } from './sidebar.js';
 import { pin, state, unpin } from './state.js';
-import { h, icon, removeButton, typeIcon } from './ui.js';
+import { dropdown, h, icon, removeButton, typeIcon } from './ui.js';
+import { isPhone } from './phone.js';
 import { refOf } from './shownid.js';
 
 const PIN_MIME = 'application/x-tm-pin';
@@ -68,7 +70,13 @@ function wire(el) {
     class: 'btn icon', id: 'pinbar-add', title: 'Add', 'aria-label': 'Add',
     onclick: () => document.querySelector('#view > .view-head .btn.primary')?.click(),
   }, icon('plus', 18));
-  el.replaceChildren(expand, title, chips, mins,
+  // A phone's way to its pins and minimized cards (the chips' row is hidden there): built only on a phone, so a
+  // computer's bar is the one it always had.
+  const pins = isPhone() ? h('button', {
+    class: 'btn icon', id: 'pinbar-pins', hidden: true, title: 'Pinned and minimized cards', 'aria-label': 'Pinned', 'aria-haspopup': 'menu',
+    onclick: () => dropdown(pins, pinMenu(), { align: 'end' }),
+  }, icon('pin', 18), h('span', { class: 'pins-count' })) : null;
+  el.replaceChildren(...[expand, title, chips, mins, pins].filter(Boolean), // replaceChildren would write a null as "null"
     h('button', {
       class: 'btn icon', id: 'pinbar-search', title: 'Search — items by id, title or text, views, files (⌘K)',
       'aria-label': 'Search', onclick: () => openPalette(),
@@ -117,6 +125,18 @@ export function setBarTitle(text) {
   if (btn) btn.title = add?.textContent.trim() || 'Add';
 }
 
+/** The Pinned button's menu: the pins, then the minimized cards (a phone: phone.css hides their chips). */
+function pinMenu() {
+  const out = [];
+  const items = state.pins.map((id) => state.byId.get(id)).filter(Boolean);
+  if (items.length) out.push({ heading: 'Pinned' }, ...items.map((it) => ({ icon: 'pin', label: `${refOf(it)} · ${it.title}`, onSelect: () => openItem(it) })));
+  const mins = minimizedCards();
+  if (mins.length) out.push({ heading: 'Minimized' }, ...mins.map(([m, it]) => ({ icon: 'minimize', label: `${refOf(it)} · ${it.title}`, onSelect: () => restoreItem(m.key) })));
+  return out;
+}
+/** Minimized cards whose item still exists: [entry, item]. */
+const minimizedCards = () => minimizedList().map((m) => [m, state.all.find((i) => i.key === m.key) || state.byId.get(m.key)]).filter(([, it]) => it);
+
 export function renderPinbar() {
   const el = bar();
   if (!el) return;
@@ -132,7 +152,14 @@ export function renderPinbar() {
     ...(items.length ? items.map((it, i) => chip(it, i, items.length))
       : [h('span', { class: 'pin-empty muted small' }, 'Drop a card here to pin it')]));
   // Minimized cards: a click brings one back as it was; × forgets it. Items that no longer exist are skipped.
-  const mins = minimizedList().map((m) => [m, state.all.find((i) => i.key === m.key) || state.byId.get(m.key)]).filter(([, it]) => it);
+  const mins = minimizedCards();
+  const pins = document.getElementById('pinbar-pins');
+  if (pins) {
+    const n = items.length + mins.length;
+    pins.hidden = !n;
+    pins.querySelector('.pins-count').textContent = n ? String(n) : '';
+    pins.setAttribute('aria-label', `Pinned, ${n}`);
+  }
   bar().querySelector('.min-chips').replaceChildren(...mins.map(([m, it]) => h('div', { class: `min-chip t-${it.type}` },
     h('button', { class: 'pin-open', title: `Restore ${refOf(it)} · ${it.title}`.trim(), ...opener(it, () => restoreItem(m.key)) },
       icon('minimize', 13), typeIcon(it.type, 13), h('span', { class: 'pin-title' }, it.title)),

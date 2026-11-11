@@ -22,13 +22,14 @@ import { viewBar } from '../viewbar.js';
 import { filterFields, matches } from '../viewmodel.js';
 import { vaultCtx } from './list.js';
 import { meetingsOn, moveNow, planCard, planRow, planSection, planViewOf, sectionAction } from '../planrows.js';
+import { PHONE_TOUCH } from '../phone.js';
 
 // The layout picked before the view bar (tm-today-mode); never picked, List on a phone and Board elsewhere.
 const oldMode = () => {
   let saved = null;
   try { saved = localStorage.getItem('tm-today-mode'); } catch { /* storage unavailable */ }
   if (saved === 'list' || saved === 'board') return saved;
-  return typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches ? 'list' : 'board';
+  return typeof matchMedia === 'function' && matchMedia(`(max-width: 640px), ${PHONE_TOUCH}`).matches ? 'list' : 'board';
 };
 const CLOSED = [['none', 'None'], ['all', 'All']];
 

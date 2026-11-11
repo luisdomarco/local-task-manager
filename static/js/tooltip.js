@@ -120,7 +120,7 @@ function later(target, delay) {
 
 export function initTooltips() {
   document.addEventListener('pointerover', (e) => {
-    if (!modern() || e.pointerType === 'touch') return;
+    if (!modern() || e.pointerType !== 'mouse') return; // a finger or a pen: no hover to show a tip on
     if (anchor?.contains(e.target)) return;
     const was = !!anchor;
     hide();

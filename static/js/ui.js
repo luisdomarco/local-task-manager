@@ -10,6 +10,7 @@ import { opener } from './links.js';
 import { allLabels, state, setCompleted } from './state.js';
 import { refOf, shownId } from './shownid.js';
 import { CARD_OFF, planText } from './viewmodel.js';
+import { isPhone, isTouch, viewportHeight } from './phone.js';
 
 // Links come from files anyone may have written: only these schemes become an href.
 // In-app routes (#/initiative/INI-0001) are safe too: they are what the sidebar and breadcrumbs link to.
@@ -517,7 +518,7 @@ export function select(options, value, onChange, attrs = {}) {
     const searchable = search ?? choices.length > 10;
     const list = h('div', { class: 'menu-list', role: 'listbox', 'aria-label': rest['aria-label'] || null });
     const input = searchable
-      ? h('input', { type: 'search', class: 'small', placeholder: 'Search…', 'aria-label': 'Search options', autocomplete: 'off' }) : null;
+      ? touchSearch(h('input', { type: 'search', class: 'small', placeholder: 'Search…', 'aria-label': 'Search options', autocomplete: 'off' })) : null;
     const choose = (v) => {
       closeMenu();
       btn.focus();
@@ -563,7 +564,9 @@ export function select(options, value, onChange, attrs = {}) {
     render();
     dropdown(btn, [input ? h('div', { class: 'menu-search' }, input) : null, list].filter(Boolean),
       { width: Math.max(menuWidth?.(btn) || btn.offsetWidth, 180), focus: false });
-    (input || list.querySelector('.current') || rows()[0])?.focus();
+    // The search when there is one, but not where its keyboard would pop up unasked (a touch screen, a phone):
+    // there the picked row (a tap on the search brings the keyboard).
+    ((input && !keyboardShy() ? input : null) || list.querySelector('.current') || rows()[0])?.focus();
     list.querySelector('.current')?.scrollIntoView({ block: 'nearest' });
   };
   btn.addEventListener('click', open);
@@ -855,6 +858,7 @@ const PHONE_POP = typeof matchMedia === 'function' ? matchMedia('(max-width: 760
 
 function onFloatingDown(e) {
   const t = e.target;
+  if (t.classList?.contains('float-backdrop')) return; // a phone's backdrop: its click closes what it covers (floating)
   const { menu, panel } = layers;
   if (menu && !menu.el.contains(t) && !menu.anchor.contains(t)) closeFloating('menu');
   if (panel && !panel.el.contains(t) && !panel.anchor.contains(t) && !t.closest?.('.menu')) closeFloating('panel');
@@ -875,6 +879,8 @@ export function closeFloating(layer = 'menu') {
   if (!f) return;
   layers[layer] = null;
   f.el.remove();
+  f.backdrop?.remove();
+  f.unwatch?.();
   f.anchor.setAttribute('aria-expanded', 'false');
   if (!layers.menu && !layers.panel) {
     document.removeEventListener('mousedown', onFloatingDown, true);
@@ -883,11 +889,14 @@ export function closeFloating(layer = 'menu') {
   f.onClose?.();
 }
 export const closeMenu = () => closeFloating('menu');
-/** Focus the first `selector` in something that just opened over the page; on a phone not when it is a text field,
- *  whose keyboard would cover the popup at once (a tap on the field brings it up). */
+/** Where a text field focused unasked would bring up a keyboard over what just opened: a narrow window (the phone
+ *  layout) or any touch screen. A tap on the field brings it up. */
+export const keyboardShy = () => PHONE_POP.matches || isTouch();
+/** Focus the first `selector` in something that just opened over the page; on a phone or a touch screen not when it is
+ *  a text field, whose keyboard would cover the popup at once (keyboardShy). */
 export function focusFirst(el, selector) {
   const target = el.querySelector(selector);
-  if (target && !(PHONE_POP.matches && target.matches('input:not([type=checkbox], [type=radio]), textarea'))) target.focus();
+  if (target && !(keyboardShy() && target.matches('input:not([type=checkbox], [type=radio]), textarea'))) target.focus();
 }
 /** Is what `layer` holds the one `anchor` opened? Its button pressed again closes it (`if (floatingFrom(b)) …`). */
 export const floatingFrom = (anchor, layer = 'menu') => layers[layer]?.anchor === anchor;
@@ -902,15 +911,24 @@ export const floatingFrom = (anchor, layer = 'menu') => layers[layer]?.anchor ==
 export function floating(anchor, el, { layer = 'menu', align = 'start', side = 'auto', grow = 0, onEsc = null, onClose = null } = {}) {
   closeFloating('menu');
   if (layer === 'panel') closeFloating('panel');
+  // A phone (phone.js): the page under it is dimmed by a real element, not app.css's shadow, so a tap on the dim only
+  // closes it — the click it makes lands on the backdrop, never on the row under it. Taps go to it, not the page.
+  const backdrop = isPhone() ? h('div', { class: 'float-backdrop', 'aria-hidden': 'true' }) : null;
+  if (backdrop) {
+    backdrop.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); closeFloating(layer); });
+    document.body.append(backdrop);
+  }
   document.body.append(sideSized(el, anchor));
   const place = () => {
     // A phone: in the middle of the screen over the dimmed page (app.css .menu.centered), not under a button a thumb
     // covers; one whose rows change with a search keeps its top still, high enough to stay clear of the keyboard.
+    // The height is the visual viewport's: what the keyboard leaves (phone.js).
     el.classList.toggle('centered', PHONE_POP.matches);
     if (PHONE_POP.matches) {
+      const high = backdrop ? viewportHeight() : innerHeight;
       el.style.left = `${Math.max(8, (innerWidth - el.offsetWidth) / 2)}px`;
       el.style.bottom = '';
-      el.style.top = `${Math.round(grow ? innerHeight * 0.12 : Math.max(8, (innerHeight - el.offsetHeight) / 2))}px`;
+      el.style.top = `${Math.round(grow ? high * 0.12 : Math.max(8, (high - el.offsetHeight) / 2))}px`;
       return;
     }
     const r = anchor.getBoundingClientRect();
@@ -935,7 +953,11 @@ export function floating(anchor, el, { layer = 'menu', align = 'start', side = '
     document.addEventListener('mousedown', onFloatingDown, true);
     document.addEventListener('keydown', onFloatingKey, true);
   }
-  layers[layer] = { layer, el, anchor, onEsc, onClose };
+  // On a phone the keyboard coming or going moves the middle of what is left: placed again.
+  const vv = backdrop ? window.visualViewport : null;
+  vv?.addEventListener('resize', place);
+  const unwatch = vv ? () => vv.removeEventListener('resize', place) : null;
+  layers[layer] = { layer, el, anchor, onEsc, onClose, backdrop, unwatch };
   anchor.setAttribute('aria-expanded', 'true');
   return { el, place };
 }
@@ -1084,7 +1106,17 @@ export function foldHead({ open, title, onToggle, ico = null, count = null, smal
  */
 export function searchBox(input) {
   input.classList.add('vb-search');
+  touchSearch(input);
   return h('label', { class: 'vb-search-box' }, icon('search', 14), input);
+}
+
+/** A search field on a touch screen (phone.js): its key says Search, and nothing is corrected or capitalised (an id, a
+ *  name). A computer's field is left as it is. Returns `input`. */
+export function touchSearch(input) {
+  if (!isTouch()) return input;
+  Object.assign(input, { enterKeyHint: 'search', autocapitalize: 'off', spellcheck: false });
+  input.setAttribute('autocorrect', 'off');
+  return input;
 }
 
 /**

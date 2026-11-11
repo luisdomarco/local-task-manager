@@ -291,7 +291,7 @@ input[type=number] { padding-right: 6px; }
 :where(:root[data-skin="classic"]) .btn.ghost { background: transparent; border-color: transparent; box-shadow: none; }
 :where(:root[data-skin="classic"]) .btn.ghost:hover { background: var(--accent); }
 :where(:root[data-skin="classic"]) .btn.small { padding: 0 10px; font-size: var(--fs-xs); }
-:where(:root[data-skin="classic"]) .btn.icon { width: 30px; height: 30px; padding: 0; border-color: transparent; background: transparent; box-shadow: none; vertical-align: -2px; }
+:where(:root[data-skin="classic"]) .btn.icon { width: var(--icon-btn, 30px); height: var(--icon-btn, 30px); padding: 0; border-color: transparent; background: transparent; box-shadow: none; vertical-align: -2px; }
 :where(:root[data-skin="classic"]) .btn.icon:hover { background: var(--accent); }
 :where(:root[data-skin="classic"]) .btn.active { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
 :where(:root[data-skin="classic"]) .btn.danger:hover { background: color-mix(in srgb, var(--destructive) 10%, transparent); }
@@ -814,7 +814,7 @@ body.card-drag .pin-empty { display: inline; }
   display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; background: var(--card);
   border-radius: var(--radius); box-shadow: var(--shadow-card); cursor: pointer; transition: box-shadow .15s, background .15s;
 }
-.card:hover { box-shadow: var(--shadow-card), 0 0 0 1px var(--input); }
+@media (hover: hover) { .card:hover { box-shadow: var(--shadow-card), 0 0 0 1px var(--input); } } /* a finger's tap leaves no hover behind (phone.css) */
 .card:focus-visible { outline-offset: 1px; }
 .card.done .card-title { text-decoration: line-through; color: var(--muted-foreground); }
 .card.dragging { opacity: .4; }
@@ -830,7 +830,7 @@ body.card-drag .pin-empty { display: inline; }
 /* A list of cards read as rows (the Inbox): no box, a line between them, their controls frameless until the row is hovered. */
 .cards.rows { gap: 0; border-top: 1px solid var(--border); }
 .cards.rows .card { flex-wrap: wrap; row-gap: 6px; box-shadow: none; border-radius: 0; border-bottom: 1px solid var(--border); padding: 10px 8px; align-items: center; background: transparent; }
-.cards.rows .card:hover { box-shadow: none; background: color-mix(in srgb, var(--muted) 70%, transparent); }
+@media (hover: hover) { .cards.rows .card:hover { box-shadow: none; background: color-mix(in srgb, var(--muted) 70%, transparent); } } /* a finger's tap leaves no hover behind (phone.css) */
 .cards.rows .card-body { flex: 1 1 220px; }
 .cards.rows .card-extra .select-btn { width: auto; min-width: 0; max-width: 220px; }
 @media (hover: hover) { .cards.rows .card:not(:hover):not(:focus-within) .card-extra .select-btn:not([aria-expanded="true"]) { border-color: transparent; background-color: transparent; box-shadow: none; background-image: none; color: var(--muted-foreground); } }
@@ -1028,7 +1028,7 @@ button.chip.kind:hover { background: var(--accent); }
 .card-parent:hover { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
 .card-parent .icon { flex: none; }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   /* the card's head on a phone: one row — Pin and Minimize are in its ⋯ (panel.js) */
   #item-modal .im-head { flex-wrap: nowrap; }
   #item-modal .im-head > .btn.pin, #item-modal .im-head > .btn.minimize { display: none; }
@@ -1101,7 +1101,7 @@ table.grid { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .grid td > span:has(> .plan-control) { display: block; }
 .grid th.sorted { color: var(--foreground); }
 .grid tbody tr { cursor: pointer; transition: background .1s; }
-.grid tbody tr:hover { background: color-mix(in srgb, var(--muted) 70%, transparent); }
+@media (hover: hover) { .grid tbody tr:hover { background: color-mix(in srgb, var(--muted) 70%, transparent); } } /* a finger's tap leaves no hover behind (phone.css) */
 .grid tbody tr:focus-visible { outline-offset: -2px; background: color-mix(in srgb, var(--muted) 70%, transparent); }
 .grid tr.done .title-cell { text-decoration: line-through; color: var(--muted-foreground); }
 .grid td.c-title, .grid td.c-subject { white-space: normal; min-width: 260px; font-weight: 500; }
@@ -1228,7 +1228,7 @@ html.side-collapsed { --content-left: 0px; }
 .im-side.tabbed { --fs-side: var(--fs-2xs); font-size: var(--fs-side); }
 :where(:root[data-skin="classic"]) .im-side.tabbed * { font-size: var(--fs-side) !important; }
 /* What opens from it (a select's list, a menu, the calendar, a picker), drawn on the body: the same one size */
-:where(:root[data-skin="classic"]) :is(.menu-side, .menu-side *) { font-size: var(--fs-2xs) !important; }
+:where(:root[data-skin="classic"]) :is(.menu-side, .menu-side *) { font-size: var(--fs-menu-side, var(--fs-2xs)) !important; } /* a phone raises it (phone.css) */
 .tabs-bar { display: flex; gap: 2px; padding: 8px 14px 0; border-bottom: 1px solid var(--border); flex: none; }
 /* A tab (tabPanels(), a section's tabs): its type, colour and spacing are Basecoat's `line` tabs (tools/basecoat_css.py,
    family `tabs`); here what both themes share: its height on the bar, the 2px line under the picked one (on the bar's
@@ -1839,7 +1839,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
   .ap-layout { grid-template-columns: minmax(0, 1fr); }
   .ap-preview { position: static; order: -1; max-width: 460px; }
 }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   .ap-layout .prop-rows .field { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-top: 8px; }
   .ap-layout .prop-rows .field > .ap-control { padding-top: 0; }
   .ap-preview { grid-template-columns: 84px minmax(0, 1fr); }
@@ -1858,12 +1858,12 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .status-row input[type=color]::-moz-color-swatch { border: 0; border-radius: 50%; }
 .status-row:not(:hover):not(:focus-within) .btn.icon { opacity: 0; }
 @media (hover: none) { .status-row .btn.icon { opacity: 1 !important; } }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   .status-settings .status-row { flex-wrap: wrap; row-gap: 2px; padding: 4px 6px; }
   .status-settings .status-row input[type=text] { width: auto; flex: 1 1 120px; min-width: 0; }
   .status-settings .status-row .spacer { display: none; }
 }
-@media (max-width: 640px) { .settings .prop-rows .field { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 0; } }
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) { .settings .prop-rows .field { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 0; } }
 /* Settings' fields in a soft grey frame, always on, so a form reads as one: a shade darker on hover, the halo while in
    use. A row's ✎ ×, download and reveal show on hover (always on a touch screen). */
 .settings :is(input[type=text], input[type=number], input:not([type]), textarea, .select-btn):not(:focus-visible):not([aria-expanded="true"]) { border-color: var(--border); box-shadow: none; }
@@ -1954,8 +1954,8 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
   .fields, .im-props .fields, .page .props .fields, .field-row, .field-row.cols-3 { grid-template-columns: 1fr; }
   .toolbar input[type=search] { width: 100%; }
 }
-/* A phone: fields keep the size of the text around them (index.html's viewport stops iOS zooming into one under 16px),
-   a date or a time reads from the left as every other value, and an item's own lists leave each row's id out for its
+/* A narrow window: a date or a time reads from the left as every other value (a touch screen's fields are 16px, so iOS
+   does not zoom into one: phone.css), and an item's own lists leave each row's id out for its
    title (the table's id column: panel.js PHONE_LAYOUT). */
 @media (max-width: 760px) {
   input[type=date], input[type=time], input[type=datetime-local] { text-align: left; }
@@ -3001,7 +3001,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vboard .board-col.folded { flex: 0 0 40px; padding: 0; min-height: 180px; }
 .fold-strip { display: flex; align-items: center; gap: 10px; width: 40px; padding: 12px 0; border: 0; border-radius: 10px; background: none; color: var(--foreground);
   font: inherit; font-size: var(--fs-sm); font-weight: 600; writing-mode: vertical-rl; cursor: pointer; white-space: nowrap; flex: 1; }
-.fold-strip:hover { background: var(--accent); }
+@media (hover: hover) { .fold-strip:hover { background: var(--accent); } } /* a finger's tap leaves no hover behind (phone.css) */
 .fold-strip .strip-name { display: inline-flex; align-items: center; gap: 7px; }
 /* height: auto, as long as its name: written top to bottom, a chip's height is its length (Basecoat's badge is 20px). */
 .fold-strip .strip-name .chip { writing-mode: vertical-rl; font-size: var(--fs-sm); padding: 0; height: auto; }
@@ -3040,12 +3040,12 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .view-title .select-btn.board-type { height: 30px; padding: 0 8px; border-color: transparent; box-shadow: none; background: none; color: var(--muted-foreground); font-size: var(--fs-base); }
 .view-title .select-btn.board-type:hover, .view-title .select-btn.board-type[aria-expanded="true"] { background: var(--accent); color: var(--foreground); }
 
-/* ── a phone (≤ 640px, stage 7 of the list views, design.md §3) ────────────────────────────────────────────────────
+/* ── a phone (≤ 640px, or ≤ 760px you touch: phone.js; stage 7 of the list views, design.md §3) ────────────────────────────────────────────────────
    The top bar carries a list's head: ☰, its title, search and "+" (its Add) — the pins give way, and the page's own
    head row goes (a Board's keeps its type picker). The view bar is a row of chips that slides sideways, as are the
    filters applied; what is tapped is 44px tall in the top bar, 40 in the rows of chips. */
 #pinbar-title, #pinbar-add { display: none; }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   #pinbar { gap: 4px; padding: 0 8px; min-height: 52px; }
   #pinbar .btn.icon { width: 44px; height: 44px; }
   #pinbar .btn.icon svg { width: 22px; height: 22px; } /* a thumb's target: ☰, search, + a little larger */
@@ -3117,7 +3117,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .plan-rows.drop-over { min-height: 42px; }
 .plan-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) minmax(0, min(200px, 22%)) 266px 28px; align-items: center; column-gap: 12px;
   min-height: 42px; padding: 0 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); cursor: pointer; }
-.plan-row:hover { background: color-mix(in srgb, var(--muted) 55%, transparent); }
+@media (hover: hover) { .plan-row:hover { background: color-mix(in srgb, var(--muted) 55%, transparent); } } /* a finger's tap leaves no hover behind (phone.css) */
 .plan-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .plan-row.dragging { opacity: .4; }
 .plan-row.drop-before { box-shadow: 0 -2px 0 var(--foreground); }
@@ -3171,7 +3171,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .inbox-block > .cards.rows { margin-top: 0; }
 .inbox-block > .empty { margin-top: 12px; }
 .plan-line-empty { padding: 10px 8px; color: var(--muted-foreground); font-size: var(--fs-sm); border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   .plan-row { grid-template-columns: 18px minmax(0, 1fr) auto 28px; column-gap: 10px; padding: 0 4px; }
   .plan-row .plan-where { display: none; }
   .plan-row .plan-meta { max-width: 120px; }
@@ -3215,7 +3215,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .mcal-day.drop-over, .mcal-wk.drop-over { background: color-mix(in srgb, var(--foreground) 5%, transparent); }
 .mcal-pill { display: flex; align-items: center; gap: 6px; min-width: 0; height: 22px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--muted);
   color: var(--foreground); font: inherit; font-size: var(--fs-2xs); text-align: left; cursor: pointer; }
-.mcal-pill:hover { background: var(--accent); box-shadow: inset 0 0 0 1px var(--input); }
+@media (hover: hover) { .mcal-pill:hover { background: var(--accent); box-shadow: inset 0 0 0 1px var(--input); } } /* a finger's tap leaves no hover behind (phone.css) */
 .mcal-pill > span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mcal-pill .status-dot { width: 8px; height: 8px; }
 .mcal-pill.done { background: transparent; color: var(--muted-foreground); }
@@ -3226,7 +3226,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .mcal-more { padding-left: 6px; border: 0; background: none; color: var(--muted-foreground); font: inherit; font-size: var(--fs-2xs); text-align: left; cursor: pointer; }
 .mcal-more:hover { color: var(--foreground); text-decoration: underline; }
 /* A phone: the week shrinks to its number, a day to its number over dots — one per entry, tapped to open it */
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   .mcal { grid-template-columns: 34px repeat(7, minmax(0, 1fr)); }
   .mcal-dh { justify-content: center; padding: 0; font-size: var(--fs-2xs); }
   .mcal-wk, .mcal-day { min-height: 64px; padding: 4px 2px; align-items: center; }

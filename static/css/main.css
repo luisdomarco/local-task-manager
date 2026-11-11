@@ -5,8 +5,11 @@
    - app:    app.css, Classic's tokens included; after it the vault's status colours (ui.js statusCss) and the
              stylesheets of Excalidraw and xterm, added when they load (layeredcss.js says why they are here)
    - themes: a theme other than Classic (css/themes/<id>.css, loaded only when it is the one chosen: index.html, theme.js)
+   - phone:  phone.css, a phone over whichever theme: its sizes and its touch rules, only inside its two media queries
+             (a narrow touch screen; any touch screen), so a computer never sees one of them (docs/design.md §2)
    Inside a layer the usual rules hold. `!important` reverses the order between layers: one in vendor beats the app's. */
-@layer vendor, app, themes;
+@layer vendor, app, themes, phone;
 @import url("../vendor/fonts/inter.css") layer(vendor);
 @import url("../vendor/basecoat/basecoat-nova.app.css") layer(vendor);
 @import url("app.css") layer(app);
+@import url("phone.css") layer(phone);

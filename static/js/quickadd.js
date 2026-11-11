@@ -10,8 +10,9 @@
 import { addDays, isoWeek, monthLabel, nextDow, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './rules.js';
 import { createItem, state, toast } from './state.js';
-import { h, icon, labelChip, openDialog, priorityChip } from './ui.js';
+import { h, icon, keyboardShy, labelChip, openDialog, priorityChip } from './ui.js';
 import { withMic } from './dictation.js';
+import { isPhone, isTouch } from './phone.js';
 import { refOf } from './shownid.js';
 
 // '/task' → 'task': each type of the vault's structure brings its own tokens (none for a type that has none).
@@ -83,16 +84,18 @@ function preview(p) {
  *  only the description dictates. */
 export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true } = {}) {
   const prev = h('div', { class: 'chips qa-preview' });
+  const phone = isPhone();
+  const hint = placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note';
   const input = h('input', {
     class: 'qa-input', type: 'text', autocomplete: 'off',
-    placeholder: placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note',
+    // A phone's box is narrow: what to type, not the tokens after it (they still work); its keyboard says Done.
+    placeholder: phone ? hint.split('  ')[0] : hint, enterkeyhint: phone ? 'done' : null,
   });
   const refresh = () => {
     prev.replaceChildren(...(input.value.trim() ? preview(parseQuick(input.value, defaults)) : []));
   };
   input.addEventListener('input', refresh);
-  input.addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter') return;
+  const submit = async () => {
     const p = parseQuick(input.value, defaults);
     if (!p.title) return;
     if (p.errors.length) return toast(p.errors[0], true);
@@ -102,9 +105,15 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     input.value = '';
     refresh();
     onCreated && onCreated(item);
-  });
-  if (autofocus) setTimeout(() => input.focus(), 0);
-  return h('div', { class: 'quick-add' }, mic ? withMic(input) : input, prev);
+  };
+  // Not while a word is still being composed (an accent, a suggestion, Japanese): that Enter only ends it.
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) submit(); });
+  // Not on a phone or a touch screen: its keyboard would cover the page as it opens, and the first tap elsewhere would
+  // only put it away. A tap on the field brings it up.
+  if (autofocus && !keyboardShy()) setTimeout(() => input.focus(), 0);
+  // A phone's keyboard may not show Enter as "add": a button that does (phone.css). Its mic is the keyboard's own.
+  const add = phone ? h('button', { type: 'button', class: 'btn qa-add', onclick: submit }, 'Add') : null;
+  return h('div', { class: `quick-add ${add ? 'has-add' : ''}`.trim() }, mic && !isTouch() ? withMic(input) : input, add, prev);
 }
 
 /** Quick capture: lands as an inbox item unless a /task, /note… token says otherwise. */

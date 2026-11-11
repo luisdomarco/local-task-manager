@@ -318,6 +318,11 @@ PARENTS = {
     'transcription': ('meeting',),
     'goal': (),
 }
+# What an inbox item will be filed under once converted (its card's "Related to"): any item a converted one can hang
+# from. Kept as `file_under`, not `related_to`: that key is the parent everywhere else, and an inbox item has none.
+# Convert to carries it over as the new item's `related_to` when the new type can hang from it (store.convert).
+FILE_UNDER_TYPES = sorted({t for name in ('task', 'note', 'meeting') for t in PARENTS[name]})
+PROPS['inbox'] = (P(key='file_under', label='Related to', kind='link', types=FILE_UNDER_TYPES, tab='main', becomes='related_to'),)
 
 # The columns follow the folder-per-type structure's order (id · subject · status · priority · planned · due · … · labels · parent), with
 # the project right before the parent column: which project, then which ticket in it. Where a type may hang from an

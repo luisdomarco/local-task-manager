@@ -187,7 +187,9 @@ class LayoutTest(unittest.TestCase):
         for name, t in types.items():
             for p in t.get('props', []):
                 self.assertIn(p['tab'], ('main', 'delivery', 'relations', 'details', 'settings', 'hidden'), f'{name}.{p["key"]}')
-                if p['kind'] in ('link', 'links'):  # hidden: shown elsewhere (a PRD and a plan in their tabs, depends on as Blocked by)
+                if (name, p['key']) == ('inbox', 'file_under'):  # not a relation yet: what it will hang from, a property
+                    self.assertEqual((p['tab'], p['becomes']), ('main', 'related_to'))
+                elif p['kind'] in ('link', 'links'):  # hidden: shown elsewhere (a PRD and a plan in their tabs, depends on as Blocked by)
                     self.assertIn(p['tab'], ('relations', 'hidden'), f'{name}.{p["key"]}')
         tab = {p['key']: p['tab'] for p in types['initiative']['props']}
         self.assertEqual([k for k, v in tab.items() if v == 'hidden'], ['prd', 'plan', 'depends_on', 'goal_order'])

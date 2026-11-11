@@ -23,6 +23,7 @@ import { viewBar } from '../viewbar.js';
 import { addList, boardOf, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
 import { idMatches, idTip, refOf, shownId } from '../shownid.js';
+import { PHONE_TOUCH, isPhone } from '../phone.js';
 
 // How a type's open and closed items are called (the subtitle: "3 open · 2 closed").
 const SCOPE_NAMES = {
@@ -90,7 +91,8 @@ const CORE_WIDTH = 340; // the box, ID, Status and Priority, which never give wa
 const subjectLeast = (width) => Math.max(120, Math.min(SUBJECT_WIDTH, width - CORE_WIDTH));
 /** The ID column's width in this vault: wide when any of its ids is long. */
 const idWidth = () => (state.all.some((i) => shownId(i, { full: true }).length > 8) ? 116 : LIST_WIDTHS.id);
-const PHONE = '(max-width: 640px)'; // a phone's rows are cards (app.css): no column is left out for width
+// A phone's rows are cards (app.css): no column is left out for width. A narrow window, or a phone you touch up to 760px.
+const PHONE = `(max-width: 640px), ${PHONE_TOUCH}`;
 
 /** What the view's fields need from the vault (viewmodel.js filterFields). */
 export const vaultCtx = () => ({
@@ -202,6 +204,11 @@ export function listView(type, { page = null } = {}) {
         if (narrow(lastCols).join() !== narrowed) api.update();
       });
       resized.observe(tableBox);
+      // Turning a phone (or a window crossing 640px) changes what a row draws (its Planned as text): draw it again.
+      const phoneQ = matchMedia(PHONE);
+      const onPhone = () => { if (!tableBox.isConnected) { phoneQ.removeEventListener('change', onPhone); return; } api.update(); };
+      phoneQ.addEventListener('change', onPhone);
+      let shown = []; // the rows drawn last: what "Select all" ticks on a phone
       // Esc lets go of the ticked rows, unless a menu or a card is open (theirs first).
       const onEsc = (e) => {
         if (!bulkBar.isConnected) { document.removeEventListener('keydown', onEsc); return; }
@@ -316,8 +323,17 @@ export function listView(type, { page = null } = {}) {
           ? state.items.filter((i) => i.type === 'project' && i.fields.project_key).map((p) => [p.fields.project_key, p.title]) : [];
         // Each a button of its name alone (no width of its longest option), the choices in its menu.
         const pick = ([[, name], ...options], onPick, aria) => select(options, null, (v) => v && onPick(v), { class: 'small', 'aria-label': aria, search: options.length > 10, face: [null, name] });
+        const close = h('button', { type: 'button', class: 'btn icon small bulk-close', title: 'Let go of the selected rows (Esc)', 'aria-label': 'Clear the selection',
+          onclick: () => { picked.clear(); api.update(); } }, icon('x', 14));
+        // A phone has no header row to tick them all from: × first (where a thumb starts), then Select all · N.
+        const phone = isPhone();
+        const all = phone && picked.size < shown.length
+          ? h('button', { type: 'button', class: 'btn small bulk-all', onclick: () => { shown.forEach((i) => picked.add(i.key)); api.update(); } }, `Select all · ${shown.length}`)
+          : null;
         bulkBar.replaceChildren(...[ // filtered: replaceChildren writes a null as the text "null"
+          phone ? close : null,
           h('span', { class: 'bulk-count' }, `${picked.size} selected`),
+          all,
           statuses.length ? pick([[null, 'Status'], ...statuses.map((st) => [st, statusLabel(st)])], (v) => runBulk('status', v, (n) => `Set ${statusLabel(v)} on ${n}`), 'Set the status of the selected rows') : null,
           allHave('priority') ? pick([[null, 'Priority'], ...PRIORITIES.map((p) => [p, p])], (v) => runBulk('priority', v, (n) => `Set ${v} on ${n}`), 'Set the priority of the selected rows') : null,
           (many ? pickedTypes.length && pickedTypes.every((t) => PLANNABLE.has(t)) : plannable) ? pick([[null, 'Plan'], ['today', 'Today'], ['week', 'This week'], ['nextweek', 'Next week'], ['month', 'This month'], ['none', 'Not planned']],
@@ -326,8 +342,7 @@ export function listView(type, { page = null } = {}) {
           projects.length ? pick([[null, 'Project'], ...projects, [NO_PROJECT, 'No project']], (v) => runBulk('project', v === NO_PROJECT ? null : v,
             (n) => (v === NO_PROJECT ? `Took ${n} out of their project` : `Moved ${n} to ${projectName(v)}`)), 'Move the selected rows to a project') : null,
           h('button', { type: 'button', class: 'btn icon small bulk-trash', title: 'Move to trash', 'aria-label': 'Move the selected rows to the trash', onclick: () => runBulk('trash') }, icon('trash', 14)),
-          h('button', { type: 'button', class: 'btn icon small bulk-close', title: 'Let go of the selected rows (Esc)', 'aria-label': 'Clear the selection',
-            onclick: () => { picked.clear(); api.update(); } }, icon('x', 14)),
+          phone ? null : close,
         ].filter(Boolean));
       };
 
@@ -526,14 +541,19 @@ export function listView(type, { page = null } = {}) {
           // Ticked rows that a filter or a change took out of the list are no longer ticked.
           const keys = new Set(rows.map((i) => i.key));
           for (const k of [...picked]) if (!keys.has(k)) picked.delete(k);
+          shown = rows;
           paintBulk();
           const tick = (keysToSet, on) => { keysToSet.forEach((k) => (on ? picked.add(k) : picked.delete(k))); api.update(); };
           const allBox = h('input', { type: 'checkbox', 'aria-label': 'Select every row', checked: rows.length > 0 && picked.size === rows.length,
             onclick: (e) => e.stopPropagation(), onchange: (e) => tick(rows.map((i) => i.key), e.target.checked) });
           allBox.indeterminate = picked.size > 0 && picked.size < rows.length;
           const pickCol = { key: 'pick', label: allBox, get: (i) => (picked.has(i.key) ? 0 : 1),
-            cell: (i) => h('input', { type: 'checkbox', class: 'row-pick', checked: picked.has(i.key), 'aria-label': `Select ${refOf(i) || i.title}`,
-              onclick: (e) => e.stopPropagation(), onchange: (e) => tick([i.key], e.target.checked) }) };
+            cell: (i) => {
+              const box = h('input', { type: 'checkbox', class: 'row-pick', checked: picked.has(i.key), 'aria-label': `Select ${refOf(i) || i.title}`,
+                onclick: (e) => e.stopPropagation(), onchange: (e) => tick([i.key], e.target.checked) });
+              // A finger's target around the box (phone.css); a tap on it ticks, it never opens the row.
+              return isPhone() ? h('label', { class: 'pick-hit', onclick: (e) => e.stopPropagation() }, box) : box;
+            } };
           const wanted = cfg.columns.filter((c) => c.key !== said && columnOn(view.props, c.key));
           // Nothing else says a row's project (no Project column, not grouped by it): its whole id (ACME-INI-001).
           const full = !wanted.some((c) => c.key === 'project') && view.groupBy !== 'project';

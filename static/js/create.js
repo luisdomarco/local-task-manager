@@ -16,6 +16,7 @@ import { openQuickModal } from './quickadd.js';
 import { createItem, state, toast } from './state.js';
 import { dropdown, formActions, h, icon, openDialog, propRow, sectionLabel, select, stackGroup } from './ui.js';
 import { refOf } from './shownid.js';
+import { isPhone } from './phone.js';
 
 // From the vault's structure (rules.js), in its order. Live bindings: they change with it.
 export let TYPE_LABEL = {};
@@ -175,7 +176,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       if (project && !projectHas(project, t)) form.project = null;
       render();
       modal.querySelector('#cf-subject').focus();
-    }, { class: 'type-pick', 'aria-label': 'Type', 'data-fk': 'cf-type', search: true });
+    }, { class: 'type-pick', 'aria-label': 'Type', 'data-fk': 'cf-type', search: !isPhone() }); // a phone: a short list, no keyboard
     const subject = input('subject', { type: 'text', class: 'title-input', placeholder: `${label} subject`, autocomplete: 'off', 'aria-required': 'true', 'aria-label': 'Subject' });
     subject.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
     // Project and a type's own fields of Relations sit in the right column, as on the item's card; a project's

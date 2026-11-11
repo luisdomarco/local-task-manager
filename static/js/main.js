@@ -20,6 +20,7 @@ import { GO } from './shortcuts.js';
 import { initMentions } from './mentions.js';
 import { initTheme } from './theme.js';
 import { initTooltips } from './tooltip.js';
+import { trackViewport } from './phone.js';
 import * as board from './views/board.js';
 import * as files from './views/files.js';
 import * as find from './views/find.js';
@@ -475,6 +476,7 @@ window.addEventListener('beforeunload', (e) => {
 window.addEventListener('focus', () => reload());
 
 initTheme();
+trackViewport(); // --vvh: the height the keyboard leaves, for what floats over a phone's page (phone.js)
 initTooltips(); // Modern draws the titles' tooltips; Classic leaves them to the browser
 // ?basecoat=1 loads the whole of Basecoat over every screen (main.css loads only the families the app has adopted,
 // tools/basecoat_css.py): what the next family would change, before its PR (plans/design-system-spike.md).

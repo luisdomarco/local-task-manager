@@ -1090,6 +1090,24 @@ class Store:
         if os.path.lexists(self.abs(top)) and not (was and _same_file(self.abs(was), self.abs(top))):
             raise StoreError(409, f'already exists: {top}')
 
+    def _filed_under(self, key, new_type, values):
+        """An inbox item's own "Related to" (`file_under`) becomes the converted item's parent (`related_to`) when the
+        new type can hang from it. A value given with the conversion wins; one the new type cannot take is dropped."""
+        values = dict(values or {})
+        inbox = self.structure.types.get('inbox')
+        if values.get('related_to') or not inbox or 'file_under' not in inbox.fields:
+            return values
+        under = self.find(key)['fields'].get('file_under')
+        if not under:
+            return values
+        try:
+            target = self.find(under)
+        except StoreError:
+            return values  # it was deleted since: the item converts unrelated
+        if target['type'] in self.structure.types[new_type].parents:
+            values['related_to'] = target['id']
+        return values
+
     def _convert_coded(self, key, new_type, values):
         """An inbox item becomes a ticket: a new file from the type's template (title, body, links and labels
         carried over, `converted_from` keeping the inbox id), then the inbox file goes."""
@@ -1449,6 +1467,7 @@ class Store:
             raise StoreError(400, self._type_off(new_type))
         if new_type not in self.structure.types or new_type == 'inbox' or (self.structure.codec and not self.structure.types[new_type].convertible):
             raise StoreError(400, f'cannot convert to: {new_type}')
+        values = self._filed_under(key, new_type, values)
         values = self._valid(new_type, values)  # what the new type may carry, not the inbox's
         if self.structure.codec:
             return self._convert_coded(key, new_type, values)

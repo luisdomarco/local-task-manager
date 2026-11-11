@@ -10,6 +10,7 @@ import { api } from '../api.js';
 import { today } from '../dates.js';
 import { fileTree, loadFiles, onFiles } from '../explorer.js';
 import { docText, docsGroupOf, docsGroups, docsHref, findNode, pathOfParam } from '../filetree.js';
+import { isPhone } from '../phone.js';
 import { pref, setPref } from '../prefs.js';
 import { cssWidth, wireResizer } from '../resizer.js';
 import { onChange } from '../state.js';
@@ -86,9 +87,17 @@ export function mount(root, param) {
   const grip = h('div', { class: 'docs-resizer', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Resize the Docs panel', title: 'Drag to resize · double-click to reset' });
   width.apply();
   wireResizer(grip, { ...width, cls: 'docs-resizing' });
-  root.replaceChildren(h('div', { class: 'docs-page' },
-    h('aside', { class: 'docs-panel', 'aria-label': 'Docs' }, h('h2', { class: 'docs-panel-title' }, icon('book', 16), 'Docs'), panel),
-    grip, main));
+  // On a phone, with a doc open, the trees fold away under one button, so the doc starts at the top of the screen
+  const folds = isPhone() && !!shown;
+  const page = h('div', { class: folds ? 'docs-page tree-folded' : 'docs-page' });
+  const fold = folds ? h('button', { class: 'btn docs-fold', type: 'button', 'aria-expanded': 'false', onclick(e) {
+    const open = !page.classList.toggle('tree-folded');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  } }, icon('foldertree', 16), 'Browse docs', icon('down', 14)) : null;
+  page.replaceChildren(
+    h('aside', { class: 'docs-panel', 'aria-label': 'Docs' }, h('h2', { class: 'docs-panel-title' }, icon('book', 16), 'Docs', fold), panel),
+    grip, main);
+  root.replaceChildren(page);
   const file = shown ? mountFiles(main, param, { href: docsHref }) : null;
   if (!file) {
     main.replaceChildren(h('div', { class: 'docs-empty' }, emptyState('Pick a doc on the left, or start a doc or a folder with “+” on a section.')));

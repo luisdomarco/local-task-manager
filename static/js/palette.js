@@ -14,6 +14,7 @@ import { docChoices, docsGroups, docsHref, filesHref } from './filetree.js';
 import { state } from './state.js';
 import { emptyLine, h, icon, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
+import { isTouch } from './phone.js';
 
 // The views every vault has (main.js FIXED_VIEWS); each type's list joins them from the vault's structure (views()).
 const DAYS = [['today', 'Today', 'sun'], ['week', 'Week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'Month', 'calendardays'], ['board', 'Board', 'kanban'], ['table', 'List', 'table'], ['graph', 'Graph', 'graph']];
@@ -134,7 +135,11 @@ export function openPalette() {
   body = { q: '', hits: [] };
   api.docsRoots().then((r) => { docGroups = docsGroups(r.containers); if (el) el.querySelector('.palette-input')?.dispatchEvent(new Event('input')); }, () => {});
   if (!fileTree()) loadFiles(); // its files, for the Files group, even when the Explorer was never opened
-  const input = h('input', { type: 'text', class: 'palette-input', placeholder: 'Search items by id, title or text — go to a view, create…', 'aria-label': 'Search', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list' });
+  // A touch screen: the keyboard's key says Go and nothing is corrected or capitalised (an id, a file name); Cancel
+  // stands for Esc, which its keyboard has not.
+  const touch = isTouch();
+  const input = h('input', { type: touch ? 'search' : 'text', class: 'palette-input', placeholder: touch ? 'Search or go to…' : 'Search items by id, title or text — go to a view, create…', 'aria-label': 'Search', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': 'palette-list',
+    ...(touch ? { enterkeyhint: 'go', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' } : {}) });
   const list = h('div', { class: 'palette-list', id: 'palette-list', role: 'listbox' });
   let active = 0;
   let current = [];
@@ -146,7 +151,7 @@ export function openPalette() {
       if (!groups.length || groups[groups.length - 1].name !== r.group) groups.push({ name: r.group, rows: [] });
       groups[groups.length - 1].rows.push(h('div', {
         class: `palette-row ${i === active ? 'active' : ''}`, role: 'option', 'aria-selected': String(i === active), id: `palette-opt-${i}`,
-        onmousedown: (e) => e.preventDefault(), onclick: () => pick(i), onmousemove: () => { if (active !== i) { active = i; render(); } },
+        onmousedown: (e) => e.preventDefault(), onclick: () => pick(i), onpointermove: (e) => hover(e, i),
       }, r.type ? typeIcon(r.type, 15) : icon(r.icon || 'arrow', 15),
       h('span', { class: 'palette-label' }, r.label), r.meta ? h('span', { class: 'muted small' }, r.meta) : null, r.kbd ? h('kbd', {}, r.kbd) : null));
     });
@@ -154,6 +159,18 @@ export function openPalette() {
       : [emptyLine('Nothing matches.', { cls: 'palette-empty' })]));
     input.setAttribute('aria-activedescendant', current.length ? `palette-opt-${active}` : '');
     list.querySelector('.palette-row.active')?.scrollIntoView({ block: 'nearest' });
+  };
+  // A mouse moving over a row picks it: its classes only, not the list drawn again — and never a finger, whose tap
+  // makes a move too: iOS keeps back the click of a tap that changed the page, so the row would need a second tap.
+  const hover = (e, i) => {
+    if (e.pointerType !== 'mouse' || active === i) return;
+    active = i;
+    list.querySelectorAll('.palette-row').forEach((row) => {
+      const on = row.id === `palette-opt-${i}`;
+      row.classList.toggle('active', on);
+      row.setAttribute('aria-selected', String(on));
+    });
+    input.setAttribute('aria-activedescendant', `palette-opt-${i}`);
   };
   const pick = (i) => {
     const r = current[i];
@@ -175,7 +192,8 @@ export function openPalette() {
   });
   el = h('div', { class: 'palette-backdrop', onmousedown: (e) => { if (e.target === el) closePalette(); } },
     h('div', { class: 'palette', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Command palette' },
-      h('div', { class: 'palette-head' }, icon('search', 16), input, h('kbd', {}, 'esc')), list));
+      h('div', { class: 'palette-head' }, icon('search', 16), input,
+        touch ? h('button', { type: 'button', class: 'btn ghost palette-cancel', onclick: () => closePalette() }, 'Cancel') : h('kbd', { class: 'kbd-hint' }, 'esc')), list));
   document.body.append(el);
   render();
   input.focus();

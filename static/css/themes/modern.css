@@ -7,7 +7,7 @@
    (types, priorities, the graph, labels, code highlighting) and checks every pair's contrast in a test. */
 /* The layers' order, as css/main.css has it: this file can reach the page first (index.html writes it in before main.css),
    and the first sheet to name the layers fixes their order. */
-@layer vendor, app, themes;
+@layer vendor, app, themes, phone;
 @import url("../../vendor/radix-colors/gray.css") layer(vendor);
 @import url("../../vendor/radix-colors/gray-dark.css") layer(vendor);
 @import url("../../vendor/radix-colors/indigo.css") layer(vendor);
