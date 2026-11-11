@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { DICTATION_TITLE, dictation, spaced, speechCtor, splitResults, tail } from '../../static/js/dictation.js';
+import { DICTATION_TITLE, dictation, dictationLang, spaced, speechCtor, splitResults, tail } from '../../static/js/dictation.js';
 
 // A SpeechRecognitionResultList as the browser hands it: results of alternatives, each final or not.
 const result = (transcript, isFinal) => Object.assign([{ transcript }], { isFinal });
 
 describe('dictation', () => {
+  it("listens in the iPhone app's keyboard language, else the browser's, else English", () => {
+    const nav = { language: 'en-GB' };
+    assert.equal(dictationLang({ tmNative: { keyboardLang: 'es-ES' }, navigator: nav }), 'es-ES');
+    assert.equal(dictationLang({ navigator: nav }), 'en-GB'); // a browser: no app around it
+    assert.equal(dictationLang({ tmNative: {}, navigator: nav }), 'en-GB'); // no keyboard seen yet
+    assert.equal(dictationLang({ tmNative: { keyboardLang: 'es-ES"; x' }, navigator: nav }), 'en-GB'); // not a language
+    assert.equal(dictationLang({}), 'en-US');
+  });
+
   it('finds the speech recogniser, prefixed or not, and none in a browser without it', () => {
     function Std() {}
     function Webkit() {}

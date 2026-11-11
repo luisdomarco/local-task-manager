@@ -7,6 +7,7 @@
 // disk meanwhile asks which text wins). An item's file can be edited too, as Obsidian would; its card stays the
 // place for its fields.
 import { fileUrl, api } from '../api.js';
+import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
 import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind } from '../filetree.js';
@@ -78,16 +79,18 @@ function crumbs(path, href = filesHref) {
 function reveal(path) {
   const root = state.vault?.root;
   const editor = state.config.editor_app || 'Cursor';
-  return [root ? h('button', { class: 'btn small', title: 'Show it in Finder',
+  return [root && has('reveal') ? h('button', { class: 'btn small', title: 'Show it in Finder',
     onclick: () => api.openPath(path ? `${root}/${path}` : root).catch((e) => toast(e.message, true)) }, icon('folder', 13), 'Show in Finder') : null,
-  h('button', { class: 'btn small', title: `Open it in ${editor} (Settings → General)`,
-    onclick: () => api.openInEditor(path).catch((e) => toast(e.message, true)) }, icon('code', 13), `Open in ${editor}`)];
+  has('open_in') ? h('button', { class: 'btn small', title: `Open it in ${editor} (Settings → General)`,
+    onclick: () => api.openInEditor(path).catch((e) => toast(e.message, true)) }, icon('code', 13), `Open in ${editor}`) : null];
 }
 
 /** A file the page cannot show (a spreadsheet, a slide deck, an archive…): opened in the app this Mac opens it with,
  *  named once the server has looked it up — or, when that app would run it rather than show it, why not (Show in
  *  Finder is beside it). Download is in the head, as for every file. */
 function externalView(node) {
+  // No other app to hand it to (a phone: features.js): Download, in the head, is the way to it.
+  if (!has('open_in')) return h('div', { class: 'files-external' }, icon('file', 28), h('p', {}, 'This file can’t be shown here.'));
   const button = h('button', { class: 'btn primary', disabled: true }, icon('external', 14), 'Open in its app…');
   const why = h('p', { class: 'muted small', hidden: true });
   api.opener(node.path).then((o) => {

@@ -7,11 +7,12 @@
 // route #/<type>/:ref: an initiative; in Ticketing a project and a PRD too). Each instance keeps its
 // own open item, content draft and focus.
 import { api } from './api.js';
+import { has } from './features.js';
 import { historyText } from './historytext.js';
 import { COL, DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
 import { relDay, shiftWeek, stampLabel, thisMonth, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
-import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, planKey, propField, sideFold, statusSelect } from './itemform.js';
+import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, propField, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
@@ -102,7 +103,7 @@ function editBinding(item) {
 
 /** Opens the "work on it with Claude" dialog for this item. */
 function claudeButton(item) {
-  if (!item.id || item.type === 'prompt') return null; // a prompt is what you load into the dialog, not something to work on
+  if (!item.id || item.type === 'prompt' || !has('terminal')) return null; // a prompt is what you load into the dialog, not something to work on
   return h('button', {
     class: 'btn icon', title: 'Work on it with Claude', 'aria-label': 'Work on it with Claude',
     onclick: () => openClaudeDialog(item),
@@ -284,7 +285,7 @@ function docsTab(item, rerender) {
 // item stays open (createEditor: a save draws the tabs again, and the same view goes into the new panel).
 let canvasHosts = null; // /api/canvases/index: { host: its canvases }, asked once; a listed host's count is kept in step
 function canvasTab(item, c) {
-  if (!TYPE_DEFS[item.type]?.canvas || !c.canvas) return null;
+  if (!TYPE_DEFS[item.type]?.canvas || !c.canvas || !has('canvas')) return null;
   const host = canvasHost(item);
   if (!host) return null;
   if (!canvasHosts) {
@@ -353,7 +354,7 @@ function relationsSection(item, rerender) {
   const row = (p, { depth = 0, lead = null, remove = null, menu = null } = {}) => rowItem({
     depth, lead, actions: menu || (remove ? rowAction('x', remove.title, () => remove.run()) : null),
     ...(typeof p === 'string' ? { text: p, textMono: true, tip: 'Not in this vault' }
-      : { text: p.title, ico: typeIcon(p.type, 14), meta: refOf(p), mono: true, href: itemHref(p), linkAttrs: { class: 'item-link', title: `Open ${titled(p)}`, ...opener(p, open) } }),
+      : { text: p.title, ico: typeIcon(p.type, 14), meta: refOf(p), mono: true, class: 'rel-row', href: itemHref(p), linkAttrs: { class: 'item-link', title: `Open ${titled(p)}`, ...opener(p, open) } }),
   });
   // Each group (ui.js stackGroup): its name above, then its rows and its control.
   const group = (label, rows, title = null) => stackGroup(label, rows, { title });
@@ -621,7 +622,7 @@ function links(item, rerender) {
 }
 
 function openPathBtn(path) {
-  if (!path) return null;
+  if (!path || !has('reveal')) return null; // opens the folder in the Finder
   return h('button', {
     class: 'btn icon', title: `Open ${path}`,
     onclick: (e) => { e.preventDefault(); api.openPath(path).catch((err) => toast(err.message, true)); },
@@ -652,13 +653,14 @@ function externalRef(item, ext) {
     el.addEventListener('change', () => save(item, { [key]: el.value.trim() || null }));
     return el;
   };
-  const local = propRow('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), { cls: 'span2' });
+  // Where Claude starts for it: nothing to start on a phone (features.js), so not there.
+  const local = !has('terminal') ? null : propRow('Local path', h('div', { class: 'inline' }, input('local_path', { type: 'text', placeholder: '~/work/pricing' }), openPathBtn(f.local_path)), { cls: 'span2' });
   // A project is named by its key (a Ticketing project's note has no id) and has its ticket and folder as any work does;
   // any other item without an id (a Ticketing plan) has no ticket of its own.
   const named = !!item.id || item.type === 'project';
   if (!named || !hasExternalRef(item.type)) {
     // Its folder, where it has one without a ticket: where Claude starts for it.
-    return named && hasField(item.type, 'local_path') ? [local] : [];
+    return named && local && hasField(item.type, 'local_path') ? [local] : [];
   }
   return [ // the tracker first: it says what the ticket is
     ext.tracker_key && hasField(item.type, ext.tracker_key) ? propRow('Tracker', trackerInput(input, ext)) : null,
@@ -925,6 +927,8 @@ function closeOutside(id, onClick = null) {
 const ISSUE_TABLE = { flex: { subject: null }, widths: { id: 90, subject: 260 } };
 // What a kind's list has that its table on the page leaves out: its outside ticket's id, its progress (its own page has them).
 const ISSUE_LEFT_OUT = ['extref', 'progress'];
+// A phone (the phone layout, app.css): an item's own lists leave the id out too, for the subject (its page has it).
+const PHONE_LAYOUT = typeof matchMedia === 'function' ? matchMedia('(max-width: 760px)') : { matches: false };
 const workClosed = new Set();
 
 /**
@@ -1019,7 +1023,7 @@ function workGroups(item, tables, rerender, { table = false } = {}) {
       return group([qa, g.archived ? h('p', { class: 'muted small work-archived', title: 'Archived items are hidden from lists and from progress' }, `${g.archived} archived, not listed`) : null,
         listed.length || more.length ? h('div', { class: 'issue-body' },
           listed.length ? dataTable({
-            columns: [...g.cols.filter((c) => !ISSUE_LEFT_OUT.includes(c.key)), FILL_COLUMN], ...ISSUE_TABLE,
+            columns: [...g.cols.filter((c) => !ISSUE_LEFT_OUT.includes(c.key) && !(PHONE_LAYOUT.matches && c.key === 'id')), FILL_COLUMN], ...ISSUE_TABLE,
             rows: listed, sort: g.sort, onSort: g.onSort, label: g.title, onRow: openFromItem, doneLast: true,
             paging: { key: `child.${item.type}.${g.type}`, at: `child.${item.key}.${g.type}`, size: DETAIL_PAGE },
           }) : null, ...more) : null]);
@@ -1133,7 +1137,7 @@ function sideTabs(item, rerender, current, onPick) {
   return tabPanels([
     { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
     { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) },
-    { key: 'ai', label: 'AI Agents', count: (f.claude_sessions || []).length, content: aiTab(item) },
+    has('terminal') ? { key: 'ai', label: 'AI Agents', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
     relationsTab(item, rerender),
     // The time logged on it, last.
     item.id ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
@@ -1568,6 +1572,7 @@ function ticketActions(item) {
 // The tabs in use, main and side: kept while the card re-renders, back to the first ones whenever an item is opened
 // (a minimized card or Back brings its own back: snapshot).
 let sideTab = 'properties';
+let cardPane = 'main'; // on a narrow screen, the column its card shows: Detail ('main') or Activity ('side'); a card opens on Detail
 let mainTab = null;
 
 function modalLayout(item, c) {
@@ -1603,6 +1608,7 @@ function modalLayout(item, c) {
     sideClass: 'tabbed',
     // A prompt has no links, work or comments: one column.
     side: item.type === 'prompt' ? [] : sideTabs(item, c.rerender, sideTab, (key) => { sideTab = key; }),
+    pane: { current: cardPane, onPick: (value) => { cardPane = value; } },
   });
 }
 
@@ -1682,6 +1688,7 @@ async function show(itemOrKey, { parent = null, restore = null, card = false } =
   unminimize(modalEd.key); // open again, from its chip or from anywhere: no longer minimized
   parentView = parent;
   sideTab = restore?.tab || 'properties';
+  cardPane = 'main';
   mainTab = restore?.main || null;
   if (!wasOpen) returnFocus = document.activeElement;
   backdrop().hidden = false;
@@ -1747,6 +1754,7 @@ export const renderPanel = () => modalEd.render();
 // ── an item's page (#/<type>/:ref) ───────────────────────────────────────────
 // A page's tabs, main and side: kept while it re-renders, back to the first ones when a page is opened (createPageEditor).
 let pageTab = 'properties';
+let pagePane = 'main'; // as cardPane, for a page
 let pageMainTab = null;
 const SIDE_KEY = 'tm.iniSidePanel'; // its side panel folded or not: one choice for every page (named when only initiatives had one)
 
@@ -1784,12 +1792,15 @@ function pageLayout(item, c, rerender) {
   ];
   const side = sideTabs(item, rerender, pageTab, (key) => { pageTab = key; });
   body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, sideFold(body, SIDE_KEY), ...[side].flat()));
-  return [crumbs, body];
+  // Narrow: Detail | Activity under the crumbs, one column at a time (as on its card)
+  const pane = paneSwitch(body, { current: pagePane, onPick: (value) => { pagePane = value; document.getElementById('main')?.scrollTo?.(0, 0); } }); // the page scrolls, not its body
+  return [crumbs, pane, body];
 }
 
 /** An editor that renders an item as a full page inside `container`. */
 export function createPageEditor(container, { onGone }) {
   pageTab = 'properties';
+  pagePane = 'main';
   pageMainTab = null;
   const ed = createEditor({
     host: () => container,

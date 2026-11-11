@@ -75,7 +75,7 @@ function wire(el) {
     }, icon('search', 16)),
     add,
     h('button', {
-      class: 'btn icon', id: 'pinbar-claude', title: 'Claude terminal — a prompt with no item, in the default folder',
+      class: 'btn icon', id: 'pinbar-claude', 'data-feature': 'terminal', title: 'Claude terminal — a prompt with no item, in the default folder',
       'aria-label': 'Claude terminal', onclick: () => openClaudeDialog(null),
     }, icon('terminal', 16)));
   const marker = h('span', { class: 'pin-marker', 'aria-hidden': 'true' });

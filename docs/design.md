@@ -46,7 +46,7 @@ localStorage) and set on the root by `index.html`'s first script before the firs
 | Lines | `--border` (dividers, boxes), `--input` (field outlines, ≥ 3:1) | | | A divider between rows: `1px solid var(--border)`. |
 | Accent and focus | `--primary`, `--ring`, `--focus` (2px ring on buttons and links), `--field-ring` + `--field-halo` (fields), `--brand-*` | the ink (near-black, near-white in dark) | the accent (`--brand-fill`, from `data-accent`) | Never remove a focus style without replacing it. |
 | Meaning | `--destructive`; `--st-*-bg/-fg` and `--st-dot` per status; `--pr-icon-1/2/3`, `--pr-1-bg`; `--t-<type>`; `--graph-*` | | Radix steps 3/11/9/6 | Status and priority colours come from `statusCss()` / `.s-*` / `.pr-*`, never hard-coded. |
-| Type | `--fs-3xs` · `--fs-caption` · `--fs-2xs` · `--fs-xs` · `--fs-sm` · `--fs-base` · `--fs-h4` · `--fs-lg` · `--fs-h3` · `--fs-title`; Markdown's `--fs-doc-h1/h2/h3` | 11 · 11.5 · 12 · 12.5 · 13 · **13.5** · 14 · 15 · 17 · 22; 19/16/14.5 | 12 at least, **14** the body, 16 · 16 · 18 · 24; 22/18/16 (compact: 13 the body, the rest Classic's but 12 at least) | No other font sizes, but three a glyph fits a box by (a badge's count 9.5, a week number 10, an agent's status 10.5) and 16px on a phone's field (iOS zooms under 16). Weights: 400, 500 (labels), 600 (headings). |
+| Type | `--fs-3xs` · `--fs-caption` · `--fs-2xs` · `--fs-xs` · `--fs-sm` · `--fs-base` · `--fs-h4` · `--fs-lg` · `--fs-h3` · `--fs-title`; Markdown's `--fs-doc-h1/h2/h3` | 11 · 11.5 · 12 · 12.5 · 13 · **13.5** · 14 · 15 · 17 · 22; 19/16/14.5 | 12 at least, **14** the body, 16 · 16 · 18 · 24; 22/18/16 (compact: 13 the body, the rest Classic's but 12 at least) | No other font sizes, but three a glyph fits a box by (a badge's count 9.5, a week number 10, an agent's status 10.5) none of them changed on a phone (index.html's viewport, `maximum-scale=1`, stops iOS zooming into a field under 16px). Weights: 400, 500 (labels), 600 (headings). |
 | Size | `--control-h`, `--control-h-sm`, `--row-h`, `--spacing` | 32 · 28 · 48 · not set | 36 · 30 · 40 · 4.5 (compact 28 · 24 · 32 · 3.5) | Controls ≥ `--control-h` (`-sm` for `.small` in dense rows). Modern measures in steps of `--spacing`, as Basecoat does. |
 | Panels | `--side-w`: every right panel (an item's card, a page's, an agent's) | `clamp(360px, 32vw, 500px)` | | One width for every right panel. |
 | Radii | `--radius` 8 · `--radius-sm` 6 · `--radius-xs` 4 · `--radius-full` 999 | | `data-radius` changes them | A card: `--radius` + 4px. A radius that is half a box's height stays a number. |
@@ -327,7 +327,7 @@ panel carries `data-tab="<key>"` for styling (a `count` is a string: `String(n)`
 tabs are not remembered**: a card or a page always opens on its first main tab (Overview) and its first side tab
 (Properties; Activity on a narrow screen, where Properties sits under the title); the one picked holds while it stays
 open, through every save (panel.js `mainTab`/`sideTab`, `pageMainTab`/`pageTab`, reset in `show()` and
-`createPageEditor`). A minimized card or Back brings back the tabs it had. Settings remembers its tab. Keyboard focus on a tab is a soft fill (`--accent`, as a menu item's), never the
+`createPageEditor`). A minimized card or Back brings back the tabs it had. On a narrow screen (≤860px) an item's card and page show one pane at a time, picked in a **Detail | Properties | Activity** row (itemform.js `paneSwitch`: a `seg` with `role: 'tablist'`, its thirds sharing the row; `.switched`, and `.show-props` or `.show-side`, on the body), under the card's head or sticky under a page's crumbs (`top: var(--pinbar-h)`); it opens on Detail and holds through every save (panel.js `cardPane`/`pagePane`, reset where the tabs are), and the side panel does not fold there. A new two-column screen passes `pane` to `modalFrame` rather than stacking its columns. Settings remembers its tab. Keyboard focus on a tab is a soft fill (`--accent`, as a menu item's), never the
 outside ring: a bar scrolls sideways, so a ring around a tab is cut to two bars.
 
 **A sidebar section's tabs** (`sectionHead(route, title)` in `sections.js`, `.section-tabs`): views that share one
@@ -548,7 +548,8 @@ Properties · Activity · AI Agents · Relations · Time, last.
   whole (*Statuses*).
 - A folder field (a vault's folder, Settings' *Add a folder* rows, the Agents' *Add folder*) gets **Choose…** beside it
   (`folderButton(input, {prompt, onPick})`, `folderpick.js`): macOS's folder dialog, opened by the server, writes the
-  path into the field as if typed. Not on a Mac, it is not there and the field is typed as before.
+  path into the field as if typed. In the iPhone app the app's own Files picker does it (`nativePicker()`, its
+  `pickFolder` message handler). Elsewhere it is not there and the field is typed as before.
 - Settings: form tabs at `max-width: 860px`, sections one under another divided by a line, each setting a row
   (`setRow(label, control, help)` in `views/settings.js`), the save bar sticky at the foot (`.settings-save`).
 - Settings → Themes (`views/themes.js`) applies each choice at once, so it has no save bar. A look is a **theme card**
@@ -780,7 +781,10 @@ behave:
 - **Placed** under the button, at its left (`align: 'end'`: its right); above it when there is no room under it
   (`side: 'top'`: always, a button at a dialog's foot), else moved up into view. `grow` (a picker whose rows change
   with a search): anchored by the edge nearest the button, so it grows away from it. Opened from the side panel it
-  takes the panel's text size (`sideSized`).
+  takes the panel's text size (`sideSized`). **On a phone** (≤760px, the phone layout) it opens in the middle of the screen instead, over the page dimmed
+  with `--overlay` (`.menu.centered`: up to 380px wide, a long one scrolls inside; one opened from another dims the
+  page once); with `grow`, its top stays still at 12% of the screen, clear of the keyboard. What opens focuses its first control
+  through `focusFirst(el, selector)`, which on a phone skips a text field: its keyboard would cover the popup at once.
 
 ## 4. Do / don't
 
@@ -796,6 +800,7 @@ behave:
 | Undo in a toast. | `confirm()` for something reversible. |
 | Tokens and `--fs-*` sizes. | Hex colours or pixel font sizes in a rule. |
 | `cssKey()`/`statusCss()` for a status's classes. | Hard-coded status or type names (they are structure data, `tm/structures/`). |
+| A desktop-only control marked `data-feature="<name>"`, or left out when `has('<name>')` (`features.js`) is false. | A check of `sys.platform` or the user agent in the page: the server says what the platform has (README §7 *On a phone*). |
 | `refOf(item)` for an id on screen. | `item.id` in a label: in a vault on short ids it is a bare number (`482`). |
 | One view bar on every list, board and section tab (`viewBar`). | A filter drawer, a scope segment or a select of a page's own. |
 | Let a narrow page drop columns and words (`hiddenColumns`, container queries). | Make the page scroll sideways. |

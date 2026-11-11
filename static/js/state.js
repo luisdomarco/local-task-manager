@@ -1,6 +1,7 @@
 // App state + every mutation. Each mutation hits the API, reloads, and notifies
 // listeners, so views stay dumb: they read `state` and call these functions.
 import { api } from './api.js';
+import { setFeatures } from './features.js';
 import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
 import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
 import { pickVault } from './vault.js';
@@ -69,6 +70,7 @@ export async function reload() {
     // this one names it). A vault that vanished from Settings while this page showed it: start again, clean.
     const config = await api.config();
     state.config = config;
+    document.documentElement.dataset.off = setFeatures(config); // what this platform has none of (features.js)
     if (pickVault(config)) { location.reload(); return; }
     // The vault's structure, once: a page shows one vault (switching loads the page again), and the views build
     // their types, nav and lists from it.

@@ -44,6 +44,7 @@ import * as goals from './views/goals.js';
 import * as runs from './views/runs.js';
 import * as lab from './views/lab.js';
 import { loadBasecoat } from './basecoat.js';
+import { has } from './features.js';
 import { initAgents } from './agentspane.js';
 import { refOf } from './shownid.js';
 import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews } from './savedviews.js';
@@ -57,6 +58,9 @@ const FIXED_TITLES = {
   labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
   runs: 'Agents', lab: 'Lab', // #/lab: the design-system spike, by its address only (not in the sidebar or ⌘K)
 };
+// The views only a computer has (features.js): on a phone their address goes home, as an unknown one does.
+const VIEW_FEATURE = { canvas: 'canvas', runs: 'agents', lab: 'agents' };
+const fixedViews = () => Object.fromEntries(Object.entries(FIXED_VIEWS).filter(([v]) => !VIEW_FEATURE[v] || has(VIEW_FEATURE[v])));
 let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
 // The list an item's address (#/item/ID) opens over: its type's.
@@ -72,7 +76,7 @@ const ALWAYS_COUNTED = new Set(['today']);
 
 onStructure((s) => {
   VIEWS = {
-    ...FIXED_VIEWS,
+    ...fixedViews(),
     // A type's list, at its route; Projects' goals have a view of their own (views/goals.js: each goal and what it holds).
     ...Object.fromEntries(s.types.filter((t) => t.list).map((t) => [t.route, t.name === 'goal' ? goals : listView(t.name)])),
     ...Object.fromEntries(s.types.filter((t) => t.page).map((t) => [t.name, pageView(t.name)])),
@@ -96,7 +100,7 @@ function DOCS_LINK() {
 }
 // Canvas (views/canvases.js): every canvas of the vault, right after Docs (they are files in Docs/Canvases).
 function CANVAS_LINK() {
-  return h('a', { href: '#/canvas', 'data-view': 'canvas', title: 'Canvas — every whiteboard of the vault' }, icon('canvas', 16), 'Canvas');
+  return h('a', { href: '#/canvas', 'data-view': 'canvas', 'data-feature': 'canvas', title: 'Canvas — every whiteboard of the vault' }, icon('canvas', 16), 'Canvas');
 }
 
 /** Each type's link, in its nav group's box (index.html), by its order there, with a line where its `section`
@@ -481,6 +485,6 @@ firstLoad.then(syncSidebarMode); // the vault's own mode, now that the page know
 // On a vault that does not match, the mode decides what the middle shows: its files, or the notice.
 onSidebarMode(() => { if (vaultBlocked()) route(); });
 initExplorer();
-initAgents();
+firstLoad.then(() => { if (has('agents')) initAgents(); }); // the Agents mode's pane: none where agents cannot run
 onChange(renderAll);
-reload().then(route).then(restoreTerms); // terminals the server still runs get their tabs back
+reload().then(route).then(() => { if (has('terminal')) restoreTerms(); }); // terminals the server still runs get their tabs back

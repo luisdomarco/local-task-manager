@@ -8,6 +8,7 @@ import { scheduleList } from '../agentschedules.js';
 import { agentHref } from '../agentsmodel.js';
 import { api } from '../api.js';
 import { fixedColumns } from '../datatable.js';
+import { has } from '../features.js';
 import { folderButton } from '../folderpick.js';
 import { pref, setPref } from '../prefs.js';
 import { warningGroups } from '../housekeeping.js';
@@ -21,7 +22,10 @@ import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
 import { themesPanel } from './themes.js';
 
-const TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+// The tabs only a computer has (features.js): a phone shows the others.
+const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server' };
+const tabs = () => ALL_TABS.filter(([key]) => !TAB_FEATURE[key] || has(TAB_FEATURE[key]));
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);
@@ -217,7 +221,7 @@ function vaultsEditor(c, edit) {
           'It was moved or deleted outside the app: give its new place, or remove the vault. The rest of Settings still saves.') : null,
         saved.has(v.id) && legacy.has(v.structure) ? legacyNote(labelOf(v.structure), labelOf(fresh)) : null,
         v.id === vaultId() ? vaultWarnings(state.vaultCheck?.warnings) : null,
-        v.id === vaultId() ? agentsToggle() : null,
+        v.id === vaultId() && has('agents') ? agentsToggle() : null,
         typesBox,
         folders);
     }),
@@ -232,7 +236,7 @@ function vaultsEditor(c, edit) {
 export function mount(root, param) {
   const form = h('div', { class: 'settings' });
   root.replaceChildren(pageHead({ title: 'Settings' }), form);
-  const known = (k) => TABS.some(([t]) => t === k);
+  const known = (k) => tabs().some(([t]) => t === k);
   let tab = known(param) ? param : known(pref('settings.tab')) ? pref('settings.tab') : 'general';
   const exportsTab = exportPanel();
   const appTab = appPanel();
@@ -349,7 +353,8 @@ export function mount(root, param) {
         }).catch(() => {});
       };
       const saveBar = () => h('div', { class: 'settings-save' }, h('button', { class: 'btn primary', onclick: doSave }, 'Save settings'),
-        h('span', { class: 'muted small' }, 'Saves Vaults, General, Claude and Agents together.'));
+        h('span', { class: 'muted small' }, `Saves ${tabs().filter(([key]) => ['vaults', 'general', 'claude', 'agents'].includes(key)).map(([, label]) => label)
+          .join(', ').replace(/, ([^,]*)$/, ' and $1')} together.`));
       const vaultsTab = [
         h('section', { class: 'group' },
           h('header', {}, h('h3', {}, 'Vaults')),
@@ -363,7 +368,7 @@ export function mount(root, param) {
         h('section', { class: 'group' },
           h('div', { class: 'fields prop-rows' },
             setRow('Work kinds', kinds, 'Options offered by "Log work", comma separated.'),
-            setRow('Editor app', editorSel, 'The app the Explorer\'s "Open in…" hands a file or folder to, to edit it there.'))),
+            has('open_in') && setRow('Editor app', editorSel, 'The app the Explorer\'s "Open in…" hands a file or folder to, to edit it there.'))),
         saveBar(),
       ];
       const claude = [
@@ -407,7 +412,7 @@ export function mount(root, param) {
       const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
         themes: [themesPanel().el],
         documentation: [guideTab.el] };
-      form.replaceChildren(...tabPanels(TABS.map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
+      form.replaceChildren(...tabPanels(tabs().map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
         tab = key;
         setPref('settings.tab', key);
         // The address follows the tab without a hashchange: a remount would drop what is being typed.

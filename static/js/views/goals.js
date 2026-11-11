@@ -15,6 +15,7 @@
 import { boardOf } from '../boardview.js';
 import { mountCanvasView } from '../canvas/canvasview.js';
 import { openCreateModal } from '../create.js';
+import { has } from '../features.js';
 import { projectName } from '../datatable.js';
 import { MEMBER_TYPES, byGoalOrder, byGoalRank, dropInGoal, goalProgress, moveGoal, nextGoalOrder } from '../goals.js';
 import { addListColumn, listHeader, startRename } from '../kanban.js';
@@ -130,6 +131,7 @@ const noGoalsLine = () => h('p', { class: 'muted goals-empty' }, 'No open goals.
 
 export function mount(root) {
   const { view, save } = planViewOf('goals', { layout: 'board', closed: 'none', goalsClosed: false });
+  if (view.layout === 'canvas' && !has('canvas')) view.layout = 'board'; // a phone has no canvas (features.js)
   const types = () => MEMBER_TYPES.filter(isEnabled);
   const fields = () => filterFields(types(), vaultCtx());
   const members = () => state.items.filter((i) => types().includes(i.type));
@@ -139,7 +141,7 @@ export function mount(root) {
   const vb = viewBar({
     view, save, fields, ctx: vaultCtx, items: members, closable: true, closedDefault: 'none', search: false,
     layout: { current: () => view.layout, pick: (l) => change({ layout: l }),
-      options: [['list', 'List', 'list'], ['board', 'Board', 'kanban'], ['canvas', 'Canvas', 'canvas']] },
+      options: [['list', 'List', 'list'], ['board', 'Board', 'kanban'], has('canvas') ? ['canvas', 'Canvas', 'canvas'] : null].filter(Boolean) },
     // Closed goals: left out unless asked (a goal is closed by hand, its items may still be open).
     displayRows: () => [h('div', { class: 'vb-row' }, h('span', {}, 'Closed goals'), seg([[false, 'Hide'], [true, 'Show']], !!view.goalsClosed, (v) => change({ goalsClosed: v }), { aria: 'Closed goals' }))],
     onText: () => {}, onChange: () => api.update(),

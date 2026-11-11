@@ -5,6 +5,7 @@
 // hidden files in both (files.hidden, per vault): dimmed, edited like any other; .git and .task-manager are sealed — a
 // lock, never opened, only Show in Finder and Copy path.
 import { api } from './api.js';
+import { has } from './features.js';
 import { ancestorPaths, dropOrder, fileKind, filesHref, filterTree, findNode, isHiddenPath, orderedChildren, pathOfParam } from './filetree.js';
 import { pref, setPref } from './prefs.js';
 import { findByPageRef } from './rules.js';
@@ -239,7 +240,7 @@ export function treePane(cfg) {
     const isDir = node.kind === 'dir';
     const copyPath = { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) };
     if (node.sealed) {
-      dropdown(anchor, [root ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null, copyPath].filter(Boolean), { width: 210 });
+      dropdown(anchor, [root && has('reveal') ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null, copyPath].filter(Boolean), { width: 210 });
       return;
     }
     const renameLabel = node.item?.rename === 'title' ? 'Rename (its title)' : 'Rename';
@@ -251,9 +252,9 @@ export function treePane(cfg) {
       node.item && !node.item.rename ? null : { label: renameLabel, icon: 'pencil', kbd: 'F2', onSelect: () => startRename(node) },
       { label: 'Delete', icon: 'trash', kbd: '⌘⌫', danger: true, onSelect: () => remove(node) },
       '-',
-      root ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null,
-      { label: `Open in ${state.config.editor_app || 'Cursor'}`, icon: 'code', onSelect: () => api.openInEditor(node.path).catch((e) => toast(e.message, true)) },
-      !isDir ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(node.path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
+      root && has('reveal') ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null,
+      has('open_in') ? { label: `Open in ${state.config.editor_app || 'Cursor'}`, icon: 'code', onSelect: () => api.openInEditor(node.path).catch((e) => toast(e.message, true)) } : null,
+      !isDir && has('open_in') ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(node.path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
       copyPath,
       // A Markdown file, as another note links to it (by its name, as Obsidian resolves it).
       !isDir && /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => {

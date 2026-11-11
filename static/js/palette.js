@@ -2,6 +2,7 @@
 // grouped by type, in the sidebar's order — or by what its text says; jump to a view; or create something. Arrow keys
 // move, Enter runs, Esc closes. What matches and in what order is search.js's.
 import { api } from './api.js';
+import { has } from './features.js';
 import { CREATE_TYPES, TYPE_LABEL, openCreateModal } from './create.js';
 import { openClaudeDialog } from './claude.js';
 import { openItem, openItemKey } from './panel.js';
@@ -77,7 +78,7 @@ function results(query) {
   const [, pageType, ref] = location.hash.match(/^#\/(\w+)\/([^/?]+)/) || [];
   const open = here ? state.byId.get(here) || state.all.find((i) => i.key === here)
     : TYPE_DEFS[pageType]?.page ? findByPageRef(pageType, decodeURIComponent(ref), state.all) : null;
-  if (open && open.id && (!q || /claude|terminal|work/.test(q))) {
+  if (open && open.id && has('terminal') && (!q || /claude|terminal|work/.test(q))) {
     out.push({ group: 'This item', label: `Work on ${refOf(open)} with Claude`, meta: open.title, icon: 'terminal', run: () => openClaudeDialog(open) });
   }
   // …or seen in the Graph view, centred on it.
@@ -85,7 +86,7 @@ function results(query) {
     out.push({ group: 'This item', label: `Show ${refOf(open) || open.title} in the graph`, meta: open.title, icon: 'graph', run: () => { location.hash = `#/graph/${encodeURIComponent(open.ref || open.id || open.key)}`; } });
   }
   // The top bar's terminal: a prompt with no item, in the default folder.
-  if (!q || /claude|terminal/.test(q)) {
+  if (has('terminal') && (!q || /claude|terminal/.test(q))) {
     out.push({ group: 'Claude', label: 'Claude terminal', meta: 'a prompt with no item', icon: 'terminal', run: () => openClaudeDialog(null) });
   }
   // The vault's files by name (an item's file is already among the items), and their text searched (views/find.js).

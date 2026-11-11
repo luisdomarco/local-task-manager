@@ -31,7 +31,7 @@ import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
 import { allContacts, allLabels, state } from './state.js';
-import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
+import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
 /** The kind a binding's item falls under (Ticketing): a project's own, else its project's; none for an item with no
@@ -66,13 +66,43 @@ export function sideFold(body, key) {
   return btn;
 }
 
-/** Header + two columns. Every part is a list of nodes; null entries are skipped. The right column folds (sideFold). */
-export function modalFrame({ head = [], title, main = [], side = [], sideClass = '', foot = null }) {
+/** The panes a narrow screen shows one at a time (paneSwitch): the item's content, its properties, its side panel. */
+const PANES = [['main', 'Detail'], ['props', 'Properties'], ['side', 'Activity']];
+
+/**
+ * On a narrow screen (the columns stacked), the row that picks what shows: Detail (the main column without its
+ * properties), Properties (only them) or Activity (the side column, at full height). `body` gets `switched`, and
+ * `show-props` or `show-side` while one of those is picked; app.css hides the rest. `pane` is
+ * `{ current: 'main' | 'props' | 'side', onPick }`: its caller keeps it, so a re-render stays put. Wider, the row is
+ * hidden and both columns show as always.
+ */
+export function paneSwitch(body, { current = 'main', onPick = () => {} } = {}) {
+  const row = h('div', { class: 'pane-switch' });
+  body.classList.add('switched');
+  const draw = (now) => {
+    body.classList.toggle('show-props', now === 'props');
+    body.classList.toggle('show-side', now === 'side');
+    row.replaceChildren(seg(PANES, now, (value) => {
+      onPick(value);
+      draw(value);
+      body.scrollTop = 0; // each pane from its top
+    }, { aria: 'Show', role: 'tablist', cls: 'pane-seg' }));
+  };
+  draw(PANES.some(([v]) => v === current) ? current : 'main');
+  return row;
+}
+
+/**
+ * Header + two columns. Every part is a list of nodes; null entries are skipped. The right column folds (sideFold).
+ * With `pane` (an item's card), a narrow screen shows one column at a time, picked under the header (paneSwitch).
+ */
+export function modalFrame({ head = [], title, main = [], side = [], sideClass = '', foot = null, pane = null }) {
   const solo = !side.some(Boolean); // nothing for a side column (a prompt): one column, and no button to fold it
   const body = h('div', { class: `im-body ${solo ? 'solo' : ''}` }, h('div', { class: 'im-main' }, title, ...main));
   if (!solo) body.append(h('aside', { class: `im-side ${sideClass}` }, sideFold(body, MODAL_SIDE_KEY), ...side));
   return [
     h('header', { class: 'im-head' }, ...head.filter(Boolean)),
+    pane && !solo ? paneSwitch(body, pane) : null,
     body,
     foot ? h('footer', { class: 'im-foot' }, ...foot) : null, // pinned under both columns
   ].filter(Boolean);

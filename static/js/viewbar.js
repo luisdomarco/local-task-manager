@@ -7,7 +7,7 @@
 // values — a box, a status's dot, the name and how many items hold it (a value no item holds is grey) — with is / is
 // not. Group picks what the rows (or a board's columns) group by; Display, which closed items show, the order and the
 // columns or card properties on show. The view is the page's own (viewmodel.js), saved by the page as it changes.
-import { closeFloating, cssKey, floating, floatingFrom, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, typeIcon } from './ui.js';
+import { closeFloating, cssKey, floating, floatingFrom, focusFirst, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, typeIcon } from './ui.js';
 import { cardShows, columnOn, fresh, filterParts, filterText, groupLabel, matches, valueCounts } from './viewmodel.js';
 
 const CLOSED_MODES = [['none', 'None'], ['week', 'Last week'], ['all', 'All']];
@@ -26,7 +26,7 @@ export function popover(anchor, render, { width = 260, align = 'start' } = {}) {
   me.render = () => { render(el); place(); };
   open = me;
   open.render();
-  el.querySelector('input, button')?.focus();
+  focusFirst(el, 'input, button');
   return open;
 }
 const repaint = () => open?.render();

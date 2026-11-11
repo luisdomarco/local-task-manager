@@ -8,6 +8,7 @@
 // mode is each vault's own, Explorer until one is picked: it needs nothing of the structure, so a vault just added
 // shows what its folder holds; index.html applies it before first paint too, from the vault the address names.
 // (Docs is a view with its own tree, views/docs.js, reached from its link in Project.)
+import { has } from './features.js';
 import { pref, setPref } from './prefs.js';
 import { cssWidth, wireResizer } from './resizer.js';
 import { h, icon } from './ui.js';
@@ -19,7 +20,9 @@ export const sidebarCollapsed = () => root.classList.contains('side-collapsed');
 
 const MODES = [['project', 'project', 'Project', 'The views of the vault'], ['explorer', 'foldertree', 'Explorer', 'The vault\'s folders and files'],
   ['agents', 'zap', 'Agents', 'Run the Claude Code commands of your agent folders']];
-const MODE_NAMES = MODES.map(([m]) => m);
+// Agents only where agents can run (features.js): a phone has Project and Explorer.
+const modes = () => MODES.filter(([m]) => m !== 'agents' || has('agents'));
+const modeNames = () => modes().map(([m]) => m);
 export const sidebarMode = () => (root.classList.contains('side-mode-explorer') ? 'explorer'
   : root.classList.contains('side-mode-agents') ? 'agents' : 'project');
 const modeListeners = [];
@@ -36,15 +39,17 @@ function showMode(next) {
 /** Shows the sidebar in `mode` ('project' | 'explorer' | 'agents'; the next one round when left out), and remembers it
  *  for this vault. */
 export function setSidebarMode(mode) {
-  const next = MODE_NAMES.includes(mode) ? mode : MODE_NAMES[(MODE_NAMES.indexOf(sidebarMode()) + 1) % MODE_NAMES.length];
+  const names = modeNames();
+  const next = names.includes(mode) ? mode : names[(names.indexOf(sidebarMode()) + 1) % names.length];
   setPref('sidebar.mode', next);
   showMode(next);
 }
 
 /** Once the page knows its vault: the mode that vault was left in (Explorer when none), if it is not the one shown. */
 export function syncSidebarMode() {
-  const saved = ['project', 'agents'].includes(pref('sidebar.mode')) ? pref('sidebar.mode') : 'explorer';
+  const saved = ['project', 'agents'].includes(pref('sidebar.mode')) && modeNames().includes(pref('sidebar.mode')) ? pref('sidebar.mode') : 'explorer';
   if (saved !== sidebarMode()) showMode(saved);
+  else renderModes(); // the modes this platform has are known now too
 }
 
 // A mode's badge: a count in a tone (Agents: the runs that wait for you or ended unread, agentactivity.js).
@@ -61,7 +66,7 @@ function renderModes() {
   const box = document.getElementById('side-mode');
   if (!box) return;
   const mode = sidebarMode();
-  box.replaceChildren(...MODES.map(([m, ico, label, hint]) => {
+  box.replaceChildren(...modes().map(([m, ico, label, hint]) => {
     const b = badges[m];
     const what = b ? ` · ${b.count} ${b.tone === 'warning' ? 'need you' : 'new'}` : '';
     return h('button', {

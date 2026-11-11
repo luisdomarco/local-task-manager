@@ -553,6 +553,12 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .side-mode-explorer #sidebar #nav, .side-mode-explorer #sidebar .side-section, .side-mode-explorer #sidebar .side-tools,
 .side-mode-agents #sidebar #nav, .side-mode-agents #sidebar .side-section, .side-mode-agents #sidebar .side-tools,
 .side-mode-agents #sidebar #btn-quick { display: none; } /* Add item makes vault items: nothing to do with agents */
+/* What this platform has none of (features.js: <html data-off="canvas terminal …">, a phone's): a control marked
+   data-feature="<name>" is not there. Drawn before the config loads, it goes once it has. */
+:root[data-off~="agents"] [data-feature~="agents"], :root[data-off~="terminal"] [data-feature~="terminal"],
+:root[data-off~="canvas"] [data-feature~="canvas"], :root[data-off~="open_in"] [data-feature~="open_in"],
+:root[data-off~="reveal"] [data-feature~="reveal"], :root[data-off~="export"] [data-feature~="export"],
+:root[data-off~="server"] [data-feature~="server"] { display: none !important; }
 /* Docs (views/docs.js): its panel on the left of the view, the doc on the right, and between them a grip that resizes
    the panel (resizer.js; its width in --docs-w), drawn as the sidebar's. A head per section — its title folds it, "+"
    starts a doc or a folder; dimmed while its Docs folder is not there. */
@@ -829,6 +835,11 @@ body.card-drag .pin-empty { display: inline; }
 .cards.rows .card-extra .select-btn { width: auto; min-width: 0; max-width: 220px; }
 @media (hover: hover) { .cards.rows .card:not(:hover):not(:focus-within) .card-extra .select-btn:not([aria-expanded="true"]) { border-color: transparent; background-color: transparent; box-shadow: none; background-image: none; color: var(--muted-foreground); } }
 @media (max-width: 640px) { .cards.rows .card-extra { flex: 1 1 100%; justify-content: flex-start; padding-left: 26px; } }
+/* A phone: its controls share one row in equal halves (the Inbox's Related to… and Convert to) */
+@media (max-width: 760px) {
+  .cards.rows .card-extra { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+  .cards.rows .card-extra > :is(.select-btn, select) { width: 100%; max-width: none; }
+}
 
 /* checkbox — shadcn style, square, 18px hit area 32px */
 .check {
@@ -1202,7 +1213,7 @@ html.side-collapsed { --content-left: 0px; }
 /* the bar's line goes on under the button (the bar is 42px tall on a card, 40px on a page) */
 .im-side.tabbed::before { content: ''; position: absolute; right: 0; width: var(--side-strip); top: 0; height: 42px; box-sizing: border-box; border-bottom: 1px solid var(--border); pointer-events: none; }
 .page-side.im-side.tabbed::before { height: 40px; }
-.im-body.collapsed > .im-side.tabbed::before, .page-body.collapsed > .page-side::before { display: none; }
+.im-body.collapsed > .im-side.tabbed::before, .page-body.collapsed > .page-side::before, .pane-switch { display: none; } /* (the Detail | Activity row only on a narrow screen) */
 .im-side:not(.tabbed) { padding-top: 44px; }
 .im-main { padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 20px; min-width: 0; min-height: 0; overflow-y: auto; }
 .im-side { padding: 20px 20px 24px; background: var(--well); border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 20px; min-width: 0; }
@@ -1891,10 +1902,37 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
   .page-main { overflow: visible; padding-right: 0; } /* the page scrolls, not the column: no bar to keep clear of */
   .page-side.im-side { margin-top: 16px; height: 70vh; }
   /* folded, one above the other: the side column is a thin row with its button */
-  .im-body.collapsed > .im-side, .page-body.collapsed > .page-side.im-side { height: 40px; min-height: 40px; }
+  .im-body.collapsed:not(.switched) > .im-side, .page-body.collapsed:not(.switched) > .page-side.im-side { height: 40px; min-height: 40px; }
   #view:has(> .page.two-panel) { padding: 20px 16px 40px; }
   .tab-panel, .tab-panel.fill { overflow: visible; }
   .im-side .panel-section.activity { flex: none; }
+  /* An item's card and page: one column at a time, picked in the Detail | Activity row under the header (itemform.js
+     paneSwitch). Its two halves share the row; on a page the row stays at the top while the page scrolls. */
+  .pane-switch { display: flex; flex: none; padding: 8px 16px; background: var(--popover); border-bottom: 1px solid var(--border); }
+  .pane-switch > .seg { flex: 1; }
+  .pane-switch > .seg > .btn { flex: 1; justify-content: center; }
+  .page > .pane-switch { position: sticky; top: var(--pinbar-h, 46px); z-index: 3; margin: 0 -16px 16px; background: var(--background); }
+  .switched:not(.show-side) > .im-side, .switched.show-side > :is(.im-main, .page-main) { display: none; }
+  /* Detail: the content without its properties; Properties: only them, with no title of their own (the tab says it) */
+  .switched:not(.show-props) > :is(.im-main, .page-main) > .prop-inline,
+  .switched.show-props > :is(.im-main, .page-main) > :not(.prop-inline) { display: none; }
+  .switched.show-props .prop-inline > h4 { display: none !important; } /* over the label's :is(…#modal…) rule, an id's weight */
+  .switched.show-props .prop-inline { padding-top: 4px; border-top: 0; border-bottom: 0; }
+  .switched > .im-side > .side-fold, .switched > .im-side.tabbed::before { display: none; } /* nothing to fold: it is a pane of its own */
+  .switched > .im-side.tabbed > .tabs-bar { margin-right: 0; }
+  .switched.collapsed > .im-side.tabbed > :is(.tabs-bar, .tab-panel:not([hidden], [data-tab="properties"])) { display: flex; } /* folded on a wide screen: here it is a pane, never folded */
+  /* Activity at full height, as the side column on a wide screen: its tab panel scrolls, the comment box stays at the bottom */
+  #item-modal .im-body.show-side { display: flex; flex-direction: column; overflow: hidden; }
+  .switched.show-side > .im-side { flex: 1; min-height: 0; height: auto; margin-top: 0; border-top: 0; overflow: hidden; }
+  .switched.show-side .tab-panel { overflow-y: auto; }
+  .switched.show-side .tab-panel.fill { overflow: hidden; }
+  .switched.show-side .im-side .panel-section.activity { flex: 1 1 0; min-height: 0; }
+  .switched.show-side .im-side .activity-list { flex: 1 1 0; max-height: none; }
+  #main:has(.page-body.show-side) { display: flex; flex-direction: column; overflow: hidden; }
+  #view:has(> .page.two-panel > .page-body.show-side) { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-bottom: 16px; }
+  .page.two-panel:has(> .page-body.show-side) { flex: 1; min-height: 0; }
+  .page-body.show-side { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .page-body.show-side > .page-side.im-side { margin-top: 0; border: 1px solid var(--border); }
 }
 /* Narrow (a phone): the sidebar is a drawer over the page, opened from ☰ in the top bar (sidebar.js openDrawer). It
    keeps its desktop layout — sections, Initiatives, the Explorer — instead of wrapping every link above the page. */
@@ -1916,10 +1954,13 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
   .fields, .im-props .fields, .page .props .fields, .field-row, .field-row.cols-3 { grid-template-columns: 1fr; }
   .toolbar input[type=search] { width: 100%; }
 }
-/* iOS zooms into any field under 16px: on a phone (a touch screen), not in a narrow desktop window, where fields keep
-   the size of the text around them. */
-@media (max-width: 760px) and (pointer: coarse) {
-  input, select, textarea, .qa-input, .select-btn, .item-tabs .prop-readonly { font-size: 16px; } /* a read-only value as big as the fields beside it */
+/* A phone: fields keep the size of the text around them (index.html's viewport stops iOS zooming into one under 16px),
+   a date or a time reads from the left as every other value, and an item's own lists leave each row's id out for its
+   title (the table's id column: panel.js PHONE_LAYOUT). */
+@media (max-width: 760px) {
+  input[type=date], input[type=time], input[type=datetime-local] { text-align: left; }
+  input::-webkit-date-and-time-value { text-align: left; }
+  .row-id, .rel-row .row-meta { display: none; }
 }
 
 /* ── activity (comments) ─────────────────────────────────── */
@@ -2601,7 +2642,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 /* Narrow (the columns stacked): the properties come right under the title, not after everything else. */
 .prop-list.prop-inline { display: none; }
 @media (max-width: 860px) {
-  .prop-list.prop-inline { display: flex; padding: 4px 0 8px; border-bottom: 1px solid var(--border); }
+  .prop-list.prop-inline { display: flex; padding: 16px 0 14px; border-bottom: 1px solid var(--border); } /* air between each line and the text next to it */
   .im-side.tabbed > .tabs-bar > .tab-btn[data-tab="properties"], .im-side.tabbed > .tab-panel[data-tab="properties"] { display: none; }
   .prop-inline > h4 { margin-right: 0; }
 }
@@ -2701,6 +2742,11 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vb-chips .vb-clear { text-decoration: none; height: 26px; padding: 0 6px; }
 .vb-chips .vb-save { color: var(--foreground); font-weight: 500; }
 .vb-pop { max-height: min(460px, calc(100vh - 24px)); overflow-y: auto; overscroll-behavior: contain; }
+/* A phone: what floats opens in the middle of the screen (ui.js floating), as wide as it can be up to 380px, over the
+   page dimmed with the dialogs' --overlay; a long one scrolls inside. */
+.menu.centered { width: min(380px, calc(100vw - 32px)) !important; max-width: none; max-height: min(76dvh, 560px); overflow-y: auto; overscroll-behavior: contain;
+  box-shadow: 0 0 0 100vmax var(--overlay), var(--shadow-lg); }
+.menu.centered ~ .menu.centered { box-shadow: var(--shadow-lg); } /* one opened from another: the page is dimmed once */
 .vb-pop .vb-find { width: 100%; height: 30px; margin-bottom: 4px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; box-shadow: none; padding: 0 8px; font-size: var(--fs-sm); }
 .vb-pop .vb-find:focus { outline: none; box-shadow: none; }
 .vb-pop .menu-item .icon:last-child { margin-left: auto; }
@@ -3002,6 +3048,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 @media (max-width: 640px) {
   #pinbar { gap: 4px; padding: 0 8px; min-height: 52px; }
   #pinbar .btn.icon { width: 44px; height: 44px; }
+  #pinbar .btn.icon svg { width: 22px; height: 22px; } /* a thumb's target: ☰, search, + a little larger */
   #main:has(#view > .view-bar) :is(.pin-chips, .min-chips) { display: none; }
   #main:has(#view > .view-bar) #pinbar-title { display: block; flex: 1 1 auto; min-width: 0; font-weight: 650; font-size: var(--fs-h3); letter-spacing: -.015em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

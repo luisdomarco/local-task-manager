@@ -8,6 +8,16 @@ import { h, icon } from './ui.js';
 /** The browser's SpeechRecognition constructor (prefixed in Safari and Chrome), or null. */
 export const speechCtor = (win = globalThis) => win.SpeechRecognition || win.webkitSpeechRecognition || null;
 
+/**
+ * The language to listen in: the keyboard's when the page runs inside the iPhone app (it sets `tmNative.keyboardLang`
+ * to the language of the keyboard in use, as the keyboard's own dictation does), else the browser's, else English.
+ */
+export function dictationLang(win = globalThis) {
+  const keyboard = win.tmNative?.keyboardLang;
+  if (typeof keyboard === 'string' && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(keyboard)) return keyboard;
+  return win.navigator?.language || 'en-US';
+}
+
 export const DICTATION_TITLE = 'Dictate: speak and the text appears at the cursor (Esc stops) · '
   + 'or use macOS Dictation: press Fn (🌐) twice, or the shortcut in System Settings → Keyboard → Dictation';
 
@@ -95,7 +105,7 @@ export function dictation(target, { insert = null, place = 'below' } = {}) {
   function start() {
     active?.();
     rec = new Ctor();
-    rec.lang = navigator.language || 'en-US';
+    rec.lang = dictationLang(); // read at each start: a keyboard switched since is followed
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {

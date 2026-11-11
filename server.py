@@ -53,6 +53,25 @@ BACKUPS_DIR = 'backups'
 AGENT_RUNS = 'agent-runs.json'
 
 
+def platform():
+    """Where this server runs: sys.platform, unless TM_PLATFORM says otherwise. The iOS app sets it to 'ios' (CPython
+    on an iPhone reports 'ios' too); on a Mac, TM_PLATFORM=ios serves the page as the phone shows it."""
+    return os.environ.get('TM_PLATFORM') or sys.platform
+
+
+# What a phone has none of: no processes to start (agents, runs, the terminal and chat), no other app to open a file
+# in, no Finder, no zip to download, no server of its own to stop (Settings → App), and no canvas: it is left to the
+# computer. The page reads them from /api/config and hides each one (static/js/features.js).
+DESKTOP_FEATURES = ('agents', 'terminal', 'canvas', 'open_in', 'reveal', 'export', 'server')
+MOBILE_PLATFORMS = ('ios', 'android')
+
+
+def features():
+    """{feature: on} for the page (DESKTOP_FEATURES): all on, but on a phone."""
+    on = platform() not in MOBILE_PLATFORMS
+    return {name: on for name in DESKTOP_FEATURES}
+
+
 def backup_path(name):
     """Where a backup called `name` goes: backups/ next to config.json (made if missing)."""
     folder = os.path.join(os.path.dirname(CONFIG_PATH), BACKUPS_DIR)
@@ -457,7 +476,8 @@ class App:
                 'priorities': PRIORITIES, 'parent_types': PARENT_TYPES, 'activity_sources': ACTIVITY_SOURCES,
                 'editors': list(EDITORS),  # what Settings offers for the Explorer's "Open in <editor>"
                 'claude_targets': open_targets(),  # where a Claude session can open: Open in ▾ (claude.js)
-                'can_pick_folder': sys.platform == 'darwin',  # a folder field's Choose… (folderpick.js)
+                'can_pick_folder': platform() == 'darwin',  # a folder field's Choose… (folderpick.js)
+                'platform': platform(), 'features': features(),  # what this platform has (features.js)
                 'claude_theme': claude_theme()}  # the embedded terminal takes Claude Code's own theme
 
 

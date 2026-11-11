@@ -850,6 +850,8 @@ export function dropZone(zone, onDrop) {
 // panel closes whatever was open. One Esc closes the top one and gives the focus back to its button; one click outside
 // closes it — a click in a menu the panel opened is not outside the panel.
 const layers = { menu: null, panel: null };
+/** The phone layout (≤760px, as app.css's): what floats opens centred. */
+const PHONE_POP = typeof matchMedia === 'function' ? matchMedia('(max-width: 760px)') : { matches: false };
 
 function onFloatingDown(e) {
   const t = e.target;
@@ -881,6 +883,12 @@ export function closeFloating(layer = 'menu') {
   f.onClose?.();
 }
 export const closeMenu = () => closeFloating('menu');
+/** Focus the first `selector` in something that just opened over the page; on a phone not when it is a text field,
+ *  whose keyboard would cover the popup at once (a tap on the field brings it up). */
+export function focusFirst(el, selector) {
+  const target = el.querySelector(selector);
+  if (target && !(PHONE_POP.matches && target.matches('input:not([type=checkbox], [type=radio]), textarea'))) target.focus();
+}
 /** Is what `layer` holds the one `anchor` opened? Its button pressed again closes it (`if (floatingFrom(b)) …`). */
 export const floatingFrom = (anchor, layer = 'menu') => layers[layer]?.anchor === anchor;
 
@@ -896,6 +904,15 @@ export function floating(anchor, el, { layer = 'menu', align = 'start', side = '
   if (layer === 'panel') closeFloating('panel');
   document.body.append(sideSized(el, anchor));
   const place = () => {
+    // A phone: in the middle of the screen over the dimmed page (app.css .menu.centered), not under a button a thumb
+    // covers; one whose rows change with a search keeps its top still, high enough to stay clear of the keyboard.
+    el.classList.toggle('centered', PHONE_POP.matches);
+    if (PHONE_POP.matches) {
+      el.style.left = `${Math.max(8, (innerWidth - el.offsetWidth) / 2)}px`;
+      el.style.bottom = '';
+      el.style.top = `${Math.round(grow ? innerHeight * 0.12 : Math.max(8, (innerHeight - el.offsetHeight) / 2))}px`;
+      return;
+    }
     const r = anchor.getBoundingClientRect();
     const w = el.offsetWidth;
     el.style.left = `${Math.max(8, Math.min(align === 'end' ? r.right - w : r.left, innerWidth - w - 8))}px`;
@@ -1040,7 +1057,7 @@ export function dropdown(anchor, items, { align = 'start', width = null, focus =
     }
   }
   floating(anchor, el, { align, side }); // `side: 'top'`: a button at a dialog's foot
-  if (focus) el.querySelector('button, input, select')?.focus();
+  if (focus) focusFirst(el, 'button, input, select');
 }
 
 /**
