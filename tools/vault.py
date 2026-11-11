@@ -46,6 +46,7 @@ import sys
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
 from tm import agentsmd  # noqa: E402
+from tm.fsutil import download_on_read  # noqa: E402
 from tm import graph as tm_graph  # noqa: E402
 from tm.store import META_DIR, Store, StoreError  # noqa: E402
 from tm.structures import REGISTRY  # noqa: E402
@@ -480,6 +481,7 @@ def parser():
 def main(argv=None, out=None, err=None):
     out, err = out or sys.stdout, err or sys.stderr
     args = parser().parse_args(argv)
+    download_on_read()  # a note iCloud has not downloaded yet is downloaded when read, not refused
     as_json = getattr(args, 'json', False)
     try:
         if getattr(args, 'open', False) and getattr(args, 'closed', False):

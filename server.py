@@ -30,7 +30,7 @@ import signal
 
 from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules
 from tm.launchd import activated_sockets
-from tm.fsutil import atomic_write
+from tm.fsutil import atomic_write, download_on_read
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
                        ide_open_url, recent_sessions, resume_flags, session_facts, session_flags, session_folders, session_updated,
                        transcript_path)
@@ -40,6 +40,11 @@ from tm.transcript import history as transcript_history
 from tm.store import (ACTIVITY_SOURCES, DEFAULT_FOLDERS, DEFAULT_WORK_KINDS, ITEM_TYPES, PARENT_TYPES, PRIORITIES,
                       META_DIR, STATUSES, Store, StoreError, clean_instruction, now_stamp)
 from tm.structures import DEFAULT_STRUCTURE, LEGACY_STRUCTURES, REGISTRY, STRUCTURES, UNNAMED_STRUCTURE
+
+# Before any vault is read: a note from another device that iCloud has not downloaded yet is downloaded when read,
+# not refused (the LaunchAgent and the iPhone app are not let do it otherwise). Here, so the iPhone app, which imports
+# this module and never runs main(), gets it too.
+download_on_read()
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(APP_DIR, 'static')

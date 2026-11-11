@@ -138,3 +138,20 @@ class AtomicWriteTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DownloadOnReadTest(unittest.TestCase):
+    def test_it_lets_this_process_download_icloud_files_on_a_mac(self):
+        if fsutil.sys.platform != 'darwin':
+            self.assertFalse(fsutil.download_on_read())  # nothing to ask elsewhere
+            return
+        import ctypes
+        self.assertTrue(fsutil.download_on_read())
+        self.assertEqual(ctypes.CDLL(None).getiopolicy_np(fsutil._IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+                                                          fsutil._IOPOL_SCOPE_PROCESS),
+                         fsutil._IOPOL_MATERIALIZE_DATALESS_FILES_ON)
+
+    def test_an_unreadable_file_says_why(self):
+        self.assertIn('Not downloaded from iCloud yet', fsutil.read_error(OSError(errno.EDEADLK, 'deadlock')))
+        self.assertEqual(fsutil.read_error(OSError(errno.EACCES, 'Permission denied')),
+                         'Cannot be read: [Errno 13] Permission denied')

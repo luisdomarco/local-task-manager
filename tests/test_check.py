@@ -1,4 +1,5 @@
 """tm/structures/check.py: what makes a vault not match its structure, and what only warns."""
+import errno
 import os
 import tempfile
 import unittest
@@ -72,6 +73,18 @@ class FolderPerTypeCheckTest(unittest.TestCase):
     def test_an_icloud_placeholder_blocks(self):
         write(self.root, 'tasks/.TSK-0009-x.md.icloud', '')
         self.assertEqual([k for k, _ in self.kinds(self.run_check())], ['placeholder'])
+
+    def test_a_file_icloud_has_not_downloaded_says_so(self):
+        # On macOS a note from another device can be "dataless": its real name, no content yet, and EDEADLK when a
+        # process that may not download it reads it. The finding says what to do, not the errno.
+        write(self.root, 'tasks/TSK-0009-x.md', '---\nid: TSK-0009\ntype: task\nsubject: X\n---\n')
+
+        def load(path):
+            raise OSError(errno.EDEADLK, 'Resource deadlock avoided')
+        result = check(self.root, folders_spec(DEFAULT_FOLDERS, ITEM_TYPES, ID_RE, SKIP_DIRS), load=load)
+        (finding,) = result['blocking']
+        self.assertEqual(finding['kind'], 'unreadable')
+        self.assertIn('Not downloaded from iCloud yet', finding['detail'])
 
     def test_what_only_warns(self):
         write(self.root, 'notes/TSK-0001-x.md', '---\nid: TSK-0001\ntype: task\nsubject: In notes\n---\n')

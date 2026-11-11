@@ -19,6 +19,7 @@ import os
 import re
 
 from .. import frontmatter as fm
+from ..fsutil import read_error
 
 # What a sync client leaves while a file is not downloaded yet: iCloud's `.Name.md.icloud`. The app would
 # not see that item, so its id could be handed out again.
@@ -106,7 +107,7 @@ def check(root, spec, load=None):
             try:
                 fields = load(full)
             except OSError as e:
-                blocking.append(_finding('unreadable', rel, f'Cannot be read: {e}'))
+                blocking.append(_finding('unreadable', rel, read_error(e)))
                 continue
             t = fields.get('type')
             if not t:

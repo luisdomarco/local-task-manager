@@ -18,12 +18,43 @@ import errno
 import os
 import secrets
 import shutil
+import sys
 import time
 
 try:
     import fcntl
 except ImportError:  # not a Unix: the store's own (in-process) lock is all there is
     fcntl = None
+
+# macOS's setiopolicy_np (sys/resource.h): whether reading a file iCloud has not downloaded yet (a "dataless" file,
+# with its real name and no content on disk) downloads it first, or fails with EDEADLK, "Resource deadlock avoided".
+_IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES = 3
+_IOPOL_SCOPE_PROCESS = 0
+_IOPOL_MATERIALIZE_DATALESS_FILES_ON = 2
+
+
+def download_on_read():
+    """Let this process download an iCloud file it reads instead of failing on it. A program run from a terminal
+    usually may; the app's LaunchAgent (and the iPhone app, where the default is not to) may not, and then a note
+    written on another device and not yet downloaded here reads as EDEADLK. Asked once per process, at start; where
+    there is no such call (not macOS or iOS) it does nothing. → True when it was set."""
+    if sys.platform not in ('darwin', 'ios'):
+        return False
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.setiopolicy_np(_IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, _IOPOL_SCOPE_PROCESS,
+                                   _IOPOL_MATERIALIZE_DATALESS_FILES_ON) == 0
+    except (OSError, AttributeError, ImportError):
+        return False
+
+
+def read_error(e):
+    """What to say about a vault file that could not be read: an iCloud file not downloaded yet says so."""
+    if getattr(e, 'errno', None) == errno.EDEADLK:
+        return 'Not downloaded from iCloud yet: open the vault in Finder (or Files) so it downloads, then reload.'
+    return f'Cannot be read: {e}'
+
 
 # The file system cannot make hard links (FAT/exFAT, some network shares): fall back to check + rename.
 _NO_LINK = {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EMLINK, errno.ENOSYS}

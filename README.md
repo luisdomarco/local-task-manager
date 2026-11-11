@@ -536,7 +536,7 @@ never looked into.
 | A top-level folder the structure does not know (Projects: one that is not a project either) | An item outside its type's folder (Initiatives, Tasks) |
 | A file whose `type` is not part of the structure | A loose file at the top of a Projects vault |
 | An id that is malformed, of another type or project, or used twice | An item put inside a Docs folder (the app does not see it there) |
-| An iCloud placeholder (`.Name.md.icloud`: not downloaded yet) or an unreadable file | A work-log day outside the work-log folder |
+| An iCloud placeholder (`.Name.md.icloud`: not downloaded yet) or an unreadable file. A note iCloud has only by name (written on another device, its content not here yet) is downloaded when the app reads it, the app on :3200 and the iPhone app too (`fsutil.download_on_read`); offline, it says *Not downloaded from iCloud yet* | A work-log day outside the work-log folder |
 | Projects: a project folder without a valid `00 <Folder>.md` (fileClass Ticket Project, unique 2–4 letter key), a type folder a project needs missing or one it does not know, a ticket in another type's folder, a ticket without an id (but a plan or an analysis from before they had ids, named as it was), a ticket file not named `<ID> <Title>.md` | |
 
 In an Initiatives or Tasks vault an item without an id is fine (Settings → Maintenance assigns ids). Settings also refuses to save a new vault

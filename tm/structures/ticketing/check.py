@@ -21,6 +21,7 @@ import os
 import re
 
 from ...attachments import DIR as ATTACHMENTS_DIR
+from ...fsutil import read_error
 from ..check import IGNORED_FILES, PLACEHOLDER_RE, ROOT_GUIDES, _finding, _result, _read_fields
 from ..kinds import DEFAULT_KIND, KINDS, PROJECT_FOLDER_TYPES, kind_of
 from .. import NUMBER_RE
@@ -116,7 +117,7 @@ def check(root, load=None):
             try:
                 fields = load(note)
             except OSError as e:
-                blocking.append(_finding('unreadable', f'{name}/00 {name}.md', f'Cannot be read: {e}'))
+                blocking.append(_finding('unreadable', f'{name}/00 {name}.md', read_error(e)))
                 continue
         if not fields or str(fields.get('fileClass') or '').strip() != 'Ticket Project':
             if name in PROJECT_ROOT_TOPS:  # Initiatives/, Records/…: the tickets in no project, known when there
@@ -173,7 +174,7 @@ def check(root, load=None):
             try:
                 fields = load(os.path.join(dirpath, name))
             except OSError as e:
-                blocking.append(_finding('unreadable', rel, f'Cannot be read: {e}'))
+                blocking.append(_finding('unreadable', rel, read_error(e)))
                 continue
             if fields.get('type') == 'worklog':
                 if rel_dir != WORKLOG_FOLDER and not rel_dir.startswith(WORKLOG_FOLDER + '/'):
