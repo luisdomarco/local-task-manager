@@ -4,6 +4,16 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-12
+
+**Highlights.** **On a phone** every screen is sized for a finger — 16px text, 44px targets, the card on the whole
+screen, boards a column at a time — over either look, and a computer is unchanged. **Settings → Themes**: keep the
+**Classic** look or take **Modern** (Basecoat, Radix colours), with presets, densities and a look of your own.
+**Canvas** grows into a whiteboard for any item: a draw.io-style shapes panel (General, arrows, BPMN 2.0, Flowchart),
+a Canvas tab per item, a Canvas page with every canvas, and export to draw.io. **Agents** gain **Routines** (every
+schedule in one page) and archived runs. Menus, dialogs, empty lines and fold heads look and behave the same
+everywhere, and a project renames and goes to the trash with its folder.
+
 - **A phone gets its own sizes, over Classic or Modern** (phase 1 of the phone pass). On a screen of 760px or less
   that you touch — a narrow window with a mouse is unchanged, as is every computer — text is 16px, buttons, fields and
   menu rows 44px, and the page stays clear of the notch and the home indicator. Fields are 16px on any touch screen,
@@ -35,6 +45,17 @@ All notable changes to this project are written down here. Versions follow [Sema
   while one is edited. In the Graph a first tap on a node lights it and its links, a second opens it. A computer is
   unchanged.
 
+- **A phone leaves out what it has none of.** The server says what its platform has (`/api/config` → `platform`,
+  `features`); on a phone (`TM_PLATFORM=ios` or `android`) the page drops the Agents mode, the terminal and Claude
+  entries, the Canvas, *Open in*, Show in Finder, Export and Settings → App, and an address of a view it dropped goes
+  home. Agent items stay as items. `TM_PLATFORM=ios python3 tools/serve_sample.py` shows that page on a Mac. A computer
+  is unchanged.
+
+- **An iCloud note not downloaded yet no longer blocks the vault.** A note added on another device reached the Mac as
+  a name with no content yet, and reading it failed (*Resource deadlock avoided*), so the structure check stopped the
+  whole vault. The app now asks macOS to download such a file when it reads it; one that still cannot be read (offline)
+  says *Not downloaded from iCloud yet…*.
+
 - **A title keeps its size on a touch screen.** An item's or a page's title was drawn at 16px on a touch screen, by
   the rule that keeps fields from being zoomed into; it is 24px again.
 
@@ -49,7 +70,16 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 - **Closed items shown can be hidden again, and every list has its pager.** After *Show closed* under a list, the line reads *4 closed shown · Hide closed* (before, nothing took you back but Display). The pager (*1–18 of 18*, pages, Rows per page) shows under every main list — Tasks, Initiatives…, the Agents Inbox, Labels, Trash, Claude history — even when all rows fit on one page.
 
+- **A ticked row stays where it was, its box ticked** (List). Ticking a row counted it in the bulk bar but sent it to
+  the last page, with no box shown ticked, when the window was too narrow for the column the list sorts by (Updated).
+  The list now keeps its **Order** whatever columns are shown.
+
 - **Archive a run in the Agents Inbox.** ⋯ → *Archive* on a run that ended takes it out of the Inbox and the Home (it is marked read; Undo in the toast) and keeps it on its agent's page, marked *Archived*; ⋯ → *Unarchive* brings it back, and Display → *Archived runs* shows them all. `POST /api/agents/runs/archive` (`ids`, `archived`), refused for a run that is working or waiting for you.
+
+- **An agent's file reads as a document.** Preview shows its frontmatter first as rows — *Name*, *Description*,
+  then the rest in the file's order (*Allowed tools* as chips, *Model*…), then *Path* — and its Markdown as Docs does,
+  with real headings and list levels. A command's description is its Instructions' first row, no longer a grey line
+  under its title.
 
 - **The Agents Inbox's board folds and keeps its width, as every board.** Its columns shared the page's width, so folding the others left one stretched across the page, and only an empty column could fold. It is now the app's board: 272px columns, a fold button on each head, the strip opens it again, columns still move by their head.
 
@@ -118,6 +148,30 @@ All notable changes to this project are written down here. Versions follow [Sema
   the graph's settings, the Canvas and a chat's message box are rounded cards with a soft shadow, an item's status is a
   badge in its colour, today is in the accent in Today and Planning, Settings' on/off choices are switches and Markdown
   reads with lighter headings. Classic looks as it always did.
+
+- **A draw.io-style shapes panel on the canvas.** The canvas's left column has **Shapes · Items**: Shapes is 154
+  figures in families that fold — General (basic shapes, sticky notes, lines and arrows), Arrows, **BPMN 2.0** (every
+  task marker, events, gateways, data, pools and lanes, flows) and Flowchart — with a search across them and a preview
+  on hover. Drag one onto the canvas, or click it to add it in the middle. They are drawn draw.io's way (white fill, a
+  1px black line), arrows bind to a figure's outline, and a double-click writes its label.
+
+- **A Canvas tab on an item.** In Projects, a project, initiative, story, task and meeting get a **Canvas** tab, last
+  and set apart: its own canvases (kept in `Docs/Canvases/<ref>`), with the open items that hang from it beside the
+  whiteboard, ready to drag in as cards. An item's tab bar now shows seven tabs at most; the rest wait in **+**, with
+  their counts, and a group shows anyway when it holds something or is open.
+
+- **A Canvas page with every canvas.** **Canvas**, under Docs in the sidebar, lists the vault's canvases by whose they
+  are — **Free** ones, Goals', then one section per item — each with a **+** to start one, and opens the one picked
+  beside them. Its ⋯ → **Move to an item…** moves a canvas to an item's Canvas tab.
+
+- **Export a canvas to draw.io.** The canvas menu (now in the app's style, without Excalidraw's links) has **Export to
+  draw.io…**: a `.drawio` file where each figure of the shapes panel is draw.io's own shape, item cards are rounded
+  boxes with their id and status, and arrows are edges bound to what they join, elbows and heads kept. **Canvas
+  pattern: Plain · Grid** sits under the background colours; new arrows get draw.io's filled, notched head; a 1px line
+  is one crisp pixel at 100%; and **Download .excalidraw** replaces *Save to…*.
+
+- **Edit a task's status and priority from Overview.** On an item's Overview the Tasks rows' status and priority are
+  the same selects as a list's: a pick changes the task without opening it.
 
 ## [1.4.0] — 2026-11-09
 
