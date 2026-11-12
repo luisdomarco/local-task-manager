@@ -30,6 +30,7 @@ import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_
 import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
+import { has } from './features.js';
 import { allContacts, allLabels, state } from './state.js';
 import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
@@ -66,8 +67,9 @@ export function sideFold(body, key) {
   return btn;
 }
 
-/** The panes a narrow screen shows one at a time (paneSwitch): the item's content, its properties, its side panel. */
-const PANES = [['main', 'Detail'], ['props', 'Properties'], ['side', 'Activity']];
+/** The panes a narrow screen shows one at a time (paneSwitch): the item's content, its properties, its side panel —
+ *  named after its Activity tab, or "More" in a vault that turned Activity off (Relations, Time… stay there). */
+const panes = () => [['main', 'Detail'], ['props', 'Properties'], ['side', has('activity') ? 'Activity' : 'More']];
 
 /**
  * On a narrow screen (the columns stacked), the row that picks what shows: Detail (the main column without its
@@ -82,13 +84,13 @@ export function paneSwitch(body, { current = 'main', onPick = () => {} } = {}) {
   const draw = (now) => {
     body.classList.toggle('show-props', now === 'props');
     body.classList.toggle('show-side', now === 'side');
-    row.replaceChildren(seg(PANES, now, (value) => {
+    row.replaceChildren(seg(panes(), now, (value) => {
       onPick(value);
       draw(value);
       body.scrollTop = 0; // each pane from its top
     }, { aria: 'Show', role: 'tablist', cls: 'pane-seg' }));
   };
-  draw(PANES.some(([v]) => v === current) ? current : 'main');
+  draw(panes().some(([v]) => v === current) ? current : 'main');
   return row;
 }
 

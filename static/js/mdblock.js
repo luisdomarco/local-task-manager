@@ -3,7 +3,7 @@
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
 import { mdEditor } from './mdeditor.js';
-import { isTouch } from './phone.js';
+import { isPhone, isTouch } from './phone.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
 import { foldHead, h, icon, renderMarkdown } from './ui.js';
@@ -183,6 +183,12 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       el.classList.toggle('in-tab', !!cfg.tabbed); // its copy and full-screen buttons over the box's corner (app.css)
       const open = !foldKey || pref(`${foldKey}.open`, true) !== false;
       const title = cfg.tabbed ? [] : heading ? heading() : [icon('text', 15), cfg.label];
+      // Saving… / Saved / ● unsaved: in the title row, or — while editing a block whose copy and full-screen buttons
+      // sit over its corner (a tab's) — at the end of the editor's toolbar, so a long one (● not saved — retrying in 8s)
+      // wraps with the toolbar instead of running over its buttons. Not on a phone, whose toolbar scrolls sideways: there
+      // the title row is a row of its own above it.
+      const inBar = editing && !!cfg.tabbed && !isPhone();
+      const status = h('span', { class: 'muted unsaved small' }, blk.hasUnsaved() ? '● unsaved' : '');
       const toggle = h('div', { class: 'body-tabs' },
         h('h4', {}, ...(foldKey ? [foldHead({
           open, class: 'body-fold', what: `the ${cfg.label.toLowerCase()}`,
@@ -194,7 +200,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
             blk.render();
           },
         })] : title)),
-        h('span', { class: 'muted unsaved small' }, blk.hasUnsaved() ? '● unsaved' : ''),
+        inBar ? null : status,
         touch && !editing && text.trim() ? h('button', { class: 'btn small body-edit', onclick: () => startEdit() }, icon('pencil', 14), 'Edit') : null,
         text.trim() ? h('button', {
           class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,
@@ -213,7 +219,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       let content;
       if (editing) {
         const mde = mdEditor({
-          value: text, minHeight, label: cfg.label, fk, highlight: 'markdown',
+          value: text, minHeight, label: cfg.label, fk, highlight: 'markdown', trailing: inBar ? status : null,
           placeholder: cfg.placeholder,
           // Esc is Done: back to the text as it reads once all is saved, waiting for a save still on its way.
           onEscape: () => done(),

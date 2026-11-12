@@ -53,8 +53,9 @@ Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and 
 |---|---|
 | An HTTP route | `server.py` (`ROUTES`); the vault logic it calls in `tm/store.py` |
 | A type, field, folder or status | `tm/structures/…` (+ `python3 tools/sync_structure_js.py` for `static/js/structure.js`) |
-| Ticketing file format or rules | `tm/structures/ticketing/` (`codec.py`, `rules.py`, `check.py`, `templates/`) |
+| Ticketing file format or rules | `tm/structures/ticketing/` (`codec.py`, `rules.py`, `check.py`, `templates/`; each type's starting text in `default_texts/`) |
 | A view | `static/js/views/<view>.js`; state and mutations in `static/js/state.js`; API calls in `api.js` |
+| A keyboard shortcut | `static/js/keymap.js` (`GLOBAL_KEYS` + `is(e, id)` in `main.js`, or a listed row): Settings → Keyboard and `?` print it, `tests/js/keymap.test.mjs` checks it |
 | Pure logic of the page | its own module, tested in `tests/js/<module>.test.mjs` |
 | A script run by hand or by a command | `tools/`; the Claude Code commands in `.claude/commands/` |
 | What the vault's AGENTS.md says | `tm/agentsmd.py` `render` (from `Store.agents_info`): never text about one vault |

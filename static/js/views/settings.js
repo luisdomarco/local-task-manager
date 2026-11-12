@@ -1,9 +1,9 @@
-// Settings, in tabs (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show,
-// each with its structure; the default; for a folder-per-type vault, the folders new items go to), Statuses (each
-// type's statuses in the three groups, views/statuses.js), Themes (how the app looks in this browser, views/themes.js), General (work
-// kinds), Claude, Maintenance, Keyboard, Export (the system, the agents or a vault, as zips), App and Documentation (the
-// user guide, docs/user-guide.md). Vaults, General and
-// Claude are one config form: Save, at the foot of any of them, saves all three.
+// Settings, in tabs (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show, as a table; each
+// one added or edited in its own dialog, views/vaults.js), Statuses (each type's statuses in the three groups,
+// views/statuses.js), Themes (how the app looks in this browser, views/themes.js), General (work kinds), Claude,
+// Agents, Maintenance, Keyboard (views/keyboard.js), Export (the system, the agents or a vault, as zips), Desktop app
+// and Documentation (the user guide, docs/user-guide.md). General, Claude and Agents are one config form: Save, at the
+// foot of any of them, saves all three.
 import { scheduleList } from '../agentschedules.js';
 import { agentHref } from '../agentsmodel.js';
 import { api } from '../api.js';
@@ -11,19 +11,19 @@ import { fixedColumns } from '../datatable.js';
 import { has } from '../features.js';
 import { folderButton } from '../folderpick.js';
 import { pref, setPref } from '../prefs.js';
-import { warningGroups } from '../housekeeping.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
-import { keyboardHelp } from '../shortcuts.js';
+import { keyboardPanel } from './keyboard.js';
 import { countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select, tabPanels } from '../ui.js';
 import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
 import { statusPanel } from './statuses.js';
 import { themesPanel } from './themes.js';
+import { vaultsSection } from './vaults.js';
 import { isTouch } from '../phone.js';
 
-const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'App'], ['documentation', 'Documentation']];
+const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'Desktop app'], ['documentation', 'Documentation']];
 // The tabs only a computer has (features.js): a phone shows the others. Keyboard only where there is one to speak of:
 // a touch screen (phone.js) leaves it out.
 const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server' };
@@ -45,24 +45,40 @@ function showStopped(onDemand) {
     onDemand ? again : null));
 }
 
-/** Settings → Documentation: the user guide (docs/user-guide.md), read once when the tab is first shown. */
+/** Where the app is published: its code, README (the full reference) and changelog. */
+export const PUBLIC_REPO = 'https://github.com/luisdomarco/local-task-manager';
+
+/** Settings → Documentation: the public repository (the README, the changelog, the version this is) over the user
+ *  guide (docs/user-guide.md), read once when the tab is first shown. */
 function guidePanel() {
-  const el = h('div', { class: 'md guide' }, loadingLine('Loading the guide…'));
+  const out = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text, icon('external', 12));
+  const version = h('span', { class: 'muted' });
+  const head = h('section', { class: 'group guide-head' },
+    h('header', {}, h('h3', {}, 'Local Task Manager'), version),
+    h('p', { class: 'muted' }, 'The whole reference — every screen, the vault’s files, the command line — is the README on GitHub. Below, the user guide.'),
+    h('p', { class: 'guide-links' },
+      out(PUBLIC_REPO, 'Repository'),
+      out(`${PUBLIC_REPO}#readme`, 'README'),
+      out(`${PUBLIC_REPO}/blob/main/CHANGELOG.md`, 'Changelog'),
+      out(`${PUBLIC_REPO}/issues`, 'Report a problem')));
+  const guide = h('div', { class: 'md guide' }, loadingLine('Loading the guide…'));
+  const el = h('div', {}, head, guide);
   let loaded = false;
   const load = async () => {
     if (loaded) return;
     try {
-      const { markdown } = await api.guide();
-      el.innerHTML = renderMarkdown(markdown); // sanitized by renderMarkdown (DOMPurify)
+      const { markdown, version: v } = await api.guide();
+      guide.innerHTML = renderMarkdown(markdown); // sanitized by renderMarkdown (DOMPurify)
+      version.textContent = v ? `Version ${v}` : '';
       loaded = true;
     } catch (e) {
-      el.replaceChildren(h('p', { class: 'muted' }, `The guide could not be loaded: ${e.message}`));
+      guide.replaceChildren(h('p', { class: 'muted' }, `The guide could not be loaded: ${e.message}`));
     }
   };
   return { el, load };
 }
 
-/** Settings → App: the server this page talks to — the installed app (started on demand) or one started by hand —
+/** Settings → Desktop app: the server this page talks to — the installed app (started on demand) or one started by hand —
  *  and stopping or restarting it. */
 function appPanel() {
   const el = h('div', {});
@@ -102,138 +118,7 @@ function appPanel() {
   return { el, load };
 }
 
-let warningsOpen = false; // the warnings stay unfolded across re-renders once opened
-
-/** The check's warnings for the vault this page shows, folded and grouped by kind: they never block it, so they
- *  only show here (the page itself shows nothing of them). null when there are none. */
-function vaultWarnings(warnings) {
-  const groups = warningGroups(warnings);
-  if (!groups.length) return null;
-  return h('details', { class: 'vault-warnings', open: warningsOpen, ontoggle: (e) => { warningsOpen = e.target.open; } },
-    h('summary', {}, icon('alert', 13), `${warnings.length} warning${warnings.length === 1 ? '' : 's'} in its folder`),
-    h('p', { class: 'muted small' }, 'Things in the folder the app leaves alone. None of them keeps the vault from being shown or written to.'),
-    ...groups.map((g) => h('div', { class: 'vault-warning-group', 'data-kind': g.kind },
-      h('h4', {}, `${g.label} (${g.findings.length})`),
-      h('ul', { class: 'vault-findings' }, g.findings.map((f) => h('li', {}, h('code', {}, f.path), h('span', { class: 'muted small' }, f.detail)))))));
-}
-
-/** The page's vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, which tells an agent opened in the folder
- *  how to read and write the vault with tools/vault.py. On or off at once, not with Save: it writes a file in the vault. */
-function agentsToggle() {
-  const a = state.vaultAgents;
-  if (!a) return null;
-  const box = h('input', { type: 'checkbox', checked: a.on, 'aria-label': 'Guide for agents',
-    onchange: async (e) => {
-      const on = e.target.checked;
-      e.target.disabled = true;
-      try {
-        state.vaultAgents = await api.vaultAgents(on);
-        toast(on ? 'AGENTS.md written at the top of the vault' : 'The guide for agents is gone from the vault');
-      } catch (err) {
-        e.target.checked = !on;
-        toast(err.message, true);
-      } finally {
-        e.target.disabled = false;
-      }
-    } });
-  return h('div', { class: 'vault-agents' },
-    h('label', { class: 'vault-type' }, box, 'Guide for agents'),
-    h('p', { class: 'muted small' }, 'Keeps an ', h('code', {}, 'AGENTS.md'), ' at the top of this vault (and a ', h('code', {}, 'CLAUDE.md'),
-      ' that points to it, if it has none) telling any agent opened in its folder — Claude Code, Codex, Cursor — what the vault holds and how to read and write it with ',
-      h('code', {}, 'tools/vault.py'), ', with or without the app open. Written from the vault’s types and projects, and again when they change; your own text in the file is kept.'));
-}
-
-/** What a vault of a legacy structure is told in its row: it keeps working, and how it moves to the current one. */
-export function legacyNote(structure, current) {
-  return h('p', { class: 'small warn vault-legacy' }, icon('alert', 13),
-    h('span', {}, `${structure} is a legacy structure: this vault keeps working, but new vaults use ${current}, which holds every kind of project. `
-      + 'To move it, ask Claude to follow ', h('code', {}, 'docs/migrate-structures.md'),
-      ' in this app’s folder: it writes the vault into a new folder, asks you about each project, and leaves this one as it is.'));
-}
-
-/** The Vaults tab: one row per vault (name, folder, structure, default, remove), and Add. `edit` is the list
- *  being edited, saved with the rest of the form; removing a vault only takes it out of the list. */
-function vaultsEditor(c, edit) {
-  const box = h('div', { class: 'vault-rows' });
-  const structures = Object.entries(c.structures || { ticketing: 'Projects' });
-  // A legacy structure (Initiatives, Tasks) is kept for the folders that already are one of its vaults: a new vault
-  // starts as Projects (the server refuses a legacy one on an empty folder), and docs/migrate-structures.md moves an old one.
-  const legacy = new Set(c.legacy_structures || []);
-  const fresh = c.default_structure || 'ticketing';
-  const labelOf = (k) => (c.structures || {})[k] || k;
-  const saved = new Set((c.vaults || []).map((v) => v.id)); // a new row gets its id on save, before the server says yes
-  // A saved vault whose folder is gone (server.py public_config), while its folder field still says where it was.
-  const gone = (v) => (c.vaults || []).some((x) => x.id === v.id && x.missing && x.path === v.path);
-  const render = () => box.replaceChildren(
-    ...edit.vaults.map((v, i) => {
-      // No autocomplete on either: a browser's suggestion must never fill one vault's field with another's.
-      const name = h('input', { type: 'text', class: 'vault-name', autocomplete: 'off', value: v.name || '', placeholder: 'Name', 'aria-label': 'Vault name',
-        oninput: (e) => { v.name = e.target.value; } });
-      const path = h('input', { type: 'text', class: 'vault-path', autocomplete: 'off', spellcheck: 'false', value: v.path || '', placeholder: '/absolute/path or ~/… to an existing folder',
-        'aria-label': `Folder of ${v.name || 'the vault'}`, oninput: (e) => { v.path = e.target.value; } });
-      // Another structure has other types: what was turned off in the old one means nothing there.
-      const offered = [...structures.filter(([k]) => !legacy.has(k)),
-        ...structures.filter(([k]) => legacy.has(k)).map(([k, label]) => [k, `${label} (legacy)`])];
-      // A new row set to a legacy structure starts with the folders of a saved vault of it (an old vault re-added on its
-      // own folder keeps its type folders), else that structure's defaults.
-      const pick = (s) => {
-        v.structure = s; v.disabled_types = [];
-        if (!saved.has(v.id) && legacy.has(s)) v.folders = { ...((c.vaults || []).find((x) => x.structure === s)?.folders || {}) };
-        render();
-      };
-      const structure = select(offered, v.structure || fresh, pick,
-        { class: 'small', 'aria-label': 'Structure' });
-      // Which of its structure's types this vault shows. Off only hides: the files stay, and come back when turned on.
-      const choices = (c.structure_types || {})[v.structure || fresh] || { types: [], required: [] };
-      const off = new Set(v.disabled_types || []);
-      const typesBox = h('details', { class: 'vault-types', open: !!v.typesOpen, ontoggle: (e) => { v.typesOpen = e.target.open; } },
-        h('summary', {}, `Item types · ${choices.types.length - off.size} of ${choices.types.length} on`),
-        h('p', { class: 'muted small' }, 'A type turned off leaves the sidebar, its list, the other items’ cards and every relation picker. Its files are not touched: turn it on again and everything is back. Hours already logged on its items stay in the work log.'),
-        h('div', { class: 'vault-type-list' }, choices.types.map(([t, label]) => {
-          const required = choices.required.includes(t);
-          return h('label', { class: 'vault-type', title: required ? 'Needed by this structure: it cannot be turned off' : '' },
-            h('input', { type: 'checkbox', checked: !off.has(t), disabled: required, 'data-type': t,
-              onchange: (e) => {
-                const now = new Set(v.disabled_types || []);
-                if (e.target.checked) now.delete(t); else now.add(t);
-                v.disabled_types = choices.types.map(([x]) => x).filter((x) => now.has(x));
-                render();
-              } }), label, required ? h('span', { class: 'muted small' }, '(required)') : null);
-        })));
-      const isDefault = h('label', { class: 'cp-default', title: 'The vault a page shows when its address names none' },
-        h('input', { type: 'radio', name: 'vault-default', checked: edit.default === v, onchange: () => { edit.default = v; } }), 'Default');
-      const remove = v.confirm
-        ? [formActions({ small: true, lead: h('span', { class: 'muted small' }, 'Take it out of the list? Its files are not touched.'),
-          onCancel: () => { v.confirm = false; render(); },
-          actions: h('button', { class: 'btn small danger', onclick: () => { edit.vaults.splice(i, 1); render(); } }, 'Remove') })]
-        : [h('button', { class: 'btn icon row-action', title: `Remove ${v.name || 'this vault'} from the list`, disabled: edit.vaults.length < 2,
-          onclick: () => { v.confirm = true; render(); } }, icon('x', 14))];
-      // Only a structure of one folder per type lets a vault move them: its own, else the structure's default.
-      const movable = Object.entries(choices.folders || {});
-      const folders = movable.length
-        ? h('details', {}, h('summary', {}, 'Folders for new items'),
-          h('p', { class: 'muted small' }, 'Relative to the vault. Every one must exist for the vault to match its structure.'),
-          h('div', { class: 'fields' }, movable.map(([t, def]) => propRow(t, h('input', { type: 'text', value: v.folders?.[t] || def, oninput: (e) => { v.folders = { ...v.folders, [t]: e.target.value.trim() }; } })))))
-        : null;
-      return h('div', { class: 'vault-row' },
-        h('div', { class: 'vault-row-head' }, name, path,
-          folderButton(path, { prompt: `Choose the folder of ${v.name || 'the vault'}` }), structure, isDefault, ...remove),
-        v.id === vaultId() ? h('span', { class: 'muted small' }, 'Shown in this page.') : null,
-        gone(v) ? h('p', { class: 'muted small vault-gone' }, h('strong', {}, 'Folder not found. '),
-          'It was moved or deleted outside the app: give its new place, or remove the vault. The rest of Settings still saves.') : null,
-        saved.has(v.id) && legacy.has(v.structure) ? legacyNote(labelOf(v.structure), labelOf(fresh)) : null,
-        v.id === vaultId() ? vaultWarnings(state.vaultCheck?.warnings) : null,
-        v.id === vaultId() && has('agents') ? agentsToggle() : null,
-        typesBox,
-        folders);
-    }),
-    h('div', {}, h('button', { class: 'btn small ghost', onclick: () => {
-      edit.vaults.push({ id: '', name: '', path: '', structure: fresh, folders: {} });
-      render();
-    } }, icon('plus', 13), 'Add vault')));
-  render();
-  return box;
-}
+export { legacyNote } from './vaults.js'; // main.js's note on a legacy vault says what its Settings row says
 
 export function mount(root, param) {
   const form = h('div', { class: 'settings' });
@@ -245,19 +130,9 @@ export function mount(root, param) {
   const guideTab = guidePanel();
   const statusesTab = statusPanel();
   const schedTab = schedulesPanel();
-  // The vault list being edited outlives a re-render (coming back to the window reloads everything): a vault
-  // half added is not lost. It starts again from the config only when the saved vaults change (a save).
-  let edit = null;
-  let editedFrom = '';
   return {
     update() {
       const c = state.config;
-      const saved = JSON.stringify([c.vaults, c.default_vault]);
-      if (!edit || saved !== editedFrom) {
-        edit = { vaults: (c.vaults || []).map((v) => ({ ...v, folders: { ...(v.folders || {}) } })) };
-        edit.default = edit.vaults.find((v) => v.id === c.default_vault) || edit.vaults[0];
-        editedFrom = saved;
-      }
       const kinds = h('input', { type: 'text', class: 'wide', 'aria-label': 'Work kinds', value: (c.work_kinds || []).join(', ') });
       // Saved folders: as many as you like, one of them the default (or none: the project folder of this app).
       const paths = [...(c.claude_paths || [])];
@@ -321,23 +196,7 @@ export function mount(root, param) {
       const effortSel = select(CLAUDE_EFFORTS, effort, (v) => { effort = v || ''; }, { 'aria-label': 'Default effort' });
       const missing = state.items.filter((i) => !i.id);
       const doSave = async () => {
-        // A new vault gets its id here, from its name, once (the server checks it): it never changes after.
-        const taken = new Set(edit.vaults.map((v) => v.id).filter(Boolean));
-        for (const v of edit.vaults.filter((x) => !x.id)) {
-          const base = (v.name || '').toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28) || 'vault';
-          let id = base;
-          for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
-          taken.add(id);
-          v.id = id;
-        }
-        const vaults = edit.vaults.map(({ confirm, typesOpen, ...v }) => ({ ...v, name: (v.name || '').trim(), path: (v.path || '').trim() }));
-        // The types this page's vault has on: the page builds its sidebar, lists and pickers from them once, so a
-        // change to them loads the page again (as switching vault does).
-        const typesHere = () => JSON.stringify((state.config.vaults || []).find((v) => v.id === vaultId())?.disabled_types || []);
-        const before = typesHere();
         await saveConfig({
-          vaults,
-          default_vault: (edit.default || edit.vaults[0])?.id || '',
           work_kinds: kinds.value.split(',').map((k) => k.trim()).filter(Boolean),
           claude_cwd: defaultPath,
           claude_paths: paths,
@@ -349,21 +208,12 @@ export function mount(root, param) {
           claude_effort: effort,
           agent_dirs: agentPaths,
           agent_dir_names: Object.fromEntries(agentPaths.map((p) => [p, (agentNames[p] || '').trim()]).filter(([, n]) => n)),
-        }).then(() => {
-          toast('Settings saved');
-          if (typesHere() !== before) location.reload();
-        }).catch(() => {});
+        }).then(() => toast('Settings saved')).catch(() => {});
       };
       const saveBar = () => h('div', { class: 'settings-save' }, h('button', { class: 'btn primary', onclick: doSave }, 'Save settings'),
-        h('span', { class: 'muted small' }, `Saves ${tabs().filter(([key]) => ['vaults', 'general', 'claude', 'agents'].includes(key)).map(([, label]) => label)
+        h('span', { class: 'muted small' }, `Saves ${tabs().filter(([key]) => ['general', 'claude', 'agents'].includes(key)).map(([, label]) => label)
           .join(', ').replace(/, ([^,]*)$/, ' and $1')} together.`));
-      const vaultsTab = [
-        h('section', { class: 'group' },
-          h('header', {}, h('h3', {}, 'Vaults')),
-          h('p', { class: 'muted' }, 'The folders this app can show, each on its own: switch between them at the foot of the sidebar. A vault is shown only while its folder matches its structure; until then nothing is read from it or written to it. Taking a vault out of the list leaves its files as they are.'),
-          vaultsEditor(c, edit)),
-        saveBar(),
-      ];
+      const vaultsTab = [vaultsSection()]; // its own dialog saves each vault (views/vaults.js)
       // A setting as a row (its name, then its control with what it does under it), as a card's properties.
       const setRow = (label, control, help) => propRow(label, control, { tag: 'div', help });
       const general = [
@@ -408,9 +258,8 @@ export function mount(root, param) {
               h('button', { class: 'btn small', onclick: () => assignIds().then((r) => toast(`Assigned ${r.assigned.length} ids`)).catch(() => {}) }, 'Assign IDs'))
             : h('p', { class: 'muted' }, 'All items have an id.')),
       ];
-      const keyboard = [h('section', { class: 'group' },
-        h('header', {}, h('h3', {}, 'Keyboard')),
-        h('p', { class: 'muted' }, keyboardHelp()))];
+      // Every key the app answers, grouped, with a search: the same list as ? anywhere (views/keyboard.js).
+      const keyboard = [h('p', { class: 'muted' }, 'Every key the app answers. ', h('kbd', {}, '?'), ' shows this list on any page.'), keyboardPanel().el];
       const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
         themes: [themesPanel().el],
         documentation: [guideTab.el] };

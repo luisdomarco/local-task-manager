@@ -3,6 +3,7 @@
 // Nobody is notified: a mention is for you, and for Claude, whose prompt lists who is mentioned and how to reach them.
 // One listener for the whole document, so every textarea has it, including those made later.
 import { state } from './state.js';
+import { has } from './features.js';
 import { GROUP_ICON, h, icon, sideSized } from './ui.js';
 
 const MAX = 8;
@@ -74,7 +75,7 @@ function open(ta, start, matches) {
 }
 
 function update(ta) {
-  if (ta.readOnly || ta.disabled || ta.dataset.mentions === 'off' || ta.selectionStart !== ta.selectionEnd) { close(); return; } // off: its own @ (chat.js)
+  if (ta.readOnly || ta.disabled || ta.dataset.mentions === 'off' || ta.selectionStart !== ta.selectionEnd || !has('contacts')) { close(); return; } // off: its own @ (chat.js); no Contacts in this vault
   const m = QUERY_RE.exec(ta.value.slice(0, ta.selectionStart));
   const matches = m ? matchPeople(m[1]) : [];
   if (!m || !matches.length) { close(); return; }

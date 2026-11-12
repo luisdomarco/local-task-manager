@@ -2,7 +2,7 @@
 // grouped by type, in the sidebar's order — or by what its text says; jump to a view; or create something. Arrow keys
 // move, Enter runs, Esc closes. What matches and in what order is search.js's.
 import { api } from './api.js';
-import { has } from './features.js';
+import { has, viewOn } from './features.js';
 import { CREATE_TYPES, TYPE_LABEL, openCreateModal } from './create.js';
 import { openClaudeDialog } from './claude.js';
 import { openItem, openItemKey } from './panel.js';
@@ -34,7 +34,8 @@ function views() {
   const of = (group) => STRUCTURE.types.filter((t) => t.list && t.nav?.group === group)
     .sort((a, b) => a.nav.order - b.nav.order).map((t) => [t.route, t.plural, t.icon]);
   const unlinked = STRUCTURE.types.filter((t) => t.list && !t.nav).map((t) => [t.route, t.plural, t.icon]);
-  return [...of('capture'), ...DAYS, ...of('types'), ['docs', 'Docs', 'book'], ...unlinked, ...TOOLS, ...of('tools'), ...LAST];
+  return [...of('capture'), ...DAYS, ...of('types'), ['docs', 'Docs', 'book'], ...unlinked, ...TOOLS, ...of('tools'), ...LAST]
+    .filter(([view]) => viewOn(view)); // a feature the vault turned off (features.js)
 }
 
 function results(query) {
@@ -83,7 +84,7 @@ function results(query) {
     out.push({ group: 'This item', label: `Work on ${refOf(open)} with Claude`, meta: open.title, icon: 'terminal', run: () => openClaudeDialog(open) });
   }
   // …or seen in the Graph view, centred on it.
-  if (open && (!q || /graph|link|map/.test(q))) {
+  if (open && has('graph') && (!q || /graph|link|map/.test(q))) {
     out.push({ group: 'This item', label: `Show ${refOf(open) || open.title} in the graph`, meta: open.title, icon: 'graph', run: () => { location.hash = `#/graph/${encodeURIComponent(open.ref || open.id || open.key)}`; } });
   }
   // The top bar's terminal: a prompt with no item, in the default folder.
@@ -104,7 +105,7 @@ function results(query) {
       out.push({ group: 'Create', label: `New ${TYPE_LABEL[t].toLowerCase()}`, icon: TYPE_ICON_NAME[t], run: () => openCreateModal(t) });
     }
   }
-  if (!q || 'capture to inbox'.includes(q)) out.push({ group: 'Create', label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', run: () => openQuickModal() });
+  if (has('inbox') && (!q || 'capture to inbox'.includes(q))) out.push({ group: 'Create', label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', run: () => openQuickModal() });
   return out.slice(0, 60);
 }
 

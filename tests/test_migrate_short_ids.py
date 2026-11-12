@@ -51,7 +51,9 @@ class MigrateBase(unittest.TestCase):
         s = Store(self.src, structure='ticketing', enforce_structure=True)
         s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'})
         s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'})
-        self.ini = s.create('initiative', 'Checkout', {'project': 'ACME'}, '## Goal\n\nSee ACME-SUP-001 and [[TSK-041 Map it]].\n')
+        # Titled by a heading of its id, as every item was before default texts: the move renames it with the id.
+        self.ini = s.create('initiative', 'Checkout', {'project': 'ACME'},
+                            '# ACME-INI-001 — Checkout\n\n## Goal\n\nSee ACME-SUP-001 and [[TSK-041 Map it]].\n')
         self.sty = s.create('story', 'One page', {'project': 'ACME', 'related_to': self.ini['id']})
         self.sup = s.create('support', 'Empty invoice', {'project': 'ACME'})
         self.ops = s.create('initiative', 'Faster deploys', {'project': 'OPS'})

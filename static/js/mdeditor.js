@@ -39,16 +39,16 @@ function scrollers(el) {
 }
 
 /**
- * mdEditor({ value, onInput, minHeight, preview, placeholder, label, onEscape, highlight, markdown, wrap }) →
+ * mdEditor({ value, onInput, minHeight, preview, placeholder, label, onEscape, highlight, markdown, wrap, trailing }) →
  * { el, textarea, get(), set(text), focus() }. `preview: false` gives toolbar + textarea only. `onEscape` is what
  * Esc does in the textarea (an autosaving block: save, then leave the editor); without it Esc only leaves the textarea.
  * `highlight: '<language>'` (highlight.js) shows the text coloured as it is typed: the colours are drawn behind a
  * transparent textarea that grows with its text, so both wrap alike. `markdown: false` (a code file) drops the
  * formatting bar and the Markdown keys; `wrap: false` keeps long lines on one line, scrolled sideways. The bar ends
- * with a dictation mic where the browser can transcribe speech (dictation.js).
+ * with a dictation mic where the browser can transcribe speech (dictation.js), then `trailing` (a node of the caller's).
  */
 export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', preview = true, placeholder = 'Markdown… use "- [ ] step" for checklists', label = 'Description', fk = 'body', onEscape = null,
-  highlight = null, markdown = true, wrap = true } = {}) {
+  highlight = null, markdown = true, wrap = true, trailing = null } = {}) {
   const ta = h('textarea', { class: 'mde-text', spellcheck: 'false', placeholder, 'aria-label': label, 'data-fk': fk, wrap: wrap ? null : 'off' });
   ta.value = value;
   ta.style.minHeight = minHeight;
@@ -243,7 +243,8 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     prev ? seg(MODES.map(([m, text]) => [m, text, { attrs: { 'data-mode': m, onmousedown: (e) => e.preventDefault() } }]), mode, (m) => {
       mode = m; api.el.dataset.mode = m;
       bar.querySelectorAll('[data-mode]').forEach((b) => { const on = b.dataset.mode === m; b.setAttribute('aria-pressed', String(on)); b.classList.toggle('active', on); });
-    }, { aria: 'Layout', cls: 'mde-modes' }) : null);
+    }, { aria: 'Layout', cls: 'mde-modes' }) : null,
+    trailing); // the caller's, last (mdblock.js: Saved / ● unsaved)
 
   const write = hl ? h('div', { class: `mde-code ${wrap ? '' : 'nowrap'}` }, h('pre', { class: 'mde-hl', 'aria-hidden': 'true' }, hl), ta) : ta;
   api.el = h('div', { class: `mde ${prev ? 'with-preview' : ''} ${hl ? 'coloured' : ''}`, 'data-mode': mode }, bar,

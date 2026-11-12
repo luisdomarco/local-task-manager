@@ -1,11 +1,9 @@
 // The page's theme (themeprefs.js says what the choices mean): applied at start, again when a choice changes
-// (Settings → Themes, the sidebar's switch, another tab of the app) or the system turns dark or light. Whoever draws
+// (Settings → Themes, another tab of the app) or the system turns dark or light. Whoever draws
 // with the theme's colours (the graph, a canvas) watches the root's THEME_ATTRS, or listens for `tm:themechange` on
 // window.
-import { h, icon } from './ui.js';
 import { KEYS, applyTheme, resolveTheme } from './themeprefs.js';
 
-const MODE_BUTTONS = [['light', 'sun', 'Light'], ['dark', 'moon', 'Dark'], ['system', 'monitor', 'System']];
 const system = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : { matches: false };
 const memory = {}; // what was chosen when localStorage cannot keep it (private mode): it still holds for this page
 
@@ -56,15 +54,4 @@ export function initTheme() {
     apply();
     window.dispatchEvent(new CustomEvent('tm:themeprefs', { detail: current }));
   });
-  const box = document.getElementById('theme-switch');
-  if (!box) return;
-  const render = () => {
-    const { mode } = current;
-    box.replaceChildren(...MODE_BUTTONS.map(([m, ico, label]) => h('button', {
-      class: `btn icon ${mode === m ? 'active' : ''}`, title: `${label} theme`, 'aria-pressed': String(mode === m),
-      onclick: () => setTheme('mode', m),
-    }, icon(ico, 14))));
-  };
-  window.addEventListener('tm:themeprefs', render);
-  render();
 }

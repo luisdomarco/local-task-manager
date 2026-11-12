@@ -22,6 +22,7 @@ from . import frontmatter as fm
 from . import graph as tm_graph
 from . import history
 from . import people
+from . import vaultsettings
 from .fsutil import VaultBusy, atomic_write, vault_lock
 from .launch import SESSION_RE
 from .structures import GROUPS, StatusConfigError, relations
@@ -74,6 +75,7 @@ TENTATIVE = 'tentative'  # a work-log entry's `status` while it is only proposed
 META_DIR = '.task-manager'
 ORDER_FILE = '.order'  # in a Docs folder: its entries' names in the order dragged (Store.set_order)
 STATUSES_FILE = 'statuses.json'  # in META_DIR: how this vault arranged its types' statuses (TSK-037)
+DEFAULT_TEXTS_DIR = 'templates'  # in META_DIR: <type>.md, the body a new item of that type starts with (Projects)
 SKIP_DIRS = {'node_modules', '__pycache__', attachments.DIR}  # Attachments/: files, never items
 # What "work on it with Claude" sends: the item as plain text. The user sees it in full before it goes out.
 CLAUDE_MAX_PROMPT = 100_000  # bytes of prompt; the body is cut (and says so) beyond this
@@ -576,7 +578,7 @@ class Store:
                     for it in items if it['type'] == 'project']
         return {'structure': self.structure.id, 'label': self.structure.label, 'types': types, 'projects': projects,
                 'project_scoped': sorted(scoped), 'relation_kinds': self.structure.extras.get('relation_kinds') or {},
-                'docs': [r['path'] for r in self.docs_roots() if r.get('exists')]}
+                'docs': [r['path'] for r in self.docs_roots() if r.get('exists')], 'default_texts': self.has_default_texts()}
 
     def agents_status(self):
         """Whether this vault keeps its guide for agents (AGENTS.md with the generated block), and its CLAUDE.md."""
@@ -599,6 +601,89 @@ class Store:
                 return f.read()
         except FileNotFoundError:
             return ''
+
+    # ── default texts: what a new item's body starts as, per type (Settings → Vaults → Item types) ──
+    def _default_texts_dir(self):
+        return os.path.join(self.root, META_DIR, DEFAULT_TEXTS_DIR)
+
+    def has_default_texts(self):
+        """Whether this structure lets a vault set the body each type starts with (Projects: its codec's)."""
+        return bool(self.structure.codec and hasattr(self.structure.codec, 'default_texts'))
+
+    def default_texts(self):
+        """{type: text} of every type this vault shows: the vault's own (.task-manager/templates/<type>.md) once it has
+        them; before that, the ones it will be given (the structure's, seeded at its first write). '' is empty."""
+        if not self.has_default_texts():
+            return {}
+        folder = self._default_texts_dir()
+        if not os.path.isdir(folder):
+            seeds = self.structure.codec.default_texts()
+            return {t: seeds.get(t, '') for t in self.structure.types}
+        out = {}
+        for t in self.structure.types:
+            try:
+                with open(os.path.join(folder, f'{t}.md'), encoding='utf-8') as f:
+                    out[t] = f.read()
+            except FileNotFoundError:
+                out[t] = ''
+        return out
+
+    def default_text(self, item_type):
+        return self.default_texts().get(item_type, '')
+
+    def _seed_default_texts(self):
+        """Once per vault: its folder of default texts, from the structure's. Never again once it exists, so a text the
+        owner emptied or deleted stays so. Caller holds the write lock."""
+        if not self.has_default_texts() or os.path.isdir(self._default_texts_dir()):
+            return False
+        folder = self._default_texts_dir()
+        os.makedirs(folder, exist_ok=True)
+        for t, text in self.structure.codec.default_texts().items():
+            atomic_write(os.path.join(folder, f'{t}.md'), text)
+        return True
+
+    def _body_or_default(self, item_type, body):
+        """A new item's body: the one sent ('' included), or, with None sent, the vault's text for its type (seeded at
+        its first write). Caller holds the write lock."""
+        if body is not None:
+            return body
+        self._seed_default_texts()
+        return self.default_text(item_type)
+
+    @writes_files
+    def seed_default_texts(self):
+        """The vault's default texts, written into it if it has none yet (server start, App.migrate). → whether it wrote."""
+        return self._seed_default_texts()
+
+    @writes_files
+    def set_default_text(self, item_type, text):
+        """Settings → Vaults → Item types: the body a new item of `item_type` starts with in this vault. '' empties it
+        (the file stays, empty, so the structure's text never comes back). → every type's text now."""
+        if not self.has_default_texts():
+            raise StoreError(400, f'a {self.structure.label} vault has no default texts to set')
+        if item_type not in self.full_structure.types:
+            raise StoreError(400, f'unknown type: {item_type}')
+        if not isinstance(text, str):
+            raise StoreError(400, 'text must be a string')
+        self._seed_default_texts()
+        text = text.replace('\r\n', '\n').strip('\n')
+        atomic_write(os.path.join(self._default_texts_dir(), f'{item_type}.md'), text + '\n' if text else '')
+        return self.default_texts()
+
+    def vault_settings(self):
+        """What this vault keeps about itself (tm/vaultsettings.py): {} when it keeps nothing yet."""
+        return vaultsettings.read(self.root) or {}
+
+    @writes_files
+    def save_vault_settings(self, changes):
+        """Write the vault's own settings: `changes` replaces those keys (tm/vaultsettings.KEYS), and every other key the
+        file holds is kept as it is. A plain file of .task-manager, so it is allowed on a vault that does not match its
+        structure too (it is how what it shows is put right). → the settings now."""
+        now = {**self.vault_settings(), **{k: v for k, v in changes.items() if k in vaultsettings.KEYS}}
+        path = vaultsettings.path(self.root)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        atomic_write(path, json.dumps(now, indent=2, ensure_ascii=False) + '\n')
+        return now
 
     @writes
     def set_agents_md(self, on, app_dir):
@@ -936,7 +1021,9 @@ class Store:
         return {**self._item(path, k, fields, body, brev), 'body': shown_body(body)}
 
     @writes
-    def create(self, item_type, subject, values=None, body=''):
+    def create(self, item_type, subject, values=None, body=None):
+        """A new item. `body` None: the vault's default text for its type (Projects: Settings → Vaults → Item types;
+        a folder-per-type structure: the type's own sections); '' or any text: that, as given."""
         if item_type not in self.structure.types:
             raise StoreError(400, self._type_off(item_type))
         subject = (subject or '').strip()
@@ -1027,6 +1114,7 @@ class Store:
             vals.update(values)
             vals = self._ticket_rules_on_create(item_type, vals, r, stamp)
             vals['created_at'] = vals['updated_at'] = stamp
+            body = self._body_or_default(item_type, body)
             rel, text = codec.new_file(item_type, subject, vals, body, r, item_id, stamp, parent=parent)
             path = self.abs(rel)
             if os.path.exists(path):
@@ -1043,7 +1131,7 @@ class Store:
         named = [f"{'an' if n[0] in 'aeiou' else 'a'} {n}" for n in names] or ['another item']
         return named[0] if len(named) == 1 else f"{', '.join(named[:-1])} or {named[-1]}"
 
-    def _create_project(self, name, given, r, body='', values=None):
+    def _create_project(self, name, given, r, body=None, values=None):
         """A project: its folder, its note (`00 <Name>.md`, fileClass Ticket Project) and its type folders. What the
         create form filled in (its settings, sessions, labels, links…: `values`, validated) is written in its note; the
         types it turns on are those it names, else its kind's, and they decide its folders."""
@@ -1064,7 +1152,7 @@ class Store:
         vals = self._ticket_rules_on_create('project', {**vals, 'project_kind': kind}, r, stamp)
         vals.pop('project_kind', None)
         self._remember_labels(vals.get('labels'))
-        rel, text = codec.new_file('project', name, vals, body, r, None, stamp)
+        rel, text = codec.new_file('project', name, vals, self._body_or_default('project', body), r, None, stamp)
         top = os.path.dirname(rel)
         self._check_project_folder(top)
         folder = self.abs(top)
@@ -1121,7 +1209,10 @@ class Store:
             carried = {k: old[k] for k in ('url', 'url_label', 'links', 'labels', 'attachments') if old.get(k)}
             body = '\n'.join(line for line in body.strip().split('\n') if line.strip() not in ('## Related', '-', '- ')).strip()
             if body == it['title']:
-                body = ''  # an inbox note's template body is its title: nothing more was written
+                body = ''  # an inbox note's body was its title once (the old template): nothing more was written
+            # What was captured goes first, then the new type's default text in this vault (a story's sections…).
+            self._seed_default_texts()
+            body = '\n\n'.join(x.strip() for x in (body, self.default_text(new_type)) if x and x.strip())
             if it['id']:
                 self._mark_ids([it['id']])
             if self.structure.is_number(it['id']):  # a short id stays: INB-482 becomes TSK-482, its old ref an alias

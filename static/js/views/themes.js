@@ -1,7 +1,7 @@
-// Settings → Themes: the look (Classic or Modern), the mode (light, dark or the system's), and Modern's appearance:
-// density, a preset or each option on its own (themeprefs.js OPTIONS), beside a preview drawn with the app's own
-// components. Each choice applies at once and is kept in this browser (theme.js, themeprefs.js): it is not config, so
-// it has no Save. The sidebar's light / dark / system switch is the same choice as the mode here.
+// Settings → Themes: first the mode (light, dark or the system's: the only place it is chosen), then the look (Classic
+// or Modern) and Modern's appearance: density, a preset or each option on its own (themeprefs.js OPTIONS), beside a
+// preview drawn with the app's own components. Each choice applies at once and is kept in this browser (theme.js,
+// themeprefs.js): it is not config, so it has no Save.
 import { setTheme, setThemes, themeNow } from '../theme.js';
 import { OPTIONS, PRESETS, presetOf, presetValues, shuffled } from '../themeprefs.js';
 import { h, icon, propRow, seg, statusChip } from '../ui.js';
@@ -80,7 +80,7 @@ function preview() {
           h('span', { class: 'menu-item danger' }, icon('trash', 15), h('span', {}, 'Delete'))))));
 }
 
-/** → { el }: re-drawn whenever a choice changes, here or anywhere else (the sidebar's switch, another tab). */
+/** → { el }: re-drawn whenever a choice changes, here or anywhere else (another tab of the app). */
 export function themesPanel() {
   const el = h('div', { class: 'themes-panel' });
 
@@ -101,6 +101,10 @@ export function themesPanel() {
     };
     el.replaceChildren(
       h('section', { class: 'group' },
+        h('header', {}, h('h3', {}, 'Mode')),
+        h('div', { class: 'fields prop-rows' },
+          row('Mode', 'System follows your computer’s or phone’s light and dark.', choice('Mode', MODES, t.mode, (v) => setTheme('mode', v))))),
+      h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Theme')),
         h('p', { class: 'muted' }, 'How the app looks in this browser. It changes at once and is kept here, not in the app’s settings.'),
         h('div', { class: 'theme-cards', role: 'group', 'aria-label': 'Theme' }, ...LOOKS.map(([skin, name, about]) => h('button', {
@@ -115,7 +119,6 @@ export function themesPanel() {
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Appearance')),
         h('div', { class: 'fields prop-rows' },
-          row('Mode', null, choice('Mode', MODES, t.mode, (v) => setTheme('mode', v))),
           row('Density', null, choice('Density', OPTIONS.density.map((d) => [d, label(d)]), t.density, (v) => setTheme('density', v), off)))),
       h('section', { class: 'group ap-look' },
         h('header', {}, h('h3', {}, 'Look')),

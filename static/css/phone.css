@@ -84,6 +84,7 @@
   #sidebar:focus { outline: none; }
   #sidebar nav a, .side-ini, .tree-row { min-height: var(--tap); }
   .side-group > summary { min-height: var(--tap); font-size: var(--fs-xs); }
+  .guide-links a { min-height: var(--tap); }  /* Settings → Documentation: the repository links */
   /* Its top row at the drawer's scale: the name as large as a page's title, the logo and the fold icon to match */
   .brand { min-height: 52px; gap: 10px; font-size: var(--fs-h3); }
   .brand .logo { width: 32px; height: 32px; border-radius: var(--radius); }
@@ -91,7 +92,7 @@
   .brand #side-collapse { width: var(--tap); height: var(--tap); margin: -8px -10px -8px auto; }
   .brand #side-collapse .icon { width: 22px; height: 22px; }
   .side-switches { flex-wrap: wrap; row-gap: 8px; }
-  :is(.side-mode, .theme-switch) .btn.icon { width: var(--tap); height: 40px; }
+  .side-mode .btn.icon { width: var(--tap); height: 40px; }
   .side-view-x, .docs-add, .tree-more { width: var(--tap); height: var(--tap); }
   .side-view-x { margin-right: -12px; }
   .tree-more { margin-right: -10px; }
@@ -266,6 +267,26 @@
   .tag-grid tbody tr:not(.tag-edit) > td:not(.c-name, .c-count, .c-actions):has(> .muted:only-child) { display: none; } /* a — says nothing */
   .tag-grid td.c-actions .row-action:first-child { display: none; } /* Edit: the row is */
   .tag-grid tr.tag-edit, .tag-grid tr.tag-edit > td { display: block; }
+  /* Settings → Vaults (views/vaults.js): a vault's name and chips (This page, Default) on its line, its folder under it,
+     then its structure, types and features; Edit and Remove a finger's at the right. A tap on the name edits it. */
+  .vault-grid { width: 100%; }
+  .vault-grid colgroup, .vault-grid thead { display: none; }
+  .vault-grid, .vault-grid tbody { display: block; }
+  .vault-grid tbody tr:not(.tag-edit) { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; column-gap: 10px;
+    row-gap: 2px; padding: 8px 0 8px 4px; border-bottom: 1px solid var(--border); }
+  .vault-grid tbody tr:not(.tag-edit) > td { display: block; height: auto; padding: 0; border: 0; min-width: 0; }
+  .vault-grid td.c-name { grid-column: 1 / 4; font-size: var(--fs-base); }
+  .vault-grid td.c-path { grid-column: 1 / 4; font-size: var(--fs-2xs); color: var(--muted-foreground); }
+  .vault-grid tbody tr:not(.tag-edit) > td.c-default { display: none; } /* no room on line 3: the chip by the name says it */
+  .vault-grid .chip.vault-default { display: inline-flex; }
+  .vault-grid td:is(.c-structure, .c-types, .c-features) { grid-row: 3; font-size: var(--fs-2xs); color: var(--muted-foreground); text-align: left; }
+  .vault-grid td.c-types::after { content: " types"; }
+  .vault-grid td.c-features::after { content: " features"; }
+  .vault-grid td.c-actions { grid-column: 4; grid-row: 1 / span 2; } /* by the name and folder: line 3 has the width */
+  .vault-grid td.c-features { grid-column: 3 / 5; }
+  .vault-grid .row-action { opacity: 1; }
+  .vault-grid tr.tag-edit, .vault-grid tr.tag-edit > td { display: block; }
+  .vault-modal .tab-panel { max-height: none; overflow: visible; } /* the dialog scrolls, its foot sticks */
   .person-edit { position: static; max-width: none; }
   .person-fields { grid-template-columns: minmax(0, 1fr); }
   .th-btn { min-height: var(--tap); }

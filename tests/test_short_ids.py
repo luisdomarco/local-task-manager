@@ -59,7 +59,8 @@ class NumberingTest(ShortIdsBase):
         text = read(self.root, sty['path'])
         self.assertRegex(text, r'\nid: 2 +# its number, drawn STY-<n>\n')
         self.assertIn('initiative: "[[INI-1 Checkout]]"', text)
-        self.assertIn('\n# STY-2 — One page\n', text)
+        self.assertNotIn('# STY-2', text)
+        self.assertIn('\n## Acceptance criteria\n', text)  # the vault's default text for a story
         self.assertIn('item: "[[STY-2 One page]]"', read(self.root, plan['path']))
         self.assertEqual(self.s.read(sty['id'])['fields']['related_to'], '1')  # its initiative's link, as that item's key
 

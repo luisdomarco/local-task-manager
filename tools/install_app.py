@@ -33,7 +33,8 @@ LABEL = 'com.taskmanager.app'
 WAKE_LABEL = 'com.taskmanager.app.wake'  # its scheduled agent runs: tools/agents_wake.py every few minutes
 PORT = 3200
 # What the app needs to run: the server, the page, the tools it may call, and the sample vault (the default root).
-APP_FILES = ('server.py', 'tm', 'static', 'docs', 'tools', 'sample-vault', 'sample-vault-legacy', 'README.md', 'package.json', 'config.example.json')
+APP_FILES = ('server.py', 'tm', 'static', 'docs', 'tools', 'sample-vault', 'sample-vault-legacy', 'README.md', 'CHANGELOG.md',
+             'package.json', 'config.example.json')  # CHANGELOG.md: the version Settings → Documentation shows
 # What older versions installed and this one has not: removed on --update and --uninstall (the Projects sample was
 # sample-vault-ticketing/ until it became sample-vault/).
 RETIRED_FILES = ('sample-vault-ticketing',)

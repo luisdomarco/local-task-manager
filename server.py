@@ -28,7 +28,7 @@ import errno
 import queue
 import signal
 
-from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules
+from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules, vaultsettings
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write, download_on_read
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
@@ -51,6 +51,7 @@ STATIC_DIR = os.path.join(APP_DIR, 'static')
 CONFIG_PATH = os.path.join(APP_DIR, 'config.json')
 # The user guide Settings → Documentation shows: what the app gives you and how to use it (also read on GitHub).
 GUIDE_PATH = os.path.join(APP_DIR, 'docs', 'user-guide.md')
+CHANGELOG_PATH = os.path.join(APP_DIR, 'CHANGELOG.md')
 # What the app and its tools set aside before overwriting something (a config, a vault): one folder next to config.json,
 # apart from versions/ (the exports). Never versioned, never exported.
 BACKUPS_DIR = 'backups'
@@ -136,7 +137,11 @@ def load_config():
     # A vault saved before there were structures to pick names none: it was an Initiatives one.
     cfg['vaults'] = [{**v, 'structure': v.get('structure') or UNNAMED_STRUCTURE} for v in cfg['vaults'] if isinstance(v, dict)]
     cfg['vaults'] = [{**v, 'folders': vault_folders(v['structure'], v.get('folders')),
-                      'disabled_types': vault_disabled(v['structure'], v.get('disabled_types'))}
+                      'disabled_types': vault_disabled(v['structure'], vault_types_off(v)),
+                      'disabled_features': vault_features_off(v)}
+                     for v in cfg['vaults']]
+    cfg['vaults'] = [{**v, 'features_off': vaultsettings.features_off(v['disabled_features'], v['disabled_types'],
+                                                                       list(REGISTRY[v['structure']].types) if v['structure'] in REGISTRY else [])}
                      for v in cfg['vaults']]
     if cfg.get('default_vault') not in {v.get('id') for v in cfg['vaults']}:
         cfg['default_vault'] = cfg['vaults'][0].get('id')
@@ -152,6 +157,65 @@ def vault_folders(structure, folders):
     base = s.default_folders
     return {**base, **{k: str(v).strip().strip('/') for k, v in (folders or {}).items()
                        if k in base and str(v or '').strip().strip('/')}}
+
+
+def vault_types_off(vault):
+    """The types a vault turned off, from where they live: the vault's own settings (tm/vaultsettings.py), shared by
+    every device that opens it; else, for a vault that keeps none yet, this device's config.json (where they were kept
+    before; App.migrate moves them into the vault)."""
+    own = vaultsettings.read(resolve_root(vault.get('path') or ''))
+    if own is not None and 'disabled_types' in own:
+        return own['disabled_types'] if isinstance(own['disabled_types'], list) else []
+    return vault.get('disabled_types')
+
+
+def vault_features_off(vault):
+    """The features a vault turned off (Settings → Vaults → Features): only in the vault's own settings, known ones."""
+    own = vaultsettings.read(resolve_root(vault.get('path') or '')) or {}
+    off = own.get('disabled_features')
+    return [f for f in vaultsettings.FEATURE_IDS if isinstance(off, list) and f in off]
+
+
+def hidden_types(vault):
+    """The types a vault's store hides: those Item types turned off, and those of the features it turned off."""
+    s = REGISTRY.get(vault.get('structure') or DEFAULT_STRUCTURE)
+    if not s:
+        return ()
+    off = set(vault.get('disabled_types') or ()) | set(vaultsettings.feature_types(vault.get('disabled_features'), s.types))
+    return tuple(t for t in s.types if t in off and t not in s.required)
+
+
+def check_features_off(name, structure, disabled_types, disabled_features):
+    """The features a vault turns off, checked: known ones, and at least one type left on with their types gone too.
+    → the list, in FEATURES' order. Refused (400) with the reason."""
+    if not isinstance(disabled_features, list):
+        raise StoreError(400, 'disabled_features must be a list of features')
+    for f in disabled_features:
+        if f not in vaultsettings.FEATURE_IDS:
+            raise StoreError(400, f'the vault "{name}": {f} is not a feature (there are: {", ".join(vaultsettings.FEATURE_IDS)})')
+    s = REGISTRY[structure]
+    if not set(s.types) - set(disabled_types or ()) - set(vaultsettings.feature_types(disabled_features, s.types)):
+        raise StoreError(400, f'the vault "{name}" needs at least one type turned on')
+    return [f for f in vaultsettings.FEATURE_IDS if f in disabled_features]
+
+
+# What a default text may say, filled in when the item is made (tm/structures/ticketing/codec.py new_file).
+DEFAULT_TEXT_PLACEHOLDERS = ('ref', 'id', 'title', 'project', 'key', 'date', 'slug', 'item_ref', 'item_title')
+
+
+def check_types_off(name, structure, disabled):
+    """The types a vault turns off, checked against its structure: known, not required, and one left on. → the list,
+    in the structure's order. Refused (400) with the reason."""
+    s = REGISTRY[structure]
+    disabled = [str(t) for t in (disabled or []) if str(t).strip()]
+    for t in disabled:
+        if t not in s.types:
+            raise StoreError(400, f'the vault "{name}": {t} is not a type of the {s.label} structure')
+        if t in s.required:
+            raise StoreError(400, f'the vault "{name}": {s.types[t].plural} cannot be turned off in {s.label}')
+    if not set(s.types) - set(disabled):
+        raise StoreError(400, f'the vault "{name}" needs at least one type turned on')
+    return sorted(set(disabled), key=list(s.types).index)
 
 
 def vault_disabled(structure, disabled):
@@ -242,19 +306,11 @@ def clean_vaults(vaults, default_vault, saved=None):
             if _same_or_inside(real, other) or _same_or_inside(other, real):
                 raise StoreError(400, f'the vaults "{name}" and "{other_name}" overlap: one folder is inside the other')
         folders = vault_folders(structure, raw.get('folders'))
-        disabled = [str(t) for t in (raw.get('disabled_types') or []) if str(t).strip()]
-        s = REGISTRY[structure]
-        for t in disabled:
-            if t not in s.types:
-                raise StoreError(400, f'the vault "{name}": {t} is not a type of the {s.label} structure')
-            if t in s.required:
-                raise StoreError(400, f'the vault "{name}": {s.types[t].plural} cannot be turned off in {s.label}')
-        if not set(s.types) - set(disabled):
-            raise StoreError(400, f'the vault "{name}" needs at least one type turned on')
+        disabled = check_types_off(name, structure, raw.get('disabled_types'))
         ids.add(vid)
         roots.append((name, real))
         out.append({'id': vid, 'name': name, 'path': path, 'structure': structure, 'folders': folders,
-                    'disabled_types': sorted(set(disabled), key=list(s.types).index)})
+                    'disabled_types': disabled})
     return out, (default_vault if default_vault in ids else out[0]['id'])
 
 
@@ -301,12 +357,25 @@ def open_vault_store(vault_id=None, structures=('folders',)):
     if vault['structure'] not in structures:
         raise ValueError(f"the vault '{vault_id}' has the {vault['structure']} structure, which this tool does not handle")
     store = Store(resolve_root(vault['path']), vault['folders'], vault['structure'], enforce_structure=True,
-                  disabled_types=vault.get('disabled_types') or ())
+                  disabled_types=hidden_types(vault))
+    store.features_off = tuple(vault.get('features_off') or ())
     result = store.check()
     if not result['ok']:
         found = '; '.join(f"{f['path']}: {f['detail']}" for f in result['blocking'][:5])
         raise ValueError(f"the vault '{vault_id}' does not match its structure, so nothing is written to it ({found})")
     return store
+
+
+def require_feature(store, feature):
+    """For the tools in tools/: refused (ValueError) when the store's vault turned `feature` off (Settings → Vaults →
+    Features). A store opened from a bare folder reads what the vault keeps about itself."""
+    off = getattr(store, 'features_off', None)
+    if off is None:
+        own = vaultsettings.read(store.root) or {}
+        off = vaultsettings.features_off(own.get('disabled_features'), own.get('disabled_types'), list(store.full_structure.types))
+    if feature in off:
+        label = next(f['label'] for f in vaultsettings.FEATURES if f['id'] == feature)
+        raise ValueError(f'{label} is turned off in the vault at {store.root} (Settings → Vaults → Features): nothing to do')
 
 
 class App:
@@ -326,8 +395,10 @@ class App:
 
     @staticmethod
     def _build(vault):
-        return Store(resolve_root(vault['path']), vault['folders'], vault['structure'], enforce_structure=True,
-                     disabled_types=vault.get('disabled_types') or ())
+        store = Store(resolve_root(vault['path']), vault['folders'], vault['structure'], enforce_structure=True,
+                      disabled_types=hidden_types(vault))
+        store.features_off = tuple(vault.get('features_off') or ())  # what its routes refuse (FEATURE_ROUTES)
+        return store
 
     def store_for(self, vault_id):
         vault = self.vault(vault_id)
@@ -351,6 +422,45 @@ class App:
         with self._stores_lock:
             self._put(self.config['default_vault'], value)
 
+    def set_vault_settings(self, vault_id, changes):
+        """Settings → Vaults → a vault's Item types: written into the vault (tm/vaultsettings.py), where every device that
+        opens it reads them, not into config.json. The vault's store is opened again with them. → what the vault keeps."""
+        vault = self.vault(vault_id)
+        out = {}
+        if 'disabled_types' in changes:
+            if not isinstance(changes['disabled_types'], list):
+                raise StoreError(400, 'disabled_types must be a list of types')
+            out['disabled_types'] = check_types_off(vault['name'], vault['structure'], changes['disabled_types'])
+        if 'disabled_features' in changes:
+            out['disabled_features'] = check_features_off(vault['name'], vault['structure'],
+                                                          out.get('disabled_types', vault.get('disabled_types')), changes['disabled_features'])
+        elif 'disabled_types' in out:
+            check_features_off(vault['name'], vault['structure'], out['disabled_types'], vault.get('disabled_features') or [])
+        if not out:
+            raise StoreError(400, 'nothing to save: send disabled_types or disabled_features')
+        saved = self.store_for(vault_id).save_vault_settings(out)
+        self._reload_vault(vault_id)
+        return {'vault': vault_id, 'settings': saved}
+
+    def _reload_vault(self, vault_id):
+        """config.json read again (a vault's settings are part of how it is opened), and that vault's store opened
+        again: what it shows is built once per store."""
+        self.config = load_config()
+        vault = self.vault(vault_id)
+        store = self._open(vault)
+        with self._stores_lock:
+            self._put(vault_id, store)
+
+    def move_settings_into_vault(self, vault):
+        """Once per vault, before serving: the types it turned off move from this device's config.json into the vault,
+        so the other devices that open it see them. Only a vault that keeps no settings yet and has some to move; the
+        copy left in config.json is ignored from then on (vault_types_off), and dropped at the next save of Settings."""
+        root = resolve_root(vault['path'])
+        if not vault.get('disabled_types') or not os.path.isdir(root) or vaultsettings.read(root) is not None:
+            return
+        self.store_for(vault['id']).save_vault_settings({'disabled_types': vault['disabled_types']})
+        print(f"{vault['name']}: its item types moved into {vaultsettings.path(root)}")
+
     def public_vault(self, vault_id):
         v = self.vault(vault_id)
         return {'id': v['id'], 'name': v['name'], 'structure': v['structure'], 'path': v['path'],
@@ -363,6 +473,8 @@ class App:
         if not store.check()['ok']:
             print(f'not migrating {store.root}: it does not match its structure')
             return
+        if store.seed_default_texts():  # the body each type starts with, into the vault once (Settings → Vaults)
+            print(f'{store.root}: default texts written in .task-manager/templates/')
         for m in store.migrate_user_stories():  # stories embedded in initiatives become items (once)
             print(f"migrated {m['was']} of {m['initiative']} → {m['story']}")
 
@@ -413,6 +525,18 @@ class App:
             if not os.path.isabs(folder) or not os.path.isdir(folder):
                 raise StoreError(400, f'not a directory: {folder}')
         before = {v['id']: v for v in self.config['vaults']}
+        # A vault that keeps its own settings (tm/vaultsettings.py) is the only place its types are: config.json's copy
+        # would only go stale. One that keeps none yet still has them here.
+        cfg['vaults'] = [{k: x for k, x in v.items() if k != 'disabled_types'} if vaultsettings.read(resolve_root(v['path'])) is not None else v
+                         for v in cfg['vaults']]
+        # A vault's features are only ever its own (and features_off is worked out on load): never in config.json.
+        cfg['vaults'] = [{k: x for k, x in v.items() if k not in ('disabled_features', 'features_off')} for v in cfg['vaults']]
+        # Another structure has other types: what the vault turned off in the old one means nothing there.
+        for v in cfg['vaults']:
+            was = before.get(v['id'])
+            if was and was['structure'] != v['structure'] and resolve_root(was['path']) == resolve_root(v['path']) \
+                    and (vaultsettings.read(resolve_root(v['path'])) or {}).get('disabled_types'):
+                self.store_for(v['id']).save_vault_settings({'disabled_types': []})
         self._keep_copy_before_vaults()
         atomic_write(CONFIG_PATH, json.dumps(cfg, indent=2, ensure_ascii=False) + '\n')
         self.config = load_config()
@@ -420,7 +544,7 @@ class App:
         # whose folder, structure or folders changed. Everything else (kinds, Claude, terminal) is read live.
         # A vault taken out of the list is only forgotten: nothing on disk is touched.
         def shape(v):
-            return resolve_root(v['path']), v['structure'], v['folders'], tuple(v.get('disabled_types') or ())
+            return resolve_root(v['path']), v['structure'], v['folders'], hidden_types(v), tuple(v.get('features_off') or ())
         with self._stores_lock:
             old_stores, self.stores = self.stores, {}
         for v in self.config['vaults']:
@@ -477,6 +601,8 @@ class App:
                 'legacy_structures': list(LEGACY_STRUCTURES), 'default_structure': DEFAULT_STRUCTURE,
                 # what each structure lets a vault turn on and off (Settings → Vaults)
                 'structure_types': {k: s.type_choices() for k, s in REGISTRY.items()},
+                # what a vault may turn off as a whole (Settings → Vaults → Features; tm/vaultsettings.py)
+                'vault_features': [{**f, 'types': list(f['types'])} for f in vaultsettings.FEATURES],
                 'statuses': STATUSES, 'item_types': list(ITEM_TYPES),
                 'priorities': PRIORITIES, 'parent_types': PARENT_TYPES, 'activity_sources': ACTIVITY_SOURCES,
                 'editors': list(EDITORS),  # what Settings offers for the Explorer's "Open in <editor>"
@@ -614,6 +740,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({'error': 'missing X-Task-Manager header'}, 403)
             body = (self.read_upload() if route in UPLOAD_ROUTES else self.read_json()) if method == 'POST' else {}
             store = self.vault_store(route)
+            refused = feature_refused(store, url.path) if store is not None else None
+            if refused:
+                return self.send_json({'error': refused, 'feature_off': True}, 409)
             if method != 'POST' or store is None:
                 return self.send_json(handler(store, q, body))
             before = journal_before(store, url.path, body)
@@ -2008,6 +2137,12 @@ ROUTES = {
     ('POST', '/api/vault/create-folders'): lambda s, q, b: {'check': s.create_missing_folders()},
     # The vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, on or off (Settings → Vaults).
     ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on')), APP_DIR),
+    ('GET', '/api/vault/settings'): lambda s, q, b: {'vault': s.vault_id, 'settings': s.vault_settings()},
+    # The body each type starts with in this vault (Settings → Vaults → Item types; the create form fills it in)
+    ('GET', '/api/vault/default-texts'): lambda s, q, b: {'texts': s.default_texts(), 'editable': s.has_default_texts(),
+                                                          'placeholders': list(DEFAULT_TEXT_PLACEHOLDERS)},
+    ('POST', '/api/vault/default-text'): lambda s, q, b: {'texts': s.set_default_text(str(b.get('type') or ''), b.get('text'))},
+    ('POST', '/api/vault/settings'): lambda s, q, b: APP.set_vault_settings(s.vault_id, b),
     ('GET', '/api/items'): lambda s, q, b: {'items': s.items()},
     # The vault as a graph: its items and docs, and every link between them (tm/graph.py). The page filters it.
     ('GET', '/api/graph'): lambda s, q, b: s.graph(),
@@ -2037,7 +2172,8 @@ ROUTES = {
     ('GET', '/api/item'): lambda s, q, b: s.read(q['key']),
     ('GET', '/api/item/history'): lambda s, q, b: {'entries': s.item_history(q['key'])},
     ('POST', '/api/item/create'): lambda s, q, b: s.create(
-        b['type'], b.get('subject'), b.get('values'), b.get('body') or ''),
+        # no body (null or left out): the vault's default text for the type (Store.create)
+        b['type'], b.get('subject'), b.get('values'), b.get('body') if isinstance(b.get('body'), str) else None),
     # A change from the page is the owner's (free to move a status anywhere); a script says "by": "agent" to go through
     # the structure's transitions and gates (tools/devflow.py, the /dev:* commands).
     ('POST', '/api/item/update'): lambda s, q, b: s.update(
@@ -2165,6 +2301,26 @@ ROUTES = {
 }
 # The routes whose body is a file's bytes, not JSON.
 UPLOAD_ROUTES = {('POST', '/api/attachments/add'), ('POST', '/api/files/upload')}
+# The routes of a feature a vault may turn off (tm/vaultsettings.py FEATURES), by path prefix: refused (409) while it is
+# off in the vault the request names. Routes not about one vault (an agent's runs, the terminals) are not refused here.
+FEATURE_ROUTES = (
+    ('/api/graph', 'graph'), ('/api/worklog', 'worklog'), ('/api/canvases', 'canvas'),
+    ('/api/people', 'contacts'), ('/api/groups', 'contacts'),
+    ('/api/item/comment', 'activity'), ('/api/item/history', 'activity'),
+    ('/api/item/claude', 'agents'), ('/api/claude/', 'agents'), ('/api/agents/open', 'agents'), ('/api/agents/run', 'agents'),
+)
+
+
+def feature_refused(store, path):
+    """The reason a request is refused when its route is a feature's that the store's vault turned off, else None."""
+    off = getattr(store, 'features_off', ())
+    for prefix, feature in FEATURE_ROUTES:
+        if feature in off and (path == prefix or path.startswith(prefix if prefix.endswith('/') else prefix + '/')):
+            label = next(f['label'] for f in vaultsettings.FEATURES if f['id'] == feature)
+            return f'{label} is turned off in this vault (Settings → Vaults → Features)'
+    return None
+
+
 # The routes that are not about one vault: they get no store and need no X-TM-Vault. Everything else does.
 GLOBAL_ROUTES = {
     ('GET', '/api/config'), ('POST', '/api/config'),
@@ -2181,11 +2337,26 @@ GLOBAL_ROUTES = {
 }
 
 
+def app_version():
+    """The last version released, as CHANGELOG.md's first `## [x.y.z]` heading names it (Unreleased is not one), or
+    None in a copy without it (the iPhone app's bundle)."""
+    try:
+        with open(CHANGELOG_PATH, encoding='utf-8') as f:
+            for line in f:
+                m = re.match(r'## \[(\d+\.\d+\.\d+)\]', line)
+                if m:
+                    return m.group(1)
+    except OSError:
+        pass
+    return None
+
+
 def user_guide():
-    """docs/user-guide.md as Markdown, for Settings → Documentation (the page renders and sanitizes it)."""
+    """docs/user-guide.md as Markdown, and the app's version, for Settings → Documentation (the page renders and
+    sanitizes it)."""
     try:
         with open(GUIDE_PATH, encoding='utf-8') as f:
-            return {'markdown': f.read()}
+            return {'markdown': f.read(), 'version': app_version()}
     except OSError:
         raise StoreError(404, 'the user guide (docs/user-guide.md) is missing from this copy of the app')
 
@@ -2193,6 +2364,7 @@ def user_guide():
 def main():
     for v in APP.config['vaults']:  # each vault that matches its structure gets its one-off upgrades
         if os.path.isdir(resolve_root(v['path'])):
+            APP.move_settings_into_vault(v)
             App.migrate(APP.store_for(v['id']))
     port = int(os.environ.get('TM_PORT') or APP.config.get('port') or 3100)
     listeners = activated_sockets()  # the installed app, started by launchd on its first connection

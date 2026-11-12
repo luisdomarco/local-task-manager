@@ -79,6 +79,10 @@ describe('pages', () => {
     assert.deepEqual(asked('initiative', 'delivery'), ['regime', 'size']); // its premise is verified later
     assert.deepEqual(asked('hotfix', 'relations'), []); // its post-mortem comes after it
     assert.deepEqual(asked('prd', 'relations'), ['supersedes']);
+    // Its goal is joined later (the Goals view, its card's Relations): the create form asks for its Parent instead.
+    for (const type of ['task', 'story', 'initiative', 'prd']) assert.ok(!asked(type, 'relations').includes('goal'), type);
+    assert.ok(propsIn('task', 'relations').some((p) => p.key === 'goal')); // its card still shows it
+    assert.deepEqual(asked('initiative', 'relations'), ['origin']);
     assert.ok(asked('project', 'settings').includes('project_kind')); // chosen once, on creation
     assert.equal(askedOnCreate({ key: 'level_base', kind: 'readonly' }), false); // set by the app
     assert.equal(askedOnCreate({ key: 'x', kind: 'text' }), true);

@@ -11,7 +11,3 @@ tags: []
 creation_date: {{date}}
 updated_date: {{date}}
 ---
-
-# {{ref}} — {{title}}
-
-Its projects, initiatives, stories and tasks each name it in their own `goal:` ("[[GOL-<n> …]]").

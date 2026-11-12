@@ -301,6 +301,16 @@ class HttpVaultsTest(VaultsBase):
         with mock.patch.object(server, 'GUIDE_PATH', os.path.join(self.tmp, 'gone.md')):
             self.assertEqual(self.request('/api/guide', vault=None)[0], 404)
 
+    def test_the_guide_says_which_version_this_is(self):
+        # The last release CHANGELOG.md names (not Unreleased); a copy without it (the iPhone app's bundle) says none.
+        log = os.path.join(self.tmp, 'CHANGELOG.md')
+        with open(log, 'w', encoding='utf-8') as f:
+            f.write('# Changelog\n\n## [Unreleased]\n\n- next\n\n## [2.3.1] - 2026-11-12\n\n## [2.3.0]\n')
+        with mock.patch.object(server, 'CHANGELOG_PATH', log):
+            self.assertEqual(self.request('/api/guide', vault=None)[1]['version'], '2.3.1')
+        with mock.patch.object(server, 'CHANGELOG_PATH', os.path.join(self.tmp, 'gone.md')):
+            self.assertIsNone(self.request('/api/guide', vault=None)[1]['version'])
+
     def test_the_structure_is_the_vaults_own(self):
         self.assertEqual(self.request('/api/structure', vault=None)[0], 400)
         code, out = self.request('/api/structure', vault='b')

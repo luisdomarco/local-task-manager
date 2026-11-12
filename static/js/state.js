@@ -1,10 +1,10 @@
 // App state + every mutation. Each mutation hits the API, reloads, and notifies
 // listeners, so views stay dumb: they read `state` and call these functions.
 import { api } from './api.js';
-import { setFeatures } from './features.js';
+import { has, setFeatures } from './features.js';
 import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
 import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
-import { pickVault } from './vault.js';
+import { pickVault, vaultId } from './vault.js';
 import { isTentative } from './worktime.js';
 import { refOf } from './shownid.js';
 import { goalProgress } from './goals.js';
@@ -70,8 +70,9 @@ export async function reload() {
     // this one names it). A vault that vanished from Settings while this page showed it: start again, clean.
     const config = await api.config();
     state.config = config;
-    document.documentElement.dataset.off = setFeatures(config); // what this platform has none of (features.js)
     if (pickVault(config)) { location.reload(); return; }
+    // What this platform has none of, and what this vault turned off (features.js)
+    document.documentElement.dataset.off = setFeatures(config, vaultId());
     // The vault's structure, once: a page shows one vault (switching loads the page again), and the views build
     // their types, nav and lists from it.
     if (!structureLoaded) {
@@ -91,7 +92,9 @@ export async function reload() {
       return;
     }
     const [items, board, log, pins, sidebar, todayLists, weekLists, people, groups, labels, trash] = await Promise.all([
-      api.items(), api.board(), api.worklog(), api.pins(), api.sidebar(), api.today(), api.weekBoard(), api.people(), api.groups(),
+      // A feature the vault turned off is not asked for (its routes refuse it: server.py FEATURE_ROUTES)
+      api.items(), api.board(), has('worklog') ? api.worklog() : { entries: [] }, api.pins(), api.sidebar(), api.today(), api.weekBoard(),
+      has('contacts') ? api.people() : { people: [] }, has('contacts') ? api.groups() : { groups: [] },
       api.labels(), api.trash(),
     ]);
     state.all = items.items;
@@ -171,7 +174,9 @@ export const progressOf = (i) => (i.type === 'goal' ? goalProgress(state.items, 
 export const logOf = (id) => state.worklog.filter((e) => e.id === id && !isTentative(e));
 
 // ── mutations ────────────────────────────────────────────────────────────────
-export function createItem(type, subject, values = {}, body = '') {
+/** `body` null: the vault's default text for the type (Settings → Vaults → Item types), its placeholders filled in by
+ *  the server; '' or any text: that, as given. */
+export function createItem(type, subject, values = {}, body = null) {
   const list = values.list && state.board.lists.find((l) => l.id === values.list);
   if (list) values = { ...values, status: list.status }; // "+ Add card" in a list
   return mutate(() => api.create(type, subject, values, body));

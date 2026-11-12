@@ -527,8 +527,6 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .tracker-input input { width: 100%; }
 .log-edit-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .btn.icon.toggle.on { color: var(--foreground); background: var(--accent); }
-.theme-switch { display: flex; gap: 2px; padding: 3px; background: var(--muted); border-radius: var(--radius); align-self: flex-start; margin: 0 8px; }
-.theme-switch .btn.icon { width: 32px; height: 30px; }
 /* Resize grip on the sidebar's edge (sidebar.js); hidden with the sidebar. */
 #side-resizer { flex: none; width: 7px; margin: 0 -4px 0 -3px; z-index: 5; cursor: col-resize; position: relative; touch-action: none; }
 #side-resizer::after { content: ''; position: absolute; inset: 0 3px; background: transparent; transition: background .15s; }
@@ -539,12 +537,10 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .side-collapsed #sidebar, .side-collapsed #side-resizer { display: none; }
 #side-expand { display: none; flex: none; }
 .side-collapsed #side-expand { display: inline-flex; }
-.theme-switch .btn.icon.active { background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
 
-/* The sidebar's two modes (sidebar.js): the switch in its foot, left of the theme's and drawn as it is, and the
+/* The sidebar's two modes (sidebar.js): the switch in its foot, and the
    Explorer's tree (explorer.js) in place of the Project mode's nav, initiatives and tools. Add item and the foot stay in both. */
 .side-switches { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 8px; }
-.side-switches > .theme-switch { margin: 0; }
 .side-mode { display: flex; gap: 2px; padding: 3px; background: var(--muted); border-radius: var(--radius); }
 .side-mode .btn.icon { width: 32px; height: 30px; min-height: 0; color: var(--muted-foreground); }
 .side-mode .btn.icon.active { background: var(--background); color: var(--foreground); box-shadow: 0 1px 2px rgb(0 0 0 / .15); }
@@ -558,7 +554,12 @@ h3 .count, .h3 .count { margin-left: 8px; }
 :root[data-off~="agents"] [data-feature~="agents"], :root[data-off~="terminal"] [data-feature~="terminal"],
 :root[data-off~="canvas"] [data-feature~="canvas"], :root[data-off~="open_in"] [data-feature~="open_in"],
 :root[data-off~="reveal"] [data-feature~="reveal"], :root[data-off~="export"] [data-feature~="export"],
-:root[data-off~="server"] [data-feature~="server"] { display: none !important; }
+:root[data-off~="server"] [data-feature~="server"],
+/* …and what the vault turned off (Settings → Vaults → Features, tm/vaultsettings.py FEATURES) */
+:root[data-off~="inbox"] [data-feature~="inbox"], :root[data-off~="activity"] [data-feature~="activity"],
+:root[data-off~="goals"] [data-feature~="goals"], :root[data-off~="graph"] [data-feature~="graph"],
+:root[data-off~="meetings"] [data-feature~="meetings"], :root[data-off~="worklog"] [data-feature~="worklog"],
+:root[data-off~="contacts"] [data-feature~="contacts"] { display: none !important; }
 /* Docs (views/docs.js): its panel on the left of the view, the doc on the right, and between them a grip that resizes
    the panel (resizer.js; its width in --docs-w), drawn as the sidebar's. A head per section — its title folds it, "+"
    starts a doc or a folder; dimmed while its Docs folder is not there. */
@@ -1517,6 +1518,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde:hover { border-color: var(--foreground); }
 .mde-bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: var(--well); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .mde-bar .btn.icon { width: 28px; height: 28px; }
+.mde-bar > .unsaved { margin-left: 8px; white-space: nowrap; } /* mdblock.js: Saved / ● unsaved, last in the bar while editing a tab's description */
 .mde-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 6px; }
 .mde-swatch { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 0; cursor: pointer; font-weight: 700; font-size: var(--fs-sm); background: var(--card); color: var(--swatch); }
 .mde-swatch.highlight { background: var(--swatch); }
@@ -1727,6 +1729,13 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .settings ul { margin: 6px 0 10px; }
 /* Settings → Documentation: the user guide, at a reading width */
 .settings .guide { max-width: 760px; }
+/* Documentation's head (views/settings.js guidePanel): the name and version, then the public repository's links, each
+   opening outside the app (a new tab; Safari from the iPhone app). */
+.guide-head { padding-bottom: 18px; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
+.guide-head header { display: flex; align-items: baseline; gap: 10px; }
+.guide-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; }
+.guide-links a { display: inline-flex; align-items: center; gap: 4px; color: var(--foreground); text-underline-offset: 3px; }
+.guide-links a .icon { color: var(--muted-foreground); }
 .settings .group p.muted { margin: 0 0 10px; }
 /* Settings in the new style: the form tabs at a reading width, one section after the other with a line between them,
    each setting a row (its name on the left, its control on the right, as a card's properties); Save stays in view at
@@ -1741,11 +1750,11 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .settings .group > header { margin-bottom: 4px; }
 /* A section's name: a small grey uppercase title, as the item page's groups and the create form's sections */
 .settings .group > header h3 { margin: 0; }
-.settings .prop-rows { display: flex; flex-direction: column; gap: 0; margin-top: 6px; }
-.settings .prop-rows .field { grid-template-columns: 180px minmax(0, 1fr); min-height: 40px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
-.settings .prop-rows .field:last-child { border-bottom: 0; }
-.settings .prop-rows .field:has(.set-help) { align-items: start; padding: 10px 0; }
-.settings .prop-rows .field:has(.set-help) > span:first-child { padding-top: 8px; }
+:is(.settings, .vault-modal) .prop-rows { display: flex; flex-direction: column; gap: 0; margin-top: 6px; }
+:is(.settings, .vault-modal) .prop-rows .field { grid-template-columns: 180px minmax(0, 1fr); min-height: 40px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+:is(.settings, .vault-modal) .prop-rows .field:last-child { border-bottom: 0; }
+:is(.settings, .vault-modal) .prop-rows .field:has(.set-help) { align-items: start; padding: 10px 0; }
+:is(.settings, .vault-modal) .prop-rows .field:has(.set-help) > span:first-child { padding-top: 8px; }
 .set-control { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .set-control > :is(input, .select-btn) { width: 100%; }
 .set-help { margin: 0; }
@@ -1863,7 +1872,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
   .status-settings .status-row input[type=text] { width: auto; flex: 1 1 120px; min-width: 0; }
   .status-settings .status-row .spacer { display: none; }
 }
-@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) { .settings .prop-rows .field { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 0; } }
+@media (max-width: 640px), (max-width: 760px) and (pointer: coarse) { :is(.settings, .vault-modal) .prop-rows .field { grid-template-columns: 1fr; row-gap: 4px; padding: 8px 0; } }
 /* Settings' fields in a soft grey frame, always on, so a form reads as one: a shade darker on hover, the halo while in
    use. A row's ✎ ×, download and reveal show on hover (always on a touch screen). */
 .settings :is(input[type=text], input[type=number], input:not([type]), textarea, .select-btn):not(:focus-visible):not([aria-expanded="true"]) { border-color: var(--border); box-shadow: none; }
@@ -2120,6 +2129,27 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-match { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--destructive) 8%, transparent); color: var(--foreground); }
 .vault-match .icon { color: var(--destructive); flex: none; margin-top: 2px; }
 .vault-notice details summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--fs-sm); }
+/* Settings → Vaults: the table (views/vaults.js), and the dialog that adds or edits one, in tabs (as the Claude dialog's). */
+.vault-grid div.c-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vault-grid .vault-open { font-weight: 500; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-grid .vault-open:hover { text-decoration: underline; }
+.vault-grid div.c-path { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vault-grid .c-path code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
+.vault-grid .chip { flex: none; }
+.vault-grid .chip.vault-default { display: none; } /* the Default column says it; on a phone (phone.css) the name does */
+.settings .vault-grid tr:not(:hover):not(:focus-within) .row-action { opacity: 0; }
+.vault-grid td.c-actions, .vault-grid th.c-actions { text-align: right; white-space: nowrap; }
+#modal.vault-modal { width: min(720px, 100%); }
+.vault-modal .vault-tabs { display: flex; flex-direction: column; min-height: 0; }
+.vault-modal .tabs-bar { padding: 0; margin-top: -8px; }
+.vault-modal .tab-panel { flex: none; overflow: auto; min-height: min(340px, 50vh); max-height: min(60vh, calc(100dvh - 220px)); padding: 8px 0 0; display: flex; flex-direction: column; gap: 14px; }
+.vault-modal .tab-panel[hidden] { display: none; }
+.vault-modal .vault-general { display: flex; flex-direction: column; gap: 14px; }
+.vault-modal .prop-rows .field .vault-type { min-height: var(--control-h); align-self: flex-start; }
+.vault-modal .vault-type input { width: auto; flex: none; }
+.vault-modal .vault-path-row { display: flex; gap: 8px; align-items: center; }
+.vault-modal .vault-path-row input { flex: 1; min-width: 0; }
+.vault-modal .vault-types > p { margin: 0; }
 .vault-rows { display: flex; flex-direction: column; gap: 10px; }
 .vault-row { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .vault-gone { margin: 0; line-height: 1.5; }
@@ -2135,6 +2165,18 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-type-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px 14px; margin-top: 8px; }
 .vault-type { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
 .vault-type input:disabled + * { opacity: .7; }
+.vault-modal .vault-features { display: flex; flex-direction: column; gap: 12px; }
+.vault-modal .vault-features > p { margin: 0; }
+.vault-feature-list { display: flex; flex-direction: column; gap: 10px; }
+.vault-feature { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.vault-feature input { width: auto; flex: none; margin-top: 2px; }
+.vault-feature input:disabled ~ .vault-feature-text { opacity: .7; }
+.vault-feature-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vault-feature-name { font-size: var(--fs-sm); font-weight: 500; }
+.vault-texts { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+.vault-texts .section-label, .vault-modal .vault-texts > p { margin: 0; }
+.vault-text-type { align-self: flex-start; }
+.vault-placeholders { line-height: 1.8; }
 .vault-agents p { margin: 4px 0 0 22px; max-width: 72ch; }
 /* The top bar's terminal: New request / History as tabs inside the dialog (the side panel's tab styles, without its padding) */
 .claude-modal .tabs-bar { padding: 0; margin-top: -8px; }
@@ -2621,7 +2663,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .quiet .field div.label-input.expanded:focus-within { border-color: var(--field-ring); box-shadow: 0 0 0 3px var(--field-halo); }
 /* A field a create was refused for (create.js missingOnCreate): its name and its box in the destructive colour, framed
    even in quiet rows and in a title being written, and why under it, until it is filled in. Under #modal: over them. */
-#modal .field.is-invalid > span:first-child { color: var(--destructive); }
+#modal .field.is-invalid > span:first-child, #modal .stack-group.is-invalid > .stack-label { color: var(--destructive); }
 #modal [aria-invalid="true"]:is(input, textarea, .select-btn) { border-color: var(--destructive); }
 #modal .field-error { font-size: var(--fs-xs); font-weight: 400; color: var(--destructive); line-height: 1.35; }
 #modal .prop-rows .field > .field-error { grid-column: 2; padding: 0 0 4px 11px; }
@@ -3368,6 +3410,14 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .side-agents .tree-row .tree-name { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: -.01em; }
 .side-agents .tree-row.is-dir .tree-name { font-family: inherit; font-size: var(--fs-sm); letter-spacing: 0; }
 
+/* The keys (views/keyboard.js): Settings → Keyboard and the ? dialog. A row is Settings' prop-row: its keys as kbd
+   chips where the name goes, what they do at the right; the search above, as a list's. */
+.keys-panel { display: flex; flex-direction: column; gap: 4px; }
+.keys-search { width: min(320px, 100%); margin-bottom: 8px; }
+.keys { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.keys kbd { font-size: var(--fs-xs); min-width: 22px; text-align: center; }
+#modal.keys-modal { width: min(640px, 100%); max-height: calc(var(--vvh, 100vh) - 48px); }
+#modal.keys-modal .keys-body { overflow-y: auto; min-height: 0; margin: 0 -8px; padding: 0 8px; }
 #modal.agents-modal { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
 #modal.agents-modal:has(.agents-sched-form) { width: min(620px, 100%); }
 .agents-add-form { display: flex; flex-direction: column; gap: 12px; }

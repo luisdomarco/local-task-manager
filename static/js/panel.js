@@ -12,7 +12,7 @@ import { historyText } from './historytext.js';
 import { COL, DETAIL_PAGE, FILL_COLUMN, columnOf, dataTable, paged } from './datatable.js';
 import { relDay, shiftWeek, stampLabel, thisMonth, thisWeek, today } from './dates.js';
 import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
-import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, propField, sideFold, statusSelect } from './itemform.js';
+import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
@@ -463,10 +463,11 @@ function relationsSection(item, rerender) {
     parentGroup = group(parentLabel(item.type), [rows.length ? rowList(rows, { ordered: true }) : null, pick].filter(Boolean));
   }
 
-  // The item's own link fields, each under its name: what it links to as rows (to open it, ✎ to change a single one, ×
-  // to let it go); with none, the picker (as in Delivery).
-  const b = editBinding(item);
-  const linkGroups = relationProps(item).map((p) => {
+  // The item's own link fields, each under its name — its goal first, right under its Parent —: what it links to as
+  // rows (to open it, ✎ to change a single one, × to let it go); with none, a single one's picker as Parent's ("Pick a
+  // goal…": only the open items it may name).
+  const props = relationProps(item);
+  const linkGroups = [...props.filter((p) => p.key === 'goal'), ...props.filter((p) => p.key !== 'goal')].map((p) => {
     const targets = linkTargets(item, p);
     const many = p.kind === 'links';
     const pool = state.items.filter((i) => (p.types || []).includes(i.type) && i.key !== item.key && !isDone(i) && i.fields.archived !== true);
@@ -479,9 +480,14 @@ function relationsSection(item, rerender) {
       rowAction('x', `Remove ${name(t)}`, () => set(many ? keys.filter((k) => k !== (typeof t === 'string' ? t : t.key)) : null, `${name(t)} is no longer its ${p.label.toLowerCase()}`)),
     ] }));
     const addMore = many && !p.readonly ? pool.filter((i) => !keys.includes(i.key)) : [];
+    const lower = p.label.toLowerCase();
+    const pickOne = () => (pool.length ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, `Pick ${/^[aeiou]/.test(lower) ? 'an' : 'a'} ${lower}…`],
+      ...pool.map((i) => [i.key, `${refOf(i)} · ${i.title}`, TYPE_ICON[i.type] || null])],
+    null, (v) => v && set(v, `${p.label}: ${name(state.items.find((i) => i.key === v) || v)}`), { class: 'small', search: true, 'aria-label': p.label, 'data-fk': `rel-${p.key}` }))
+      : emptyLine(`No open ${lower} to pick`, { cls: 'rel-none' }));
     return group(p.label, [
       targets.length ? rowList(rows) : p.readonly ? emptyLine('—', { cls: 'rel-none' })
-        : many ? null : h('div', { class: 'rel-pick picks-quiet' }, propField(b, { ...p, label: '' })),
+        : many ? null : pickOne(),
       addMore.length ? h('div', { class: 'rel-pick picks-quiet' }, select([[null, `Add ${p.label.toLowerCase()}…`], ...addMore.map((i) => [i.key, `${refOf(i)} · ${i.title}`, TYPE_ICON[i.type] || null])],
         null, (v) => v && set([...keys, v], `${p.label}: ${name(state.items.find((i) => i.key === v) || v)}`), { class: 'small', search: true, 'aria-label': `Add ${p.label.toLowerCase()}` })) : null,
     ].filter(Boolean));
@@ -676,7 +682,7 @@ function externalRef(item, ext) {
  * Claude lists them with how to reach each.
  */
 function watchers(item) {
-  if (!item.id || !hasField(item.type, 'watchers')) return null;
+  if (!item.id || !hasField(item.type, 'watchers') || !has('contacts')) return null; // Contacts off (Settings → Vaults → Features)
   const names = item.fields.watchers || [];
   return propRow('Watchers', tagInput(names, (list) => save(item, { watchers: list }), { kind: 'person', suggest: allContacts, placeholder: 'Add a person or a group…', fk: 'watchers' }), { tag: 'div', cls: 'span2 watchers', attrs: { title: 'People and groups to tell when its status changes' } });
 }
@@ -1134,15 +1140,18 @@ const NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)
  */
 function sideTabs(item, rerender, current, onPick) {
   const f = item.fields;
-  const start = current === 'properties' && NARROW.matches ? 'activity' : current;
-  return tabPanels([
+  // Activity and Time are features a vault may turn off (Settings → Vaults → Features): then they are no tab.
+  const tabs = [
     { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
-    { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) },
+    has('activity') ? { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) } : null,
     has('terminal') ? { key: 'ai', label: 'AI Agents', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
     relationsTab(item, rerender),
     // The time logged on it, last.
-    item.id ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
-  ].filter(Boolean), start, onPick);
+    item.id && has('worklog') ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
+  ].filter(Boolean);
+  const wanted = current === 'properties' && NARROW.matches ? tabs[1]?.key : current;
+  const start = tabs.some((t) => t.key === wanted) ? wanted : tabs[0].key;
+  return tabPanels(tabs, start, onPick);
 }
 
 /**

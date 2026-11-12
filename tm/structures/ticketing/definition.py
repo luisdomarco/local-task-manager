@@ -266,10 +266,12 @@ for _name, _tabs in TABS.items():
 
 # What a later step writes, not whoever opens the ticket (`later`: the create form leaves it out; the card and the page
 # show it as before): how it is carried out, released and triaged, a pause, and its outcome. A new file takes the
-# template's value for each (disposition: pending, premise: unverified…).
+# template's value for each (disposition: pending, premise: unverified…). And its goal: an item joins one from the
+# Goals view (whose "+" still sets it) or its card's Relations, not in the create form, which asks for its Parent.
 LATER_GROUPS = ('Execution', 'Spec and release', 'Triage', 'Paused or discarded')
 LATER = frozenset({key for title, _, keys in DELIVERY_GROUPS if title in LATER_GROUPS for key in keys}
-                  | {'premise', 'premise_verified', 'disposition', 'resolution', 'fixed_by', 'postmortem', 'superseded_by'})
+                  | {'premise', 'premise_verified', 'disposition', 'resolution', 'fixed_by', 'postmortem', 'superseded_by',
+                     'goal'})
 PROPS = {name: tuple({**p, 'later': True} if p['key'] in LATER else p for p in props) for name, props in PROPS.items()}
 
 # The types that always hang from another item, never from their project alone: a plan, from what it executes. It is

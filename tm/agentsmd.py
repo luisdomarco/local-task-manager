@@ -68,6 +68,9 @@ def render(info, app_dir, python='python3'):
              '- You write as an agent: a status the gates do not allow yet is refused with the reason. Do not work around it;',
              '  tell the owner what is missing.',
              '- A refusal (exit 1) says why on stderr. Nothing is half written.']
+    if info.get('default_texts'):
+        lines += ['- Without `--body`, a new item starts with its type\'s default text in this vault (`.task-manager/templates/<type>.md`,',
+                  '  set by the owner in Settings → Vaults): fill in its sections with `set <REF> --body -`. Never put the title in the body.']
     if info['projects'] and any(p['folder'] for p in info['projects']):
         lines += ['', '## Projects', '', 'Each project is a folder; its items live in it. A ticket in no project lives in its type\'s '
                   'folder at the top of the vault (see Item types).', '',

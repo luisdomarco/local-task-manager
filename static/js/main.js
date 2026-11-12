@@ -17,6 +17,8 @@ import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sec
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
 import { GO } from './shortcuts.js';
+import { is } from './keymap.js';
+import { openKeys } from './views/keyboard.js';
 import { initMentions } from './mentions.js';
 import { initTheme } from './theme.js';
 import { initTooltips } from './tooltip.js';
@@ -45,7 +47,7 @@ import * as goals from './views/goals.js';
 import * as runs from './views/runs.js';
 import * as lab from './views/lab.js';
 import { loadBasecoat } from './basecoat.js';
-import { has } from './features.js';
+import { has, viewOn } from './features.js';
 import { initAgents } from './agentspane.js';
 import { refOf } from './shownid.js';
 import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews } from './savedviews.js';
@@ -60,8 +62,8 @@ const FIXED_TITLES = {
   runs: 'Agents', lab: 'Lab', // #/lab: the design-system spike, by its address only (not in the sidebar or ⌘K)
 };
 // The views only a computer has (features.js): on a phone their address goes home, as an unknown one does.
-const VIEW_FEATURE = { canvas: 'canvas', runs: 'agents', lab: 'agents' };
-const fixedViews = () => Object.fromEntries(Object.entries(FIXED_VIEWS).filter(([v]) => !VIEW_FEATURE[v] || has(VIEW_FEATURE[v])));
+// …and the views of a feature the vault turned off (Settings → Vaults → Features): their address goes home too.
+const fixedViews = () => Object.fromEntries(Object.entries(FIXED_VIEWS).filter(([v]) => viewOn(v)));
 let VIEW_TITLES = { ...FIXED_TITLES };
 let VIEWS = FIXED_VIEWS;
 // The list an item's address (#/item/ID) opens over: its type's.
@@ -441,10 +443,11 @@ function renderAll() {
 let pendingG = false;
 document.addEventListener('keydown', (e) => {
   const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !e.shiftKey && !e.altKey) { e.preventDefault(); openPalette(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.key === '\\' && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleSidebar(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e' && !e.altKey) { e.preventDefault(); toggleSidebar(false); setSidebarMode(); return; }
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'd' && !e.altKey) { e.preventDefault(); location.hash = '#/docs'; return; }
+  // Every key here is keymap.js's (GLOBAL_KEYS): Settings → Keyboard and ? list them from there.
+  if (is(e, 'palette')) { e.preventDefault(); openPalette(); return; }
+  if (is(e, 'sidebar')) { e.preventDefault(); toggleSidebar(); return; }
+  if (is(e, 'sidemode')) { e.preventDefault(); toggleSidebar(false); setSidebarMode(); return; }
+  if (is(e, 'docs')) { e.preventDefault(); location.hash = '#/docs'; return; }
   if (e.key === 'Escape') {
     if (paletteIsOpen()) { closePalette(); return; }
     if (menuIsOpen() || !document.getElementById('modal-backdrop').hidden) return;
@@ -452,11 +455,12 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (pendingG) { pendingG = false; if (GO[e.key]) { location.hash = `#/${GO[e.key]}`; } return; }
-  if (e.key === 'g') { pendingG = true; setTimeout(() => { pendingG = false; }, 1000); return; }
+  if (pendingG) { pendingG = false; if (GO[e.key] && viewOn(GO[e.key])) { location.hash = `#/${GO[e.key]}`; } return; }
+  if (is(e, 'go')) { pendingG = true; setTimeout(() => { pendingG = false; }, 1000); return; }
   if (handleItemKey(e)) return; // x · t · w · s · p on the open card, or the card or row focused or under the pointer
-  if (e.key === 'q') { e.preventDefault(); openQuickModal(); }
-  if (e.key === '/') {
+  if (is(e, 'help')) { e.preventDefault(); openKeys(); return; }
+  if (is(e, 'quick') && has('inbox')) { e.preventDefault(); openQuickModal(); }
+  if (is(e, 'filter')) {
     const f = document.querySelector('#view [data-filter], #view .qa-input');
     if (f) { e.preventDefault(); f.focus(); }
   }

@@ -22,7 +22,11 @@ A **vault** is a folder of Markdown files. Each vault has a **structure** that s
 
 Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, a project of each kind): the quickest way to see every screen with something in it.
 
-**Guide for agents** (in the vault's row in Settings → Vaults) writes an `AGENTS.md` at the top of the vault: open Claude Code, Codex or Cursor in the vault's folder and it knows how to read and write your items, even with the app closed — ask it *what blocks this initiative?* or *file a story for…*. It is written from your vault and kept up to date; anything you add outside its markers stays.
+**What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → Item types → **Default text**; it is kept in the vault, so the iPhone and your agents use the same.
+
+**Features** (a vault's dialog, third tab) turns off what a vault does without — AI Agents, Canvas, Inbox, Activity, Goals, Graph, Meetings & transcription, Work log, Contacts — with the item types that go with each. Nothing is deleted: turn it on again and everything is back. It is kept in the vault too, so the iPhone shows the same.
+
+**Guide for agents** (in a vault's dialog in Settings → Vaults) writes an `AGENTS.md` at the top of the vault: open Claude Code, Codex or Cursor in the vault's folder and it knows how to read and write your items, even with the app closed — ask it *what blocks this initiative?* or *file a story for…*. It is written from your vault and kept up to date; anything you add outside its markers stays.
 
 A new vault opens in the **Explorer** (its files). Click **Project**, the first button at the top of the sidebar, to see it as items. If folders the structure needs are missing, the page offers to create them.
 
@@ -56,8 +60,9 @@ Labels and people fields keep to one line: what does not fit waits behind **+N**
 | `⌘\` | Hide or show the sidebar |
 | `⌘⇧E` | Switch the sidebar between Project and Explorer |
 | `⌘⇧D` | Open Docs |
+| `?` | The list of keys, on any page |
 
-**Settings → Keyboard** lists them all.
+**Settings → Keyboard** lists them all, with the editor's and the create form's, and a search.
 
 ## Docs and files
 
@@ -70,7 +75,7 @@ The terminal button on a card starts **Claude Code** on that item: it shows you 
 
 ## How it looks
 
-**Settings → Themes** picks the look in this browser: **Classic**, the app as it has always looked, or **Modern** — larger text and controls, rounder buttons and cards, and an accent colour that marks what is on, picked or today. Choose light, dark or your system's, and for Modern a density (Comfortable or Compact) and a look: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each part on its own — base colour, accent, the sidebar's and the page's background, corners, fonts, menus and icons — with a preview that changes as you choose. It applies at once and is kept in this browser only, so another browser or machine has its own; the switch at the sidebar's foot is the same light / dark / system choice.
+**Settings → Themes** picks the look in this browser: **Classic**, the app as it has always looked, or **Modern** — larger text and controls, rounder buttons and cards, and an accent colour that marks what is on, picked or today. Choose light, dark or your system's, and for Modern a density (Comfortable or Compact) and a look: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each part on its own — base colour, accent, the sidebar's and the page's background, corners, fonts, menus and icons — with a preview that changes as you choose. It applies at once and is kept in this browser only, so another browser or machine has its own. Light, dark or your system's is the first choice there, and the only place it is made.
 
 ## Keeping your data safe
 

@@ -102,6 +102,10 @@ class InstallAppTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.where['app'], 'install.json')))
         self.assertTrue(os.path.exists(os.path.join(self.where['app'], 'config.json')))
 
+    def test_the_installed_app_has_the_file_its_version_is_read_from(self):
+        import server  # Settings → Documentation shows server.app_version(), read from CHANGELOG.md next to server.py
+        self.assertIn(os.path.relpath(server.CHANGELOG_PATH, server.APP_DIR), ia.APP_FILES)
+
     def test_update_before_an_install_says_so(self):
         with self.assertRaises(SystemExit):
             ia.update(self.src, self.home, self.run)

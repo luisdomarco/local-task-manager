@@ -9,6 +9,3 @@ tags: []
 creation_date: {{date}}
 updated_date: {{date}}
 ---
-
-# {{title}}
-

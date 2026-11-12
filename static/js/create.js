@@ -11,6 +11,8 @@ import {
 import {
   EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, kindDefaultTypes, leavesProject, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
 } from './rules.js';
+import { api } from './api.js';
+import { has } from './features.js';
 import { mdBlock } from './mdblock.js';
 import { openQuickModal } from './quickadd.js';
 import { createItem, state, toast } from './state.js';
@@ -59,6 +61,9 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     related_to: values.related_to || null, planned: values.plan || null, start: '', due: '', area: '', objective: '', date: today(), time: '', duration: '', attendees: [], labels: [...(values.labels || [])], body: '',
     source: values.source || 'Email', from: [], session_name: values.session_name || '',
     [EXTERNAL_REF.id_key]: '', [EXTERNAL_REF.url_key]: '', ...(EXTERNAL_REF.tracker_key ? { [EXTERNAL_REF.tracker_key]: '' } : {}), local_path: '' };
+  // The rest of what the caller gives that is a field of the type (the Goals view's "+": its goal and its place among
+  // the goal's items, which the form does not ask): saved with it as given.
+  for (const p of propsOf(type)) if (!(p.key in form) && values[p.key] != null) form[p.key] = values[p.key];
 
   const input = (key, attrs = {}) => {
     const el = h('input', { id: `cf-${key}`, value: form[key] || '', ...attrs });
@@ -68,6 +73,18 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   // Its description, as on the item's page (mdblock.js): a box that opens the editor on a click. Made once, so what is
   // being written stays when the form is drawn again (another type, another project).
   const body = mdBlock({ fk: 'cf-body', minHeight: '220px', write: async (text) => { form.body = text; return text; } });
+  // It starts as the vault's default text for the type (Settings → Vaults → Item types), and follows the type while it
+  // is untouched: one typed in stays across types. Untouched when created, it goes as null, so the server writes the
+  // text with its placeholders filled ({{ref}}, {{date}}…).
+  let defaults = null; // { type: text } of this vault, once fetched
+  let fromDefault = ''; // the default text the description holds while untouched
+  const applyDefault = () => {
+    if (!defaults || body.isEditing() || form.body !== fromDefault) return;
+    const next = defaults[form.type] || '';
+    if (next === fromDefault) return;
+    fromDefault = form.body = next;
+    body.reset(next);
+  };
   // What a create was refused for, before it was sent (rules.js missingOnCreate): each field marked in red until it is
   // filled in, no toast; a value given but wrong (a key taken) says why under it. A field is never marked before a
   // create is tried.
@@ -80,7 +97,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       const control = key === 'subject' ? modal.querySelector('#cf-subject') : modal.querySelector(`[data-fk="${key}"]`);
       if (!control) continue;
       control.setAttribute('aria-invalid', 'true');
-      const row = control.closest('.field');
+      const row = control.closest('.field, .stack-group'); // a row of Properties, or a group of Relations (its Parent)
       row?.classList.add('is-invalid');
       if (!why) continue;
       const err = h('span', { class: 'field-error', id: `cf-err-${key}` }, why);
@@ -152,7 +169,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     if (hasField(form.type, 'local_path') && form.local_path.trim()) v.local_path = form.local_path.trim(); // empty unless shown
     submitting = true;
     let item;
-    try { item = await createItem(form.type, subject, v, form.body); } catch { submitting = false; return; } // toasted
+    try { item = await createItem(form.type, subject, v, form.body === fromDefault ? null : form.body); } catch { submitting = false; return; } // toasted
     toast(`Created ${refOf(item) || item.title}`);
     closeModal();
     onCreated && onCreated(item);
@@ -203,12 +220,16 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       } };
     const hasProject = hasField(form.type, 'project') && form.type !== 'project';
     const hasParent = PARENT_TYPES[form.type].length > 0;
-    // Its own link fields asked on creation (an initiative's origin, a PRD's supersedes…), as the card's Relations
-    // draws them: each a group under its name with its picker, no frame. Not "+ Add relation": that needs its id.
+    // Relations, as the card's draws them: first its Parent (its project and what it hangs from, one field: itemform.js
+    // parentControl), then its own link fields asked on creation (an initiative's origin, a PRD's supersedes…; not its
+    // goal, rules.js askedOnCreate), each a group under its name with its picker, no frame. Not "+ Add relation": that
+    // needs its id.
     const relationsSection = () => {
       const props = propsIn(form.type, 'relations', kindOfBinding(binding)).filter(askedOnCreate);
-      return props.length ? h('section', { class: 'panel-section relations quiet', 'aria-label': 'Relations' },
-        sectionLabel('Relations'),
+      const parent = hasProject || hasParent
+        ? stackGroup(parentLabel(form.type), h('div', { class: 'rel-pick picks-quiet' }, parentControl(binding))) : null;
+      return parent || props.length ? h('section', { class: 'panel-section relations quiet', 'aria-label': 'Relations' },
+        sectionLabel('Relations'), parent,
         ...props.map((p) => stackGroup(p.label, h('div', { class: 'rel-pick picks-quiet' }, quietBlanks(propField(binding, { ...p, label: '' })))))) : null;
     };
     const localPath = () => propRow('Local path', input('local_path', { type: 'text', placeholder: '~/work/pricing' }), { cls: 'ext-ref' });
@@ -222,6 +243,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     // the section's names it.
     body.configure({ label: bodyLabel, tabbed: true, title: form.subject.trim() || `New ${label.toLowerCase()}`,
       emptyText: BODY_PLACEHOLDER[form.type] || 'Add a more detailed description…', placeholder: BODY_PLACEHOLDER[form.type] || 'Markdown — "- [ ] step" for a checklist' });
+    applyDefault();
     if (!body.isEditing() || !body.ready()) body.render();
     // Where it lands: the vault's folder for the type, or (Ticketing) its folder inside the chosen project.
     const tdef = TYPE_DEFS[form.type] || {};
@@ -240,15 +262,12 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     };
     const folderEl = h('span', {}, whereText());
 
-    // The right column, like the card of an item: its properties one per row — its fields, its Parent (its project and
-    // what it hangs from, one field), the outside ticket & local or its local path —
-    // then its own fields of Relations. Every one is in view.
+    // The right column, like the card of an item: its properties one per row — its fields, the outside ticket & local
+    // or its local path — then Relations (its Parent, then its own link fields). Every one is in view.
     const ref = EXTERNAL_REF;
     const propsList = form.type === 'prompt' ? null : itemFields(binding);
     if (propsList) {
       propsList.append(...[
-        // Its Parent: one field for its project and what it hangs from (itemform.js parentControl).
-        ...(hasProject || hasParent ? [propRow(parentLabel(form.type), parentControl(binding), { tag: 'div' })] : []),
         ...(ticketRef ? [
           propRow(`${ref.label} ID`, input(ref.id_key, { type: 'text', placeholder: ref.id_placeholder }), { cls: 'ext-ref' }),
           ref.tracker_key && hasField(form.type, ref.tracker_key) ? propRow('Tracker', [input(ref.tracker_key, { type: 'text', placeholder: ref.tracker_placeholder || '', list: 'cf-trackers', autocomplete: 'off' }), h('datalist', { id: 'cf-trackers' }, [...new Set(state.items.map((i) => i.fields[ref.tracker_key]).filter(Boolean))].sort()
@@ -317,13 +336,16 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   // A section of the main column: its title small and grey, never folding; null without a body.
   const section = (title, content) => (content ? h('section', { class: 'im-section create-section', 'aria-label': title }, sectionLabel(title), content) : null);
 
+  let closed = false;
   // Its own frame (modalFrame, as the item card): the dialog only opens, traps and closes it; render() draws it.
   ({ close: closeModal } = openDialog({
     onKey: (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } },
     focus: () => modal.querySelector('#cf-subject')?.focus(),
-    onClose: () => body.reset(), // lets go of its description's editor (full screen, the outside-click watch)
+    onClose: () => { closed = true; body.reset(); }, // lets go of its description's editor (full screen, the outside-click watch)
   }));
   render();
+  // A vault whose structure has no default texts (a legacy one) answers {}: its type's own sections are the server's.
+  api.defaultTexts().then((r) => { if (closed) return; defaults = r.editable ? r.texts : {}; render(); }).catch(() => {});
 }
 
 /** Sidebar "Add item": the Inbox capture and the forms of the types made most often, in their groups (rules.js
@@ -334,7 +356,7 @@ export function addMenu(anchor) {
   const groups = addMenuGroups(CREATE_TYPES.filter((t) => inSomeProject(t, state.all)));
   const item = (t) => ({ label: TYPE_LABEL[t], icon: TYPE_ICON[t], onSelect: () => openCreateModal(t) });
   dropdown(anchor, [
-    { label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', onSelect: () => openQuickModal() },
+    has('inbox') ? { label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', onSelect: () => openQuickModal() } : null,
     ...groups.flatMap((g, i) => [...(i ? ['-'] : []), ...g.map(item)]),
   ], { width: Math.max(232, Math.round(anchor.getBoundingClientRect().width)) });
 }

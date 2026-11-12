@@ -1,8 +1,10 @@
 import { vaultId } from './vault.js';
 
-async function call(method, url, body, file = null) {
-  // Every request names the vault this page shows (vault.js): the server never guesses it.
-  const vault = vaultId() ? { 'X-TM-Vault': vaultId() } : {};
+async function call(method, url, body, file = null, other = null) {
+  // Every request names the vault this page shows (vault.js): the server never guesses it. `other` is another vault's id
+  // (Settings → Vaults edits any of them).
+  const id = other || vaultId();
+  const vault = id ? { 'X-TM-Vault': id } : {};
   // A file goes as its own bytes (an attachment), its name URI-encoded in a header; anything else as JSON.
   const type = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-TM-Filename': encodeURIComponent(file.name) }
     : { 'Content-Type': 'application/json' };
@@ -40,7 +42,14 @@ export const api = {
   // The vault this page shows and whether its folder matches its structure; the fix the app may offer.
   vaultStatus: () => get('/api/vault/status'),
   createVaultFolders: () => post('/api/vault/create-folders'),
-  vaultAgents: (on) => post('/api/vault/agents', { on }),
+  vaultAgents: (on, vault = null) => call('POST', '/api/vault/agents', { on }, null, vault),
+  // What a vault keeps about itself, in its own folder (tm/vaultsettings.py): its item types turned off.
+  vaultSettings: (vault = null) => call('GET', '/api/vault/settings', null, null, vault),
+  saveVaultSettings: (changes, vault = null) => call('POST', '/api/vault/settings', changes, null, vault),
+  vaultStatusOf: (vault) => call('GET', '/api/vault/status', null, null, vault),
+  // The body each type starts with in a vault (Projects; `editable` false elsewhere): { texts, editable, placeholders }
+  defaultTexts: (vault = null) => call('GET', '/api/vault/default-texts', null, null, vault),
+  setDefaultText: (type, text, vault = null) => call('POST', '/api/vault/default-text', { type, text }, null, vault),
   // Its structure: the types, statuses, priorities and lists the page builds itself from (rules.js setStructure).
   structure: () => get('/api/structure'),
   // Each type's statuses in the three groups, with colours (Settings → Statuses); `remap` {type: {old: new}}
@@ -218,7 +227,7 @@ export const api = {
   confirmLog: (date, index = null) => post('/api/worklog/confirm', { date, ...(index === null ? {} : { index }) }),
   discardLog: (date, index = null) => post('/api/worklog/discard', { date, ...(index === null ? {} : { index }) }),
   openPath: (path) => post('/api/open', { path }),
-  // The server itself (Settings → App): how it runs, and stopping it (started on demand, it starts again when opened).
+  // The server itself (Settings → Desktop app): how it runs, and stopping it (started on demand, it starts again when opened).
   serverStatus: () => get('/api/server'),
   stopServer: () => post('/api/server/stop'),
 };

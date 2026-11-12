@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { STRUCTURE } from '../../static/js/rules.js';
 import { PLANNING } from '../../static/js/sections.js';
-import { GO, GO_KEYS, ITEM_KEYS, keyboardHelp } from '../../static/js/shortcuts.js';
+import { GO, GO_KEYS, ITEM_KEYS } from '../../static/js/shortcuts.js';
 
 const html = readFileSync(new URL('../../static/index.html', import.meta.url), 'utf8');
 
@@ -23,17 +23,12 @@ describe('shortcuts', () => {
     for (const [, view] of GO_KEYS) assert.ok(sidebar.has(view), `no sidebar link for "${view}"`);
   });
 
-  it('keeps the help in step with the keys', () => {
-    const help = keyboardHelp();
-    for (const [key, , label] of GO_KEYS) {
-      assert.ok(help.includes(label), `help does not mention ${label}`);
-      assert.equal(GO[key] !== undefined, true);
-    }
+  it('routes every g-key', () => {
+    for (const [key, view] of GO_KEYS) assert.equal(GO[key], view);
   });
   it('gives each item action its own key, none of the app\'s', () => {
     const keys = ITEM_KEYS.map(([k]) => k);
     assert.equal(new Set(keys).size, keys.length);
-    for (const k of keys) assert.ok(!['q', 'g', '/'].includes(k), `${k} is the app's`);
-    for (const [k, , what] of ITEM_KEYS) assert.ok(keyboardHelp().includes(`${k} — ${what}`));
+    for (const k of keys) assert.ok(!['q', 'g', '/', '?'].includes(k), `${k} is the app's`);
   });
 });

@@ -91,9 +91,9 @@ class LayoutTest(TicketingBase):
         self.assertEqual(f['status_ticket'], '1. Backlog')
         self.assertEqual((f['level'], f['level_base'], f['origin']), ('C1', 'C1', 'ci'))
         self.assertEqual(f['due'], date.today().isoformat())  # C1: support_due_days 0
-        self.assertIn('# HB-SUP-001 — Algo se rompe', text)
-        self.assertIn('Se rompe al crear.', text)
-        self.assertIn('## Related', text)
+        self.assertTrue(text.endswith('---\n\nSe rompe al crear.\n'), text[-80:])  # the body given, and no title nor Related
+        self.assertNotIn('# HB-SUP-001', text)
+        self.assertNotIn('## Related', text)
         self.assertIn('# C1 · C2 · C3', text)  # the template's comments stay
 
     def test_plans_and_analyses_have_an_id_as_every_ticket(self):
@@ -103,11 +103,11 @@ class LayoutTest(TicketingBase):
         self.assertEqual(plan['fields']['related_to'], ini['id'])
         text = read(self.root, plan['path'])
         self.assertIn('item: "[[HB-INI-001 Curación de decisions]]"', text)  # what it executes
-        self.assertIn('\n# HB-PLN-001 — Curar en dos pasos\n', text)
+        self.assertNotIn('# HB-PLN-001', text)  # the title is the file's name, not a heading
         self.assertIn('The *why* is in what it executes ([[HB-INI-001 Curación de decisions]])', text)
         an = self.s.create('analysis', 'Revisión P1', {'project': 'HB', 'kind': 'review'})
         self.assertEqual((an['id'], an['path']), ('HB-ANL-001', 'Internal Tools/Analyses/HB-ANL-001 Revisión P1.md'))
-        self.assertIn('\n# HB-ANL-001 — Revisión P1\n', read(self.root, an['path']))
+        self.assertNotIn('# HB-ANL-001', read(self.root, an['path']))
         renamed = self.s.update(an['key'], {'subject': 'Revisión P2'})
         self.assertEqual(renamed['path'], 'Internal Tools/Analyses/HB-ANL-001 Revisión P2.md')  # named by its title, as a ticket
         self.assertTrue(self.s.check()['ok'], self.s.check())
@@ -130,12 +130,12 @@ class LayoutTest(TicketingBase):
 
 
 class ProjectNoteTest(TicketingBase):
-    def test_a_new_project_note_is_titled_by_its_name_and_keeps_its_description(self):
+    def test_a_new_project_note_keeps_its_description_with_no_title_heading(self):
         p = self.s.create('project', 'Web Shop', {'project_key': 'WEB'}, 'What we sell online.\n')
         with open(os.path.join(self.root, p['path']), encoding='utf-8') as f:
             text = f.read()
-        self.assertIn('\n# Web Shop\n', text)
-        self.assertIn('What we sell online.', text)
+        self.assertNotIn('# Web Shop', text)
+        self.assertTrue(text.endswith('---\n\nWhat we sell online.\n'), text[-60:])
 
     def test_renaming_a_project_renames_its_folder_and_what_links_it(self):
         story = self.s.create('story', 'Pagar', {'project': 'ECD'})

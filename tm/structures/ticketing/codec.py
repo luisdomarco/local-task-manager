@@ -24,7 +24,10 @@ from .definition import (CLOSED, INDEX_NOTE, LEGACY_PARENT, OWN_CLOSED, OWN_STAT
                          PROPS)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TEMPLATES = os.path.join(HERE, 'templates')
+TEMPLATES = os.path.join(HERE, 'templates')  # a new file's frontmatter, per file class
+# What a new item's body starts as when a vault has not set its own yet (Store.default_text): seeded into the vault once
+# (.task-manager/templates/<type>.md), where Settings → Vaults → Item types edits it. A type with no file starts empty.
+DEFAULT_TEXTS = os.path.join(HERE, 'default_texts')
 STATUS_RE = re.compile(r'^\s*\d+\.\s*(.+?)\s*$')
 DATE_PREFIX_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (.+)$')
 # A template's link to its project's note, in its body (a plan's "[[00 {{project}}#Rules for agents…]]").
@@ -311,14 +314,26 @@ class TicketingCodec:
         return f"{p['dir']}/{spec['folder']}" if p else None
 
     def template(self, t, variables):
+        """A new file's frontmatter (templates/<file class>.md), its placeholders filled in."""
         with open(os.path.join(TEMPLATES, f"{SPEC[t]['file_class']}.md"), encoding='utf-8') as f:
-            text = f.read()
-        for k, v in variables.items():
-            text = text.replace('{{' + k + '}}', str(v))
-        return text
+            return fill(f.read(), variables)
+
+    @staticmethod
+    def default_texts():
+        """The body each type starts with until a vault sets its own: {type: text}, only the types that have one."""
+        out = {}
+        for t in SPEC:
+            try:
+                with open(os.path.join(DEFAULT_TEXTS, f'{t}.md'), encoding='utf-8') as f:
+                    out[t] = f.read()
+            except FileNotFoundError:
+                pass
+        return out
 
     def new_file(self, t, subject, values, body, r, item_id, stamp, parent=None):
-        """→ (path relative to the vault, text) of a new item: its template, filled in, patched with `values`."""
+        """→ (path relative to the vault, text) of a new item: its frontmatter, filled in and patched with `values`, then
+        `body` (what the form sent, or the vault's default text for the type: Store.create), its placeholders filled in
+        too ({{ref}}, {{project}}, {{date}}…). Never its title: that is the item's `name`, not a line of its body."""
         project = values.get('project')
         p = r.projects.get(project) if project else None
         parent_ref = ref(parent['type'], parent['id']) if parent else None
@@ -326,17 +341,18 @@ class TicketingCodec:
         folder = self.folder_of(t, project, r, subject)
         variables = {'id': item_id or '', 'ref': ref(t, item_id), 'key': project or '', 'project': p['name'] if p else '', 'title': subject,
                      'date': stamp[:10], 'slug': slugify(subject),
-                     # what it hangs from (a plan's template names the initiative or story it executes)
+                     # what it hangs from (a plan's text names the initiative or story it executes)
                      'item_ref': parent_ref or '', 'item_title': parent['title'] if parent else ''}
         if t == 'project':  # its note's title is its own name (there is no project yet to take it from)
             variables['project'] = subject
+        text = self.template(t, variables)
+        body = (body or '').strip()
         if SPEC[t]['scope'] == 'project' and not p:
             # A ticket in no project: its file names none (`project: ""`), and a line of its body that would link to its
             # project's note (a plan's rules for agents) says it has none.
             values = {**values, 'project': None}
-            text = NO_PROJECT_LINK_RE.sub('(none: it is in no project)', self.template(t, {**variables, 'project': '{{project}}'}))
-        else:
-            text = self.template(t, variables)
+            body = NO_PROJECT_LINK_RE.sub('(none: it is in no project)', body)
+        body = fill(body, variables)
         if item_id and NUMBER_RE.match(str(item_id)):  # a short id is stored as the number it is: `id: 482`
             text = fm.patch(text, {'id': int(item_id)})
         raw = fm.parse(fm.split(text)[0])
@@ -344,8 +360,8 @@ class TicketingCodec:
         if 'status' in values and SPEC[t]['status_key']:
             disk[SPEC[t]['status_key']] = disk_status(t, values['status'])
         text = fm.patch(text, disk)
-        if body and body.strip():
-            text = _with_body(text, body)
+        if body:
+            text = text.rstrip('\n') + '\n\n' + body + '\n'
         return f'{folder}/{name}' if folder else name, text
 
     @staticmethod
@@ -410,10 +426,8 @@ class TicketingCodec:
     actions = {'promote': rules.promote, 'escalate': rules.escalate}
 
 
-def _with_body(text, body):
-    """The user's text goes first in the template's body, right after its title line (when it has one)."""
-    fm_text, tpl = fm.split(text)
-    head = text[:len(text) - len(tpl)]
-    lines = tpl.split('\n')
-    at = next((i + 1 for i, line in enumerate(lines) if line.startswith('# ')), 0)
-    return head + '\n'.join([*lines[:at], '', body.strip(), *lines[at:]])
+def fill(text, variables):
+    """`text` with each {{name}} of `variables` replaced; any other {{…}} is left as it is."""
+    for k, v in variables.items():
+        text = text.replace('{{' + k + '}}', str(v))
+    return text

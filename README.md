@@ -234,16 +234,21 @@ temp dir, whose path they print.
 
 1. **Make the folder** (`mkdir ~/Documents/my-vault`). An empty folder starts a **Projects** vault; a folder
    already full of notes must already have the structure's shape (see [5](#5-vault-structures)).
-2. **Settings → Vaults → Add vault** (Settings is at the foot of the sidebar): a name, the folder (absolute, `~/…`, or
-   relative to this app's folder; it must exist; on a Mac, *Choose…* beside it picks it in a Finder dialog, and in the
-   iPhone app in Files, iCloud Drive included) and its **structure**, **Projects**. *Initiatives (legacy)* and
-   *Tasks (legacy)* are there only to open a folder that already is one of their vaults: on an empty folder the save
-   is refused. Optionally untick the item types you will not use, and tick *Default* for the one that opens first.
-   A vault whose folder is later moved or deleted outside the app stays in the list with *Folder not found*: give it
-   its new place or remove it — meanwhile the rest of Settings (an agent folder, Claude, the kinds of work) still
-   saves. Only a new vault, a new folder or the default vault must exist.
-3. **Save settings.** This writes `config.json` (git-ignored; the first save keeps a copy of the old one in
-   `backups/`).
+2. **Settings → Vaults → New vault** (Settings is at the foot of the sidebar). The dialog has three tabs:
+   - **General:** a name, the folder (absolute, `~/…`, or relative to this app's folder; it must exist; on a Mac,
+     *Choose…* beside it picks it in a Finder dialog, and in the iPhone app in Files, iCloud Drive included), its
+     **structure**, **Projects**, and *Default* for the one that opens first. *Initiatives (legacy)* and *Tasks (legacy)*
+     are there only to open a folder that already is one of their vaults: on an empty folder the save is refused.
+   - **Item types:** untick the types you will not use. Once the vault is added, a Projects vault also sets here the
+     **Default text** of each type: what a new item of it starts with (see
+     [What a new item starts with](#what-a-new-item-starts-with)).
+   - **Features:** untick what this vault does without — AI Agents, Canvas, Inbox, Activity, Goals, Graph, Meetings &
+     transcription, Work log, Contacts (see [Features per vault](#features-per-vault)).
+3. **Add vault.** The name, the folder and the default go to `config.json` (git-ignored; the first save keeps a copy
+   of the old one in `backups/`): they are this device's. The item types and the features go into the vault, in
+   `.task-manager/settings.json`: every device that opens the same folder (the Mac, the iPhone app over iCloud Drive)
+   shows the same types. A vault whose folder is later moved or deleted outside the app stays in the list with
+   *Folder not found*: edit it to give its new place, or remove it.
 4. **Switch to it** with the vault selector at the foot of the sidebar. A new vault opens in the **Explorer** (the
    sidebar's file view): click **Project**, the first of the two buttons at the foot of the sidebar (under the vault selector), to see the vault
    as items (see [Sidebar modes](#sidebar-modes)). Until its folders exist, that page says *does not match its structure* and offers **Create the N missing
@@ -263,7 +268,7 @@ Every field is optional.
 
 | Field | What it is | Set from |
 |---|---|---|
-| `vaults` | `[{id, name, path, structure, folders?, disabled_types?}]`. `id` is made from the name on the first save and never changes (it is in the address and in each vault's export). `structure` is `ticketing` (Projects), or one of the legacy `folders` (Initiatives) and `tasks` (Tasks): the ids never changed when the structures were renamed. A vault saved without one is read as `folders`, which it was when it was written; a config with no `config.json` at all opens `sample-vault/` as Projects. `folders` (Initiatives and Tasks only) moves a type's folder: `{"task": "work/tasks"}`. `disabled_types` hides types (Projects' `project` cannot be). | Settings → Vaults |
+| `vaults` | `[{id, name, path, structure, folders?, disabled_types?}]`. `id` is made from the name on the first save and never changes (it is in the address and in each vault's export). `structure` is `ticketing` (Projects), or one of the legacy `folders` (Initiatives) and `tasks` (Tasks): the ids never changed when the structures were renamed. A vault saved without one is read as `folders`, which it was when it was written; a config with no `config.json` at all opens `sample-vault/` as Projects. `folders` (Initiatives and Tasks only) moves a type's folder: `{"task": "work/tasks"}`. `disabled_types` is where a vault's hidden types were kept before they moved into the vault (`.task-manager/settings.json`): read only while the vault keeps no settings of its own, moved into it when the app starts, and dropped from here at the next save. | Settings → Vaults |
 | `default_vault` | The id of the vault that opens when the address names none. | Settings → Vaults |
 | `root`, `folders` | The default vault's path and folders, kept equal to it on every save, for the tools in `tools/` and for a config written before there were vaults (its `root` becomes the one vault). | automatic |
 | `port` | Where `server.py` listens (default 3100). `TM_PORT` in the environment wins. | by hand |
@@ -294,7 +299,7 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
 - **Why a separate folder.** The installer copies the code to `~/Library/Application Support/TaskManager/app` (copied,
   never linked), so the app you use every day never runs a half-finished change from this checkout. Work in progress
   reaches it only when you run `--update`. It copies only what runs (`server.py`, `tm/`, `static/`, `docs/`, `tools/`,
-  `sample-vault/`, `sample-vault-legacy/`, `README.md`, `package.json`, `config.example.json`): no `.git`, `tests/`, `plans/` or `.claude/`.
+  `sample-vault/`, `sample-vault-legacy/`, `README.md`, `CHANGELOG.md` (the version Settings → Documentation shows), `package.json`, `config.example.json`): no `.git`, `tests/`, `plans/` or `.claude/`.
 - **Its own settings, the same vaults.** Its `config.json` is made once from this checkout's, with port **3200** (so
   the checkout on 3100 and the app can run at once) and relative vault paths made absolute; it is never overwritten
   after, not even by `--update`. The vaults stay where they are, so both see the same files.
@@ -307,7 +312,7 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
   every 5 minutes: when an agent's schedule is due (§7 *Agents*), it connects to the app, which starts it; with none
   due it does nothing and the app stays off. `--update` adds it to an app installed before it existed; its log is
   `~/Library/Logs/TaskManager/wake.log`.
-- **Settings → App** shows how the server runs (on demand or by hand, since when, which port) with **Stop server** and
+- **Settings → Desktop app** shows how the server runs (on demand or by hand, since when, which port) with **Stop server** and
   **Restart**. Once stopped, nothing runs until the next opening starts it again.
 - **In the Dock.** Open `http://localhost:3200` in Safari and choose *File → Add to Dock*, or in Chrome *⋮ → Cast,
   save and share → Install page as app*. It gets its own window and the check icon (`static/manifest.json`,
@@ -523,6 +528,21 @@ In progress, Done, Discarded —, moved by hand: closing its items does not clos
 `related_to`, as from any item. Deleting a goal clears `goal` and `goal_order` on its items; restoring it puts them
 back. Only a Projects vault has goals.
 
+#### What a new item starts with
+
+A new item's file is its frontmatter and the **default text** of its type in that vault — never its title (that is
+its file's name) nor an empty `## Related`. The texts live in the vault, one file per type in
+`.task-manager/templates/<type>.md`, so every device that opens it (the Mac, the iPhone app) and every agent and
+command line that writes to it start alike. A Projects vault gets them **once**, at its first write, from
+`tm/structures/ticketing/default_texts/` (a story's, a spec's, a PRD's sections…; a task, a note or an inbox item has
+none and starts empty); after that they are the vault's own: change or empty them in **Settings → Vaults → ✎ → Item
+types → Default text**, and an emptied or deleted one never comes back. The create form starts its Description with
+it and follows the type while you have not typed in it; sent as it is, the server fills its placeholders —
+`{{ref}}`, `{{id}}`, `{{title}}`, `{{project}}`, `{{key}}`, `{{date}}`, `{{slug}}`, and a plan's `{{item_ref}}` and
+`{{item_title}}`, the item it executes. A quick capture, `tools/vault.py new` without `--body` and an agent that sends
+no body get it too; an inbox item converted keeps what was captured, then the new type's text, as does a task promoted
+with `/dev:promote`. A legacy vault keeps each type's own sections and has no default text to set.
+
 ### What the check blocks and what it only warns about
 
 `tm/structures/check.py` (Initiatives and Tasks) and `tm/structures/ticketing/check.py` (Projects) compare the folder with its structure. Hidden
@@ -577,7 +597,8 @@ tm/structures/          what a vault looks like: __init__.py (Structure, TypeDef
                         folders.py (Initiatives and Tasks), agents.py (the Agent type, shared), check.py (their check),
                         kinds.py (what a Projects project may be and the types its kind gives it)
 tm/structures/ticketing/  Projects: definition.py (types, folders, fields), check.py, codec.py (files ↔ items), rules.py,
-                        wikilinks.py, templates/ (a new file of each fileClass)
+                        wikilinks.py, templates/ (a new file's frontmatter, per fileClass), default_texts/ (the text
+                        each type starts with, seeded into a vault once)
 tm/graph.py             the vault as a graph (items and docs, every link between them): GET /api/graph, the local graph
 tm/attachments.py       files attached to an item (Attachments/)
 tm/people.py            contacts: who an attendee or a sender is, and groups
@@ -677,7 +698,8 @@ from the types and from every parent, page table and list filter that named it.
 `file_class`, its `scope` (project · root · note), `folder`, id `code`, how its file is `title`d, its `status_key`, the
 field that is its `parent` and its wikilink fields (`links`, `multi_links`); then `PROPS` and `TABS` (its own fields
 and the tab each sits in), `PARENTS`, `PAGES`, `LISTS` and `SHOWN`; the app's fields come from its traits, as above. It
-also needs a template, `templates/Ticket <Name>.md` (a new file is that template, filled in), and a project-scoped type
+also needs a template, `templates/Ticket <Name>.md` (a new file's frontmatter is that template, filled in), may have a
+default text, `default_texts/<type>.md` (see [What a new item starts with](#what-a-new-item-starts-with)), and a project-scoped type
 must be given to the project kinds that have it in `tm/structures/kinds.py`.
 
 **A project's kind** (`project_kind`, chosen once when it is made) is a `Kind` in `tm/structures/kinds.py`: its `id`
@@ -768,7 +790,9 @@ searchable list of the vault's docs and folders), and under them the docs that m
 | **Agents** | A backlog of AI agents (`AGT-0001` in Initiatives and Tasks, folder `agents/`; `AGT-001` in Projects, folder `Agents/`). An agent moves through its own statuses — **Idea → Design → Build → Test → Live → Retired** (Retired closes it) — and is not planned: no Today, Week or Board. It has a priority and its reason, **Platform** (Claude Code subagent · Agent SDK · Managed Agent · n8n · Other), **Model**, **Trigger** (manual · scheduled · event) and **Tools & MCP**, and may hang from an initiative. Created with an empty description, its body starts from the sections Purpose · Inputs · Outputs · Tools · Prompt · Evaluation · Runbook. **Its folder is optional**: a vault without it still matches its structure, and the folder is made with the first agent. Quick add: `/agent` or `/agt`. |
 | **Prompts** | Reusable prompts as a table (`PRM-0001`, folder `prompts/`; `PRM-001` in Projects, folder `Prompts/`, optional: made with the first one, and with no "g then" key there): subject, state, labels, created and updated, with filters (Active / Archived / All, label, text) and **Add prompt**. The body of the file is the prompt itself. Like a note it has no status: it is **active** until you archive it (⋯ → Archive). It relates to nothing, has no side panel (no links, work log or comments) and does not appear in List, the Board or the Work log suggestions. |
 | **Trash** | Everything you delete, as a table (how many in the head, *Empty* when there is nothing): id, subject, type, when it went, where it was and how many related items were detached. **Restore** puts an item back in its folder and relinks what the delete detached; **Delete forever** (the bin on a row's hover) and **Empty trash** (red, at the right of the bar) ask first, in place. The trash is the folder `<root>/.task-manager/trash/` — plain `.md` files, each with a `.meta.json` beside it (original path, deleted at, detached children). Nothing is purged automatically, and ids in the trash are never handed out again, so a restore cannot collide. In Projects a **project goes with its folder**: one row (*Acme Web · with 23 items*, its key as its id), its note where any deleted file goes and the rest of the folder beside it (`<note>.folder/`); what lives outside it and pointed into it (a task in the project, an item hanging from one of its tickets) is detached and comes back with it, and Delete forever takes the whole folder. It comes back only while its name and its key are free. A ticket goes back into its project's folder as it is called now (the trash keeps its project by key, and a rename rewrites the trash's links too); one whose project is gone (in the trash too) waits for it: restore the project first. A restore never leaves the vault out of its structure: it is refused instead. A project deleted by an older version left its folder behind and the vault read-only: its **Restore** (the one write such a vault takes) puts its note back in that folder and the vault right. Labels, people, columns and work-log entries are not items and are deleted outright. |
-| **Settings** | Tabs (`#/settings/<tab>`, the last one remembered): **Vaults** (the folders this app shows, each with its structure, item types on/off and, in Initiatives and Tasks, the folders for new items; the default — see [Setup](#your-first-vault). The vault the page shows has **Guide for agents**, which keeps an `AGENTS.md` at its top — see [The vault's guide for agents](#the-vaults-guide-for-agents). A new vault is Projects; the row of a legacy vault, Initiatives or Tasks, says how to move it to Projects), **Statuses** (see *Statuses and their groups*), **Themes** (see *Themes*), **General** (work kinds, the editor of *Open in …*), **Claude** (how it starts, saved folders, model and effort), **Maintenance** (assign ids to hand-written items), **Keyboard**, **Export** (see *Exporting the system*), **App** (the installed app: stop, restart), **Documentation** (the user guide, [`docs/user-guide.md`](docs/user-guide.md)). Vaults, General and Claude are one form: *Save settings* at the foot of any saves all three. The form tabs keep a reading width, one section under the other with a line between them; each setting is a row (its name on the left, its control and what it does on the right), each control in a soft grey frame and the text at the lists' size, and the save bar stays at the foot of the window while the tab is longer than it. A row's ×, an export's download and Show in Finder show on hover. In Statuses a status's colour is a dot, beside its name and group in the same soft frame. |
+| **Settings** | Tabs (`#/settings/<tab>`, the last one remembered): **Vaults** (a table of the folders this app shows: name, folder, structure, item types on, features on, default; *New vault*, and a row's name or ✎ opens the vault's dialog, × takes it out of the list after a confirm. The dialog's tabs: **General** — name, folder, structure, default, in Initiatives and Tasks the folders for new items, **Guide for agents** (an `AGENTS.md` at its top, saved at once — see [The vault's guide for agents](#the-vaults-guide-for-agents)) and its folder's warnings; **Item types** — which of its structure's types it shows, kept in the vault so every device sees the same, and in
+Projects each type's **Default text** (a type picker and its text, saved as you type; see
+[What a new item starts with](#what-a-new-item-starts-with)); a type a feature takes with it shows ticked off and locked, *(with Meetings & transcription)*; **Features** — what the vault does without, kept in the vault too (see [Features per vault](#features-per-vault)). A new vault is Projects; a legacy vault, Initiatives or Tasks, says how to move it to Projects. On a phone each vault is a row of three lines (its name with *This page* and *Default*, its folder, then structure, types and features) and the dialog scrolls under its Save — see [Setup](#your-first-vault)), **Statuses** (see *Statuses and their groups*), **Themes** (see *Themes*), **General** (work kinds, the editor of *Open in …*), **Claude** (how it starts, saved folders, model and effort), **Maintenance** (assign ids to hand-written items), **Keyboard** (every key the app answers, by group — Navigate, Go to, Create, Item, Editor, Panels — with a search; `?` shows the same list on any page: see *Search and keyboard*), **Export** (see *Exporting the system*), **Desktop app** (the installed Mac app's server: stop, restart; not on a phone), **Documentation** (the version, links to this repository — its README, changelog and issues — and the user guide, [`docs/user-guide.md`](docs/user-guide.md)). General, Claude and Agents are one form: *Save settings* at the foot of any saves all three; each vault saves in its own dialog. The form tabs keep a reading width, one section under the other with a line between them; each setting is a row (its name on the left, its control and what it does on the right), each control in a soft grey frame and the text at the lists' size, and the save bar stays at the foot of the window while the tab is longer than it. A row's ×, an export's download and Show in Finder show on hover. In Statuses a status's colour is a dot, beside its name and group in the same soft frame. |
 
 **Add item** (sidebar) opens a menu as wide as the button with what is made most often, in three groups: *Capture to
 Inbox* (one line, `q`) and Activity; Note, Task and Meeting; Project, Initiative and Story (a vault whose structure has
@@ -787,7 +811,8 @@ is picked. The main column has its sections one under another, each under a smal
 and objective** first (a project's, an initiative's), a project's **Settings** (Global — Kind, a new project starting
 *Simple*; Types; Execution —, Code, Support due days, each a short number box), then the **Description**, the same box
 as on the item's page: a click opens the editor, Esc or a click outside leaves it, its copy and full-screen buttons over
-its corner. Links are not asked: they are added on the card. A project's properties have its outside ticket (ID, URL)
+its corner, starting with the vault's default text for the type and following the type while it is untouched (see
+[What a new item starts with](#what-a-new-item-starts-with)). Links are not asked: they are added on the card. A project's properties have its outside ticket (ID, URL)
 and local path, as on its page. It asks only what is known when the item is opened: in Projects what a later step
 writes — Delivery's Execution, Spec and release, Triage and Paused or discarded, an initiative's premise, a support
 ticket's disposition and resolution, an error's *Fixed by*, a hotfix's post-mortem, a PRD's *Superseded by* — is not on
@@ -818,7 +843,7 @@ its project's key: its ✎ and × on the project stay faint and say so (docs/mig
 ids); its parent changes only within its project. A plan, an analysis, an error or a learning is its item's: its project
 follows its item's (none included) and never changes on its own — an analysis that hangs from no item has
 **Move to another project** instead; without a parent, a picker offering only what it may hang from (a project, for a task, a
-note, a meeting, a ticket… that move between them), never what is under the item (no cycles) — its own link fields (a Ticketing initiative's *Origin*…), what it is related to as an equal, one
+note, a meeting, a ticket… that move between them), never what is under the item (no cycles) — its **Goal** right under it (an item of a Projects vault in a goal: *Pick a goal…* offers the open goals), its other link fields (a Ticketing initiative's *Origin*…), what it is related to as an equal, one
 section per kind, and last **+ Add relation**, a button with a border and no fill (as *Add existing session*) that opens
 the row that adds one (the kind, then the item, from a searchable list — those of its own project first —, both frameless until hovered, then *Add*, the
 primary button, faded until an item is picked). An empty picker says what it picks, in grey: *Pick a project…*, *Pick an initiative…*, *Pick a
@@ -832,13 +857,16 @@ from**. A relation is kept on one of the two items and shows on both, the other 
 initiative, a story: *A is blocked by B* writes B in A's `depends_on`, *A blocks B* writes A in B's — and any other kind
 `relations` + `relation_kinds`. Every row of the tab — parent, links, related — is an item's
 icon and title with its id muted at the right, shown once: a link field that is set (*Goal*, *Origin*…) is its row, the
-name to open it, ✎ to pick another and × to clear it on hover; one that is not, its picker; a field of several (*Depends
+name to open it, ✎ to pick another and × to clear it on hover; one that is not, a picker as Parent's (*Pick a goal…*,
+*Pick an origin…*: only the open items it may name); a field of several (*Depends
 on*) its rows, each with its ×, and *Add …* under them. Inbox items and prompts are linked to nothing. An item's card
 and page draw no graph: the Graph view does. The create form has the
 side panel's properties in its own right column, as rows in the card's blocks: its fields (a ticket's size and regime
-among them), then its Parent, the outside ticket & local (or a local path alone); then **Relations**, its own
-link fields asked on creation (an initiative's or a story's origin, a PRD's or an analysis's supersedes, a spec's
-stories), each under its name as on the card. Its main column has a project's Settings (where its Kind is chosen, once;
+among them), then the outside ticket & local (or a local path alone); then **Relations**: first its **Parent** (where
+it lives, one field for its project and what it hangs from), then its own link fields asked on creation (an
+initiative's or a story's origin, a PRD's or an analysis's supersedes, a spec's stories), each under its name as on the
+card. Not its goal: an item joins a goal from the Goals view (whose **+** creates it already in that goal) or its card's
+Relations. Its main column has a project's Settings (where its Kind is chosen, once;
 another kind redraws the form with its settings and Types), in the grey-titled groups of the card's tab, Area and
 objective, the description and then the main link (here they fold). With nothing for the right column (a prompt) the
 form is one column, and where it will be saved shows under the main one.
@@ -850,13 +878,16 @@ in the sidebar's order, each group with *Show all*; *In the text* finds them by 
 come the files whose path matches, the views, *Claude terminal* / *Work on … with Claude*, and *New …* to create.
 Arrow keys move, Enter runs, Esc closes (`palette.js`; what matches and in what order is `search.js`).
 
-Keys: `q` capture · `/` focus the filter · `Esc` close the top layer · `⌘\` hide or show the sidebar · `⌘⇧E`
+Keys: `q` capture · `/` focus the filter · `?` the list of keys · `Esc` close the top layer · `⌘\` hide or show the sidebar · `⌘⇧E`
 the next sidebar mode (Project → Explorer → Agents) · `⌘⇧D` Docs · `g` then a key to go to a view. The `g` keys are the app's (`t` Today, `w` Week,
 `b` Board, `a` List, `l` Work log, `h` Labels, `e` Contacts, `d` Trash) plus each type's — Initiatives: `i` Inbox,
 `n` Initiatives, `s` User stories, `k` Tasks, `o` Notes, `x` Transcriptions, `m` Meetings, `c` Activity, `p` Prompts;
 Tasks: the same without `s`, plus `j` Projects; Projects (its Prompts, Transcriptions, Specs and Agents have none): `i` Inbox, `j` Projects, `n` Initiatives, `k` Tasks, `u` Support, `f` Hotfixes, `v` PRDs, `y` Plans,
-`s` Analyses, `m` Meetings, `o` Notes, `x` Errors, `z` Learnings, `c` Activity. Settings → Keyboard lists the set of
-the vault in use. Every table row, card and menu is reachable with Tab and opens with Enter.
+`s` Analyses, `m` Meetings, `o` Notes, `x` Errors, `z` Learnings, `c` Activity. **Settings → Keyboard**, and `?` on any
+page (a dialog over it), list every key with the set of the vault in use, in groups — Navigate, Go to, Create (the
+create form's ↵ and ⌘↵ too), Item, Editor (the description's ⌘B, ⌘I, ⌘K, ⌘⇧C, Tab, ⌘↵), Panels (Esc, the pins'
+⇧←/⇧→ and Delete) — with a search over them. They are one registry, `keymap.js`: `main.js` asks it (`is(e, id)`)
+for every key it answers, and `tests/js/keymap.test.mjs` fails when a key is answered and not listed. Every table row, card and menu is reachable with Tab and opens with Enter.
 
 **One key on an item** (`itemkeys.js`, the keys in `shortcuts.js` `ITEM_KEYS`): `x` closes or reopens it (with Undo), `t`
 plans it for today, `w` for this week, `s` opens its status and `p` its priority. It acts on the open card or page, else
@@ -912,7 +943,7 @@ was left. Going to another view from the sidebar closes an expanded card (saving
 
 #### Sidebar modes
 
-The sidebar shows one of **three modes**, the three buttons at its foot, under the vault selector and left of the theme switch (`⌘⇧E` goes round them). *Add item* sits on top in Project and Explorer; Agents has no vault items to make, so it goes there.
+The sidebar shows one of **three modes**, the three buttons at its foot, under the vault selector (`⌘⇧E` goes round them). *Add item* sits on top in Project and Explorer; Agents has no vault items to make, so it goes there.
 
 - **Project** — first **Favourites**, right under *Add item*: the initiatives starred on their page (the ☆ in the
   page's header; a new one is not until you star it), each with its progress ring, in the order you drag them
@@ -944,7 +975,7 @@ Switching never navigates: the page stays where it is. **The mode is remembered 
 `tm.v.<vault>.sidebar.mode`), and **a vault starts in the Explorer** until you pick Project once — so a new vault
 opens on its files, and its *Create the missing folders* notice is one click away, in Project.
 
-The vault selector, the mode switch and the theme switch sit at the sidebar's foot (whatever room is left goes above them, never between its blocks); under the selector, a vault of a legacy structure shows *Legacy · move to Projects*, a link to its row in Settings → Vaults. **On a phone it is a drawer**: ☰ in the top bar
+The vault selector and the mode switch sit at the sidebar's foot (whatever room is left goes above them, never between its blocks); under the selector, a vault of a legacy structure shows *Legacy · move to Projects*, a link to its row in Settings → Vaults. **On a phone it is a drawer**: ☰ in the top bar
 opens it over the page, and picking a link or tapping outside closes it. On a wider screen it can
 be resized (drag its right edge, or ←/→ on it; double-click resets it) and hidden (the button in its
 header or `⌘\`; the button at the left of the top bar brings it back). Its width and state, and how every table is
@@ -1071,10 +1102,11 @@ on an initiative's page, in List or in the Trash; the subject takes what is left
 (`tm-theme`, `tm-skin`, and one `tm-<option>` per option of Modern's look), not in `config.json`, so each browser and
 machine has its own and there is no Save. Each one applies at once, and every open tab of the app follows it.
 
+- **Mode**, first: Light, Dark or System (the system's, followed when it changes). It is only chosen here: the sidebar
+  has no switch of its own.
 - **Theme**: **Classic**, the app as it has always looked (compact, monochrome, 13.5px text), or **Modern**: larger
   text and controls (14px, 36px), Radix colours, and a look of your own. Each card shows the look in light and in dark.
-- **Mode**: Light, Dark or System (the system's, followed when it changes). It is the same choice as the switch at
-  the sidebar's foot. **Density** (Comfortable, Compact) is Modern's.
+- **Appearance**: **Density** (Comfortable, Compact), Modern's.
 - **Look** (Modern's; in Classic it is greyed out): a **preset** — Modern, Ink, Paper, Ocean, Grape, Forest,
   Terminal — or each option on its own, beside a preview drawn with the app's own components (a sidebar, a title, a
   progress bar, a card with chips, buttons, a menu) that changes with every choice:
@@ -1185,6 +1217,37 @@ python3 tools/migrate_statuses.py --vault work --remap task:Review=InReview --ap
 
 The seed rewrites no item. A vault where an item has a status its type does not have is reported and left alone.
 
+#### Features per vault
+
+Settings → Vaults → a vault's ✎ → **Features**: a box per feature, what turning it off hides, and the item types it
+takes with it. Kept in the vault (`.task-manager/settings.json`, `disabled_features`, next to the types), so the Mac
+and the iPhone app show the same vault the same way; turned off, a feature leaves every screen of that vault, and
+nothing on disk is touched: turned on again, everything is back.
+
+| Feature | Its types | What goes |
+|---|---|---|
+| **AI Agents** | Agent, Prompt | The sidebar's Agents mode, the Agents pages, an item's **AI Agents** tab and *Work on it with Claude*, the top bar's Claude terminal |
+| **Canvas** | — | The sidebar's Canvas and its page, an item's Canvas tab, Goals' Canvas layout |
+| **Inbox** | Inbox | The Inbox, **Q** and *Capture to Inbox* (the palette, the *Add item* menu) |
+| **Activity** | Activity | Activities, and an item's **Activity** tab (its comments and history; on a phone the third pane is then **More**) |
+| **Goals** | Goal | Goals, an item's goal, the lists' Goal column and grouping |
+| **Graph** | — | The sidebar's Graph and its page, *Show in the graph* |
+| **Meetings & transcription** | Meeting, Transcription | Meetings and Transcriptions, and their place in Today and the month |
+| **Work log** | — | The Work log page, an item's **Time** tab |
+| **Contacts** | — | The Contacts page, @ mentions, an item's watchers |
+
+A feature with types is off too once Item types turns all of them off: the Activity type off takes the Activity tab
+with it, and the box says *Off: its types are off in Item types*. A type a feature took shows in Item types ticked off
+and locked, *(with Activity)*. The page's routes go home and its menus, the palette and the g-keys leave them out; the
+server refuses a request of the feature for that vault (`409`, `feature_off`: `/api/graph`, `/api/worklog`,
+`/api/canvases`, `/api/people`, `/api/groups`, an item's comments and history, an item's Claude). The syncs that feed
+a feature refuse a vault that turned it off: the calendar's meetings, Slack's activities, people, the work-log
+proposal; triage reads neither its types nor theirs. The vault's command line (`tools/vault.py`) still reads every
+type, as it does with Item types.
+
+A feature a device has none of (AI Agents and Canvas on a phone, see [On a phone](#on-a-phone)) shows its box as the
+vault keeps it, greyed, *Not on this device*: saved from the phone, it stays as the Mac left it.
+
 #### Exporting the system
 
 **Settings → Export** makes zips to carry things to another machine while they are being iterated on two of
@@ -1239,7 +1302,9 @@ Highlightr plugin's form) — and a selection already coloured is recoloured, no
 rendered text opens the editor with the caret on that word, its line kept where you clicked (there is no Edit
 button, and no Done: a click outside the block, `⌘↵` or Esc saves what is pending and goes back to reading). `⌘B` `⌘I` `⌘K` `⌘⇧C`, Enter continues a list or checklist, Tab / Shift+Tab
 indents, `⌘↵` saves, Esc leaves the editor. Three modes: **Markdown** (the default), **Both** (a live preview beside
-the text) and **View**.
+the text) and **View**. It saves as you type: *Saving…*, *Saved*, *● unsaved* or *● not saved — retrying in 8s* sit
+at the end of the toolbar where the copy and full-screen buttons are over the box's corner (a page's Overview, the
+create form), wrapping with it; elsewhere, and on a phone (whose toolbar scrolls sideways), in the row above.
 
 While you type, the Markdown is coloured as in Cursor or Obsidian's source view: headings, bold and italic, links,
 quotes and `code`, and a fenced block that names its language (```` ```python ````, ```` ```js ````, ```` ```sh ````…) in
@@ -1263,7 +1328,7 @@ and List filter by labels: tick one or several, and pick **Any (OR)** or **All (
 priorities are coloured pills (the same colours in every view); each type has its own colour on its icon and on
 the card's left edge.
 
-Theme: light / dark / system, from the switch at the bottom of the sidebar (remembered per browser).
+Theme: light / dark / system, in Settings → Themes → *Mode* (remembered per browser).
 
 Links: any url field takes a bare host — `dominio.com` is saved as `https://dominio.com`.
 
@@ -1342,15 +1407,16 @@ phone (`ios`, `android`) the page leaves out:
 
 | Feature | What goes |
 |---|---|
-| `agents` | The sidebar's **Agents** mode (⌘⇧E goes round Project and Explorer), the Agents pages (`#/runs`, `#/lab`), Settings → **Agents**, and Settings → Vaults' *Guide for agents* |
+| `agents` | The sidebar's **Agents** mode (⌘⇧E goes round Project and Explorer), the Agents pages (`#/runs`, `#/lab`), Settings → **Agents**, and the vault dialog's *Guide for agents* |
 | `terminal` | The top bar's **>_**, an item's *Work on it with Claude*, its **AI Agents** tab and its *Local path* (where Claude starts), the palette's Claude entries, the dock, Settings → **Claude** |
 | `canvas` | The sidebar's **Canvas** and its page, an item's Canvas tab, Goals' Canvas layout (one picked on a computer shows as Board) |
 | `open_in` | *Open in <editor>* and *Open in its app* (the Explorer's menu, a file's head), Settings → General's *Editor app*; a file the page cannot show offers only Download |
 | `reveal` | **Show in Finder** everywhere |
 | `export` | Settings → **Export** |
-| `server` | Settings → **App** (stopping or restarting the server) |
+| `server` | Settings → **Desktop app** (stopping or restarting the server) |
 
-The address of a page that is not there goes home, as an unknown one does. Agent items (the `agent` type) are vault
+A vault can turn more off on any device ([Features per vault](#features-per-vault)); what is on is what both
+the platform and the vault keep on. The address of a page that is not there goes home, as an unknown one does. Agent items (the `agent` type) are vault
 items like any other and stay: what goes is running them. `TM_PLATFORM=ios` makes a computer's server answer as a
 phone's, to see it (§6 *Preview servers*).
 
@@ -1749,7 +1815,7 @@ python3 tools/vault.py agents --on                        # the vault's guide fo
 
 #### The vault's guide for agents
 
-Turned on in Settings → Vaults (**Guide for agents**, for the vault the page shows) or with `tools/vault.py agents --on`,
+Turned on in Settings → Vaults (a vault's dialog, **Guide for agents**) or with `tools/vault.py agents --on`,
 a vault keeps an `AGENTS.md` at its top: what any agent opened in its folder — Claude Code, Codex, Cursor — reads first.
 It says what the vault is and how to work with it: the `tools/vault.py` commands (with this app's path in them), the
 projects and their folders, each type (its ref, folder, statuses, parent, link fields), the relation kinds and where

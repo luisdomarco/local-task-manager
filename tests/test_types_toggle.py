@@ -11,6 +11,7 @@ from unittest import mock
 
 import server
 from tm import frontmatter as fm
+from tm import vaultsettings
 from tm.store import DEFAULT_FOLDERS, Store, StoreError
 from tm.structures import REGISTRY
 
@@ -156,6 +157,83 @@ class ConfigTest(unittest.TestCase):
             app.set_config({'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders'},
                                        {'id': 't', 'name': 'T', 'path': tickets, 'structure': 'ticketing', 'disabled_types': ['project']}],
                             'default_vault': 'a'})
+
+
+class InTheVaultTest(unittest.TestCase):
+    """The types a vault turns off live in the vault (.task-manager/settings.json, tm/vaultsettings.py): a second device
+    with its own config.json that opens the same folder (the iPhone app over iCloud Drive) sees the same ones."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.a = os.path.join(tmp.name, 'a')
+        for folder in DEFAULT_FOLDERS.values():
+            os.makedirs(os.path.join(self.a, folder))
+        self.cfg = self.config_file('config.json')
+        patcher = mock.patch.object(server, 'CONFIG_PATH', self.cfg)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
+
+    def config_file(self, name, **vault):
+        path = os.path.join(self.tmp, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'root': self.a, 'vaults': [{'id': 'a', 'name': 'A', 'path': self.a, 'structure': 'folders', **vault}],
+                       'default_vault': 'a'}, f)
+        return path
+
+    def saved(self):
+        with open(vaultsettings.path(self.a), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_written_into_the_vault_and_seen_by_another_device(self):
+        app = server.App()
+        out = app.set_vault_settings('a', {'disabled_types': ['note', 'story']})
+        self.assertEqual(out['settings']['disabled_types'], ['story', 'note'])
+        self.assertEqual(self.saved()['disabled_types'], ['story', 'note'])
+        self.assertNotIn('note', app.store_for('a').structure.types)  # the store was opened again with them
+        with open(self.cfg, encoding='utf-8') as f:
+            self.assertNotIn('disabled_types', json.load(f)['vaults'][0])  # config.json is not where they go
+        phone = self.config_file('phone.json')  # another device: its own config, the same folder
+        with mock.patch.object(server, 'CONFIG_PATH', phone):
+            self.assertEqual(server.App().config['vaults'][0]['disabled_types'], ['story', 'note'])
+
+    def test_other_keys_in_the_file_are_kept(self):
+        os.makedirs(os.path.dirname(vaultsettings.path(self.a)), exist_ok=True)
+        with open(vaultsettings.path(self.a), 'w', encoding='utf-8') as f:
+            json.dump({'later': {'x': 1}}, f)
+        server.App().set_vault_settings('a', {'disabled_types': ['note']})
+        self.assertEqual(self.saved(), {'later': {'x': 1}, 'disabled_types': ['note']})
+
+    def test_refused_like_the_config_was(self):
+        app = server.App()
+        for bad in (['nope'], list(REGISTRY['folders'].types), 'note'):
+            with self.subTest(bad), self.assertRaises(StoreError):
+                app.set_vault_settings('a', {'disabled_types': bad})
+        self.assertFalse(os.path.exists(vaultsettings.path(self.a)))
+
+    def test_config_types_move_into_the_vault_once(self):
+        self.config_file('config.json', disabled_types=['note'])
+        app = server.App()
+        self.assertEqual(app.config['vaults'][0]['disabled_types'], ['note'])  # read from config.json while the vault keeps none
+        app.move_settings_into_vault(app.config['vaults'][0])
+        self.assertEqual(self.saved()['disabled_types'], ['note'])
+        app.set_vault_settings('a', {'disabled_types': []})
+        app.move_settings_into_vault({**app.config['vaults'][0], 'disabled_types': ['note']})  # never again: the vault has its own
+        self.assertEqual(self.saved()['disabled_types'], [])
+        app.set_config({'vaults': app.config['vaults'], 'default_vault': 'a'})
+        with open(self.cfg, encoding='utf-8') as f:
+            self.assertNotIn('disabled_types', json.load(f)['vaults'][0])  # the stale copy goes at the next save
+
+    def test_a_file_that_is_not_settings_is_ignored(self):
+        self.config_file('config.json', disabled_types=['note'])
+        os.makedirs(os.path.dirname(vaultsettings.path(self.a)), exist_ok=True)
+        with open(vaultsettings.path(self.a), 'w', encoding='utf-8') as f:
+            f.write('not json')
+        self.assertEqual(server.App().config['vaults'][0]['disabled_types'], ['note'])
 
 
 if __name__ == '__main__':

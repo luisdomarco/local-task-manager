@@ -396,7 +396,7 @@ def cmd_new(store, args):
     if args.type not in store.structure.types:
         raise CliError(f"no type '{args.type}' in this vault (there are: {', '.join(store.structure.types)})")
     values = parse_values(store, args.type, args.set, creating=True)
-    it = store.create(args.type, args.title, values, read_text(args.body) if args.body is not None else '')
+    it = store.create(args.type, args.title, values, read_text(args.body) if args.body is not None else None)  # none: the type's default text
     return written(store, [it], 'Created')
 
 

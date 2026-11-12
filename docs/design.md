@@ -287,7 +287,8 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   (`.wl-group-total`). A column the group already says (Date by day, Kind by kind) is not drawn.
 - **Overview's work and records** (Tasks, Notes, Meetings: `workGroups`): the Panel kit's groups and rows, never a second tab bar — a folding name with its count (open ones only, for a kind that closes), *+ Add…* as `aside`, rows with the id muted and, at the right, a task's status and priority as two columns without a table, edited in place with the lists' cells (`COL.status` / `COL.priority` from `datatable.js`, outside the row's link so a pick does not open it; quiet until the row is hovered, as `.grid td`'s), the priority at the right edge (`.work-meta`; on a phone the priority keeps only its bars) or a record's date, the tables' pager (`paged`) in the group's foot. The whole line up to *+ Add* folds it. **Issues** uses the same groups (`workGroups(…, { table: true })`), each unfolding into its kind's `dataTable` with the columns of its list but `ISSUE_LEFT_OUT` (ticket id, progress): id and subject at fixed widths (`ISSUE_TABLE`) so every kind's table lines up with the others, an empty last column (`FILL_COLUMN`) taking what is left, sideways scroll without a bar; quiet (small grey heads, no bold subject), *Show N closed* on its pager's line (`.issue-body`). The quick add (+ Add) shuts on Esc, *Close*, or a click elsewhere while empty.
 - **Relations / Docs**: built of the Panel kit (below): `stackGroup`s of `rowList`s, quiet pickers, a secondary button
-  to add one more. **Parent** opens Relations: one group for where the item lives (`project` and `related_to` in the
+  to add one more. **Parent** opens Relations, **Goal** right under it (then the other link fields; an empty single
+  link is a quiet `select` as Parent's, *Pick a goal…*, never a "— none —"): one group for where the item lives (`project` and `related_to` in the
   file), the chain as rows — its parent and on up, closed by its project (`in`) — the first with ✎ (`itemPicker` over
   `parentChoices`) and its ×. Where its project can change (rules.js `projectFree`: a task, a note…, and a ticket of
   `leaves_project` — initiative, story, spec, support, hotfix, PRD — with a short id) the project row's ✎ is that same
@@ -560,8 +561,10 @@ Properties · Activity · AI Agents · Relations · Time, last.
   field a later step writes (`later` in `tm/structures`: execution, release, triage, a pause, the outcome) is left out
   (rules.js `askedOnCreate`), and the new file takes its template's value. An optional select (create.js `OPTIONAL`)
   starts on none, so nothing is written until it is picked.
-- Its right column asks where the item goes in one **Parent** field (itemform.js `parentControl`, as Relations: a
-  project or an item, writing `project` and `related_to`; an item brings its project).
+- Its right column's **Relations** opens with where the item goes, one **Parent** field (itemform.js `parentControl`, as
+  the card's Relations: a project or an item, writing `project` and `related_to`; an item brings its project), a
+  `stackGroup` as the link fields under it. Its goal is `later` (joined from the Goals view, whose values the form keeps
+  and sends, or the card).
 - A create the server would refuse is not sent (rules.js `missingOnCreate`): each field it needs and lacks (the
   subject, a project's key, a ticket's Parent when it brings no project, the Parent of a story, PRD, plan or hotfix) is marked in `--destructive` (its name, and its
   box, framed even in quiet rows: `.is-invalid`, `aria-invalid`), the first one focused, no toast and no message. Only
@@ -577,8 +580,27 @@ Properties · Activity · AI Agents · Relations · Time, last.
   (`folderButton(input, {prompt, onPick})`, `folderpick.js`): macOS's folder dialog, opened by the server, writes the
   path into the field as if typed. In the iPhone app the app's own Files picker does it (`nativePicker()`, its
   `pickFolder` message handler). Elsewhere it is not there and the field is typed as before.
+- Settings → Keyboard and the `?` dialog are one view (`views/keyboard.js`): `keymap.js`'s groups as sections of
+  `prop-rows`, a row's keys as `kbd` chips where its name goes (`.keys`; "or" between two, none between keys pressed
+  one after the other), what they do at the right, and a search over all of it (`.keys-search`). Themes opens with
+  **Mode** (light, dark, system), its only place: the sidebar has no switch.
 - Settings: form tabs at `max-width: 860px`, sections one under another divided by a line, each setting a row
   (`setRow(label, control, help)` in `views/settings.js`), the save bar sticky at the foot (`.settings-save`).
+- Settings → Vaults (`views/vaults.js`) is a page's rows (`table.grid.fixed.vault-grid`, its ✎ × `rowAction`s on hover,
+  *New vault* a small ghost button in the section head), and one dialog per vault: `openDialog({ cls: 'vault-modal' })`
+  holding `tabPanels` (General · Item types · Features), each tab Settings' `prop-rows` (the same rows, inside the dialog), its foot
+  `formActions` with *Save* and a `kbd-hint` the phone hides. On a phone the table is stacked rows as Labels'
+  (`phone.css`: name and its chips, the folder, then structure · types · features; the Default column is a chip by the
+  name, as *This page*: a fourth item on line 3 has no room), and the dialog scrolls under its sticky foot. A setting that is the vault's own (its item types) is
+  saved into the vault (`api.saveVaultSettings`), what is this device's (name, folder, default) into config.json.
+  Item types ends, in Projects, with **Default text**: a `select` of the types on and one `mdBlock` (`tabbed`, as the
+  create form's Description) saved as you type (`api.setDefaultText`), never through the dialog's Save; a save redraws
+  only the picker's *(empty)* marks, so the editor keeps its focus. Its placeholders are listed under it as `code`.
+  Features is a `.vault-feature-list`: per feature a native checkbox and its text (name; what it hides, `muted small`;
+  its types). One the device has none of (`features.js` `onPlatform`) or whose types are all off is the vault's value,
+  disabled, with its reason after the name (*· Not on this device*); a type a feature takes is locked in Item types,
+  *(with ‹feature›)*. A surface that goes with a feature carries `data-feature="<id>"` (app.css hides it under
+  `<html data-off>`) or asks `has()` / `viewOn()`: never a vault-specific check of its own.
 - Settings → Themes (`views/themes.js`) applies each choice at once, so it has no save bar. A look is a **theme card**
   (`.theme-cards` > `button.theme-card`, `aria-pressed`, `.active` framed in `--foreground`): a preview of the look in
   light and dark side by side (`.tc-preview` with two `.tc-half`, drawn with literal colours so it shows the other
