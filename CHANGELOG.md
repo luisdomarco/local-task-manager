@@ -4,6 +4,15 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **The phone pass, finished.** On a phone screen a drag down from a
+  card's head closes it; the Graph has **Centre here** while a tap has lit a node; a comment's Edit and Delete are under
+  one **⋯**; an Inbox item's *Convert to* sits under its title with the rest. The drawer's top row is at a page
+  title's size. A list's row keeps its height with its subject and ID together, centred; a row of what an item holds
+  (an Overview's tasks, notes, meetings) is one line — its name cut with "…" in at least 70% of the width, then a
+  task's status dot and its priority's bars and word. Properties and a row's status and priority look as on a computer
+  (the name left, the value right, no frame until tapped) instead of a form. The description's Edit, copy and full
+  screen sit off the box's edge, alike. A computer is unchanged.
+
 ## [1.5.0] — 2026-11-12
 
 **Highlights.** **On a phone** every screen is sized for a finger — 16px text, 44px targets, the card on the whole

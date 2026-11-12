@@ -8,6 +8,7 @@ import { createSimulation, fit, forceOptions, nearest, unclutter, zoomAt } from 
 import { degrees } from './graphmodel.js';
 import { edgeStyle, labelAlpha, nodeColor } from './graphstyle.js';
 import { THEME_ATTRS } from './themeprefs.js';
+import { isPhone } from './phone.js';
 import { h, icon } from './ui.js';
 
 const TONES = { strong: '--foreground', soft: '--graph-line', faint: '--graph-line-faint', alert: '--destructive' };
@@ -39,8 +40,13 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
   const canvas = h('canvas', { class: 'graph-canvas', tabindex: '0', role: 'img', 'aria-label': label });
   const tip = h('div', { class: 'graph-tip', role: 'tooltip', hidden: true });
   const btn = (ico, title, run) => h('button', { type: 'button', class: 'btn icon', title, 'aria-label': title, onclick: run }, icon(ico, 14));
+  // Centre here: on a phone, shown while a finger's tap has lit a node (a finger has no hover to show it the way);
+  // built only there, so a computer's controls stay as they were
+  const centreBtn = isPhone() ? btn('locate', 'Centre here', () => centreOn(hover)) : null;
+  const showCentre = (on) => { if (centreBtn) centreBtn.hidden = !on; };
+  showCentre(false);
   const controls = h('div', { class: 'graph-controls' },
-    btn('plus', 'Zoom in (+)', () => zoomBy(1.3)), btn('minus', 'Zoom out (−)', () => zoomBy(1 / 1.3)), btn('maximize', 'Fit to the view (0)', () => refit()));
+    btn('plus', 'Zoom in (+)', () => zoomBy(1.3)), btn('minus', 'Zoom out (−)', () => zoomBy(1 / 1.3)), btn('maximize', 'Fit to the view (0)', () => refit()), centreBtn);
   const el = h('div', { class: `graph-box ${compact ? 'compact' : ''}` }, canvas, controls, tip);
   const ctx = canvas.getContext('2d');
 
@@ -77,7 +83,7 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
       radius = nodes.map((n) => radiusOf(deg.get(n.id) || 0));
       adj = nodes.map(() => new Set());
       for (const l of links) { adj[l.s].add(l.t); adj[l.t].add(l.s); }
-      hover = -1;
+      hover = -1; showCentre(false);
       // A first picture at once: a small graph is laid out before it is drawn; a big one starts and moves into place.
       const budget = performance.now() + (nodes.length < 400 ? 60 : 25);
       while (!sim.settled() && performance.now() < budget) sim.tick();
@@ -94,6 +100,13 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
   }
   const refit = () => { moved = false; fitView(); draw(); };
   function zoomBy(f, sx = size.w / 2, sy = size.h / 2) { view = zoomAt(view, f, sx, sy); moved = true; draw(); }
+  /** The view moved so node `i` sits in the middle, at the same zoom; its card follows it there. */
+  function centreOn(i) {
+    if (i < 0 || !sim) return;
+    view = { ...view, tx: size.w / 2 - sim.x[i] * view.k, ty: size.h / 2 - sim.y[i] * view.k };
+    moved = true; draw();
+    showTip(i, size.w / 2, size.h / 2);
+  }
 
   // ── the loop: tick while the layout moves, draw each frame ──
   function kick() { if (!raf) raf = requestAnimationFrame(frame); }
@@ -309,7 +322,7 @@ export function graphCanvas({ onOpen = () => {}, onFocus = () => {}, describe = 
     if (dragged || e.type !== 'pointerup') return;
     // A finger has no hover: its first tap on a node lights it and what it is tied to (and shows its card), a second
     // tap on it opens it; a tap on the background puts the lights out.
-    if (touch && i !== hover) { hover = i; draw(); if (i >= 0) showTip(i, sx, sy); else hideTip(); return; }
+    if (touch && i !== hover) { hover = i; showCentre(i >= 0); draw(); if (i >= 0) showTip(i, sx, sy); else hideTip(); return; }
     if (i >= 0) onOpen(nodes[i]);
   };
   canvas.addEventListener('pointerup', end);

@@ -18,11 +18,8 @@
   /* What shows on hover shows from the start: there is no hover (design.md §5). */
   .tree-more, .td-x, .cv-copy { opacity: 1; }
   .hover-host .hover-reveal { opacity: 1; } /* app.css's own (hover: none) twin loses to the hiding rule's weight; this layer wins */
-  .picks-quiet .select-btn:not(:focus-visible, [aria-expanded="true"]),
-  .work-meta .select-btn.small:not(:focus-visible, [aria-expanded="true"]),
-  .quiet .field :is(input:not([type=checkbox], [type=radio]), textarea, .select-btn):not(:focus, [aria-expanded="true"]),
-  .quiet .field .label-input:not(:focus-within) { border-color: var(--input); }
-  .picks-quiet .select-btn, .work-meta .select-btn.small, .quiet .field .select-btn { background-image: var(--chevron); }
+  /* (a quiet field, a row's status and priority keep the computer's look at rest — no frame, no chevron: they are
+     read as values, not a form; a tap opens them as on a computer) */
 
   /* Keys there is no keyboard for */
   .kbd-hint, .create-keys, .menu-item kbd { display: none; }
@@ -87,7 +84,12 @@
   #sidebar:focus { outline: none; }
   #sidebar nav a, .side-ini, .tree-row { min-height: var(--tap); }
   .side-group > summary { min-height: var(--tap); font-size: var(--fs-xs); }
+  /* Its top row at the drawer's scale: the name as large as a page's title, the logo and the fold icon to match */
+  .brand { min-height: 52px; gap: 10px; font-size: var(--fs-h3); }
+  .brand .logo { width: 32px; height: 32px; border-radius: var(--radius); }
+  .brand .logo .icon { width: 18px; height: 18px; }
   .brand #side-collapse { width: var(--tap); height: var(--tap); margin: -8px -10px -8px auto; }
+  .brand #side-collapse .icon { width: 22px; height: 22px; }
   .side-switches { flex-wrap: wrap; row-gap: 8px; }
   :is(.side-mode, .theme-switch) .btn.icon { width: var(--tap); height: 40px; }
   .side-view-x, .docs-add, .tree-more { width: var(--tap); height: var(--tap); }
@@ -160,6 +162,10 @@
   /* A list's row (app.css's two-line row, from 760 on a phone): the subject in full on up to two lines; the box to tick
      and the status's dot each a finger's target (list.js wraps the box in .pick-hit) */
   .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 38px 30px auto minmax(0, 1fr) auto; column-gap: 6px; min-height: 64px; padding: 8px 4px 8px 0; }
+  /* The tick box and the dot (44px targets) down both lines, so neither stretches the first: the subject and its id
+     sit together, the pair centred in the row, which keeps its height */
+  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject subject when" "pick dot id where where";
+    align-content: center; row-gap: 2px; min-height: 90px; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { font-size: var(--fs-base); line-height: 1.3; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .item-link { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-initiative, .c-project, .c-parent) { font-size: var(--fs-2xs); }
@@ -289,6 +295,8 @@
   #item-modal .im-body { overscroll-behavior: contain; }
   /* Its head: one row, the type and ref, ⋯ and × always there (panel.js puts its own actions under its title) */
   #item-modal .im-head { gap: 4px; padding: 4px 4px 4px 12px; }
+  /* …and a drag down from it closes the card (phone.js swipeDown): the finger's, not a scroll's */
+  #item-modal:not(.is-prompt) .im-head { touch-action: none; }
   #item-modal .im-head > :is(.btn, .chip, .mono) { flex: none; }
   #item-modal .im-head > .btn.icon { width: var(--tap); height: var(--tap); }
   #item-modal .im-head > .im-back { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -300,15 +308,17 @@
   /* Detail | Properties | Activity, and every tab bar inside: a finger's height */
   .pane-switch .seg .btn { height: 40px; }
   :is(#item-modal, .page) :is(.tabs-bar .tab-btn, .tab-btn) { min-height: var(--tap); }
-  /* Properties: each name above its value, as Settings and the create form have them */
-  :is(#item-modal, .page) .prop-rows .field { grid-template-columns: minmax(0, 1fr); row-gap: 4px; padding: 6px 0; }
-  :is(#item-modal, .page) .prop-map-row { grid-template-columns: minmax(0, 1fr); }
+  /* Properties: the computer's rows — the name left, its quiet value right — a finger's height each */
+  :is(#item-modal, .page) .prop-rows .field { grid-template-columns: 112px minmax(0, 1fr); column-gap: 8px; min-height: var(--tap); padding: 0; }
   /* A label's or a watcher's ×: a bigger target than the chip it sits in, spilling over its edge */
   .x-btn.x-chip { min-width: 32px; min-height: 32px; margin: -8px -8px -8px -4px; opacity: .8; }
   .x-btn.x-row { width: 36px; height: 36px; }
   .label-input input { height: 36px; }
   /* The description: Edit, Copy and Full screen on a row above the box (mdblock.js), Done under it; the text whole */
-  .body-wrap.in-tab:not(.full) > .body-tabs { position: static; justify-content: flex-end; gap: 4px; margin-bottom: 6px; }
+  .body-wrap.in-tab:not(.full) > .body-tabs { position: static; justify-content: flex-end; gap: 4px; margin-bottom: 0; padding: 4px 4px 0; }
+  /* …the three alike: quiet, a finger's height, their icons one size (Edit is not framed beside two bare icons) */
+  .body-tabs .body-edit { height: var(--tap); padding: 0 10px; border-color: transparent; background: none; box-shadow: none; font-size: var(--fs-sm); }
+  .body-tabs .btn .icon { width: 18px; height: 18px; }
   .body-wrap.in-tab:not(.full) > :is(.md-wrap, .body-empty) { padding-right: 14px; }
   .body-wrap.in-tab:not(.full) > .mde .mde-bar { padding-right: 0; }
   .body-tabs .btn.icon, .body-wrap.in-tab:not(.full) > .body-tabs .btn.icon { width: var(--tap); height: var(--tap); }
@@ -329,13 +339,22 @@
   .activity-compose .comment-input { min-height: var(--tap); font-size: var(--fs-field); }
   .activity-compose > .btn { width: var(--tap); height: var(--tap); }
   .activity-card .btn.icon, .activity-edit-actions .btn { min-width: var(--tap); min-height: var(--tap); }
+  /* A comment's ⋯ (Edit, Delete: panel.js) at the head's right edge, its 44px reaching past the card's padding */
+  .activity-card header .btn.icon { margin: -10px -10px -10px auto; }
   /* What hangs from it, its relations, links, files and time: rows and their actions a finger's */
-  /* A row of what hangs from it (row-list): its name whole on its line, its status and priority under it */
-  .row-item { flex-wrap: wrap; row-gap: 0; min-height: var(--tap); padding: 4px 0 6px 8px; }
-  /* (room left at its end for two 44px buttons, a link's ☆ and ⋯; a status and a priority go under it) */
-  .row-item > .row-link { flex: 1 1 calc(100% - 2 * var(--tap) - 8px); min-width: 0; min-height: 36px; padding: 6px 0 2px; }
-  .row-item > .row-link :is(.row-title, span) { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
-  .row-item .work-meta .select-btn.small { height: 40px; }
+  /* A row of what hangs from it (row-list): one line, as a list — its name cut with "…" in most of the width, its
+     status's dot and its priority's bars and word at the right, quiet (a tap opens their menu) */
+  .row-item { flex-wrap: nowrap; min-height: var(--tap); padding: 0 0 0 8px; }
+  .row-item > .row-link { flex: 1 1 auto; min-width: 70%; min-height: var(--tap); padding: 0; }
+  .row-item > .work-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  .row-item > .work-meta.with-prio { grid-template-columns: minmax(0, max-content) max-content; column-gap: 0; }
+  .row-item .work-meta .select-btn.small { max-width: 100%; height: var(--tap); padding: 0 4px; font-size: var(--fs-2xs); }
+  /* (the 30% left holds the priority's bars and word; the status is its dot — its word is in the menu it opens) */
+  .row-item .work-meta .select-sizer, .row-item .work-meta .status-select .select-label { display: none; }
+  .row-item .work-meta .status-select { min-width: 32px; justify-content: center; }
+  .row-item .work-meta .status-select .select-text { padding-left: 12px; }
+  .row-item .work-meta .prio-select .select-text { padding-left: 18px; }
+  .row-item .work-meta .prio-select .select-label { font-size: inherit; white-space: nowrap; }
   .row-item > .btn.icon, .row-item .row-action { width: var(--tap); height: var(--tap); }
   .rel-row, .link-row { min-height: var(--tap); }
   :is(.rel-row, .link-row) .btn.icon { width: var(--tap); height: var(--tap); }

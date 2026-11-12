@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { PHONE_TOUCH, TOUCH, isPhone, isTouch } from '../../static/js/phone.js';
+import { PHONE_TOUCH, SWIPE_CLOSE, TOUCH, isPhone, isTouch, swipeCloses } from '../../static/js/phone.js';
 
 // The phone layer (css/phone.css, docs/design.md §2 *The phone layer*): what keeps a computer from ever seeing one of
 // its rules, and the page's layer order that lets it win over Classic and the themes.
@@ -76,5 +76,22 @@ describe('phone.js', () => {
   it('is no phone and no touch screen where there is no matchMedia (node)', () => {
     assert.equal(isPhone(), false);
     assert.equal(isTouch(), false);
+  });
+});
+
+describe('swipeCloses', () => {
+  it('closes on a slow pull far enough down', () => {
+    assert.equal(swipeCloses(0, SWIPE_CLOSE.distance, 2000), true);
+    assert.equal(swipeCloses(10, SWIPE_CLOSE.distance - 1, 2000), false);
+  });
+  it('closes on a short, fast flick, not on a short, slow one', () => {
+    assert.equal(swipeCloses(0, 60, 50), true);
+    assert.equal(swipeCloses(0, 60, 400), false);
+    assert.equal(swipeCloses(0, SWIPE_CLOSE.flick - 1, 1), false);
+  });
+  it('never closes going up or more sideways than down', () => {
+    assert.equal(swipeCloses(0, -200, 100), false);
+    assert.equal(swipeCloses(150, 120, 100), false);
+    assert.equal(swipeCloses(0, 0, 0), false);
   });
 });

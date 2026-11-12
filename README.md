@@ -1365,11 +1365,12 @@ and menu rows 44px tall, and the page clear of the notch and the home indicator.
 so iOS no longer zooms into it, and the page can be pinched again. What opens in the middle of the screen does so over
 a real dim: a tap on it only closes what is open, and goes nowhere else. A list to pick from (a field's, the type in
 *Create*, the item picker, the Inbox's box) no longer brings the keyboard up on its own — tap its search to type —
-and one tap on a row acts on it. On any touch screen, what a computer shows on hover (a tree row's ⋯, a quiet field's
-frame and chevron, a copy button) shows from the start, and keyboard hints (*esc*, ⌘↵, a menu item's keys) are not
+and one tap on a row acts on it. On any touch screen, what a computer shows on hover (a tree row's ⋯, a copy button)
+shows from the start (a quiet field stays quiet, as on a computer, until it is tapped), and keyboard hints (*esc*, ⌘↵, a menu item's keys) are not
 drawn.
 
-The shell on a phone screen: the sidebar drawer's rows are 44px, a tap on a link closes it (the page already shown
+The shell on a phone screen: the sidebar drawer's rows are 44px, its top row (the app's name, its logo and the
+button that hides it) at a page title's size, a tap on a link closes it (the page already shown
 too), an Explorer folder opens in place, and a long press on a tree row opens its menu (rows are not dragged on a
 touch screen). The top bar shows the page's title on every page, and the pinned items and minimized cards behind one
 **pin** button with their count, which lists them; a page head that only repeated the title is gone. The view bar's
@@ -1380,7 +1381,7 @@ screen with each field's name above it, and Settings' tabs, swatches, statuses (
 small buttons are 44px. Settings → **Keyboard** is left out on a touch screen.
 
 Lists, boards and planning on a phone screen: a list's row is two lines from 760px — its subject whole on up to two
-lines at 16px, then its ID and where it belongs — with the box to tick and the status dot each a 44px target; once a
+lines at 16px, then its ID and where it belongs, close together and centred in the row — with the box to tick and the status dot each a 44px target; once a
 row is ticked the bulk bar runs across the screen with **×** first and **Select all · N** (there is no header row to
 tick). Group heads, *Show closed*, the pager's arrows (*Rows* per page is a computer's) and the work log's links are
 44px. Today, Week and Planning's rows show the subject whole, with its priority's bars and when under it, and their
@@ -1394,17 +1395,21 @@ Month a day is its number over dots; a tap opens that day's entries, each named.
 rows (a tap edits one; its trash is beside it), the Contacts form is the screen's width.
 
 An item, a page and Docs on a phone screen: a card takes the whole screen (a prompt keeps its smaller card), its head
-is the type, the ref, ⋯ and ×, and *Mark resolved*, *Promote*, *Escalate* and *Convert to* sit beside the status under
-the title. Detail, Properties and Activity, and every tab inside, are a finger's height. Properties put each name
-above its value; a label's or a watcher's × is a bigger target than its chip. The description is read until **Edit**
+is the type, the ref, ⋯ and ×, and *Mark resolved*, *Promote*, *Escalate* and *Convert to* (an Inbox item's) sit
+beside the status under the title; a finger dragged down from the head closes the card. Detail, Properties and
+Activity, and every tab inside, are a finger's height. Properties are a computer's rows, a finger's height: the name
+left, its value right with no frame until it is tapped; a label's or a watcher's × is a bigger target than its chip. The description is read until **Edit**
 (a tap on its text does not open the editor on a touch screen), its toolbar is one sliding row that stays on screen,
-and **Done** closes it; scrolling never does. A comment's Return is a new line — the arrow sends it —, and a field
+and **Done** closes it; scrolling never does. **Edit**, copy and full screen sit in the box's corner, alike. A comment's
+Return is a new line — the arrow sends it — and its **⋯** holds *Edit* and *Delete*; and a field
 being typed in is not redrawn under the finger when something else saves (the keyboard stays). A row of what an
-item holds (its issues, links, relations) shows its name whole, a link's ☆ and ⋯ beside it. A page's crumbs are 44px.
+item holds is one line: its name cut with "…" in at least 70% of the width, then (a task) its status's dot and its
+priority's bars and word; a link's ☆ and ⋯ beside it. A page's crumbs are 44px.
 In **Docs**, with a doc open, the trees fold under **Browse docs** so the doc starts at the top; a doc being edited
 keeps its toolbar under the top bar and **Done** at the bottom of the screen, and *Both* (side by side) is left out.
 In the **Graph** a finger has no hover: a first tap on a node lights it and what it is tied to and shows its card, a
-second opens it; a finger reaches a node 18px off it, and a small slip still counts as a tap.
+second opens it, and **Centre here** (beside the zoom buttons while one is lit) brings it to the middle; a finger
+reaches a node 18px off it, and a small slip still counts as a tap.
 
 ### Data model
 

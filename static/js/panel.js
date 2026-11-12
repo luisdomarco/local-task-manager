@@ -23,7 +23,7 @@ import { attachmentsBody } from './attachments.js';
 import { shownKinds } from './kindgroups.js';
 import { groupLinks, linkIcon, shortUrl } from './linkgroups.js';
 import { quickAddBar } from './quickadd.js';
-import { isPhone, isTouch } from './phone.js';
+import { isPhone, isTouch, swipeDown } from './phone.js';
 import {
   EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, isShortId, kindFor, leavesProject, matchesWhere, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectFree, projectHas, projectOf, propsIn, statusesOf,
 } from './rules.js';
@@ -1250,14 +1250,26 @@ function activity(item, { heading = true, rerender = null } = {}) {
     const head = h('header', {}, h('span', { class: 'activity-author' }, 'You'),
       h('time', { class: 'muted small', datetime: e.at, title: e.edited ? `${when(e.at)} · edited ${when(e.edited)}` : when(e.at) }, clock(e.at)),
       e.edited ? h('span', { class: 'muted small', title: `Edited ${when(e.edited)}` }, '· edited') : null,
-      editing ? null : h('button', { class: 'btn icon hover-reveal', title: 'Edit comment', onclick: () => {
-        commentEdits.set(k, { was: e.text, text: e.text });
-        redraw();
-        const ta = list.querySelector(`[data-fk="comment-${e.index}"]`);
-        ta?.focus();
-        ta?.setSelectionRange(ta.value.length, ta.value.length);
-      } }, icon('pencil', 13)),
-      h('button', { class: 'btn icon hover-reveal', title: 'Delete comment', onclick: () => { commentEdits.delete(k); deleteComment(item.key, e.index); } }, icon('x', 13)));
+      ...commentActions());
+    function startEdit() {
+      commentEdits.set(k, { was: e.text, text: e.text });
+      redraw();
+      const ta = list.querySelector(`[data-fk="comment-${e.index}"]`);
+      ta?.focus();
+      ta?.setSelectionRange(ta.value.length, ta.value.length);
+    }
+    function remove() { commentEdits.delete(k); deleteComment(item.key, e.index); }
+    // On a computer a pencil and a × on hover; on a phone one ⋯ with both (two 44px buttons crowded its head)
+    function commentActions() {
+      if (isPhone()) {
+        const picks = [editing ? null : { label: 'Edit', icon: 'pencil', onSelect: startEdit },
+          { label: 'Delete', icon: 'trash', danger: true, onSelect: remove }].filter(Boolean);
+        return [h('button', { class: 'btn icon', title: 'Comment actions', 'aria-label': 'Comment actions', 'aria-haspopup': 'menu',
+          onclick: (ev) => dropdown(ev.currentTarget, picks, { align: 'end' }) }, icon('more', 16))];
+      }
+      return [editing ? null : h('button', { class: 'btn icon hover-reveal', title: 'Edit comment', onclick: startEdit }, icon('pencil', 13)),
+        h('button', { class: 'btn icon hover-reveal', title: 'Delete comment', onclick: remove }, icon('x', 13))];
+    }
     let card;
     if (!editing) {
       card = h('article', { class: 'activity-card surface-card hover-host' }, head, h('p', {}, ...withMentions(e.text)));
@@ -1608,6 +1620,9 @@ function modalLayout(item, c) {
   const back = parentView ? state.all.find((i) => i.key === parentView.key) : null;
   const kids = item.type === 'prompt' ? { work: [], groups: [] } : splitChildren(relatedSections(item, c.rerender));
   const phone = isPhone();
+  // An inbox item's Convert to, an activity's Mark resolved, a support ticket's Promote / Escalate: in the head on a
+  // computer, under the title on a phone (the head is one row there: the ref, ⋯ and × must fit).
+  const own = () => (item.type === 'inbox' ? [convertButton(item)] : [resolveButton(item), ...ticketActions(item)]);
   return modalFrame({
     head: [
       back ? h('button', { class: 'btn small ghost im-back', title: 'Back', onclick: goBack },
@@ -1621,12 +1636,12 @@ function modalLayout(item, c) {
       h('span', { class: 'spacer' }),
       // An inbox item's Convert to and an activity's Mark resolved first, then Claude, left of the rest (on the page too,
       // with the Favourites star right after Claude).
-      // On a phone the head is one row (the ref, ⋯ and × must fit): an item's own actions go under its title instead.
-      item.type === 'inbox' ? convertButton(item) : phone ? null : resolveButton(item), c.claude, ...(phone ? [] : ticketActions(item)), c.pin, c.minimize, c.more,
+      // On a phone they go under the title instead (own).
+      phone ? null : item.type === 'inbox' ? convertButton(item) : resolveButton(item), c.claude, ...(phone ? [] : ticketActions(item)), c.pin, c.minimize, c.more,
       h('button', { class: 'btn icon im-close', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
     ],
     title: modalTitle(item.type, c.subject, item.type === 'prompt' ? null
-      : phone ? h('div', { class: 'im-title-acts' }, statusSelect(editBinding(item)), resolveButton(item), ...ticketActions(item))
+      : phone ? h('div', { class: 'im-title-acts' }, statusSelect(editBinding(item)), ...own())
         : statusSelect(editBinding(item))),
     main: [
       // A prompt keeps its few fields here (it has no side column); everything else has them at the top of its side.
@@ -1724,6 +1739,7 @@ async function show(itemOrKey, { parent = null, restore = null, card = false } =
   backdrop().hidden = false;
   backdrop().onmousedown = (e) => { if (e.target === backdrop()) closeItem(); };
   modal().onkeydown = (e) => { if (e.key === 'Tab') trapFocus(modal(), e); };
+  swipeDown(modal(), '.im-head', closeItem); // on a phone, a drag down from the head closes the card
   modalEd.render();
   paintExpanded();
   if (restore) { // come back to the same place in the column
