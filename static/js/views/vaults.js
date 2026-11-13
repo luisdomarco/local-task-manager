@@ -1,7 +1,8 @@
 // Settings → Vaults: the vaults this app can show, as a table (name, folder, structure, item types, default), and one
 // dialog to add or edit a vault, in tabs: General (its name and folder here, its structure, the default, its guide for
-// agents), Item types (which of its structure's types it shows, and in Projects the text each starts with) and Features
-// (what it turns off as a whole: tm/vaultsettings.py FEATURES, with the types that go with each).
+// agents), Item types (which of its structure's types it shows), Features (what it turns off as a whole:
+// tm/vaultsettings.py FEATURES, with the types that go with each) and Default texts (in Projects, the text each type
+// starts with).
 //
 // Where each thing is kept: the name, the folder and the default are this device's (config.json, POST /api/config);
 // what the vault shows is the vault's own (.task-manager/settings.json, POST /api/vault/settings, tm/vaultsettings.py),
@@ -12,7 +13,7 @@ import { has, onPlatform } from '../features.js';
 import { folderButton } from '../folderpick.js';
 import { warningGroups } from '../housekeeping.js';
 import { reload, saveConfig, state, toast } from '../state.js';
-import { emptyLine, formActions, h, icon, loadingLine, openDialog, propRow, sectionLabel, select, tabPanels } from '../ui.js';
+import { emptyLine, formActions, h, icon, loadingLine, openDialog, propRow, select, tabPanels } from '../ui.js';
 import { vaultId } from '../vault.js';
 import { isPhone } from '../phone.js';
 import { mdBlock } from '../mdblock.js';
@@ -168,8 +169,7 @@ export function openVaultEditor(vault) {
               drawTexts();
               drawFeatures();
             } }), label, required ? h('span', { class: 'muted small' }, '(required)') : feature ? h('span', { class: 'muted small' }, `(with ${feature})`) : null);
-      })),
-      textsPane);
+      })));
   };
 
   // Features: what the vault turns off as a whole, each with what it hides and the types that go with it. One the
@@ -206,8 +206,9 @@ export function openVaultEditor(vault) {
       })));
   };
 
-  // Projects: the text a new item of each type starts with, kept in the vault (.task-manager/templates/<type>.md) and
-  // saved as it is typed, apart from the dialog's Save. Only for a vault already added whose folder is there.
+  // Default texts (a tab of its own): in Projects, the text a new item of each type starts with, kept in the vault
+  // (.task-manager/templates/<type>.md) and saved as it is typed, apart from the dialog's Save. Only for a vault already
+  // added whose folder is there; otherwise the tab says why it has nothing to set.
   const textsPane = h('div', { class: 'vault-texts' });
   let texts = null; // GET /api/vault/default-texts of that vault: { texts, editable, placeholders }
   let textType = null;
@@ -240,16 +241,22 @@ export function openVaultEditor(vault) {
       textBlock.render();
     }, { 'aria-label': 'Type of the default text', search: !isPhone() }));
   };
+  let textsShown = false; // the picker and the editor are in the tab (drawn once, so an open editor keeps its focus)
+  const textsNote = (text) => { textsShown = false; textsPane.replaceChildren(h('p', { class: 'muted small' }, text)); };
   const drawTexts = () => {
-    if (isNew || v.missing || !texts?.editable || v.structure !== structureBefore) { textsPane.replaceChildren(); return; }
+    if (isNew) return textsNote('Add the vault first: its default texts are kept in its folder.');
+    if (v.missing) return textsNote('The vault’s folder is not found: its default texts are kept there.');
+    if (v.structure !== structureBefore) return textsNote(`Save the vault as ${labelOf(v.structure)} first: its default texts are that structure’s.`);
+    if (!texts) { textsPane.replaceChildren(loadingLine()); return; }
+    if (!texts.editable) return textsNote(`A ${labelOf(v.structure)} vault has no default texts: a new item starts with its type’s own.`);
     const shown = shownTypes();
-    if (!shown.length) { textsPane.replaceChildren(); return; }
+    if (!shown.length) return textsNote('Every type with a default text is off (Item types, Features).');
     if (!shown.includes(textType)) showText(shown[0]);
     drawPick();
-    if (!textsPane.childElementCount) {
+    if (!textsShown) {
+      textsShown = true;
       textsPane.replaceChildren(
-        sectionLabel('Default text'),
-        h('p', { class: 'muted small' }, 'What a new item of the type starts with, here and in what agents and the vault’s command line create. Empty, it starts with no text. Kept in the vault, saved as you type.'),
+        h('p', { class: 'muted small' }, 'What a new item of each type starts with, here and in what agents and the vault’s command line create. Empty, it starts with no text. Kept in the vault, saved as you type.'),
         pickHolder,
         textBlock.el,
         h('p', { class: 'muted small vault-placeholders' }, 'Filled in when the item is made: ',
@@ -290,10 +297,12 @@ export function openVaultEditor(vault) {
   drawGeneral();
   drawTypes();
   drawFeatures();
+  drawTexts();
   const tabs = tabPanels([
     { key: 'general', label: 'General', content: general },
     { key: 'types', label: 'Item types', content: typesPane },
     { key: 'features', label: 'Features', content: featuresPane },
+    { key: 'texts', label: 'Default texts', content: textsPane },
   ], 'general');
   const { close } = openDialog({
     title: isNew ? 'New vault' : v.name || 'Vault', ico: 'folder', cls: 'vault-modal', label: isNew ? 'New vault' : `Vault ${v.name}`,
@@ -305,7 +314,8 @@ export function openVaultEditor(vault) {
     onKey: (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); } },
   });
   if (!isNew && !v.missing) {
-    api.defaultTexts(v.id).then((r) => { texts = r; drawTexts(); }).catch(() => {}); // not its structure's: nothing to set
+    api.defaultTexts(v.id).then((r) => { texts = r; drawTexts(); })
+      .catch(() => { texts = { editable: false, texts: {} }; drawTexts(); }); // not its structure's: nothing to set
   }
   if (!isNew) {
     api.vaultStatusOf(v.id).then((s) => { status = s; drawGeneral(); })
@@ -346,7 +356,13 @@ export function vaultsSection() {
       const features = (c.vault_features || []).length;
       const featuresOn = features - (v.features_off || []).length;
       const edit = () => openVaultEditor(v);
-      return h('tr', { class: 'vault-tr hover-host', 'data-vault': v.id },
+      // A click anywhere on the row edits it, as a list's row opens its item; its own buttons do their own thing, and a
+      // drag that selected text (a folder's path, to copy) is not a click. The name is the row's keyboard way in.
+      const rowClick = (e) => {
+        if (e.target.closest('button, a, input, select, textarea') || String(window.getSelection?.() || '')) return;
+        edit();
+      };
+      return h('tr', { class: 'vault-tr hover-host', 'data-vault': v.id, onclick: rowClick },
         h('td', { class: 'c-name' }, h('div', { class: 'c-name' }, h('button', { type: 'button', class: 'link vault-open', onclick: edit, title: `Edit ${v.name}` }, v.name),
           v.id === vaultId() ? h('span', { class: 'chip vault-here', title: 'The vault this page shows' }, 'This page') : null,
           // On a phone the Default column is gone (phone.css): the chip goes by the name, as This page does

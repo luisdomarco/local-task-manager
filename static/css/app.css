@@ -2173,8 +2173,8 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-feature input:disabled ~ .vault-feature-text { opacity: .7; }
 .vault-feature-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .vault-feature-name { font-size: var(--fs-sm); font-weight: 500; }
-.vault-texts { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
-.vault-texts .section-label, .vault-modal .vault-texts > p { margin: 0; }
+.vault-texts { display: flex; flex-direction: column; gap: 8px; }
+.vault-modal .vault-texts > p { margin: 0; }
 .vault-text-type { align-self: flex-start; }
 .vault-placeholders { line-height: 1.8; }
 .vault-agents p { margin: 4px 0 0 22px; max-width: 72ch; }

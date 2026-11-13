@@ -5,7 +5,8 @@
 // applies the same before the first paint, in a few lines of its own that the test runs against these.
 
 export const MODES = ['light', 'dark', 'system'];
-export const SKINS = ['classic', 'modern'];
+/** The looks, the first the default: Modern (comfortable, its first density), unless Classic was chosen. */
+export const SKINS = ['modern', 'classic'];
 export const DENSITIES = ['comfortable', 'compact'];
 /** Radix scales that hold a filled control at 3:1 on every base, light and dark, with text on it at 4.5:1
  *  (tests/js/contrast.test.mjs; css/themes/modern.css picks the step), and `mono`: no colour, the base's ink. Red is

@@ -646,12 +646,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def read_upload(self):
         """An attachment's bytes, sent as they are (no JSON, no base64), its name in X-TM-Filename (URI-encoded).
-        Too big is refused before anything is read."""
+        Too big is refused before anything is read. The page also sends the file's size (X-TM-Size, api.js): bytes that
+        do not add up to it are refused and nothing is written, so a transport that drops the body (the iPhone app's
+        WKURLSchemeHandler did, for a Blob) is an error the page shows, never an empty file. A script may leave it out."""
         length = int(self.headers.get('Content-Length') or 0)
         if length > attachments.MAX_BYTES:
             self.close_connection = True  # the body stays unread: this connection cannot carry another request
             raise StoreError(413, f'an attachment is at most {attachments.MAX_BYTES // (1024 * 1024)} MB')
-        return {'data': self.rfile.read(length) if length else b'', 'filename': unquote(self.headers.get('X-TM-Filename') or '')}
+        data = self.rfile.read(length) if length else b''
+        size = self.headers.get('X-TM-Size')
+        if size is not None and (not size.isdigit() or int(size) != len(data)):
+            raise StoreError(400, f'the file arrived incomplete ({len(data)} of {size} bytes): nothing was saved')
+        return {'data': data, 'filename': unquote(self.headers.get('X-TM-Filename') or '')}
 
     def send_vault_file(self, q, resolve):
         """One file of a vault: an attachment (resolve = Store.attachment_file) or any file the Explorer shows

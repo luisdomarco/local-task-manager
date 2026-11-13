@@ -21,8 +21,9 @@ const shown = (root) => ({ ...root.dataset, dark: root.classList.contains('dark'
 const none = Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, null]));
 const defaults = Object.fromEntries(Object.entries(OPTIONS).map(([k, list]) => [k, list[0]]));
 
-test('defaults: Classic, the system decides light or dark, none of Modern\'s options', () => {
-  assert.deepEqual(resolveTheme({}, false), { mode: 'system', theme: 'light', skin: 'classic', ...none });
+test('defaults: Modern and its first options (Comfortable), the system decides light or dark', () => {
+  assert.deepEqual(resolveTheme({}, false), { mode: 'system', theme: 'light', skin: 'modern', ...defaults });
+  assert.equal(resolveTheme({}, false).density, 'comfortable');
   assert.equal(resolveTheme({}, true).theme, 'dark');
 });
 
@@ -33,7 +34,7 @@ test('a chosen mode wins over the system', () => {
 
 test('unknown stored values fall back to the defaults', () => {
   const t = resolveTheme({ mode: 'sepia', skin: 'retro', density: 'huge', accent: 'chartreuse' }, false);
-  assert.deepEqual(t, { mode: 'system', theme: 'light', skin: 'classic', ...none });
+  assert.deepEqual(t, { mode: 'system', theme: 'light', skin: 'modern', ...defaults });
   const nonsense = Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, 'nonsense']));
   assert.deepEqual(resolveTheme({ skin: 'modern', ...nonsense }, false), { mode: 'system', theme: 'light', skin: 'modern', ...defaults });
 });

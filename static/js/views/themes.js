@@ -7,8 +7,8 @@ import { OPTIONS, PRESETS, presetOf, presetValues, shuffled } from '../themepref
 import { h, icon, propRow, seg, statusChip } from '../ui.js';
 
 const LOOKS = [
-  ['classic', 'Classic', 'The app as it has always looked: compact, monochrome, 13.5px text.'],
-  ['modern', 'Modern', 'Larger text and controls, Radix colours, and an appearance of your own: colours, shape, fonts.'],
+  ['modern', 'Modern', 'Larger text and controls, Radix colours, and an appearance of your own: colours, shape, fonts. The default.'],
+  ['classic', 'Classic', 'The app as it first looked: compact, monochrome, 13.5px text.'],
 ];
 const MODES = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']];
 const label = (s) => s[0].toUpperCase() + s.slice(1);

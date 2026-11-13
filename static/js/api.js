@@ -5,16 +5,20 @@ async function call(method, url, body, file = null, other = null) {
   // (Settings → Vaults edits any of them).
   const id = other || vaultId();
   const vault = id ? { 'X-TM-Vault': id } : {};
-  // A file goes as its own bytes (an attachment), its name URI-encoded in a header; anything else as JSON.
-  const type = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-TM-Filename': encodeURIComponent(file.name) }
-    : { 'Content-Type': 'application/json' };
+  // A file goes as its own bytes (an attachment), its name URI-encoded in a header and its size in another (the server
+  // refuses bytes that do not add up to it); anything else as JSON. The bytes are read first and sent as an ArrayBuffer,
+  // never the File itself: in the iPhone app the page is served by a WKURLSchemeHandler, and WebKit hands it no body at
+  // all for a Blob (the file arrived empty, 0 bytes), while an ArrayBuffer arrives whole.
+  const type = file ? { 'Content-Type': file.type || 'application/octet-stream', 'X-TM-Filename': encodeURIComponent(file.name),
+    'X-TM-Size': String(file.size) } : { 'Content-Type': 'application/json' };
+  const bytes = file ? await file.arrayBuffer() : null;
   let res;
   try {
     res = await fetch(url, {
       method,
       // X-TM-Actor: what the page does is yours, in the activity journal (tm/journal.py); a script says who it is.
       headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', ...vault } : vault,
-      body: file || (body ? JSON.stringify(body) : undefined),
+      body: bytes || (body ? JSON.stringify(body) : undefined),
     });
   } catch {
     // No answer at all (the server stopped, the Mac asleep): say so, not the browser's "Failed to fetch".

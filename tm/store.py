@@ -4119,16 +4119,17 @@ class Store:
     def _save_id_list(self, kind, ids):
         if not isinstance(ids, list):
             raise StoreError(400, 'items must be a list of ids')
+        known = {it['id']: it for it in self.items() if it['id']}
         clean, seen = [], set()
         for i in ids:
             i = str(i or '').strip()
-            if not (self.structure.parse_id(i) or self.structure.is_number(i)):
+            # A project's id is its key (GADS), which is neither a number nor a long id: an item of the vault counts.
+            if not (i in known or self.structure.parse_id(i) or self.structure.is_number(i)):
                 raise StoreError(400, f'not an item id: {i}')
             if i not in seen:
                 seen.add(i)
                 clean.append(i)
         name, heading, about = self.ID_LISTS[kind]
-        known = {it['id']: it for it in self.items() if it['id']}
         path = os.path.join(self.root, META_DIR, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         body = f'{heading}\n\n{about}\n\n' + \

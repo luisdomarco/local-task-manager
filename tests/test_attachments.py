@@ -255,6 +255,23 @@ class HttpAttachmentsTest(unittest.TestCase):
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)['item']['fields']['attachments'], [])
 
+    def test_bytes_that_do_not_add_up_to_the_size_sent_are_refused_and_nothing_is_written(self):
+        # The iPhone app's scheme handler once got no body for a Blob: 13 screenshots saved as 0-byte files, silently.
+        name = quote('captura.png')
+        add = f"/api/attachments/add?key={quote(self.task['key'])}"
+        for path in (add, '/api/files/upload?folder='):
+            status, _, body = self.send(path, b'', {'Content-Type': 'image/png', 'X-TM-Filename': name, 'X-TM-Size': str(len(PNG))})
+            self.assertEqual(status, 400, path)
+            self.assertIn(f'0 of {len(PNG)} bytes', json.loads(body)['error'])
+        root = server.APP.store.root
+        self.assertFalse(os.path.exists(os.path.join(root, 'Attachments', str(self.task['id']), 'captura.png')))
+        self.assertFalse(os.path.exists(os.path.join(root, 'captura.png')))
+        self.assertEqual(server.APP.store.find(self.task['key'])['fields'].get('attachments') or [], [])
+        # The size that matches is taken, as is no size at all (a script)
+        status, _, body = self.send(add, PNG, {'Content-Type': 'image/png', 'X-TM-Filename': name, 'X-TM-Size': str(len(PNG))})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.upload('b.png', PNG)[0], 200)
+
     def test_the_trash_reports_the_files_waiting_to_be_emptied(self):
         self.upload('a.png', PNG)
         rel = f"Attachments/{self.task['id']}/a.png"

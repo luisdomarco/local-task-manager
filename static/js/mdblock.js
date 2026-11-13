@@ -70,6 +70,7 @@ function scrollerOf(el) {
  *                                                 kept under `<key>.open` for every item (its head: ui.js foldHead)
  */
 const AUTOSAVE_MS = 800;
+const TAP_PX = 10; // a touch that moved less than this is a tap, not a scroll
 const RETRY_MS = [2000, 5000, 10000, 30000]; // a save that failed for any reason but a conflict (server down…) tries again, then every 30s
 
 export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = null, cls = '', fold = null }) {
@@ -81,10 +82,26 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
   let draft = null; // unsaved text, or null when clean
   let editing = false;
   let expanded = false; // long text shown in full ("See less") instead of clipped ("See more")
-  let outside = null; // while editing: a press anywhere outside the block finishes, as Done does
-  // On a touch screen a tap, not a press: a finger that scrolls the card presses outside the block too.
-  const OUTSIDE = isTouch() ? 'click' : 'pointerdown';
-  const stopOutside = () => { if (outside) document.removeEventListener(OUTSIDE, outside, true); outside = null; };
+  // While editing, a press anywhere outside the block finishes, as Done does. On a touch screen a tap, not a press: a
+  // finger that scrolls the card presses outside the block too, so only a pointer let go where it went down (within
+  // TAP_PX, and not cancelled by a scroll) counts. Pointer events, not `click`: WebKit on iOS fires no click for a tap
+  // on what is not clickable (a card's blank space), so a click listener never heard most taps outside.
+  let outside = null; // [[type, listener]…] on the document, capture phase
+  const stopOutside = () => { if (outside) for (const [type, fn] of outside) document.removeEventListener(type, fn, true); outside = null; };
+  const watchOutside = (finish) => {
+    stopOutside();
+    let start = null;
+    outside = !isTouch() ? [['pointerdown', finish]] : [
+      ['pointerdown', (e) => { start = { x: e.clientX, y: e.clientY }; }],
+      ['pointercancel', () => { start = null; }],
+      ['pointerup', (e) => {
+        const from = start;
+        start = null;
+        if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) < TAP_PX) finish(e);
+      }],
+    ];
+    for (const [type, fn] of outside) document.addEventListener(type, fn, true);
+  };
   let cfg = { label: 'Description', emptyText: 'Add a more detailed description…', placeholder: '', title: '' };
   const el = h('div', { class: `body-wrap ${cls}` }); // kept across re-renders so the textarea never loses focus
   // Full screen: the block covers the card (on a page, the window) until Close or Esc. Only a class on `el`,
@@ -145,7 +162,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
     },
     render() {
       const text = draft ?? saved;
-      const touch = isTouch(); // a tap on the text scrolls or follows a link: an Edit button opens the editor
+      const touch = isTouch();
       stopOutside();
       // `at` ({ offset, y }): opened by a click on the text — the caret goes where it was, and that line stays under
       // the pointer. Without it (an empty block) the editor opens at the top.
@@ -201,7 +218,6 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           },
         })] : title)),
         inBar ? null : status,
-        touch && !editing && text.trim() ? h('button', { class: 'btn small body-edit', onclick: () => startEdit() }, icon('pencil', 14), 'Edit') : null,
         text.trim() ? h('button', {
           class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,
           onmousedown: (e) => e.preventDefault(), // while editing: no blur, no save
@@ -239,13 +255,12 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         const done = () => blk.flush().then((ok) => { if (ok) { editing = false; blk.render(); } });
         // A press outside the block (not in full screen, where the block is all there is) saves and leaves the
         // editor, back to the text as it reads. A save that needs a choice (changed on disk) keeps it open.
-        outside = (e) => {
+        watchOutside((e) => {
           if (!el.isConnected) { stopOutside(); return; }
           if (el.contains(e.target) || el.classList.contains('full') || e.target.closest?.('.menu')) return; // a menu of its toolbar (colours)
           stopOutside();
           done();
-        };
-        document.addEventListener(OUTSIDE, outside, true);
+        });
         el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content, h('div', { class: 'body-actions' }, touch
           ? h('button', { class: 'btn primary body-done', onmousedown: (e) => e.preventDefault(), onclick: () => done() }, 'Done')
           : h('span', { class: 'muted small' }, 'Markdown · saves as you type · a click outside, ⌘↵ or Esc leaves the editor')));
@@ -271,13 +286,12 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
 
       // A long description is clipped with a "See more" toggle; measured before the next paint.
       const wrap = h('div', { class: 'md-wrap', title: touch ? null : 'Click to edit' }, content);
-      // One click anywhere in the box opens the editor, unless it was a link, a checklist box, or the end of a text selection.
-      if (!touch) {
-        wrap.addEventListener('click', (e) => {
-          if (e.target.closest('input, a') || window.getSelection().toString()) return;
-          startEdit(clickInSource(content, text, e));
-        });
-      }
+      // One click anywhere in the box opens the editor, unless it was a link, a checklist box, or the end of a text
+      // selection. A tap too: a finger that scrolls fires no click, so scrolling past the text never opens it.
+      wrap.addEventListener('click', (e) => {
+        if (e.target.closest('input, a') || window.getSelection().toString()) return;
+        startEdit(clickInSource(content, text, e));
+      });
       const more = h('button', { class: 'btn small ghost see-more', hidden: true, onclick: () => {
         expanded = !expanded;
         wrap.classList.toggle('clamped', !expanded);

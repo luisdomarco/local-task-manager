@@ -4,6 +4,26 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A project can be pinned.** Its pin (top right of its page) failed with *not an item id*: a project's id is its key
+  (`GADS`), which the pins and the sidebar's order took for no id at all. Any item of the vault is pinned now.
+- **On a touch screen a tap on the description edits it.** There is no **Edit** button any more: a tap on the text opens
+  the editor where you tapped (a link still opens the link, and scrolling past it never does), and **Done** or a tap
+  anywhere outside it saves and closes it — before, a tap on the card's blank space did nothing on the iPhone.
+- **Settings → Vaults: Default texts is a tab of its own**, beside General, Item types and Features (it was at the foot
+  of Item types). A vault with nothing to set there says why.
+- **Modern, Comfortable is the default look.** A browser that never picked a theme shows Modern; one that picked
+  Classic keeps it.
+- **Settings → Vaults: a click on a row opens the vault.** Anywhere on the line, not only its name or ✎; × still asks
+  before taking it out, and selecting a folder's path to copy it does not open anything.
+- **A phone's lists are tighter, and a card's status sits in the middle.** A list's row is 60px with a one-line subject
+  (it was 90 whatever it held), its subject and ID one block with nothing between them — so a screen shows half as many
+  rows again —, and the status pill under an item's or a page's title is as far from the title as from the tabs under
+  it (it sat close under the title with three times that air below). A computer is unchanged.
+- **Files attached from the iPhone app arrive whole.** An image or file added to an item (or dropped in the Explorer)
+  from the iPhone app was saved as an empty, 0-byte file: the app's page handed WebKit the file itself, whose bytes
+  never reached the app's server. The page now sends the file's bytes, and the server refuses any upload that does not
+  add up to the size the page sent — a toast says so and nothing is saved, instead of an empty file. A computer
+  behaved right before and still does.
 - **The phone pass, finished.** On a phone screen a drag down from a
   card's head closes it; the Graph has **Centre here** while a tap has lit a node; a comment's Edit and Delete are under
   one **⋯**; an Inbox item's *Convert to* sits under its title with the rest. The drawer's top row is at a page

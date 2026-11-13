@@ -55,6 +55,17 @@ class TicketingBase(unittest.TestCase):
         return out
 
 
+class PinsTest(TicketingBase):
+    def test_a_project_is_pinned_by_its_key(self):
+        """A project's id is its key (HB), neither a number nor a long id: pinning it once failed with "not an item id"."""
+        self.assertEqual(self.hb['id'], 'HB')
+        self.assertEqual(self.s.save_pins(['HB', 'ECD'])['items'], ['HB', 'ECD'])
+        self.assertEqual(self.s.pins()['items'], ['HB', 'ECD'])
+        self.assertEqual(self.s.save_sidebar_order(['ECD'])['items'], ['ECD'])
+        with self.assertRaises(StoreError):  # a key no project has is still refused
+            self.s.save_pins(['ZZ'])
+
+
 class LayoutTest(TicketingBase):
     def test_a_project_is_its_folder_note_and_type_folders(self):
         self.assertEqual(self.hb['path'], 'Internal Tools/00 Internal Tools.md')

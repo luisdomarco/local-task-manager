@@ -22,7 +22,7 @@ A **vault** is a folder of Markdown files. Each vault has a **structure** that s
 
 Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, a project of each kind): the quickest way to see every screen with something in it.
 
-**What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → Item types → **Default text**; it is kept in the vault, so the iPhone and your agents use the same.
+**What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → **Default texts**; it is kept in the vault, so the iPhone and your agents use the same.
 
 **Features** (a vault's dialog, third tab) turns off what a vault does without — AI Agents, Canvas, Inbox, Activity, Goals, Graph, Meetings & transcription, Work log, Contacts — with the item types that go with each. Nothing is deleted: turn it on again and everything is back. It is kept in the vault too, so the iPhone shows the same.
 
@@ -75,7 +75,7 @@ The terminal button on a card starts **Claude Code** on that item: it shows you 
 
 ## How it looks
 
-**Settings → Themes** picks the look in this browser: **Classic**, the app as it has always looked, or **Modern** — larger text and controls, rounder buttons and cards, and an accent colour that marks what is on, picked or today. Choose light, dark or your system's, and for Modern a density (Comfortable or Compact) and a look: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each part on its own — base colour, accent, the sidebar's and the page's background, corners, fonts, menus and icons — with a preview that changes as you choose. It applies at once and is kept in this browser only, so another browser or machine has its own. Light, dark or your system's is the first choice there, and the only place it is made.
+**Settings → Themes** picks the look in this browser: **Modern**, the default — larger text and controls, rounder buttons and cards, and an accent colour that marks what is on, picked or today — or **Classic**, the app as it first looked. Choose light, dark or your system's, and for Modern a density (Comfortable or Compact) and a look: a preset (Modern, Ink, Paper, Ocean, Grape, Forest, Terminal) or each part on its own — base colour, accent, the sidebar's and the page's background, corners, fonts, menus and icons — with a preview that changes as you choose. It applies at once and is kept in this browser only, so another browser or machine has its own. Light, dark or your system's is the first choice there, and the only place it is made.
 
 ## Keeping your data safe
 

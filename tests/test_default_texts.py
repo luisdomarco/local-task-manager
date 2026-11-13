@@ -1,5 +1,5 @@
 """The text a new item starts with, per type (Projects): the vault keeps its own in .task-manager/templates/<type>.md,
-seeded once from tm/structures/ticketing/default_texts/, set in Settings → Vaults → Item types. A type with no text
+seeded once from tm/structures/ticketing/default_texts/, set in Settings → Vaults → Default texts. A type with no text
 starts empty; a new item's body never repeats its title nor ends in an empty `## Related`."""
 import contextlib
 import io

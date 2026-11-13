@@ -28,13 +28,15 @@ describe('api', () => {
 
   it('sends an attachment as its own bytes, its name in a header, and loads it by an address naming the vault', async () => {
     pickVault({ vaults: [{ id: 'a' }, { id: 'b' }], default_vault: 'a' });
-    const file = { name: 'captura ñ.png', type: 'image/png', size: 3 };
+    const file = new File([new Uint8Array([1, 2, 3])], 'captura ñ.png', { type: 'image/png' });
     sent.length = 0;
     await api.addAttachment('TSK-001', file);
     assert.equal(sent[0].url, '/api/attachments/add?key=TSK-001');
-    assert.equal(sent[0].body, file); // not JSON, not base64
-    assert.deepEqual([sent[0].headers['Content-Type'], sent[0].headers['X-TM-Filename'], sent[0].headers['X-Task-Manager'], sent[0].headers['X-TM-Vault']],
-      ['image/png', 'captura%20%C3%B1.png', '1', 'b']);
+    // Its bytes, read: not the File (the iPhone app's scheme handler gets no body for a Blob), not JSON, not base64
+    assert.ok(sent[0].body instanceof ArrayBuffer);
+    assert.deepEqual([...new Uint8Array(sent[0].body)], [1, 2, 3]);
+    assert.deepEqual([sent[0].headers['Content-Type'], sent[0].headers['X-TM-Filename'], sent[0].headers['X-TM-Size'], sent[0].headers['X-Task-Manager'], sent[0].headers['X-TM-Vault']],
+      ['image/png', 'captura%20%C3%B1.png', '3', '1', 'b']);
     assert.equal(attachmentUrl('Attachments/TSK-001/a b.png'), '/api/attachments/file?vault=b&path=Attachments%2FTSK-001%2Fa%20b.png');
   });
 
