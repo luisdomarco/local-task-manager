@@ -9,12 +9,12 @@ from tm.store import Store, StoreError
 
 class MatchTest(unittest.TestCase):
     RECORDS = [{'name': 'Ana', 'calendar_name': 'Ana García', 'emails': ['ana@x.com']},
-               {'name': 'Jan Peeters', 'calendar_name': '', 'emails': []}]
+               {'name': 'Jan Novak', 'calendar_name': '', 'emails': []}]
 
     def test_email_first_then_names_ignoring_case_accents_and_spaces(self):
         self.assertEqual(people.match(self.RECORDS, 'ANA@x.com', 'Nobody')[0:2], ('email', self.RECORDS[0]))
         self.assertEqual(people.match(self.RECORDS, '', ' ana  garcia ')[0], 'name')
-        self.assertEqual(people.match(self.RECORDS, 'jan.peeters@y.com', '')[1]['name'], 'Jan Peeters')  # name from the address
+        self.assertEqual(people.match(self.RECORDS, 'jan.novak@y.com', '')[1]['name'], 'Jan Novak')  # name from the address
         self.assertEqual(people.match(self.RECORDS, 'z@x.com', 'Zoe'), ('new', None))
 
     def test_a_shared_name_is_ambiguous(self):
@@ -272,10 +272,10 @@ class WatchersTest(unittest.TestCase):
             self.assertNotIn('watchers', self.s.structure.allowed_fields(t), t)
 
     def test_watchers_are_a_clean_list_and_a_new_name_becomes_a_person(self):
-        task = self.s.create('task', 'T', {'watchers': ['Ana', ' ana ', 'Ops', 'Jan  Peeters']})
-        self.assertEqual(self.watchers(task['key']), ['Ana', 'Ops', 'Jan Peeters'])
+        task = self.s.create('task', 'T', {'watchers': ['Ana', ' ana ', 'Ops', 'Jan  Novak']})
+        self.assertEqual(self.watchers(task['key']), ['Ana', 'Ops', 'Jan Novak'])
         names = [p['name'] for p in self.s.people()['people']]
-        self.assertIn('Jan Peeters', names)
+        self.assertIn('Jan Novak', names)
         self.assertNotIn('Ops', names)  # a group stays a group
         self.s.update(task['key'], {'watchers': []})
         self.assertEqual(self.watchers(task['key']), [])

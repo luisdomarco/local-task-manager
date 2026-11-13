@@ -6,7 +6,7 @@ const item = (id, title, type = 'task', extra = {}) => ({ id, key: id, title, ty
 
 test('accents and case do not matter', () => {
   assert.equal(norm('Configuración'), 'configuracion');
-  assert.ok(matches('CONFIGURACION menu', 'Iteración categorización menú — configuración'));
+  assert.ok(matches('CONFIGURACION menu', 'Revisión del menú — configuración'));
   assert.ok(!matches('menu desktop', 'Iteración menú'));
 });
 
