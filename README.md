@@ -121,7 +121,7 @@ your own queries, like Obsidian's graph.
 
 ### Everything about an item, on one page
 
-Its status on top, a Markdown description with a live preview, its stories, tasks, notes and meetings; on the side its
+Its status on top, a Markdown description you write as it reads (as Obsidian's Live Preview), its stories, tasks, notes and meetings; on the side its
 properties, activity, AI sessions, relations and the time logged.
 
 <img src="docs/images/initiative.png" alt="An initiative's page: its goal, objective and premise, its tasks and meetings, and its properties" width="860">
@@ -989,7 +989,8 @@ sorted, are remembered in this browser (`localStorage`, `tm.ui.*` — `static/js
   moves it; a double click or `0` fits it again; − · % · + · Fit sit in its bar.
 - **PDF**: shown in the browser's viewer.
 
-**Edit** opens the description editor, with the text coloured as you type (a fenced block in the language it names), and saves as you type
+**Edit** opens the description editor (a Markdown file in Live, the mode you used last; a code file with its text
+coloured as you type, a fenced block in the language it names), and saves as you type
 (`POST /api/files/save`). ⌘↵, Done or Esc save what is pending and go back to reading. If the file changed on disk
 meanwhile (Obsidian, a sync), the editor asks: *Reload (drop mine)* or *Keep mine*. An item's file can be edited too.
 A save that would leave the vault out of its structure (an id or a type changed in its frontmatter) is undone and
@@ -1020,7 +1021,8 @@ out.
 **A note's links**: a Markdown *Preview* opens with **On this page**, its headings to jump to (when it has two or more).
 It ends with **Linked from**: the notes that link to it with a `[[wikilink]]`, by its name as Obsidian resolves them,
 frontmatter included, so an initiative lists its tickets — a row each, its name and, in grey at the right, the line
-that links. Each one opens at that line. A Markdown file's menu in the
+that links. Each one opens at that line. A note's address with `?heading=<text>` opens it in *Preview* at that
+heading (what a `[[note#heading]]` link follows). A Markdown file's menu in the
 tree has **Copy [[wikilink]]**.
 
 **Open in your editor**: *Open in Cursor* on a file's or folder's header and in the tree's menu hands it to the editor of
@@ -1294,22 +1296,42 @@ structure its `VERSION.json` names. A zip cut off mid-write (the server stopped)
 
 #### Description editor
 
-Markdown, kept byte for byte: the toolbar (heading, bold, italic, strike, text colour, highlight, lists, checklist,
-link, code, quote) only wraps or prefixes the selection. **Text colour** and **Highlight** open a palette (a few
-colours, *Other colour…* for the system picker, and *No colour* to take it off); as Markdown has no colours they are
-written as the inline HTML Obsidian shows too — `<span style="color: #…">` and `<mark style="background: #…">` (its
-Highlightr plugin's form) — and a selection already coloured is recoloured, not wrapped again. A click on the
-rendered text opens the editor with the caret on that word, its line kept where you clicked (there is no Edit
-button, and no Done: a click outside the block, `⌘↵` or Esc saves what is pending and goes back to reading). `⌘B` `⌘I` `⌘K` `⌘⇧C`, Enter continues a list or checklist, Tab / Shift+Tab
-indents, `⌘↵` saves, Esc leaves the editor. Three modes: **Markdown** (the default), **Both** (a live preview beside
-the text) and **View**. It saves as you type: *Saving…*, *Saved*, *● unsaved* or *● not saved — retrying in 8s* sit
-at the end of the toolbar where the copy and full-screen buttons are over the box's corner (a page's Overview, the
-create form), wrapping with it; elsewhere, and on a phone (whose toolbar scrolls sideways), in the row above.
+Markdown, kept byte for byte, in four modes. **Live** (the default) writes over the text as it reads, as Obsidian's
+Live Preview does: headings are big, **bold** is bold, a checklist has real boxes, a link shows its text. The Markdown
+shows only on the line you are on (`**`, `# `, `- [ ]`, a link's `(url)`), so you can always see and edit what is
+saved. **Source** shows the Markdown as it is saved, **Both** puts a preview beside it, and **View** only shows how
+it reads. The
+mode you pick last is remembered for every editor (descriptions, docs, agent files). A text that mixes Windows and
+Unix line breaks opens in Source, because Live would not give it back byte for byte.
 
-While you type, the Markdown is coloured as in Cursor or Obsidian's source view: headings, bold and italic, links,
+The toolbar (heading, bold, italic, strike, text colour, highlight, lists, checklist, link, code, quote) only wraps or
+prefixes the selection. **Text colour** and **Highlight** open a palette (a few colours, *Other colour…* for the system
+picker, and *No colour* to take it off). Markdown has no colours, so they are written as the inline HTML Obsidian
+shows too: `<span style="color: #…">` and `<mark style="background: #…">` (its Highlightr plugin's form). A selection
+that is already coloured gets the new colour instead of a second wrapper; Live shows the colour and hides the tags.
+
+A click on the rendered text opens the editor with the caret on that word, its line kept where you clicked. There is
+no Edit button and no Done: a click outside the block, `⌘↵` or Esc saves what is pending and goes back to reading.
+Keys: `⌘B` `⌘I` `⌘K` `⌘⇧C`; Enter continues a list or checklist; Tab / Shift+Tab indents; `⌘↵` saves; Esc leaves the
+editor. It saves as you type. *Saving…*, *Saved*, *● unsaved* or *● not saved — retrying in 8s* sit at the end of the
+toolbar where the copy and full-screen buttons are over the box's corner (a page's Overview, the create form),
+wrapping with it. Elsewhere, and on a phone (whose toolbar scrolls sideways), they sit in the row above.
+
+In Live, three menus open as you type:
+- **`/`** at the start of a line: Heading 1–3, Bullet list, Numbered list, Checklist, Quote, Code block, Table,
+  Divider, a link, or today's date.
+- **`[[`**: a doc of the vault, written `[[Its name]]` as Obsidian links it, or an item, written as its ref
+  (`STY-482`). A ref is plain text that any editor and any agent reads.
+- **`@`**: a person or a group of Contacts, written `@[Public name]` (as in any field).
+
+A `[[doc]]` and the ref of an item of the vault are drawn as links: in Live (`⌘-click` opens them, a plain click
+edits), and wherever the text is read (a click opens them). A ref inside `code` or a link stays as it is.
+`[[Doc#A heading]]` opens the doc at that heading, read as *Doc > A heading* (Obsidian's way: case and spacing aside;
+`[[Doc#Part#Sub]]`, a heading under another, goes to the last one). Its address says so, `#/files/<path>?heading=…`.
+
+In **Source** the Markdown is coloured as in Cursor or Obsidian's source view: headings, bold and italic, links,
 quotes and `code`, and a fenced block that names its language (```` ```python ````, ```` ```js ````, ```` ```sh ````…) in
-that language's colours. The marks stay visible and the font keeps one width, so the caret always sits on its letter;
-**View** shows it rendered.
+that language's colours. The marks stay visible and the font keeps one width, so the caret always sits on its letter.
 
 **Dictation:** the mic in the toolbar types what you say at the cursor (the browser's speech recognition; Esc stops).
 Chrome sends the audio to Google to transcribe it; Safari needs Siri or Dictation on (System Settings → Keyboard);
@@ -1465,7 +1487,8 @@ is the type, the ref, ⋯ and ×, and *Mark resolved*, *Promote*, *Escalate* and
 beside the status under the title; a finger dragged down from the head closes the card. Detail, Properties and
 Activity, and every tab inside, are a finger's height. Properties are a computer's rows, a finger's height: the name
 left, its value right with no frame until it is tapped; a label's or a watcher's × is a bigger target than its chip. A tap on the description's
-text opens its editor (a link still opens the link), its toolbar is one sliding row that stays on screen, and **Done**
+text opens its editor, in Live as on a computer (a link still opens the link; Both is not offered, as side by side does
+not fit), its toolbar is one sliding row that stays on screen, and **Done**
 or a tap anywhere outside it saves and closes it; scrolling never does. Copy and full screen sit in the box's corner. A comment's
 Return is a new line — the arrow sends it — and its **⋯** holds *Edit* and *Delete*; and a field
 being typed in is not redrawn under the finger when something else saves (the keyboard stays). A row of what an

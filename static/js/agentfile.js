@@ -72,8 +72,8 @@ export function agentFile({ dir, cmd, path = '', onSaved = () => {} }) {
       markdown: md, highlight: md ? 'markdown' : codeLanguage(file.path), wrap: true, onEscape: done,
       onInput: (v) => { draft = v; status('● unsaved'); clearTimeout(timer); timer = setTimeout(flush, AUTOSAVE_MS); },
     });
-    mde.textarea.addEventListener('blur', () => { flush(); });
-    mde.textarea.addEventListener('keydown', (e) => {
+    mde.on('blur', () => { flush(); });
+    mde.on('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'Enter')) { e.preventDefault(); e.stopPropagation(); done(); }
     });
     const st = h('span', { class: 'muted small' }, '');
@@ -82,7 +82,7 @@ export function agentFile({ dir, cmd, path = '', onSaved = () => {} }) {
       h('span', { class: 'muted small' }, 'Saves as you type · ⌘↵ to finish · Esc leaves the editor'), st,
       h('button', { class: 'btn small primary', type: 'button', onmousedown: (e) => e.preventDefault(), onclick: done }, 'Done')));
     ed = { mde, wrap, status: st, notice };
-    requestAnimationFrame(() => mde.textarea.focus({ preventScroll: true }));
+    requestAnimationFrame(() => mde.focus({ preventScroll: true }));
     return wrap;
   }
   const status = (text) => { if (ed) ed.status.textContent = text; };

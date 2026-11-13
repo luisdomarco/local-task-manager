@@ -20,6 +20,7 @@ import { GO } from './shortcuts.js';
 import { is } from './keymap.js';
 import { openKeys } from './views/keyboard.js';
 import { initMentions } from './mentions.js';
+import { loadLive } from './livemd.js';
 import { initTheme } from './theme.js';
 import { initTooltips } from './tooltip.js';
 import { trackViewport } from './phone.js';
@@ -486,6 +487,9 @@ initTooltips(); // Modern draws the titles' tooltips; Classic leaves them to the
 // tools/basecoat_css.py): what the next family would change, before its PR (plans/design-system-spike.md).
 if (new URLSearchParams(location.search).has('basecoat')) loadBasecoat(new URLSearchParams(location.search).get('basecoat') === 'mira' ? 'mira' : 'nova');
 initMentions();
+// The Live editor's CodeMirror (static/vendor/codemirror/), fetched once the page is idle, so an editor opened later
+// opens in Live at once instead of in Source first.
+firstLoad.then(() => (window.requestIdleCallback || setTimeout)(() => loadLive()));
 initSidebar();
 firstLoad.then(syncSidebarMode); // the vault's own mode, now that the page knows which vault it is
 // On a vault that does not match, the mode decides what the middle shows: its files, or the notice.

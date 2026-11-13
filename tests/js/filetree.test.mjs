@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, linkWikilinks, pathOfParam, splitFrontmatter,
+  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, pathOfParam, splitFrontmatter,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -112,6 +112,24 @@ describe('filetree', () => {
     assert.equal(filesHref(''), '#/files');
   });
 
+  it('carries a heading after the path, which the path itself never mistakes for its own', () => {
+    const path = 'Docs/Why? #1.md';
+    const href = filesHref(path, 'Risks & costs?');
+    assert.equal(href, '#/files/Docs/Why%3F%20%231.md?heading=Risks%20%26%20costs%3F');
+    const param = href.slice('#/files/'.length);
+    assert.equal(pathOfParam(param), path);
+    assert.equal(headingOfParam(param), 'Risks & costs?');
+    assert.equal(headingOfParam(filesHref(path).slice('#/files/'.length)), null);
+  });
+
+  it('finds the heading a link names as Obsidian does: case and spacing aside, the first one', () => {
+    const heads = ['Intro', 'Next  steps', 'Café', 'Next steps'];
+    assert.equal(headingIndex(heads, 'next steps'), 1);
+    assert.equal(headingIndex(heads, 'Cafe\u0301'), 2); // the same é, written as e + accent
+    assert.equal(headingIndex(heads, 'Outro'), -1);
+    assert.equal(headingIndex(heads, ''), -1);
+  });
+
   it('reads the frontmatter as rows, lists joined', () => {
     const { props, body } = splitFrontmatter('---\nid: TSK-1\nsubject: "Hola: mundo"\nlabels:\n  - a\n  - b\n---\n# Body\n');
     assert.deepEqual(props, [['id', 'TSK-1'], ['subject', 'Hola: mundo'], ['labels', 'a, b']]);
@@ -122,7 +140,9 @@ describe('filetree', () => {
   it('turns the wikilinks that name a file into links to it', () => {
     const pathOf = (stem) => ({ 'TSK-1 Primera': 'Tasks/TSK-1 Primera.md' })[stem] || null;
     assert.equal(linkWikilinks('ver [[TSK-1 Primera]] y [[TSK-1 Primera#Notas|la tarea]] o [[Nada]]', pathOf),
-      'ver [TSK-1 Primera](#/files/Tasks/TSK-1%20Primera.md) y [la tarea](#/files/Tasks/TSK-1%20Primera.md) o [[Nada]]');
+      'ver [TSK-1 Primera](#/files/Tasks/TSK-1%20Primera.md) y [la tarea](#/files/Tasks/TSK-1%20Primera.md?heading=Notas) o [[Nada]]');
+    // No alias: shown as Obsidian shows it, the note and its heading
+    assert.equal(linkWikilinks('[[TSK-1 Primera#Notas]]', pathOf), '[TSK-1 Primera > Notas](#/files/Tasks/TSK-1%20Primera.md?heading=Notas)');
   });
 });
 

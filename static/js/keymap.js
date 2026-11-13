@@ -37,6 +37,8 @@ export const EDITOR_KEYS = [
   ['⌘B', 'Bold'], ['⌘I', 'Italic'], ['⌘K', 'Link (in the editor, not the palette)'], ['⌘⇧C', 'Code'],
   ['Tab · ⇧Tab', 'Indent or outdent the selected lines'], ['↵', 'Continue a list or a checklist (an empty item ends it)'],
   ['⌘↵ · ⌘S', 'Save and go back to reading'], ['Esc', 'Leave the editor (saved as you type)'],
+  ['/', 'At the start of a line, in Live: a heading, a list, a table…'], ['[[', 'In Live: link a doc or an item'],
+  ['⌘-click', 'In Live: open a link, a [[doc]] or an item\'s ref'],
 ];
 const CREATE_KEYS = [['↵', 'In the subject: create it'], ['⌘↵', 'Create it, from anywhere in the form'], ['Esc', 'Cancel']];
 const PANEL_KEYS = [['Esc', 'Close the palette, a menu or the open card'], ['⇧← · ⇧→', 'Move the focused pin'], ['Delete', 'Unpin the focused pin']];

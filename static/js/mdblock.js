@@ -2,11 +2,13 @@
 // in a bordered box that opens the editor on a click, and back to the text once left. Out of panel.js so the create form
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
+import { lfOffset } from './livemd.js';
 import { mdEditor } from './mdeditor.js';
 import { isPhone, isTouch } from './phone.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
 import { foldHead, h, icon, renderMarkdown } from './ui.js';
+import { docsReady, linkRefs, linkVault } from './vaultlinks.js';
 
 // Height at which a rendered description gets clipped behind "See more" (keep in sync with .md-wrap.clamped).
 const CLAMP_PX = 240;
@@ -31,23 +33,6 @@ function clickInSource(rendered, source, e) {
   const ratio = before.toString().length / Math.max(1, rendered.textContent.length);
   const offset = sourceOffset(source, at.node.textContent, at.offset, ratio);
   return offset < 0 ? null : { offset, y: e.clientY };
-}
-
-/** Where the character at `pos` sits on screen, measured on the coloured copy of the text behind the textarea. */
-function caretRect(code, pos) {
-  if (!code) return null;
-  const walk = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
-  for (let n = walk.nextNode(), seen = 0; n; n = walk.nextNode()) {
-    if (seen + n.length >= pos) {
-      const r = document.createRange();
-      r.setStart(n, pos - seen);
-      r.setEnd(n, Math.min(n.length, pos - seen + 1));
-      const rect = [...r.getClientRects()][0] || r.getBoundingClientRect();
-      return rect.height ? rect : null;
-    }
-    seen += n.length;
-  }
-  return null;
 }
 
 /** The nearest element around `el` that scrolls vertically. */
@@ -81,6 +66,8 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
   let inflight = null; // the save in progress: a second flush waits for it instead of sending the same text again
   let draft = null; // unsaved text, or null when clean
   let editing = false;
+  let mde = null; // the editor, while editing
+  let linkedDocs = false; // the vault's docs asked for, to draw its [[links]]
   let expanded = false; // long text shown in full ("See less") instead of clipped ("See more")
   // While editing, a press anywhere outside the block finishes, as Done does. On a touch screen a tap, not a press: a
   // finger that scrolls the card presses outside the block too, so only a pointer let go where it went down (within
@@ -169,16 +156,14 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       const startEdit = (at = null) => {
         editing = true;
         blk.render();
-        const ta = el.querySelector('textarea');
-        if (!ta) return;
-        const pos = at ? at.offset : 0; // the value was set after creation, so the caret would sit at the end and scroll there
-        ta.setSelectionRange(pos, pos);
-        ta.focus({ preventScroll: true });
-        ta.scrollTop = 0;
+        if (!mde) return;
+        // The click's offset is in the text as saved; the editor counts a CRLF line break as one character.
+        const pos = at ? lfOffset(text, at.offset) : 0; // the value was set after creation: without this the caret sits at the end
+        mde.select(pos, pos, { scroll: false });
         if (!at) { el.scrollIntoView({ block: 'nearest' }); return; }
         requestAnimationFrame(() => { // once the editor has its height
-          const line = caretRect(el.querySelector('.mde-hl code'), pos);
-          const box = line ? scrollerOf(ta) : null;
+          const line = mde.rectAt(pos);
+          const box = line ? scrollerOf(mde.el) : null;
           if (box) box.scrollTop += line.top - at.y;
           else el.scrollIntoView({ block: 'nearest' });
         });
@@ -222,7 +207,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           class: 'btn icon', title: `Copy the ${cfg.label.toLowerCase()} (Markdown)`,
           onmousedown: (e) => e.preventDefault(), // while editing: no blur, no save
           onclick: async () => {
-            const now = el.querySelector('textarea')?.value ?? draft ?? saved; // what is on screen, typed or not
+            const now = (editing ? mde?.get() : null) ?? draft ?? saved; // what is on screen, typed or not
             try { await navigator.clipboard.writeText(now); toast(`${cfg.label} copied`); } catch { toast(`Could not copy the ${cfg.label.toLowerCase()}`, true); }
           },
         }, icon('copy', 14)) : null,
@@ -233,8 +218,9 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           'Close', icon('restore', 14)));
       if (!open) { el.replaceChildren(fullHead, toggle); return; }
       let content;
+      mde = null;
       if (editing) {
-        const mde = mdEditor({
+        mde = mdEditor({
           value: text, minHeight, label: cfg.label, fk, highlight: 'markdown', trailing: inBar ? status : null,
           placeholder: cfg.placeholder,
           // Esc is Done: back to the text as it reads once all is saved, waiting for a save still on its way.
@@ -247,8 +233,8 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           },
         });
         content = mde.el;
-        mde.textarea.addEventListener('blur', () => blk.flush());
-        mde.textarea.addEventListener('keydown', (e) => {
+        mde.on('blur', () => blk.flush());
+        mde.on('keydown', (e) => {
           if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'Enter')) { e.preventDefault(); done(); }
         });
         // Everything typed is already saved (or about to be): leaving saves what is pending and closes the editor.
@@ -263,14 +249,20 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         });
         el.replaceChildren(fullHead, toggle, ...(notice ? [notice] : []), content, h('div', { class: 'body-actions' }, touch
           ? h('button', { class: 'btn primary body-done', onmousedown: (e) => e.preventDefault(), onclick: () => done() }, 'Done')
-          : h('span', { class: 'muted small' }, 'Markdown · saves as you type · a click outside, ⌘↵ or Esc leaves the editor')));
+          : h('span', { class: 'muted small' }, 'Saves as you type · a click outside, ⌘↵ or Esc leaves the editor')));
         return;
       } else if (!text.trim()) {
         content = h('button', { class: 'body-empty', onclick: () => startEdit() }, cfg.emptyText);
       } else {
         content = h('div', { class: 'md' });
-        // renderMarkdown() sanitizes with DOMPurify (and fails closed without it).
-        content.innerHTML = renderMarkdown(text);
+        // renderMarkdown() sanitizes with DOMPurify (and fails closed without it). [[docs]] and refs (STY-482) are links.
+        content.innerHTML = renderMarkdown(linkVault(text));
+        linkRefs(content);
+        // The docs' names come with the vault's file tree: a [[link]] drawn before it came is drawn again once it has.
+        if (/\[\[/.test(text) && !linkedDocs) {
+          linkedDocs = true;
+          docsReady().then(() => { if (!editing && el.isConnected) blk.render(); });
+        }
         // Make checklist boxes clickable: the n-th box toggles the n-th "[ ]"/"[x]" marker.
         content.querySelectorAll('input[type=checkbox]').forEach((box, n) => {
           box.disabled = false;

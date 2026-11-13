@@ -664,6 +664,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 /* A doc's own properties (views/files.js docProps): prop-rows, quiet, as an item's (design.md §Properties) */
 .doc-props { max-width: 560px; margin: 0 0 18px; }
 .files-md { max-width: 860px; }
+/* A heading scrolled to (a [[note#heading]] link, On this page) lands under the sticky top bar, not behind it */
+.files-md :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: calc(var(--pinbar-h, 46px) + 12px); }
 .files-source { margin: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well);
   font: var(--fs-sm)/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
 .files-source code { font: inherit; background: none; padding: 0; }
@@ -1527,7 +1529,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde:hover { border-color: var(--foreground); }
 .mde-bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: var(--well); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .mde-bar .btn.icon { width: 28px; height: 28px; }
-.mde-bar > .unsaved { margin-left: 8px; white-space: nowrap; } /* mdblock.js: Saved / ● unsaved, last in the bar while editing a tab's description */
+.mde-bar > .unsaved { margin-left: 8px; white-space: nowrap; } .mde-bar > .unsaved:empty { display: none; } /* mdblock.js: Saved / ● unsaved, last in the bar while editing a tab's description */
 .mde-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 6px; }
 .mde-swatch { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 0; cursor: pointer; font-weight: 700; font-size: var(--fs-sm); background: var(--card); color: var(--swatch); }
 .mde-swatch.highlight { background: var(--swatch); }
@@ -1536,7 +1538,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde-custom input[type=color] { width: 24px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }
 .mde-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .mde-modes { margin-left: auto; padding: 2px; }
-.mde-modes .btn { height: 26px; font-size: var(--fs-xs); padding: 0 9px; }
+.mde-modes .btn { height: 26px; font-size: var(--fs-xs); padding: 0 7px; } /* four modes on the bar's row in a card */
 .mde-panes { display: grid; grid-template-columns: 1fr; }
 .mde.with-preview .mde-panes { grid-template-columns: 1fr 1fr; }
 .mde-text { width: 100%; min-height: 320px; border: 0; border-radius: 0; box-shadow: none; padding: 12px 14px; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; resize: vertical; background: transparent; }
@@ -1563,6 +1565,29 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde[data-mode="preview"] :is(.mde-text, .mde-code) { display: none; } /* the coloured layer too: it is absolute, and drew the source over the preview */
 .mde[data-mode="preview"] .mde-preview { border-left: 0; }
 .page .mde-text { min-height: 420px; }
+/* Live (mdeditor.js + livemd.js, on CodeMirror): the Markdown drawn as it reads (.md's typography), its marks hidden off
+   the line you are on (livemarks.js). One surface or the other shows, by the mode. CodeMirror's own classes (.cm-editor,
+   .cm-content, its menu) are styled in livemd.js THEME: its styles come unlayered, so they beat every rule here. */
+.mde[data-mode="live"] .mde-panes { grid-template-columns: 1fr; }
+.mde[data-mode="live"] :is(.mde-text, .mde-code, .mde-preview) { display: none; }
+.mde:not([data-mode="live"]) .mde-live-pane { display: none; }
+.mde-live-pane { min-width: 0; }
+.mde-live .cm-h { font-weight: 600; line-height: 1.3; letter-spacing: -.015em; padding-top: .45em; }
+.mde-live .cm-h1 { font-size: var(--fs-doc-h1); } .mde-live .cm-h2 { font-size: var(--fs-doc-h2); } .mde-live .cm-h3 { font-size: var(--fs-doc-h3); }
+.mde-live .cm-strong { font-weight: 600; } .mde-live .cm-em { font-style: italic; } .mde-live .cm-strike { text-decoration: line-through; }
+.mde-live .cm-mark, .mde-live .cm-listmark { color: var(--muted-foreground); }
+.mde-live .cm-icode { font-family: var(--mono); font-size: .86em; background: var(--muted); padding: 1px 4px; border-radius: var(--radius-xs); }
+.mde-live :is(.cm-link, .cm-wikilink, .cm-ref) { text-decoration: underline; text-underline-offset: 3px; }
+/* A ref (STY-482) of an item of the vault, as a link to it: in Live (livemarks.js) and where Markdown is read (vaultlinks.js). */
+.mde-live .cm-ref, .md a.ref-link { white-space: nowrap; font-variant-numeric: tabular-nums; text-decoration-style: dotted; }
+.mde-live .cm-done { color: var(--muted-foreground); text-decoration: line-through; }
+.mde-live .cm-quote { border-left: 3px solid var(--foreground); padding-left: 14px; color: var(--muted-foreground); }
+.mde-live .cm-codeblock { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 0 14px; }
+.mde-live .cm-codeblock-first { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); padding-top: 6px; }
+.mde-live .cm-codeblock-last { border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); padding-bottom: 6px; }
+.mde-live .cm-check { display: inline-flex; margin: 0 8px 0 2px; vertical-align: -3px; cursor: pointer; } /* inline: the theme's boxes are flex blocks */
+.mde-live .cm-bullet { display: inline-block; width: 1.1em; color: var(--muted-foreground); }
+.mde-live .cm-rule { display: inline-block; width: 100%; vertical-align: middle; border-top: 1px solid var(--border); }
 .body-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--destructive); border-radius: var(--radius); background: color-mix(in srgb, var(--destructive) 7%, var(--background)); font-size: var(--fs-sm); }
 .body-conflict span { flex: 1 1 220px; }
 .body-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
@@ -1657,6 +1682,7 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 /* Coloured, the textarea grows with its text (mdeditor.js grow): the two layers scroll together, and the textarea
    fills at least the screen so a click below the text still lands in it. */
 .body-wrap.full .mde-code { overflow-y: auto; }
+.body-wrap.full .mde-live-pane { overflow-y: auto; }
 .body-wrap.full .mde-code .mde-text { min-height: 100% !important; }
 .body-wrap.full .mde-preview { max-height: none; }
 .body-wrap.full > .body-actions { margin-top: 0; }

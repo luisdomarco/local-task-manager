@@ -4,6 +4,15 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Write a description as it reads: Live, as in Obsidian.** The editor opens in **Live**: headings big, bold bold, a
+  checklist with real boxes (a click ticks it), a link its text. The Markdown shows only on the line you are on, and
+  the file is saved byte for byte as before. **Source** (the Markdown, as the *Markdown* mode was), **Both** and
+  **View** are still there, and the mode you
+  pick last is kept for every editor: a description, a doc in the Explorer or Docs, an agent's file, a default text.
+  Typing **/** at the start of a line offers a heading, a list, a checklist, a table, a divider or today's date;
+  **[[** links a doc (`[[Its name]]`) or an item (its ref, `STY-482`); **@** a person, as before. A `[[doc]]` and the
+  ref of an item of the vault are drawn as links where the text is read (⌘-click opens them in Live).
+  `[[Doc#A heading]]` opens the doc at that heading, as in Obsidian, and reads *Doc > A heading*.
 - **An item's Docs tab is drawn as the Docs page is.** The docs and folders it links, and the docs that mention it,
   are a tree again: under each project's name its folders and files, in their own order, only the branches that lead
   to them — a linked folder whole and open, the way to one folded with how many it holds. A click on a folder folds it

@@ -10,7 +10,7 @@ import { fileUrl, api } from '../api.js';
 import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
-import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind } from '../filetree.js';
+import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind } from '../filetree.js';
 import { highlight } from '../highlight.js';
 import { itemHref, pageHref } from '../links.js';
 import { mdEditor } from '../mdeditor.js';
@@ -182,6 +182,9 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
   if (editNext === path) { mode = 'edit'; editNext = null; }
   let jump = null; // the line a search opened it at: shown in Source (not remembered), lit until another mode
   if (lineNext?.path === path) { jump = lineNext.line; lineNext = null; if (mode !== 'edit') mode = 'source'; }
+  // A [[note#heading]] followed (?heading=…): read, at that heading, once the text is in (not remembered either).
+  let heading = headingOfParam(param);
+  if (heading && mode === 'source') mode = 'preview';
   let text = null;      // the file's text (Markdown or code), once read
   let rev = null;       // its version when read (X-TM-Rev): a save goes against it
   let textSig = '';     // its size and mtime when read: read again when they change
@@ -393,8 +396,8 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
         timer = setTimeout(flush, AUTOSAVE_MS);
       },
     });
-    mde.textarea.addEventListener('blur', () => { flush(); });
-    mde.textarea.addEventListener('keydown', (e) => {
+    mde.on('blur', () => { flush(); });
+    mde.on('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'Enter')) { e.preventDefault(); done(); }
     });
     const status = h('span', { class: 'muted small' }, '');
@@ -403,7 +406,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
       h('span', { class: 'muted small' }, `${md ? 'Markdown' : 'Text'} · saves as you type · ⌘↵ to finish · Esc leaves the editor`), status,
       h('button', { class: 'btn small primary', onmousedown: (e) => e.preventDefault(), onclick: done }, 'Done')));
     ed = { mde, wrap, notice, status };
-    requestAnimationFrame(() => mde.textarea.focus({ preventScroll: true }));
+    requestAnimationFrame(() => mde.focus({ preventScroll: true }));
     return wrap;
   };
 
@@ -454,6 +457,11 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     root.replaceChildren(h('div', { class: 'files-page' }, crumbs(path, href), fileView(node, mode, setMode, body, editable)));
     if (jump && text !== null && (mode === 'source' || kind === 'text')) lightLine(root.querySelector('.files-source code'), text, jump);
     else if (window.CSS?.highlights) CSS.highlights.delete('tm-line');
+    if (heading && (text !== null || failed)) {
+      const heads = [...root.querySelectorAll('.files-md :is(h1, h2, h3, h4, h5, h6)')];
+      heads[headingIndex(heads.map((el) => el.textContent), heading)]?.scrollIntoView({ block: 'start' });
+      heading = null; // once: a redraw (a save, the tree reloaded) leaves the page where the reader took it
+    }
   }
 
   let live = true;

@@ -360,8 +360,8 @@
   .mde-bar > * { flex: none; }
   .mde-bar .btn.icon, .mde-bar .dictation-btn { width: var(--tap); height: var(--tap); }
   .mde-modes .btn { height: 36px; }
-  .mde-modes [data-mode=split] { display: none; } /* side by side does not fit: Markdown or View */
-  .mde textarea, .mde-hl { font-size: var(--fs-field); }
+  .mde-modes [data-mode=split] { display: none; } /* side by side does not fit: Live, Source or View */
+  .mde textarea, .mde-hl, .mde-live .cm-content { font-size: var(--fs-field); }
   .see-more.btn { min-height: var(--tap); }
   /* Comments: a box a thumb types in (Return is a new line there, panel.js), its send button beside it */
   .activity-compose { padding-bottom: env(safe-area-inset-bottom); }

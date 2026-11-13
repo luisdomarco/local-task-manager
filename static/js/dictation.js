@@ -68,8 +68,9 @@ export function withMic(field, { place = 'below' } = {}) {
 }
 
 /**
- * dictation(target, { insert, place }) → { el, stop } or null (no speech recognition here).
- * `target` is the textarea it types into; `insert(start, end, text)` puts text there (default: setRangeText plus an
+ * dictation(target, { insert, place }) → { el, stop } or null (no speech recognition here). `target` is the field it
+ * types into, or anything with a field's value, selectionStart/End, focus and listeners plus hasFocus() (mdeditor.js
+ * passes its editor that way, whichever surface is in use); `insert(start, end, text)` puts text there (default: setRangeText plus an
  * input event, so the field's own listeners save it). `place: 'above' | 'below'` is where the bubble with what is
  * being heard opens. It stops on its button, Esc in the field, the field losing focus, or the field leaving the page.
  */
@@ -100,7 +101,9 @@ export function dictation(target, { insert = null, place = 'below' } = {}) {
     stop();
   };
   // The window losing focus (a permission prompt, another app) blurs the field too: keep listening then.
-  const onBlur = () => setTimeout(() => { if (rec && document.hasFocus() && document.activeElement !== target) stop(); });
+  // `target` may be an editor that is not one element (mdeditor.js: its Live or Markdown surface): it says if it has the focus.
+  const focused = () => (target.hasFocus ? target.hasFocus() : document.activeElement === target);
+  const onBlur = () => setTimeout(() => { if (rec && document.hasFocus() && !focused()) stop(); });
 
   function start() {
     active?.();

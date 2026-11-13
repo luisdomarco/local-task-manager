@@ -159,21 +159,44 @@ export function splitFrontmatter(text) {
   return { props, body: String(text).slice(m[0].length) };
 }
 
+/** The heading of a `[[Note#heading]]` (`#A#B`, a heading under a heading, is its last one), or null. */
+export const wikiHeading = (part) => (part ? part.split('#').map((s) => s.trim()).filter(Boolean).pop() || null : null);
+
 /** `[[Note]]`, `[[Note|alias]]` and `[[Note#heading]]` → a Markdown link to the vault file whose name (without .md) is
- * `Note`, as Obsidian resolves them; one that names no file stays as it is. `pathOf(stem)` → its path, or null. */
+ * `Note`, as Obsidian resolves them, opening at the heading when it names one; one that names no file stays as it is.
+ * `pathOf(stem)` → its path, or null. */
 export function linkWikilinks(md, pathOf) {
-  return String(md || '').replace(/\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]*))?\]\]/g, (all, target, alias) => {
+  return String(md || '').replace(/\[\[([^\]|#\n]+)(#[^\]|\n]*)?(?:\|([^\]\n]*))?\]\]/g, (all, target, part, alias) => {
     const path = pathOf(target.trim());
-    return path ? `[${(alias || target).trim().replace(/[[\]]/g, '')}](${filesHref(path)})` : all;
+    if (!path) return all;
+    const heading = wikiHeading(part);
+    const label = alias?.trim() || (heading ? `${target.trim()} > ${heading}` : target.trim()); // as Obsidian shows it
+    return `[${label.replace(/[[\]]/g, '')}](${filesHref(path, heading)})`;
   });
 }
 
-/** A file route's address: #/files/<path>, each part URI-encoded (a name may hold '#', '?', '%'). */
-export const filesHref = (path) => `#/files${path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''}`;
+const routeOf = (view, path, heading) => `#/${view}${path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''}${
+  heading ? `?heading=${encodeURIComponent(heading)}` : ''}`;
+/** A file route's address: #/files/<path>, each part URI-encoded (a name may hold '#', '?', '%'), and `?heading=…`
+ *  to open a note at that heading (an encoded name holds no bare '?'). */
+export const filesHref = (path, heading = null) => routeOf('files', path, heading);
 /** A doc's address in Docs (views/docs.js): its tree beside it. */
-export const docsHref = (path) => `#/docs${path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''}`;
-/** The path of a #/files/… route's parameter. */
-export const pathOfParam = (param) => (param ? param.split('/').map((p) => { try { return decodeURIComponent(p); } catch { return p; } }).join('/') : '');
+export const docsHref = (path, heading = null) => routeOf('docs', path, heading);
+/** The path of a #/files/… route's parameter (without its ?heading=). */
+export const pathOfParam = (param) => (param ? param.replace(/\?.*$/, '').split('/').map((p) => { try { return decodeURIComponent(p); } catch { return p; } }).join('/') : '');
+/** The heading a #/files/… route's parameter asks to open at, or null. */
+export function headingOfParam(param) {
+  const q = String(param || '').match(/\?(.*)$/);
+  return q ? new URLSearchParams(q[1]).get('heading') || null : null;
+}
+
+/** Which of a note's headings (their text, in order) `wanted` names: the first that reads the same, case, spacing and
+ *  accents' composition aside (as Obsidian matches them), else -1. */
+export function headingIndex(texts, wanted) {
+  const norm = (s) => String(s || '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+  const want = norm(wanted);
+  return want ? texts.findIndex((t) => norm(t) === want) : -1;
+}
 
 // ── image zoom (zoom.js): the arithmetic, apart from the page ───────────────
 export const ZOOM_MIN = 0.05;
