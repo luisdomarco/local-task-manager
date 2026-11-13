@@ -16,7 +16,7 @@
   input:not([type=checkbox], [type=radio], [type=range], [type=color], .title-input), select, textarea:not(.title-input) { font-size: var(--fs-field); }
 
   /* What shows on hover shows from the start: there is no hover (design.md §5). */
-  .tree-more, .td-x, .cv-copy { opacity: 1; }
+  .tree-more, .td-x, .cv-copy, .docs-tab-unlink { opacity: 1; }
   .hover-host .hover-reveal { opacity: 1; } /* app.css's own (hover: none) twin loses to the hiding rule's weight; this layer wins */
   /* (a quiet field, a row's status and priority keep the computer's look at rest — no frame, no chevron: they are
      read as values, not a form; a tap opens them as on a computer) */
@@ -93,7 +93,7 @@
   .brand #side-collapse .icon { width: 22px; height: 22px; }
   .side-switches { flex-wrap: wrap; row-gap: 8px; }
   .side-mode .btn.icon { width: var(--tap); height: 40px; }
-  .side-view-x, .docs-add, .tree-more { width: var(--tap); height: var(--tap); }
+  .side-view-x, .docs-add, .tree-more, .docs-tab-unlink { width: var(--tap); height: var(--tap); }
   .side-view-x { margin-right: -12px; }
   .tree-more { margin-right: -10px; }
   .docs-title { height: var(--tap); }

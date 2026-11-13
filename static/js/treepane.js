@@ -58,6 +58,9 @@ async function run(op) {
  *                renamed or deleted; the rows' menu is `menu(node)` (its items, or none), and there is no "Search in
  *                files" nor the hidden-files eye. With it: `placeholder` (the filter's), `nameOf(node)` (a row's text),
  *                `iconOf(node)` (its icon, a file's), `tipOf(node)` (its tooltip) and `decorate(node, row)` (marks).
+ *   filter       false: no filter bar above the rows (an item's Docs tab, panel.js: a few rows in a tab)
+ *   foldInPlace  a click on a folder folds or unfolds it, and goes nowhere (as on a phone)
+ *   defaultOpen()  the folders open until its folds are changed (default none); once changed, an all-folded tree stays so
  */
 export function treePane(cfg) {
   const href = cfg.href || filesHref;
@@ -68,8 +71,8 @@ export function treePane(cfg) {
   // What is being typed: { kind: 'rename', path } or { kind: 'new', parent, what: 'folder' | 'file', parents? }.
   let editing = null;
   let renderWaiting = false; // a reload that came while typing: drawn once the typing ends
-  const open = () => new Set(pref(cfg.openKey, []));
-  const saveOpen = (set) => setPref(cfg.openKey, set.size ? [...set] : null);
+  const open = () => new Set(pref(cfg.openKey, null) ?? cfg.defaultOpen?.() ?? []);
+  const saveOpen = (set) => setPref(cfg.openKey, set.size || cfg.defaultOpen ? [...set] : null);
   const box = () => cfg.box();
   const kids = (n) => (cfg.ordered ? orderedChildren(n) : n.children);
 
@@ -108,7 +111,7 @@ export function treePane(cfg) {
       // everything that matched stays unfolded.
       // A phone: the tree is a drawer over the page, and a folder unfolds in place (its page would close the drawer).
       onclick: (e) => {
-        if (isDir && !filtering && isPhone()) { e.preventDefault(); toggle(node.path); return; }
+        if (isDir && !filtering && (isPhone() || cfg.foldInPlace)) { e.preventDefault(); toggle(node.path); return; }
         if (isDir && !filtering) toggle(node.path, !(set.has(node.path) && current() === node.path));
       },
     },
@@ -399,7 +402,7 @@ export function treePane(cfg) {
         type: 'search', class: 'side-explorer-filter side-explorer-search', placeholder: 'Search in files… ⏎', 'aria-label': 'Search in files',
         onkeydown: (e) => { if (e.key === 'Enter' && e.target.value.trim().length >= 2) location.hash = `#/find/${encodeURIComponent(e.target.value.trim())}`; },
       });
-      el.replaceChildren(...[h('div', { class: 'side-explorer-bar' }, searchBox(filter), ...(cfg.bar || []), cfg.readonly ? null : hiddenToggle()),
+      el.replaceChildren(...[cfg.filter === false ? null : h('div', { class: 'side-explorer-bar' }, searchBox(filter), ...(cfg.bar || []), cfg.readonly ? null : hiddenToggle()),
         cfg.readonly ? null : h('div', { class: 'side-explorer-bar' }, searchBox(search)), list, note].filter(Boolean));
     }
     syncHiddenToggle(el);

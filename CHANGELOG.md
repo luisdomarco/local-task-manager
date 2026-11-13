@@ -4,6 +4,10 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **An item's Docs tab is drawn as the Docs page is.** The docs and folders it links, and the docs that mention it,
+  are a tree again: under each project's name its folders and files, in their own order, only the branches that lead
+  to them — a linked folder whole and open, the way to one folded with how many it holds. A click on a folder folds it
+  where it is; the folds are kept per item. What the item links itself has a link mark and its × to unlink it.
 - **A project can be pinned.** Its pin (top right of its page) failed with *not an item id*: a project's id is its key
   (`GADS`), which the pins and the sidebar's order took for no id at all. Any item of the vault is pinned now.
 - **On a touch screen a tap on the description edits it.** There is no **Edit** button any more: a tap on the text opens

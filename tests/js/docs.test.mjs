@@ -87,3 +87,30 @@ test('an item\'s links resolve to a path, or say they are not found; the items t
   assert.deepEqual(itemsLinking('Docs/Producto/Visión.md', items).map((i) => i.id), ['A', 'B']);
   assert.deepEqual(itemsLinking('Docs/Producto', items).map((i) => i.id), ['B']);
 });
+
+test("an item's Docs tab: each section cut to the branches that lead to what it links, a linked folder whole", async () => {
+  const { buildTree, docsSubtrees } = await import('../../static/js/filetree.js');
+  const names = (n) => (n.children || []).map((c) => (c.kind === 'dir' ? { [c.name]: names(c) } : c.name));
+  const tree = buildTree([
+    { path: 'Orbit/Docs', kind: 'dir' }, { path: 'Orbit/Docs/00-index.md', kind: 'file' }, { path: 'Orbit/Docs/plan.md', kind: 'file' },
+    { path: 'Orbit/Docs/old', kind: 'dir' }, { path: 'Orbit/Docs/old/deliverables', kind: 'dir' }, { path: 'Orbit/Docs/old/deliverables/a.md', kind: 'file' },
+    { path: 'Orbit/Docs/old/notes.md', kind: 'file' },
+    { path: 'Orbit/Docs/use-cases', kind: 'dir' }, { path: 'Orbit/Docs/use-cases/uc-1.md', kind: 'file' }, { path: 'Orbit/Docs/use-cases/uc-2.md', kind: 'file' },
+    { path: 'Acme/Docs', kind: 'dir' }, { path: 'Acme/Docs/x.md', kind: 'file' },
+    { path: 'Notes', kind: 'dir' }, { path: 'Notes/loose.md', kind: 'file' },
+  ]);
+  const groups = [{ title: 'Acme', path: 'Acme/Docs' }, { title: 'Orbit', path: 'Orbit/Docs' }];
+  const { sections, counts } = docsSubtrees(tree, groups, ['Orbit/Docs/00-index.md', 'Orbit/Docs/old/deliverables', 'Orbit/Docs/use-cases',
+    'Orbit/Docs/use-cases/uc-1.md', 'Notes/loose.md']);
+  assert.deepEqual(sections.map((s) => s.group.title), ['Orbit', 'Other folders']); // as Docs orders them; none in Acme
+  assert.deepEqual(names(sections[0].node), ['00-index.md', { old: [{ deliverables: ['a.md'] }] }, { 'use-cases': ['uc-1.md', 'uc-2.md'] }]);
+  assert.deepEqual(names(sections[1].node), [{ Notes: ['loose.md'] }]);
+  assert.equal(counts.get('Orbit/Docs/old'), 1); // a folded branch says how many it leads to
+  assert.equal(counts.get('Orbit/Docs/use-cases'), 1);
+  assert.equal(counts.get('Orbit/Docs'), 4);
+  // The section's own folder linked: the section whole
+  const whole = docsSubtrees(tree, groups, ['Orbit/Docs', 'Orbit/Docs/plan.md']).sections[0].node;
+  assert.equal(whole, tree.children.find((c) => c.name === 'Orbit').children[0]);
+  assert.deepEqual(docsSubtrees(tree, groups, []).sections, []);
+  assert.deepEqual(docsSubtrees(null, groups, ['Orbit/Docs/plan.md']).sections, []);
+});

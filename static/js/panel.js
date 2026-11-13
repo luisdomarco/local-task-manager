@@ -15,7 +15,8 @@ import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
 import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
-import { docChoices, docsGroups, docsHref, resolveDocs } from './filetree.js';
+import { docChoices, docsGroups, docsHref, docsSubtrees, resolveDocs } from './filetree.js';
+import { treePane } from './treepane.js';
 import { itemHref, opener, pageHref } from './links.js';
 import { mdBlock } from './mdblock.js';
 import { pref, saveSort, savedSort, setPref } from './prefs.js';
@@ -37,7 +38,7 @@ import {
   noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
-import { closedToggle, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
+import { closedToggle, countOf, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
 import { refOf } from './shownid.js';
 import { MEMBER_TYPES, byGoalOrder, goalCandidates, goalProgress, inGoal, nextGoalOrder } from './goals.js';
 import { mountCanvasView } from './canvas/canvasview.js';
@@ -230,9 +231,46 @@ function relationsTab(item, rerender) {
 
 // Docs (TSK-039 phase 3): what this initiative or task links in the vault's Docs — docs by their [[name]], folders by
 // their path — to open, to unlink (with Undo) or to add from the Docs folders; and below, the docs whose text mentions
-// it. A link whose doc or folder is gone (moved or deleted outside the app) says so and is never dropped by itself.
+// it. Both drawn as the Docs page draws its tree (treepane.js, read-only): its sections, cut to the branches that lead to
+// them (filetree.js docsSubtrees), a linked folder whole and open, the rest folded with how many it holds. A link whose
+// doc or folder is gone (moved or deleted outside the app) says so under the tree and is never dropped by itself.
 let docGroups = null;  // docsGroups of /api/docs/roots, asked once
 const mentions = new Map(); // item key → { rev, paths }: the docs that link it, asked once per version of it
+
+/** One of the tab's two trees: `paths` cut out of the Docs sections; `linked` (path → its value in the item's `docs`)
+ *  marks what the item links itself, with its × (`unlink`). Its folds are kept per item and tree (`key`). */
+function docsTree(key, paths, { linked = new Map(), unlink = null, open = [] } = {}) {
+  const box = h('div', { class: 'docs-tab-tree' });
+  let cut = { sections: [], counts: new Map() }; // the last cut, worked out once per drawing (its sections, then its rows)
+  const pane = treePane({
+    box: () => box, tree: fileTree, openKey: key, label: linked.size ? 'Linked docs' : 'Docs that mention it', readonly: true,
+    filter: false, foldInPlace: true, ordered: true, href: docsHref, current: () => null, defaultOpen: () => open, empty: '',
+    sections: (tree) => (cut = docsSubtrees(tree, docGroups, paths)).sections.map((s) => ({ id: s.group.path, path: s.group.path, node: s.node,
+      head: h('div', { class: 'docs-head' }, h('span', { class: 'docs-title docs-tab-title', title: s.group.path || 'Outside the Docs folders' }, s.group.title)) })),
+    decorate: (node, row) => {
+      const more = row.querySelector('.tree-more');
+      const n = node.kind === 'dir' ? cut.counts.get(node.path) : 0;
+      if (n) more.before(countOf(n, { plain: true, cls: 'docs-tab-count' }));
+      const value = linked.get(node.path);
+      if (!value) return;
+      row.classList.add('is-linked');
+      more.before(h('span', { class: 'docs-tab-linked', title: 'Linked to this item' }, icon('link', 13)),
+        h('button', { class: 'btn icon docs-tab-unlink', tabindex: '-1', title: `Unlink ${node.name}`, 'aria-label': `Unlink ${node.name}`,
+          onclick: (e) => { e.preventDefault(); e.stopPropagation(); unlink(value); } }, icon('x', 13)));
+    },
+    menu: (node) => [
+      linked.has(node.path) ? { label: 'Unlink', icon: 'x', onSelect: () => unlink(linked.get(node.path)) } : null,
+      /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => {
+        const link = `[[${node.name.replace(/\.md$/i, '')}]]`;
+        navigator.clipboard.writeText(link).then(() => toast(`${link} copied`), () => toast('Could not copy', true));
+      } } : null,
+      { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) },
+    ],
+  });
+  pane.render();
+  return box;
+}
+
 function docsTab(item, rerender) {
   if (!hasField(item.type, 'docs')) return null;
   if (!docGroups) {
@@ -243,14 +281,13 @@ function docsTab(item, rerender) {
   const docs = item.fields.docs || [];
   const name = refOf(item) || item.title;
   const entries = resolveDocs(docs, fileTree(), docGroups);
-  // Each a row, as in Relations (ui.js rowItem): its icon and name, its folder muted at the right, an × to unlink it.
-  const where = (path) => path.split('/').slice(0, -1).join('/');
-  const rows = entries.map((d) => rowItem({
-    ico: icon(d.kind === 'folder' ? 'folder' : 'note', 14),
-    ...(d.path ? { href: docsHref(d.path), linkAttrs: { title: d.path }, text: d.kind === 'folder' ? `${d.name}/` : d.name, meta: where(d.path) || null }
-      : { text: `${d.value} · not found`, tip: 'Not found: moved or deleted outside the app' }),
-    actions: rowAction('x', `Unlink ${d.value}`, () => relink(() => updateItem(item.key, { docs: docs.filter((x) => x !== d.value) }),
-      () => updateItem(item.key, { docs }), `${d.value} unlinked from ${name}`)),
+  const unlink = (value) => relink(() => updateItem(item.key, { docs: docs.filter((x) => x !== value) }),
+    () => updateItem(item.key, { docs }), `${value} unlinked from ${name}`);
+  const found = entries.filter((d) => d.path);
+  // What is linked but gone: a row each, as before, under the tree.
+  const lost = entries.filter((d) => !d.path).map((d) => rowItem({
+    ico: icon(d.kind === 'folder' ? 'folder' : 'note', 14), text: `${d.value} · not found`, tip: 'Not found: moved or deleted outside the app',
+    actions: rowAction('x', `Unlink ${d.value}`, () => unlink(d.value)),
   }));
   const choices = docChoices(fileTree(), docGroups).filter((c) => !docs.includes(c.value));
   // "+ Link a doc" at the top right, as Links' and Files' "+ Add": it opens the list of docs and folders to search.
@@ -271,14 +308,18 @@ function docsTab(item, rerender) {
     }, () => {});
   }
   const mentioned = mentions.get(item.key).paths;
-  // As Relations (ui.js stackGroup, rowList): each group its name above its rows, "+ Link a doc" on the first's line.
+  const linkedTree = found.length && fileTree() ? docsTree(`docs.tab.${item.key}.linked`, found.map((d) => d.path), {
+    linked: new Map(found.map((d) => [d.path, d.value])), unlink,
+    open: found.filter((d) => d.kind === 'folder').map((d) => d.path), // a linked folder starts open, the way to it folded
+  }) : null;
+  const linkedBody = linkedTree || lost.length ? h('div', {}, linkedTree, lost.length ? rowList(lost) : null) : null;
+  // As Relations (ui.js stackGroup): each group its name above its rows, "+ Link a doc" on the first's line.
   // The linked ones need no name unless the docs that mention it follow (the tab already says Docs).
   const none = choices.length ? 'No docs linked yet' : 'No docs to link yet'; // on the button's line, as a group's name
   return { key: 'docs', label: 'Docs', count: docs.length, // a number: 0 hides the badge (ui.js tabPanels)
     content: [h('section', { class: 'panel-section relations quiet docs-links' },
-    stackGroup(mentioned.length ? 'Linked' : rows.length ? null : none, rows.length ? rowList(rows) : mentioned.length ? emptyLine(none, { cls: 'rel-none' }) : null, { aside: pick }),
-    mentioned.length ? stackGroup('Mentioned in', rowList(mentioned.map((p) => rowItem({ ico: icon('note', 14), href: docsHref(p), linkAttrs: { title: p },
-      text: p.split('/').pop().replace(/\.md$/i, ''), meta: where(p) || null })))) : null)] };
+    stackGroup(mentioned.length ? 'Linked' : linkedBody ? null : none, linkedBody || (mentioned.length ? emptyLine(none, { cls: 'rel-none' }) : null), { aside: pick }),
+    mentioned.length && fileTree() ? stackGroup('Mentioned in', docsTree(`docs.tab.${item.key}.mentioned`, mentioned)) : null)] };
 }
 
 // Canvas: the item's own whiteboards, in <Docs>/Canvases/<its ref> (canvas/itemcanvas.js), and beside them the open

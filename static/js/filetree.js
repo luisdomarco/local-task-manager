@@ -307,3 +307,38 @@ export function itemsLinking(path, items) {
     d === `[[${stem}]]` || d.startsWith(`[[${stem}|`) || d.startsWith(`[[${stem}#`)
     || (d.endsWith('/') && (path === d.slice(0, -1) || path.startsWith(d))))));
 }
+
+/** An item's Docs tab as Docs draws it (its sections, cut down): for each section holding one of `paths` (a doc's file
+ *  or a folder), the section's folder with only the branches that lead to them. A folder in `paths` keeps all it holds,
+ *  and a section whose own folder is in `paths` is whole. A path in no section goes under "Other folders", from the
+ *  vault's top. → { sections: [{ group, node }], counts: Map(folder path → how many of `paths` are below it) } */
+export function docsSubtrees(tree, groups, paths) {
+  const want = new Set((paths || []).filter((p) => typeof p === 'string' && p));
+  const counts = new Map();
+  if (!tree || !want.size) return { sections: [], counts };
+  for (const p of want) ancestorPaths(p).forEach((a) => counts.set(a, (counts.get(a) || 0) + 1));
+  // Only the branches that lead to `mine`: a wanted folder as it is, whole.
+  const prune = (n, mine) => {
+    const kids = [];
+    for (const c of n.children || []) {
+      if (mine.has(c.path)) kids.push(c);
+      else if (c.kind === 'dir' && [...mine].some((p) => p.startsWith(`${c.path}/`))) kids.push(prune(c, mine));
+    }
+    return { ...n, children: kids };
+  };
+  const bySection = new Map();
+  for (const p of want) {
+    const g = docsGroupOf(groups, p);
+    const key = g ? g.path : null;
+    if (!bySection.has(key)) bySection.set(key, { group: g || { title: 'Other folders', path: '', project: null }, paths: new Set() });
+    bySection.get(key).paths.add(p);
+  }
+  const order = [...(groups || []).map((g) => g.path), null]; // as Docs lists its sections, the others last
+  const sections = order.filter((k) => bySection.has(k)).map((k) => {
+    const { group, paths: mine } = bySection.get(k);
+    const root = findNode(tree, group.path);
+    if (!root) return null;
+    return { group, node: mine.has(group.path) ? root : prune(root, mine) };
+  }).filter(Boolean);
+  return { sections, counts };
+}

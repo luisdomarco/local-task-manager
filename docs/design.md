@@ -705,6 +705,13 @@ rows take `nameOf`, `iconOf`, `tipOf`, `decorate` and a `menu(node)` of their ow
 Docs' heads (`.docs-head`, the title folds it) with its count at the right (`.agents-count`). An agent's name is
 monospace (it is what you type), with the `slash` icon; a namespace is a plain folder row.
 
+**An item's Docs tab is the same tree** (panel.js `docsTree`): `treePane({ readonly: true, filter: false, foldInPlace: true,
+ordered: true, defaultOpen })` over `filetree.js` `docsSubtrees` (each Docs section cut to the branches that lead to its
+paths, a linked folder whole). Its section heads are `.docs-head` with a title that does not fold (`.docs-tab-title`);
+a folder's count is `countOf(…, { plain })` (`.docs-tab-count`); a linked row has `.docs-tab-linked` and an × that shows
+on hover as `.tree-more` does (`.docs-tab-unlink`, a finger's size and always shown on a phone). Folds are kept per
+item and tree (`docs.tab.<key>.linked` / `.mentioned`); a linked folder starts open.
+
 **`#/runs` is the Home** (`.agents-home`): the week's line on top, then a grid of two columns
 (`.agents-home-grid`, one at 900px and below) of sections titled as the Inbox's groups (`.agents-section-title`, no
 line under them; a quiet *… →* link at their right, `.agents-home-more`), each a list of `.cs-item` cards: a dot or an
