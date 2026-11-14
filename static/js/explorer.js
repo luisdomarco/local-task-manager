@@ -20,6 +20,9 @@ let again = null; // the fetch queued behind the one in flight (loadFiles)
 
 /** The vault's tree as the latest load left it (views/files.js lists a folder from it), or null before one. */
 export const fileTree = () => tree;
+/** Whether the file tree is on screen (the sidebar's Explorer): the poll then asks the server to walk the whole folder
+ *  every time, not only the item folders (vaultwatch.js). */
+export const filesShown = () => { const b = box(); return !!b && b.offsetParent !== null; };
 const listeners = new Set();
 /** Calls `fn()` after each load that changed the tree. */
 export const onFiles = (fn) => listeners.add(fn);

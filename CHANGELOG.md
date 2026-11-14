@@ -4,6 +4,34 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A link with no title is named after its site.** Shared or pasted alone in the Inbox's box (iPhone or desktop), a
+  link whose page gave no title gets its site's name as its subject — *X* for x.com, *pepita* for pepita.com — for you
+  to write over, and the address in its link; before, the address showed as its title too. With a title, the title.
+
+- **Editing or adding an item looks only at that item.** The items of the vault are read once per walk of its folders
+  and kept with it (the list, the links between them, the lookup by id or ref); after a write only the file it changed
+  is read again, and the vault's check before a write no longer opens every item to see whether it changed. On a vault
+  of 3,000 docs and 1,150 pictures: editing an item went from 68 ms to 20 ms, creating one from 71 ms to 23 ms.
+
+- **Writes on a big vault faster again.** A write reads its items several times (a create: its next id, its parent,
+  its links, the item itself); those reads now share one walk of the item folders, kept while none of those folders
+  changed, and the walks before and after the write leave the Docs folders and Attachments/ to the page's next poll.
+  On a vault of 3,000 docs and 1,150 pictures, creating an item went from 240 ms to 80 ms (about 1 s two changes ago).
+- **A lighter poll and a quick vault status.** The page's ask every 4 s walks only the folders where items live; the
+  whole folder every 10 s, or on each ask while files are on screen (so a document edited in Obsidian shows within 10 s
+  at most). The vault's status no longer reads every document nor lists the files nobody lists, but in Settings →
+  Vaults, which shows those warnings. Measured on the same vault: the poll 103 → 9 ms, the status 470 → 13 ms, a read
+  of the items 85 → 18 ms — on an iPhone, less work every 4 s while the app is open.
+
+- **Faster on a big vault.** Adding or editing an item no longer reads every document and picture of the vault: a
+  write checks only what could stop it (not the Docs folders, which only ever give warnings), reads again only the
+  folders where items live, and the page no longer asks for the vault's status (half a second on a vault of thousands
+  of files) after each of its own changes. Measured on a vault of 3,000 docs and 1,150 pictures: creating an item went
+  from about 1 s to 0.24 s, and the page's reload after it lost another half second.
+- **A link shared with no title can be added.** Enter in the Inbox's box with only a link (what X shares) did nothing;
+  the item is now kept with no subject and the link as its `url` (`INB-87.md`), and the lists draw the link until it
+  gets a subject. A shared page's name, when it has one, is still its subject.
+
 - **A list's row on a phone shows its priority and when it is planned.** Under the title, after the id: the priority
   (when it has one), Planned (else Due, else Date; red when late) and where it belongs, cut with … when it does not
   fit. The title has the first line to itself.

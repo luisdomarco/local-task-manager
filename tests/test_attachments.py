@@ -310,11 +310,17 @@ class HttpAttachmentsTest(unittest.TestCase):
         root = server.APP.store.root
         with open(os.path.join(root, 'Attachments', 'suelto.pdf'), 'wb') as f:
             f.write(b'%PDF')
-        status, _, body = self.send('/api/vault/status', None, {})
+        status, _, body = self.send('/api/vault/status?warnings=1', None, {})  # Settings → Vaults asks for them
         self.assertEqual(status, 200, body)
         check = json.loads(body)['check']
         self.assertTrue(check['ok'])
+        self.assertFalse(check['warnings_partial'])
         self.assertEqual([(w['kind'], w['path']) for w in check['warnings']], [('unlisted_attachment', 'Attachments/suelto.pdf')])
+        # Every load of the page asks without: quick, the same `ok`, and it says its warnings are not all of them
+        quick = json.loads(self.send('/api/vault/status', None, {})[2])['check']
+        self.assertTrue(quick['ok'])
+        self.assertTrue(quick['warnings_partial'])
+        self.assertEqual(quick['warnings'], [])
 
     def test_a_path_out_of_the_folder_is_not_served(self):
         for bad in (self.task['path'], f"Attachments/../{self.task['path']}"):

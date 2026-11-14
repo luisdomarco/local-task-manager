@@ -8,7 +8,7 @@
 // A poll, not a stream: the iPhone app answers each request in memory, and a stream would never flow there.
 // Reload from disk (Settings → Vaults, ⌘K) opens the vault again on the server, then loads everything again here.
 import { api } from './api.js';
-import { loadFiles } from './explorer.js';
+import { filesShown, loadFiles } from './explorer.js';
 import { reload, reloadStructure, toast } from './state.js';
 import { vaultId } from './vault.js';
 
@@ -36,7 +36,9 @@ async function ask() {
   if (asking || document.hidden || !vaultId()) return;
   asking = true;
   try {
-    const r = await api.vaultChanges(since, epoch);
+    // The server walks only the item folders on most asks (a vault may hold thousands of documents and pictures),
+    // and the whole folder every 10 s, or on each ask while files are on screen.
+    const r = await api.vaultChanges(since, epoch, filesShown() || /^#\/docs/.test(location.hash));
     const known = since !== null;
     const reopened = known && r.epoch !== epoch; // opened again meanwhile: what it was is no guide
     const away = known && Date.now() - answered > AWAY;

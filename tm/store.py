@@ -365,16 +365,16 @@ def _write_guard(method, refuse_unmatched):
     @functools.wraps(method)
     def guarded(self, *args, **kwargs):
         depth = getattr(_writing, 'depth', 0)
-        result = None
-        if depth == 0:
-            result = self.check() if self.enforce_structure else None
-            _writing.matched = result is None or result['ok']
-        if refuse_unmatched and not _writing.matched:
-            raise StoreError(409, READ_ONLY_MESSAGE, check=result or self.check())
-        _writing.depth = depth + 1
-        try:
-            if depth:  # an inner call: the outermost one holds both locks
+        if depth:  # an inner call: the outermost one holds both locks and checked the vault
+            if refuse_unmatched and not _writing.matched:
+                raise StoreError(409, READ_ONLY_MESSAGE, check=self.check())
+            _writing.depth = depth + 1
+            try:
                 return method(self, *args, **kwargs)
+            finally:
+                _writing.depth = depth
+        _writing.depth = 1
+        try:
             # One writer at a time: this process's threads (the RLock), then every other process on the vault (the
             # app, tools/vault.py, a sync: the flock). Always in that order, so two threads never wait on each other.
             with self._lock:
@@ -382,11 +382,17 @@ def _write_guard(method, refuse_unmatched):
                     with vault_lock(os.path.join(self.root, META_DIR), VAULT_LOCK_TIMEOUT):
                         # The index (tm/index.py): what changed before is somebody else's, what changes now is the
                         # writer's (the tab of the request), and every read meanwhile walks the folder fresh.
-                        self.index.before_write()
+                        self.index.before_write(keep=self._no_items)
                         try:
+                            # The vault checked after that walk, and through it: what each item file says is read
+                            # again only when its stat key changed (check, _load_walked).
+                            result = self.check(docs=False) if self.enforce_structure else None
+                            _writing.matched = result is None or result['ok']
+                            if refuse_unmatched and not _writing.matched:
+                                raise StoreError(409, READ_ONLY_MESSAGE, check=result)
                             return method(self, *args, **kwargs)
                         finally:
-                            self.index.after_write(getattr(ACTOR, 'tab', None))
+                            self.index.after_write(getattr(ACTOR, 'tab', None), keep=self._no_items)
                 except VaultBusy as e:
                     raise StoreError(503, f'{e}. Try again in a moment.') from None
         finally:
@@ -423,6 +429,12 @@ def now_moment():
 def shown_body(body):
     """The body as read() returns it: the blank line after the frontmatter is not part of it."""
     return body[1:] if body.startswith('\n') else body
+
+
+def _copy_item(it):
+    """An item of Store._items_memo, for one caller: its own fields (a codec's resolve fills them in), aliases and
+    checklist; the values inside are shared, as they always were with the file cache's parse."""
+    return {**it, 'fields': dict(it['fields']), 'aliases': list(it['aliases']), 'checklist': dict(it['checklist'])}
 
 
 def body_rev(body):
@@ -486,6 +498,10 @@ class Store:
         # A leaf lock: held only around the dict operations, never during I/O and never while taking
         # another lock. Order is always _lock → _cache_lock. Not around scan's loop: it calls _load.
         self._cache_lock = threading.Lock()
+        self._md_memo = None  # (walk, docs, [(path, stat key)]): _md_entries of the last walk, while it is the same
+        self._memo = None  # Store._items_memo: the items of the last walk, while it is the same
+        self._decoded_files = {}  # abs path -> (stat key, structure, type, item or (date, fields) or None): _read_items
+
         # Reentrant: add_comment/delete_comment read the item and call update() under one hold, so
         # no other writer can slip in between the read and the write.
         self._lock = threading.RLock()
@@ -498,6 +514,13 @@ class Store:
         return p
 
     def rel(self, path):
+        # A path the walk made (root + '/' + a clean rel) is cut, not worked out again: os.path.relpath is most of a
+        # read of every item otherwise. Anything else (a '..', a '.', a double slash, another root) goes the long way.
+        head = self.root + os.sep
+        if path.startswith(head):
+            rest = path[len(head):]
+            if rest and all(p not in ('', '.', '..') for p in rest.split(os.sep)):
+                return rest
         return os.path.relpath(path, self.root)
 
     def _scannable(self, rel):
@@ -508,24 +531,45 @@ class Store:
             return False
         return not any(p.startswith('.') or p in SKIP_DIRS for p in parts) and not self.full_structure.in_docs('/'.join(parts))
 
-    def _entries(self):
+    def _entries(self, items_only=False):
         """The vault's folders and files ({rel: Entry}, tm/index.py): walked now, or the index's last walk while a page
-        polls it. A write in progress always walks: it must see what it just wrote."""
+        polls it. A write in progress always walks: it must see what it just wrote. `items_only`: what is read is only
+        where items may be, so a write walks again only those folders — Docs/ and Attachments/ are taken from the last
+        walk (a write reads its items several times, and a vault may hold thousands of documents and pictures)."""
         writing = getattr(_writing, 'depth', 0) > 0
-        return self.index.entries(fresh=writing, by=getattr(ACTOR, 'tab', None) if writing else None)
+        return self.index.entries(fresh=writing, by=getattr(ACTOR, 'tab', None) if writing else None,
+                                  keep=self._no_items if items_only else None)
+
+    def _no_items(self, rel_dir):
+        """A folder that holds no items, and nothing under it does: a Docs folder, Attachments/, a skipped one."""
+        name = rel_dir.rsplit('/', 1)[-1]
+        return name.startswith('.') or name in SKIP_DIRS or bool(self.full_structure.docs_container(rel_dir))
 
     def _md_entries(self, docs=False):
         """(abs path, stat key) of every .md where an item may be — under no hidden or skipped folder (SKIP_DIRS);
         `docs` too, those in the Docs folders (TSK-039): documents, never items, but their [[links]] are rewritten like
         any other's."""
-        for rel, e in self._entries().items():
+        yield from self._md_of(self._entries(items_only=not docs), docs)
+
+    def _md_of(self, entries, docs=False):
+        """_md_entries of the walk `entries`: worked out once per walk (a write's reads share one)."""
+        memo = self._md_memo
+        if memo and memo[0] is entries and memo[1] == docs:
+            return memo[2]
+        top_docs = f'{self.full_structure.docs_folder}/' if not docs and self.full_structure.docs_folder else None
+        out = []
+        for rel, e in entries.items():
             if e.kind != 'file' or not rel.endswith('.md'):
+                continue
+            if top_docs and rel.startswith(top_docs):  # most documents, said fast (a vault may hold thousands)
                 continue
             if any(p.startswith('.') or p in SKIP_DIRS for p in rel.split('/')):
                 continue
             if not docs and self.full_structure.in_docs(rel):
                 continue
-            yield os.path.join(self.root, rel), (e.ino, e.mtime_ns, e.size)
+            out.append((os.path.join(self.root, rel), (e.ino, e.mtime_ns, e.size)))
+        self._md_memo = (entries, docs, out)
+        return out
 
     def _walk_md(self, docs=False):
         """The paths of _md_entries."""
@@ -551,6 +595,30 @@ class Store:
 
     def _read(self, path):
         return self._load(path)[1:3]
+
+    def _load_walked(self):
+        """A file's fields like _load, for a write's check: from the cache, without opening the file, when the write's
+        walk of the item folders (fresh: tm/index.py before_write) has it with the stat key the cache read it at. A file
+        that walk does not look at again (a Docs folder, Attachments/, a hidden one) is opened, as before."""
+        entries = self._entries(items_only=True)
+        head = self.root + os.sep
+
+        def load(path):
+            rel = path[len(head):] if path.startswith(head) else None
+            e = entries.get(rel) if rel and self._walked_fresh(rel) else None
+            if e is not None:
+                with self._cache_lock:
+                    hit = self._cache.get(path)
+                if hit and hit[0] == (e.ino, e.mtime_ns, e.size):
+                    return hit[1][0]
+            return self._load(path)[1]
+        return load
+
+    def _walked_fresh(self, rel):
+        """Whether a walk of the item folders (index keep=_no_items) looks at the file `rel` again: one under no hidden
+        or skipped folder, and in no Docs folder."""
+        parts = rel.split('/')
+        return not any(p.startswith('.') or p in SKIP_DIRS for p in parts[:-1]) and not self.full_structure.in_docs(rel)
 
     def _body_links(self, rel):
         """The stems a file's body links to (wikilinks.targets), from the index: read again only when the file changed,
@@ -849,13 +917,14 @@ class Store:
         return True
 
     # ── structure ────────────────────────────────────────────────────────────
-    def check(self):
+    def check(self, docs=True):
         """Whether the vault matches its structure (tm/structures/check.py, or the structure's own checker), read
-        through this store's cache."""
-        load = lambda path: self._load(path)[1]  # noqa: E731
+        through this store's cache. `docs` False (the check before every write): what is in the Docs folders is not
+        read, as it only gives warnings — the answer's `ok` is the same."""
+        load = self._load_walked() if getattr(_writing, 'depth', 0) > 0 else (lambda path: self._load(path)[1])
         full = self.full_structure  # a type turned off is still a valid file on disk: never a mismatch
         if full.checker:
-            return full.checker(self.root, load=load)
+            return full.checker(self.root, load=load, docs=docs)
         return check_structure(self.root, full.check_spec(self.folders, SKIP_DIRS), load=load)
 
     # ── a structure with its own file format (Structure.codec) ───────────────
@@ -880,8 +949,21 @@ class Store:
         return fields
 
     def _resolver(self):
-        """Who is who in the vault right now (the codec's stems ↔ keys, projects): a fresh scan's."""
-        return self.structure.codec.resolve(self.items_raw())
+        """Who is who in the vault right now (the codec's stems ↔ keys, projects): of the last walk's items, worked out
+        once per walk (nothing changes a Resolver once made)."""
+        return self._resolver_of(self._items_memo())
+
+    def _resolver_of(self, memo):
+        if 'resolver' not in memo:
+            memo['resolver'] = self.structure.codec.resolve([_copy_item(it) for it in memo['items']])
+        return memo['resolver']
+
+    def _resolved(self, it, memo):
+        """One item of the memo `memo` (_items_memo) as find returns it: a copy, its links resolved like a scan's."""
+        out = _copy_item(it)
+        if self.structure.codec:
+            self.structure.codec.apply(out['fields'], self._resolver_of(memo))
+        return out
 
     def items_raw(self):
         """The items of a scan, before a codec resolves their links (scan() resolves them itself)."""
@@ -948,7 +1030,7 @@ class Store:
             # Its ids from before (short ids, a structure's migration): an old link or branch still finds it (find).
             'aliases': [str(a) for a in aliases if a] if isinstance(aliases, list) else [],
             'type': fields['type'],
-            'title': str(fields.get('subject') or fields.get('title') or stem),
+            'title': str(fields.get('subject') or fields.get('title') or fields.get('url') or stem),
             'path': self.rel(path),
             'rev': file_rev(key),
             'body_rev': brev,
@@ -963,28 +1045,74 @@ class Store:
     def _scan(self, resolve=True, hidden_too=False):
         """`hidden_too`: also the items of the types this vault turned off, for what must see every file (ids, and
         the children a delete unlinks); never for what is shown."""
+        memo = self._items_memo(hidden_too)
+        items = [_copy_item(it) for it in memo['items']]  # resolving fills in their fields: never the memo's
+        codec = self.structure.codec
+        if resolve and codec:  # links among what was read (with hidden_too, the hidden items too)
+            if hidden_too:
+                codec.resolve(items)
+            else:  # the walk's resolver (_resolver), made from these same items
+                r = self._resolver_of(memo)
+                for it in items:
+                    codec.apply(it['fields'], r)
+        return items, dict(memo['days'])
+
+    def _items_memo(self, hidden_too=False):
+        """The items of the vault's last walk, read once: {'items' (decoded, links unresolved), 'days', and, worked
+        out when first asked, 'resolver' and 'by_key'}. The index hands out the same walk object for as long as nothing
+        in the item folders changed (tm/index.py refresh), so a write's five or six reads of every item — find, the
+        resolver, next_id… — are one, and so are a page's reads between two changes."""
+        entries = self._entries(items_only=True)
+        structure = self.full_structure if hidden_too else self.structure
+        memo = self._memo
+        if memo and memo['entries'] is entries and memo['structure'] is structure:
+            return memo
+        items, days = self._read_items(structure.types, entries)
+        memo = {'entries': entries, 'structure': structure, 'items': items, 'days': days}
+        if not hidden_too:
+            self._memo = memo
+        return memo
+
+    def _read_items(self, types, entries):
+        """(decoded items of `types`, worklog days) of the walk `entries`. A file is opened only when its stat key
+        changed, and decoded only then too: after a write, a new walk decodes the one file the write changed."""
         items, days = [], {}
         live = set()
-        types = self.full_structure.types if hidden_too else self.structure.types
-        for path, stat_key in self._md_entries():
+        structure, full = self.structure, self.full_structure
+        for path, stat_key in self._md_of(entries):
             live.add(path)
             with self._cache_lock:
-                hit = self._cache.get(path)
-            try:  # unchanged since it was read (its stat key, from the index's walk): no need to open it again
-                key, fields, body, brev = (stat_key, *hit[1]) if hit and hit[0] == stat_key else self._load(path)
-            except OSError:
+                done = self._decoded_files.get(path)
+            if done and done[0] == stat_key and done[1] is structure:
+                t, value = done[2], done[3]
+            else:
+                with self._cache_lock:
+                    hit = self._cache.get(path)
+                try:  # unchanged since it was read (its stat key, from the index's walk): no need to open it again
+                    key, fields, body, brev = (stat_key, *hit[1]) if hit and hit[0] == stat_key else self._load(path)
+                except OSError:
+                    continue
+                rel = self.rel(path)
+                t = self._type_of(rel, fields)
+                if t in full.types:  # a type turned off too: hidden_too reads it
+                    value = self._item(path, key, self._decoded(rel, fields), body, brev)
+                elif t == 'worklog' and DATE_RE.match(str(fields.get('date') or '')):
+                    value = (str(fields['date']), fields)
+                else:
+                    value = None
+                with self._cache_lock:
+                    self._decoded_files[path] = (key, structure, t, value)
+            if value is None:
                 continue
-            rel = self.rel(path)
-            t = self._type_of(rel, fields)
             if t in types:
-                items.append(self._item(path, key, self._decoded(rel, fields), body, brev))
-            elif t == 'worklog' and DATE_RE.match(str(fields.get('date') or '')):
-                days[str(fields['date'])] = (path, fields)
+                items.append(value)
+            elif t == 'worklog':
+                days[value[0]] = (path, value[1])
         with self._cache_lock:  # pop, not del: another scan may have dropped it already
             for stale in [p for p in self._cache if p not in live]:
                 self._cache.pop(stale, None)
-        if resolve and self.structure.codec:  # links among what was read (with hidden_too, the hidden items too)
-            self.structure.codec.resolve(items)
+            for stale in [p for p in self._decoded_files if p not in live]:
+                self._decoded_files.pop(stale, None)
         return items, days
 
     def _type_off(self, item_type):
@@ -1006,19 +1134,24 @@ class Store:
     def find(self, key):
         """The item of `key`: its id or path (its key); else its ref as drawn (TSK-482), else one of its old ids
         (aliases: ACME-INI-001). A ref whose prefix is not its type's is a 404 that names the right one."""
-        items = self.items()
-        for it in items:
-            if it['id'] == key or it['path'] == key:
-                return it
+        memo = self._items_memo()
+        if 'by_key' not in memo:  # the three passes find always made, each a lookup: the first item to claim a key keeps it
+            exact, refs, olds = {}, {}, {}
+            for it in memo['items']:
+                for name, table in ((it['id'], exact), (it['path'], exact), (it['ref'], refs), *((a, olds) for a in it['aliases'])):
+                    if name is not None:
+                        table.setdefault(name, it)
+            memo['by_key'] = (exact, refs, olds)
+        exact, refs, olds = memo['by_key']
         k = str(key or '').strip()
-        for it in items:
-            if it['ref'] == k:
-                return it
-        for it in items:
-            if k in it['aliases']:
-                return it
+        try:
+            it = exact.get(key) or refs.get(k) or olds.get(k)  # its id or path as given; else its ref; else an old id
+        except TypeError:  # a key that is no string (a list from a request): no item has it
+            it = None
+        if it:
+            return self._resolved(it, memo)
         number = self.structure.number_of(k)
-        same = next((it for it in items if number and it['id'] == number), None)
+        same = next((it for it in memo['items'] if number and it['id'] == number), None)
         if same:
             raise StoreError(404, f"item not found: {k} ({number} is {same['ref']})")
         raise StoreError(404, f'item not found: {key}')
@@ -1144,10 +1277,13 @@ class Store:
         if item_type not in self.structure.types:
             raise StoreError(400, self._type_off(item_type))
         subject = (subject or '').strip()
-        if not subject:
-            raise StoreError(400, 'subject is required')
         given = dict(values or {})  # a Ticketing project is created from fields its card never edits (its key)
         values = self._valid(item_type, values)
+        # A link shared with no title of its own (Inbox → share) is kept with none: its link says what it is, and the
+        # lists draw that until it gets a subject. Only for a type with a link, in a structure that names a file by its
+        # ref (Projects).
+        if not subject and not (self.structure.codec and str(values.get('url') or '').strip()):
+            raise StoreError(400, 'subject is required')
         if 'sidebar' in self.structure.types[item_type].fields:
             # Written either way, never left out: a file without the key is a favourite (one from before the default
             # changed), and a structure with a codec writes only the keys it is given.

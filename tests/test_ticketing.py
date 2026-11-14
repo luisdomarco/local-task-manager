@@ -254,14 +254,14 @@ class RoundTripTest(TicketingBase):
             'Random/x.md': 'unexpected_folder',
             'Internal Tools/Support/HB-INI-009 Wrong.md': 'wrong_folder',
             'Internal Tools/Support/ECD-SUP-009 Other key.md': 'bad_id',
-            'Internal Tools/Support/HB-SUP-010.md': 'bad_name',
+            'Internal Tools/Support/HB-SUP-010Wrong.md': 'bad_name',  # `HB-SUP-010.md` alone is fine: no title
             'Tasks/TSK-1 Short.md': 'bad_id',
         }
         bodies = {
             'Random/x.md': '---\nfileClass: Ticket Note\n---\n',
             'Internal Tools/Support/HB-INI-009 Wrong.md': '---\nfileClass: Ticket Initiative\nid: "HB-INI-009"\n---\n',
             'Internal Tools/Support/ECD-SUP-009 Other key.md': '---\nfileClass: Ticket Support\nid: "ECD-SUP-009"\n---\n',
-            'Internal Tools/Support/HB-SUP-010.md': '---\nfileClass: Ticket Support\nid: "HB-SUP-010"\n---\n',
+            'Internal Tools/Support/HB-SUP-010Wrong.md': '---\nfileClass: Ticket Support\nid: "HB-SUP-010"\n---\n',
             'Tasks/TSK-1 Short.md': '---\nfileClass: Ticket Task\nid: "TSK-1"\n---\n',
         }
         for rel, kind in cases.items():
@@ -962,3 +962,22 @@ class PlanOrderTicketingTest(TicketingBase):
         fields = self.s.read(task['key'])['fields']
         self.assertEqual((fields['week_list'], fields['week_order'], fields['plan_month']), ('waiting', 10, '2026-11'))
         self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'week_list', 'week_order', 'plan_month'})
+
+class LinkWithoutSubjectTest(TicketingBase):
+    """A link shared with no title of its own goes to the Inbox with no subject: `INB-<n>.md`, its link in `url`."""
+
+    def test_an_inbox_link_with_no_subject(self):
+        it = self.s.create('inbox', '', {'url': 'https://x.com/a/status/1?s=46'})
+        self.assertTrue(it['path'].endswith(f"{it['ref']}.md"), it['path'])
+        self.assertEqual(it['fields']['subject'], '')
+        self.assertEqual(it['fields']['url'], 'https://x.com/a/status/1?s=46')
+        self.assertEqual(it['title'], 'https://x.com/a/status/1?s=46')  # what the lists draw meanwhile
+        self.assertTrue(self.s.check()['ok'])
+        named = self.s.update(it['key'], {'subject': 'A thread'})
+        self.assertTrue(named['path'].endswith(f"{it['ref']} A thread.md"), named['path'])
+
+    def test_no_subject_and_no_link_is_still_refused(self):
+        with self.assertRaises(StoreError):
+            self.s.create('inbox', '', {})
+        with self.assertRaises(StoreError):
+            self.s.create('task', '  ', {'url': '  '})

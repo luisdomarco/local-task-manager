@@ -79,3 +79,16 @@ describe('quick add parser', () => {
     assert.equal(p.values.list, 'todo');
   });
 });
+
+it('a link alone is named after its site, the link in its url (a share with no title of its own, a pasted address)', () => {
+  const p = parseQuick('https://x.com/someone/status/1857?s=46&t=AbC', { type: 'inbox' });
+  assert.equal(p.title, 'X');
+  assert.equal(p.values.url, 'https://x.com/someone/status/1857?s=46&t=AbC');
+  assert.equal(parseQuick('www.pepita.com/ofertas', { type: 'inbox' }).title, 'pepita');
+  assert.equal(parseQuick('https://pepita.com +read', { type: 'inbox' }).title, 'pepita'); // a token is no title either
+  // a link in the box's defaults (not typed) names nothing: no words, no title
+  assert.equal(parseQuick('', { type: 'inbox', values: { url: 'https://x.com/a' } }).title, '');
+  const titled = parseQuick('A thread on caching https://x.com/someone/status/1857', { type: 'inbox' });
+  assert.equal(titled.title, 'A thread on caching');
+  assert.equal(titled.values.url, 'https://x.com/someone/status/1857');
+});

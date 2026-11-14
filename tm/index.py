@@ -111,16 +111,30 @@ class VaultIndex:
         self._kept = None                   # rel -> [ino, mtime_ns, size, {name: value}], read from the cache file
         self._unsaved = False
         self._saved_at = 0.0
+        self._walked = []                   # [(abs folder, mtime_ns before it was listed)] of the last walk
+        self._top_mtime = None
+        self._reuse = None                  # the `keep` of the last walk, when partial: what a write's next read may reuse
+        self._items_at = (0.0, 0.0)         # clocks() of the last walk of the item folders (whole or partial)
+        self._stale = False                 # a partial walk came after the last whole one: the rest may be behind
+        self._kept_part = None              # (kept prefixes, {rel: Entry} under them): what partial walks take as it was
 
     # ── the walk ─────────────────────────────────────────────────────────────
-    def _walk(self):
-        out = {}
+    def _walk(self, keep=None):
+        """{rel: Entry} of the folder. `keep(rel)` True for a folder: it is listed, but what is in it is taken from the
+        last walk instead of walked again (a write reading its items: Docs/ and Attachments/ hold none)."""
+        out, kept = {}, []
+        try:  # the top's own mtime, taken before it is listed (_unchanged)
+            self._top_mtime = os.stat(self.root).st_mtime_ns
+        except OSError:
+            self._top_mtime = None
         for dirpath, dirnames, filenames in os.walk(self.root):
             shown = sorted(d for d in dirnames if d not in SKIP)
             sealed = {d for d in shown if d.casefold() in SEALED}
-            dirnames[:] = [d for d in shown if d not in sealed]
             rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, '/')
             prefix = '' if rel_dir == '.' else rel_dir + '/'
+            reused = {d for d in shown if d not in sealed and keep and keep(prefix + d)}
+            kept += [prefix + d + '/' for d in reused]
+            dirnames[:] = [d for d in shown if d not in sealed and d not in reused]
             for name, kind in [*((d, 'dir') for d in shown), *((f, 'file') for f in sorted(filenames))]:
                 try:
                     st = os.stat(os.path.join(dirpath, name))
@@ -128,16 +142,51 @@ class VaultIndex:
                     continue  # a broken symlink, or gone meanwhile
                 out[prefix + name] = Entry(kind, st.st_ino, st.st_mtime_ns, st.st_size, int(st.st_mtime),
                                            bool(getattr(st, 'st_flags', 0) & SF_DATALESS), kind == 'dir' and name in sealed)
+        # The folders walked, each with the mtime it had before it was listed: a file made, renamed or removed in one
+        # (every write here is atomic_write's temp file then a rename) changes it (_unchanged).
+        inside = tuple(kept)
+        self._walked = [(self.root, self._top_mtime)] + [
+            (os.path.join(self.root, rel), e.mtime_ns) for rel, e in out.items()
+            if e.kind == 'dir' and not e.sealed and not (rel + '/').startswith(inside)]
+        if kept:
+            # What is in the kept folders, as the last walk had it: picked out of thousands of entries once, then
+            # reused by every partial walk until a whole one replaces it.
+            cached = self._kept_part
+            if cached is None or cached[0] != inside:
+                cached = self._kept_part = (inside, {rel: e for rel, e in self._entries.items() if rel.startswith(inside)})
+            out.update(cached[1])
+        else:
+            self._kept_part = None
         return out
 
-    def refresh(self, by=None):
-        """Walk the folder again, and log what changed since the last walk (none on the first)."""
+    def _unchanged(self):
+        """Whether no folder of the last walk had a file made, renamed or removed since (one stat per folder, not one
+        per file). A file edited in place by another program does not show here: only trusted within one write."""
+        for path, mtime in self._walked:
+            try:
+                if mtime is None or os.stat(path).st_mtime_ns != mtime:
+                    return False
+            except OSError:
+                return False
+        return True
+
+    def refresh(self, by=None, keep=None):
+        """Walk the folder again, and log what changed since the last walk (none on the first). `keep`: the folders
+        not walked again (_walk); after such a partial walk the items are current but those folders may not be, so a
+        read of the whole folder walks it all again (_stale)."""
         with self._lock:
-            new = self._walk()
             old = self._entries
-            if old is not None:
+            keep = keep if old is not None else None  # nothing to take them from yet: the whole folder
+            new = self._walk(keep)
+            if old is not None and new == old:
+                # Nothing changed: the same walk, the same object — so what a Store worked out from it (its items, its
+                # resolver) still holds, and it can tell by identity alone (Store._items_memo).
+                new = old
+            elif old is not None:
                 for rel, e in new.items():
                     o = old.get(rel)
+                    if o is e:
+                        continue  # taken from the last walk (a kept folder's)
                     if o is None or (e.kind == 'file' and key_of(o) != key_of(e)):
                         self._note(rel, by)
                 for rel in old:
@@ -146,22 +195,41 @@ class VaultIndex:
                         self._said.pop(rel, None)
             if self._kept is None:
                 self._load_kept()
-            self._entries, self._at, self._dirty = new, clocks(), False
+            now = clocks()
+            self._entries, self._dirty, self._items_at = new, False, now
+            self._reuse = keep  # a partial walk may serve the write's next read (entries), while nothing changed
+            if keep:
+                self._stale = True
+            else:
+                self._at, self._stale = now, False
             return new
 
     def _note(self, rel, by):
         self._seq += 1
         self._log.append((self._seq, rel, by))
 
-    def entries(self, fresh=False, by=None, max_age=None):
+    def entries(self, fresh=False, by=None, max_age=None, keep=None):
         """{rel: Entry} of the whole vault. A walk now, unless the index is watched and its last walk is younger than
-        `max_age` (the index's own when None) and no write came since; `fresh` always walks (a write in progress)."""
+        `max_age` (the index's own when None) and no write came since; `fresh` always walks (a write in progress).
+        `keep`: what is read is only outside the folders that predicate keeps (the items: Store._no_items), so a walk of
+        the rest is enough and is what is trusted — a read of the whole folder trusts only a whole walk."""
         with self._lock:
+            if fresh and keep:
+                # Within one write, its item reads (five for a create) share one walk until a folder of it changed.
+                if self._reuse is not None and self._reuse == keep and self._entries is not None and self._unchanged():
+                    return self._entries
+                return self.refresh(by, keep)
             now = clocks()
             if (not fresh and self._entries is not None and not self._dirty and within(self._watched[0], now, self._watched[1])
-                    and within(self._at, now, self.max_age if max_age is None else max_age)):
+                    and (keep or not self._stale)
+                    and within(self._items_at if keep else self._at, now, self.max_age if max_age is None else max_age)):
                 return self._entries
-            return self.refresh(by)
+            return self.refresh(by, keep)
+
+    def whole_walk_due(self, every):
+        """Whether the last walk of the whole folder is older than `every` s (the poll, server.py vault_changes: it
+        walks the item folders on every ask, and everything only this often)."""
+        return self._entries is None or not within(self._at, clocks(), every)
 
     def entry(self, rel):
         return (self._entries or {}).get(rel)
@@ -175,16 +243,25 @@ class VaultIndex:
         """A page polls: trust a walk for max_age, for the next `seconds`."""
         self._watched = (clocks(), seconds)
 
-    def before_write(self):
-        """A Store write starts: what changed before it is somebody else's (only worth a walk when a page polls)."""
+    def before_write(self, keep=None):
+        """A Store write starts: what changed before it is somebody else's (only worth a walk when a page polls).
+        `keep` (the folders a write's reads never need, Store._no_items): walked by the next poll instead, which logs
+        what changed there as nobody's — a change made outside the app, or by this write in a Docs folder (the page
+        then reloads once more than it needed)."""
+        self._reuse = None  # a walk from before this write is never reused by it
         if self.watched:
-            self.refresh()
+            self.refresh(keep=keep)
 
-    def after_write(self, by=None):
-        """A Store write ended: what it changed is `by`'s; the next read walks again."""
+    def after_write(self, by=None, keep=None):
+        """A Store write ended: what it changed is `by`'s; the next read walks again (`keep`: before_write). A write
+        that read its items after its last change (an update reads its item back) walked them then, as `by`: unless a
+        folder changed since, that walk is the one after the write."""
         if self.watched:
-            self.refresh(by)
+            if not (keep and self._reuse == keep and self._entries is not None and self._unchanged()):
+                self.refresh(by, keep=keep)
+            self._reuse = None
         else:
+            self._reuse = None
             self._dirty = True
 
     def changes(self, since=None, epoch=None, exclude=None):
@@ -321,7 +398,7 @@ class VaultIndex:
     def forget(self):
         """Drop everything: the walk, what files say and the kept file (Reload from disk)."""
         with self._lock:
-            self._entries, self._said, self._kept, self._unsaved = None, {}, {}, False
+            self._entries, self._said, self._kept, self._unsaved, self._kept_part = None, {}, {}, False, None
             try:
                 os.remove(self.cache_file)
             except OSError:

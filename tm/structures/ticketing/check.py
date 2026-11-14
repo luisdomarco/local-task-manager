@@ -51,7 +51,9 @@ def _check_docs(dirpath, rel_dir, filenames, load, warnings):
                                      f'A {t} inside a Docs folder: the app does not see it there. Move it to its own folder.'))
 
 
-def check(root, load=None):
+def check(root, load=None, docs=True):
+    """`docs` False: the Docs folders are not read (what is in them only ever gives warnings): the check every write runs
+    needs only what blocks, and on a vault with thousands of documents reading them all was most of a write's time."""
     load = load or _read_fields
     blocking, warnings, missing = [], [], []
     if not os.path.isdir(root):
@@ -120,7 +122,10 @@ def check(root, load=None):
             continue
         top = rel_dir.split('/')[0]
         if rel_dir.split('/')[:1] == [DOCS_FOLDER] or (top in projects and rel_dir.split('/')[1:2] == [DOCS_FOLDER]):
-            _check_docs(dirpath, rel_dir, filenames, load, warnings)
+            if docs:
+                _check_docs(dirpath, rel_dir, filenames, load, warnings)
+            else:
+                dirnames[:] = []  # nor its subfolders
             continue
         for name in sorted(filenames):
             rel = f'{rel_dir}/{name}'
@@ -183,6 +188,6 @@ def check(root, load=None):
             else:
                 seen_ids[item_id] = rel
                 named = f"{spec['code']}-{item_id}" if short else item_id
-                if not re.match(re.escape(named) + r' .+\.md$', name):
+                if not re.match(re.escape(named) + r'( .+)?\.md$', name):  # `INB-87.md`: one with no title (a shared link)
                     blocking.append(_finding('bad_name', rel, f'Its file must be named "{named} <Title>.md".'))
     return _result(blocking, warnings, missing)

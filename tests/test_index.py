@@ -16,7 +16,7 @@ from urllib.request import Request, urlopen
 import server
 from tm import index as tm_index
 from tm.index import ACTOR, VaultIndex, fold
-from tm.store import Store
+from tm.store import Store, StoreError
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(APP_DIR, 'tools'))
@@ -274,9 +274,15 @@ class RoutesTest(unittest.TestCase):
         code, made = self.request('/api/item/create', {'type': 'task', 'subject': 'From this tab'}, tab='t1')
         self.assertEqual(code, 200, made)
         q = f"/api/vault/changes?tab=t1&since={first['seq']}&epoch={first['epoch']}"
-        paths = self.request(q)[1]['paths']
+        # Most asks walk only the item folders: a document reaches the page with the next whole walk — at once while
+        # it shows files (`files=1`), else within POLL_WHOLE s
+        self.assertNotIn('Docs/Outside.md', self.request(q)[1]['paths'])
+        paths = self.request(q + '&files=1')[1]['paths']
         self.assertIn('Docs/Outside.md', paths)
         self.assertFalse(any(p.startswith('Tasks/') for p in paths), paths)
+        write(self.root, 'Docs/Later.md', '# Later\n')
+        with mock.patch.object(server, 'POLL_WHOLE', 0.0), mock.patch.object(server, 'POLL_FRESH', 0.0):
+            self.assertIn('Docs/Later.md', self.request(q)[1]['paths'])
         other = self.request(q.replace('tab=t1', 'tab=t2'))[1]['paths']
         self.assertTrue(any(p.startswith('Tasks/') for p in other), other)
 
@@ -306,3 +312,187 @@ class RoutesTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WriteWalkTest(IndexBase):
+    """A write reads its items several times: it walks again only where items may be, never Docs/ or Attachments/
+    (a vault may hold thousands of documents and pictures), and what it reads is still fresh."""
+
+    def test_a_write_walks_only_item_folders_and_sees_what_it_wrote(self):
+        self.s.items()  # a first, whole walk
+        walked = []
+        real_walk = os.walk
+
+        def spy(top, *a, **k):
+            for dirpath, dirnames, filenames in real_walk(top, *a, **k):
+                walked.append(os.path.relpath(dirpath, self.root).replace(os.sep, '/'))
+                yield dirpath, dirnames, filenames
+        with mock.patch.object(tm_index.os, 'walk', spy):
+            it = self.s.create('inbox', 'Fresh one', {})
+        self.assertTrue(walked)
+        self.assertFalse([d for d in walked if d == 'Docs' or d.startswith('Docs/') or d.startswith('Attachments')])
+        self.assertIn(it['key'], {i['key'] for i in self.s.items()})
+        # what a partial walk took from the last one is still listed, and the next read walks it all again
+        self.assertIn('Docs/Guides/Beta.md', self.s.index.entries())
+        write(self.root, 'Docs/Guides/Delta.md', '# Delta\n')
+        self.assertIn('Docs/Guides/Delta.md', self.s.index.entries())
+
+    def test_the_write_check_skips_docs_but_says_the_same_ok(self):
+        write(self.root, 'Docs/Guides/Story inside.md', '---\nfileClass: Ticket Story\nid: 900\n---\n')
+        full, quick = self.s.check(), self.s.check(docs=False)
+        self.assertEqual(full['ok'], quick['ok'])
+        self.assertTrue([w for w in full['warnings'] if w['kind'] == 'item_in_docs'])
+        self.assertFalse([w for w in quick['warnings'] if w['kind'] == 'item_in_docs'])
+
+
+ACT = 'Activities/ACT-24 Re empty invoice.md'
+
+
+def rewrite_in_place(root, rel, old, new):
+    """Edit a file the way an editor that saves in place does: same inode, its folder's mtime untouched."""
+    path = os.path.join(root, rel)
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    assert old in text, old
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(text.replace(old, new, 1))
+
+
+class ItemsMemoTest(IndexBase):
+    """The items of a walk are read once (Store._items_memo): the index hands out the same walk object while nothing in
+    the item folders changed, and a Store works out its items, resolver and lookups once per walk object."""
+
+    def test_a_walk_is_the_same_object_until_something_in_it_changes(self):
+        idx, keep = self.s.index, self.s._no_items
+        first = idx.refresh(keep=keep)
+        self.assertIs(idx.refresh(keep=keep), first)
+        rewrite_in_place(self.root, ACT, 'priority: P2', 'priority: P1')
+        self.assertIsNot(idx.refresh(keep=keep), first)
+
+    def test_an_item_edited_in_place_shows_on_the_next_read(self):
+        self.assertEqual(self.s.find('ACT-24')['fields']['priority'], 'P2')
+        rewrite_in_place(self.root, ACT, 'priority: P2', 'priority: P0')
+        self.assertEqual(self.s.find('ACT-24')['fields']['priority'], 'P0')
+        self.assertEqual(next(i for i in self.s.items() if i['ref'] == 'ACT-24')['fields']['priority'], 'P0')
+
+    def test_what_a_read_hands_out_is_the_callers_own(self):
+        it = self.s.find('ACT-24')
+        it['fields']['priority'] = 'changed'
+        it['aliases'].append('ZZZ-1')
+        listed = next(i for i in self.s.items() if i['ref'] == 'ACT-24')
+        listed['fields'].pop('subject')
+        again = self.s.find('ACT-24')
+        self.assertEqual(again['fields']['priority'], 'P2')
+        self.assertEqual(again['fields']['subject'], 'Re empty invoice')
+        self.assertNotIn('ZZZ-1', again['aliases'])
+        self.assertIsNone(again['fields'].get('_links'))  # resolved: the codec's working keys are gone
+
+    def test_find_answers_as_it_always_did(self):
+        by_ref = self.s.find('ACT-24')
+        self.assertEqual(self.s.find(by_ref['id'])['path'], ACT)
+        self.assertEqual(self.s.find(ACT)['ref'], 'ACT-24')
+        self.assertEqual(self.s.find('  ACT-24 ')['path'], ACT)  # a ref is matched without spaces around
+        self.assertEqual(by_ref['fields']['related_to'], self.s.find('SUP-2')['key'])  # its links resolved
+        for key in (None, '', ' 24 ', ['ACT-24'], 'NOPE-24'):
+            with self.assertRaises(StoreError) as e:
+                self.s.find(key)
+            self.assertEqual(e.exception.status, 404, key)
+        with self.assertRaises(StoreError) as e:
+            self.s.find('TSK-24')  # its number, another type's prefix: the 404 names the right one
+        self.assertIn('ACT-24', str(e.exception))
+
+    def test_a_write_decodes_only_the_file_it_changed(self):
+        self.s.index.watch(60)
+        key = self.s.find('ACT-24')['key']
+        self.s.items()
+        with mock.patch.object(self.s, '_decoded', wraps=self.s._decoded) as decoded:
+            out = self.s.update(key, {'priority': 'P1'})
+        self.assertEqual(out['fields']['priority'], 'P1')
+        self.assertEqual({c.args[0] for c in decoded.call_args_list}, {ACT})
+
+    def test_a_write_still_refuses_a_vault_broken_outside_a_moment_before(self):
+        for watched in (True, False):
+            with self.subTest(watched=watched):
+                root = os.path.realpath(copy_sample(SAMPLE_VAULT, os.path.join(self.tmp, f'strict-{watched}')))
+                s = Store(root, structure='ticketing', enforce_structure=True)
+                if watched:
+                    s.index.watch(60)
+                key = s.find('ACT-24')['key']
+                s.update(key, {'priority': 'P1'})  # matches: written, and its walk is the one a next write may trust
+                rewrite_in_place(root, ACT, 'id: 24 ', 'id: x24 ')  # in place: no folder's mtime changes
+                with self.assertRaises(StoreError) as e:
+                    s.update('ACT-75', {'priority': 'P1'})
+                self.assertEqual(e.exception.status, 409)
+
+
+class OneWalkPerWriteTest(IndexBase):
+    """A write's reads of its items share one walk of the item folders while none of them changed (a file made,
+    renamed or removed changes its folder's mtime: every write is atomic_write's temp file then a rename), and a page's
+    poll still hears what changed outside the item folders meanwhile, as nobody's."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, ACTOR, 'tab', None)
+        self.s.index.watch(60)
+        self.s.index.entries()
+        self.start = self.s.index.changes()
+
+    def count_walks(self, fn):
+        walks = []
+        real_walk = os.walk
+
+        def spy(top, *a, **k):
+            walks.append(top)
+            return real_walk(top, *a, **k)
+        with mock.patch.object(tm_index.os, 'walk', spy):
+            out = fn()
+        return out, len(walks)
+
+    def test_a_create_walks_a_few_times_not_once_per_read(self):
+        ACTOR.tab = 'tab-a'
+        it, walks = self.count_walks(lambda: self.s.create('task', 'One walk please'))
+        # before the write, and its reads after its file is written, which are the walk after it too: never one per
+        # read (a create reads five times)
+        self.assertLessEqual(walks, 2)
+        self.assertIn(it['key'], {i['key'] for i in self.s.items()})
+        self.assertIn(it['path'], self.s.index.changes(self.start['seq'], self.start['epoch'])['paths'])
+        self.assertNotIn(it['path'], self.s.index.changes(self.start['seq'], self.start['epoch'], 'tab-a')['paths'])
+
+    def test_an_update_walks_twice_and_its_change_is_its_writers(self):
+        ACTOR.tab = 'tab-a'
+        out, walks = self.count_walks(lambda: self.s.update('ACT-24', {'priority': 'P1'}))
+        self.assertLessEqual(walks, 2)  # before it, and when it reads its item back (then nothing changed: no third)
+        self.assertEqual(self.s.find('ACT-24')['fields']['priority'], 'P1')
+        self.assertIn(ACT, self.s.index.changes(self.start['seq'], self.start['epoch'])['paths'])
+        self.assertNotIn(ACT, self.s.index.changes(self.start['seq'], self.start['epoch'], 'tab-a')['paths'])
+
+    def test_a_docs_change_during_a_write_reaches_the_next_poll_as_nobodys(self):
+        ACTOR.tab = 'tab-a'
+        real = self.s._create_coded
+
+        def meanwhile(*a, **k):  # another program writes a document while the write runs
+            write(self.root, 'Docs/Guides/Meanwhile.md', '# Meanwhile\n')
+            return real(*a, **k)
+        with mock.patch.object(self.s, '_create_coded', meanwhile):
+            self.s.create('task', 'While a doc is written')
+        self.s.index.entries(max_age=0)  # the poll's walk
+        mine_left_out = self.s.index.changes(self.start['seq'], self.start['epoch'], 'tab-a')['paths']
+        self.assertIn('Docs/Guides/Meanwhile.md', mine_left_out)
+
+    def test_a_reused_walk_still_sees_a_file_the_write_made(self):
+        def two_creates():
+            first = self.s.create('task', 'First of two')
+            second = self.s.create('task', 'Second of two')
+            return first, second
+        first, second = two_creates()
+        self.assertNotEqual(first['id'], second['id'])
+        keys = {i['key'] for i in self.s.items()}
+        self.assertIn(first['key'], keys)
+        self.assertIn(second['key'], keys)
+
+    def test_a_read_of_items_trusts_a_partial_walk_and_a_read_of_files_does_not(self):
+        self.s.index.entries(max_age=0, keep=self.s._no_items)  # the poll's ask: the item folders only
+        write(self.root, 'Docs/Guides/Unseen.md', '# Unseen\n')
+        _, walks = self.count_walks(self.s.items)
+        self.assertEqual(walks, 0)  # within max_age of the item folders' walk: trusted
+        self.assertIn('Docs/Guides/Unseen.md', {e['path'] for e in self.s.files()['entries']})  # a whole walk

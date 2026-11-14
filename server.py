@@ -2103,12 +2103,16 @@ def exports_listing():
     return {'exports': export.list_exports(src), 'from': src, 'installed': src != APP_DIR or bool(why), 'limited': why}
 
 
-def vault_status(store, vault_id):
+def vault_status(store, vault_id, warnings=False):
     """The vault the page shows, and whether its folder matches its structure (when not, the page shows only that,
-    and which other structures the folder does match, if any: a vault given the wrong structure)."""
-    check = store.check()
-    if check['ok']:  # and the files nobody lists: a warning of its own, too slow for the check every write runs
+    and which other structures the folder does match, if any: a vault given the wrong structure). `warnings` (only
+    Settings → Vaults shows them): every warning too — what the Docs folders hold and the files nobody lists — which on
+    a vault of thousands of documents and pictures takes half a second; without it the answer's `ok` and `blocking` are
+    the same, and `warnings` says only what the quick check saw (`warnings_partial`)."""
+    check = store.check(docs=warnings)
+    if check['ok'] and warnings:  # and the files nobody lists: a warning of its own, too slow for every load
         check = {**check, 'warnings': check['warnings'] + store.unlisted_attachments()}
+    check = {**check, 'warnings_partial': not warnings}
     vault = APP.public_vault(vault_id)
     matches = [] if check['ok'] else [
         {'id': s, 'label': REGISTRY[s].label} for s in structures_matching(store.root, vault['structure'], store.folders) if s != vault['structure']]
@@ -2158,6 +2162,7 @@ AGENTS_REFRESH = AgentsRefresh()
 # in memory (no socket), so an event stream would never flow there.
 POLL_WATCH = 15.0
 POLL_FRESH = 1.0
+POLL_WHOLE = 10.0  # s between two walks of the whole folder by the poll (vault_changes)
 
 
 def vault_changes(store, q):
@@ -2165,7 +2170,10 @@ def vault_changes(store, q):
     its own tab wrote (`tab`). The first ask (no `since`) only learns where to start."""
     index = store.index
     index.watch(POLL_WATCH)
-    index.entries(max_age=POLL_FRESH)
+    # The item folders on every ask; the whole folder (Docs, Attachments: thousands of files in a big vault, and on an
+    # iPhone every walk costs battery) every POLL_WHOLE s, or when the page shows files (`files=1`: the Explorer, Docs).
+    whole = q.get('files') == '1' or index.whole_walk_due(POLL_WHOLE)
+    index.entries(max_age=POLL_FRESH, keep=None if whole else store._no_items)
     since = str(q.get('since') or '')
     out = index.changes(int(since) if since.isdigit() else None, q.get('epoch') or None, q.get('tab') or None)
     index.save()  # what files say, kept for the next run (at most every few seconds)
@@ -2175,7 +2183,7 @@ def vault_changes(store, q):
 ROUTES = {
     ('GET', '/api/config'): lambda s, q, b: APP.public_config(),
     ('POST', '/api/config'): lambda s, q, b: (APP.set_config(b), APP.public_config())[1],
-    ('GET', '/api/vault/status'): lambda s, q, b: vault_status(s, s.vault_id),
+    ('GET', '/api/vault/status'): lambda s, q, b: vault_status(s, s.vault_id, warnings=q.get('warnings') == '1'),
     # The vault's structure: its types, statuses, priorities, lists… what the page builds itself from.
     ('GET', '/api/structure'): lambda s, q, b: s.structure.public(),
     # Each type's statuses in the three groups, with their colours (Settings → Item type status, TSK-037).

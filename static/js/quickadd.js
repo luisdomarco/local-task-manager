@@ -2,7 +2,8 @@
 //   /note /meeting /initiative   type (default: task)
 //   #INI-0003                    related_to
 //   !1 … !4 | !urgent !high !normal !low   priority, by rank: Urgent…Low (Initiatives), P0…P3 (Projects)
-//   https://… | www.…            main url (a second one goes to links)
+//   https://… | www.…            main url (a second one goes to links); with no other words, the title is its
+//                                site's name (X, pepita), for you to write over
 //   @today @week @nextweek @month @mon…@sun   plan (a weekday: its next date)
 //   due:2026-10-20 | due:today | due:tomorrow | due:fri
 //   +label                       label
@@ -15,6 +16,7 @@ import { h, icon, keyboardShy, labelChip, openDialog, priorityChip } from './ui.
 import { withMic } from './dictation.js';
 import { isPhone, isTouch } from './phone.js';
 import { refOf } from './shownid.js';
+import { siteName } from './sitename.js';
 
 // '/task' → 'task': each type of the vault's structure brings its own tokens (none for a type that has none).
 let TYPE_TOKENS = {};
@@ -54,6 +56,8 @@ export function parseQuick(text, defaults = {}) {
     else words.push(w);
   }
   out.title = words.join(' ');
+  // A link alone (a share with no title of its own, a pasted address): named after its site, the link in its url.
+  if (!out.title && out.values.url) out.title = siteName(out.values.url);
   out.values = { ...defaults.values, ...out.values };
   if (!PLANNABLE.has(out.type)) {
     for (const k of ['plan_day', 'plan_week', 'plan_month', 'priority', 'due', 'status', 'list']) delete out.values[k];
@@ -118,7 +122,7 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
   const submit = async () => {
     const text = input.value.trim() || (waiting.length ? waiting[0].name.replace(/\.[^.]+$/, '') : '');
     const p = parseQuick(text, defaults);
-    if (!p.title) return;
+    if (!p.title && !p.values.url) return; // a link alone has its site's name (parseQuick); one with none, no subject
     if (p.errors.length) return toast(p.errors[0], true);
     let item;
     try { item = await createItem(p.type, p.title, p.values); } catch { return; } // already toasted

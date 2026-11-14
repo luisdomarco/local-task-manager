@@ -73,7 +73,13 @@ export function reloadStructure() {
 // started on coming back to the page, answered from before the Mac slept, would otherwise overwrite what the poll had
 // just brought in, and the poll would not report those files again. A reload asked for while one runs runs after it.
 const loadOnce = serial(loadAll);
-export function reload() {
+// Whether the next load asks for the vault's status too (GET /api/vault/status: its check, its warnings, its guide).
+// On a vault with thousands of files that answer alone takes half a second, so a load after this page's own write
+// leaves it out: a write is refused on a vault that does not match (409), and what it changes is never a warning
+// worth the wait. The first load, an outside change (the poll), a refused write and any other reload ask for it.
+let statusDue = true;
+export function reload({ status = true } = {}) {
+  if (status) statusDue = true;
   return loadOnce();
 }
 
@@ -92,12 +98,15 @@ async function loadAll() {
       setStructure(await api.structure());
       structureLoaded = true;
     }
-    const status = await api.vaultStatus();
-    state.vault = status.vault;
-    state.vaultCheck = status.check;
-    state.vaultAgents = status.agents || null; // its guide for agents (AGENTS.md, tm/agentsmd.py): {on, file, claude}
-    state.vaultMatches = status.matches || []; // other structures its folder does have the shape of (a vault given the wrong one)
-    if (!status.check.ok) {
+    if (statusDue || !state.vaultCheck) {
+      statusDue = false;
+      const status = await api.vaultStatus();
+      state.vault = status.vault;
+      state.vaultCheck = status.check;
+      state.vaultAgents = status.agents || null; // its guide for agents (AGENTS.md, tm/agentsmd.py): {on, file, claude}
+      state.vaultMatches = status.matches || []; // other structures its folder does have the shape of (a vault given the wrong one)
+    }
+    if (!state.vaultCheck.ok) {
       forgetVaultData();
       state.error = null;
       notify();
@@ -138,7 +147,7 @@ async function loadAll() {
 async function mutate(fn) {
   try {
     const out = await fn();
-    await reload();
+    await reload({ status: false });
     return out;
   } catch (e) {
     toast(e.message, true);
@@ -206,7 +215,7 @@ export const updateItem = (key, values, body, baseBodyRev) => mutate(() => api.u
 export async function saveBody(key, body, baseBodyRev) {
   try {
     const out = await api.update(key, {}, body, baseBodyRev);
-    reload();
+    reload({ status: false });
     return out;
   } catch (e) {
     toast(e.message, true);

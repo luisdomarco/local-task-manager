@@ -145,7 +145,8 @@ class TicketingCodec:
         title = _title_of(t, item_id)
         if title == 'id':
             named = ref(t, item_id)
-            subject = stem[len(named) + 1:] if named and stem.startswith(named + ' ') else stem
+            # `INB-87.md`: no title (a shared link with none: Store.create)
+            subject = stem[len(named) + 1:] if named and stem.startswith(named + ' ') else '' if named and stem == named else stem
         elif title == 'date':
             m = DATE_PREFIX_RE.match(stem)
             subject = str(raw.get('title') or '').strip() or (m.group(2) if m else stem)
@@ -298,6 +299,8 @@ class TicketingCodec:
             return f'{stamp[:10]} {safe_title(subject)}.md'
         if title == 'note':
             return f'00 {safe_title(subject)}.md'
+        if not str(subject or '').strip():  # no title (a link shared with none): the ref alone, `INB-87.md`
+            return f'{ref(t, item_id)}.md'
         return f'{ref(t, item_id)} {safe_title(subject)}.md'
 
     def folder_of(self, t, project, r, subject=None):
@@ -356,7 +359,7 @@ class TicketingCodec:
         if SPEC[t]['under_parent'] and parent_ref:  # an entity, in its architecture's folder (`Agents/AGT-3/`)
             folder = f'{folder}/{parent_ref}'
         variables = {'id': item_id or '', 'ref': ref(t, item_id), 'key': project or '', 'project': p['name'] if p else '', 'title': subject,
-                     'date': stamp[:10], 'slug': slugify(subject),
+                     'date': stamp[:10], 'slug': slugify(subject) if str(subject or '').strip() else '',
                      # what it hangs from (a plan's text names the initiative or story it executes)
                      'item_ref': parent_ref or '', 'item_title': parent['title'] if parent else ''}
         if t == 'project':  # its note's title is its own name (there is no project yet to take it from)

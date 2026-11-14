@@ -49,14 +49,16 @@ export const api = {
   // The vault this page shows and whether its folder matches its structure; the fix the app may offer.
   vaultStatus: () => get('/api/vault/status'),
   // What changed in the vault since `since` (of the server's `epoch`), but this tab's own writes (vaultwatch.js)
-  vaultChanges: (since, epoch) => get(`/api/vault/changes?tab=${TAB}${since === null ? '' : `&since=${since}&epoch=${encodeURIComponent(epoch)}`}`),
+  // `files`: the page shows files (the Explorer, Docs): walk the whole folder now, not only the item folders
+  vaultChanges: (since, epoch, files = false) => get(`/api/vault/changes?tab=${TAB}${files ? '&files=1' : ''}${since === null ? '' : `&since=${since}&epoch=${encodeURIComponent(epoch)}`}`),
   reloadVault: (vault = null) => call('POST', '/api/vault/reload', {}, null, vault), // Reload from disk
   createVaultFolders: () => post('/api/vault/create-folders'),
   vaultAgents: (on, vault = null) => call('POST', '/api/vault/agents', { on }, null, vault),
   // What a vault keeps about itself, in its own folder (tm/vaultsettings.py): its item types turned off.
   vaultSettings: (vault = null) => call('GET', '/api/vault/settings', null, null, vault),
   saveVaultSettings: (changes, vault = null) => call('POST', '/api/vault/settings', changes, null, vault),
-  vaultStatusOf: (vault) => call('GET', '/api/vault/status', null, null, vault),
+  // Settings → Vaults shows its warnings: the slow answer, with every one (GET /api/vault/status without it is quick)
+  vaultStatusOf: (vault) => call('GET', '/api/vault/status?warnings=1', null, null, vault),
   // The body each type starts with in a vault (Projects; `editable` false elsewhere): { texts, editable, placeholders }
   defaultTexts: (vault = null) => call('GET', '/api/vault/default-texts', null, null, vault),
   setDefaultText: (type, text, vault = null, kind = '') => call('POST', '/api/vault/default-text', { type, text, ...(kind ? { kind } : {}) }, null, vault),
