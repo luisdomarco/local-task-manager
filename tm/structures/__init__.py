@@ -65,7 +65,8 @@ class TypeDef:
     # `tab` says where the item shows one: 'main' (the properties, the default), or a tab of the side panel:
     # 'delivery' (how it is carried out: branch, executor…), 'details' (settings to read), 'settings' (a project's, a
     # section that folds on its page, above its area and objective), 'relations' (every
-    # link and links prop goes there unless it says otherwise).
+    # link and links prop goes there unless it says otherwise). `slot`: 'lead' draws a 'main' one first in the properties,
+    # a block of its own (an initiative's Kind); 'priority' in priority's place (a support ticket's level and why).
     props: tuple = ()
     page: bool = False        # opens as a page of its own (#/<name>/<id>) instead of a card over its list
     children: tuple = ()      # on its page, a table of each of these types hanging from it, in this order

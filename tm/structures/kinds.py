@@ -78,6 +78,17 @@ def initiative_kind_of(fields, project_fields=None):
     return kind_of((project_fields or {}).get(LEGACY_KIND_KEY))
 
 
+def text_kinds(type_name):
+    """The kinds a type's default text may have a text of its own for (Settings → Vaults → Default texts), in KINDS'
+    order: an initiative, every kind; a story, a PRD, a plan, the delivering ones (none hangs from a simple one); any
+    other type, none (its text is the same whatever initiative it is in)."""
+    if type_name == 'initiative':
+        return list(KINDS)
+    if type_name in INITIATIVE_DELIVERY_TYPES:
+        return [k for k, v in KINDS.items() if v.delivers]
+    return []
+
+
 def widens(old, new):
     """Whether an initiative of kind `old` may become `new` (the same kind always may)."""
     return old == new or new in WIDENS.get(old, ())

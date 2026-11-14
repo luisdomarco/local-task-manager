@@ -48,6 +48,7 @@ function valueFace(field, v) {
  *   view, save()               the page's view (viewmodel.js) and how it keeps it (prefs.js)
  *   fields(), ctx(), items()   the fields it filters by, what they need from the vault, and the items they count over
  *   groups                     the keys it can group by (viewmodel.js groupOptions); none: no Group button
+ *   boardGroupKeys             keys only a board groups by, after `groups` (Custom: columns of your own; the Week's Days)
  *   groupLabel(key)            a group key's name, when the page's keys are not viewmodel.js's (Work log's Day, Kind…)
  *   closable                   whether its items close (Display → Show closed)
  *   emptyGroups                false: no Group → Show empty groups (Work log, whose groups are what it holds)
@@ -59,7 +60,7 @@ function valueFace(field, v) {
  *   saveAs(name)               keeps the view under a name (savedviews.js): "Save as view" by the chips and in Display
  *   placeholder, onText(text)  the search
  *   layout                     { current() → 'list' | 'board', pick(l), options?, isBoard? }: the List | Board switch
- *                              (`options` [[key, label, icon]] for others: Calendar | Board, List | Board | Free board;
+ *                              (`options` [[key, label, icon]] for others: Calendar | Board;
  *                              `isBoard()` when a layout other than 'board' is a board too); none: no switch
  *   columnOrder                { on(), custom(), reset() }: a board whose columns move (views/list.js) — Group then says
  *                              how, or (once moved, for this grouping) offers Reset column order; none: neither
@@ -203,16 +204,25 @@ export function viewBar(opts) {
   orderBtn?.addEventListener('click', () => popover(orderBtn, renderOrder, { width: 240, align: 'end' }));
 
   // ── Group ──
-  const groupBtn = groups.length ? h('button', { type: 'button', class: 'btn ghost small vb-btn', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }) : null;
+  const onBoard = opts.boardGroupKeys || [];
+  const groupKeys = () => (isBoard() ? [...groups, ...onBoard] : [null, ...groups]); // a board's columns are its groups: never None
+  const groupBtn = groups.length || onBoard.length ? h('button', { type: 'button', class: 'btn ghost small vb-btn', 'aria-haspopup': 'dialog', 'aria-expanded': 'false' }) : null;
   // What to group by, then (grouped) the order inside each group and whether a group with no item shows. It stays open
   // across picks: the three are set together.
   function renderGroup(el) {
     const toggle = (on, onChange, aria) => h('button', {
       type: 'button', class: `vb-switch ${on ? 'on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': aria, onclick: () => onChange(!on),
     }, h('span', {}));
+    // Which way the groups go (↑ as the grouping orders them, ↓ reversed): for the keys a list groups by, not a board's
+    // own columns (Custom, the Week's days), whose order is the user's or the calendar's.
+    const directed = view.groupBy && groups.includes(view.groupBy);
     el.replaceChildren(...[
-      h('div', { class: 'menu-label' }, 'Group by'),
-      ...(isBoard() ? groups : [null, ...groups]).map((g) => h('button', { // a board's columns are its groups: never None
+      directed
+        ? h('div', { class: 'vb-pop-head' }, h('strong', {}, 'Group by'), h('span', { class: 'spacer' }),
+          seg([[1, null, { ico: 'up', tip: 'Ascending' }], [-1, null, { ico: 'down', tip: 'Descending' }]], view.groupDesc ? -1 : 1,
+            (d) => change({ groupDesc: d < 0 }), { aria: 'Group direction', cls: 'vb-op' }))
+        : h('div', { class: 'menu-label' }, 'Group by'),
+      ...groupKeys().map((g) => h('button', {
         type: 'button', class: `menu-item ${view.groupBy === g ? 'current' : ''}`, 'aria-pressed': String(view.groupBy === g),
         onclick: () => change({ groupBy: g, folded: [] }),
       }, h('span', {}, labelOf(g)), view.groupBy === g ? icon('check', 14) : null)),
@@ -272,7 +282,7 @@ export function viewBar(opts) {
     if (orderBtn) orderBtn.replaceChildren(...[h('span', { class: 'muted' }, 'Order:'), orderLabel(), unordered() ? null : icon((opts.dir?.() ?? 1) > 0 ? 'up' : 'down', 12)].filter(Boolean));
     if (groupBtn) {
       groupBtn.replaceChildren(h('span', { class: 'muted' }, 'Group:'), labelOf(view.groupBy), icon('down', 12));
-      groupBtn.hidden = opts.boardGroups === false && isBoard();
+      groupBtn.hidden = isBoard() ? opts.boardGroups === false : !groups.length;
     }
   }
   update();

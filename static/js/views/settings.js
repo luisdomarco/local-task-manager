@@ -1,4 +1,5 @@
-// Settings, in tabs (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show, as a table; each
+// Settings, its sections in a column of their own on the left grouped by theme (settingsnav.js NAV_GROUPS; on a phone a list that
+// opens each), one shown at a time (#/settings/<tab>, the last one remembered): Vaults (the folders this app can show, as a table; each
 // one added or edited in its own dialog, views/vaults.js), Statuses (each type's statuses in the three groups,
 // views/statuses.js), Themes (how the app looks in this browser, views/themes.js), General (work kinds), Claude,
 // Agents, Maintenance, Keyboard (views/keyboard.js), Export (the system, the agents or a vault, as zips), Desktop app
@@ -14,7 +15,8 @@ import { pref, setPref } from '../prefs.js';
 import { saveConfig, state, assignIds, toast } from '../state.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
 import { keyboardPanel } from './keyboard.js';
-import { countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select, tabPanels } from '../ui.js';
+import { groupSections } from '../settingsnav.js';
+import { countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select } from '../ui.js';
 import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
@@ -28,6 +30,63 @@ const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Th
 // a touch screen (phone.js) leaves it out.
 const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server' };
 const tabs = () => ALL_TABS.filter(([key]) => (!TAB_FEATURE[key] || has(TAB_FEATURE[key])) && !(key === 'keyboard' && isTouch()));
+const NAV_ICONS = { vaults: 'folder', statuses: 'checklist', general: 'sliders', maintenance: 'lifebuoy', themes: 'sun', keyboard: 'text',
+  claude: 'terminal', agents: 'bot', app: 'monitor', export: 'download', documentation: 'book' };
+const PHONE_NAV = '(max-width: 760px)';
+const onPhone = () => typeof matchMedia === 'function' && matchMedia(PHONE_NAV).matches;
+
+/**
+ * The sections (`entries`: [{ key, label, content }]) beside a column of their names, grouped (NAV_GROUPS; one in no
+ * group goes last: settingsnav.js), the one shown `active`. On a phone, `null` shows the list alone, and a section shows with
+ * *‹ Settings* over it. `onChange(key)` runs when another is picked.
+ */
+function settingsNav(entries, active, onChange) {
+  const byKey = new Map(entries.map((t) => [t.key, t]));
+  const grouped = groupSections(entries.map((t) => t.key));
+  const order = grouped.flatMap(([, keys]) => keys);
+  const items = new Map();
+  const panels = new Map(entries.map((t) => [t.key, h('div', { class: 'tab-panel', role: 'region', 'aria-label': t.label, 'data-tab': t.key }, ...[t.content].flat())]));
+  const layout = h('div', { class: 'settings-layout' });
+  const show = (key, { focus = false, quiet = false } = {}) => {
+    layout.classList.toggle('has-section', !!key);
+    layout.classList.toggle('no-section', !key);
+    for (const [k, el] of items) { if (k === key) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current'); }
+    for (const [k, el] of panels) el.hidden = k !== key;
+    if (focus && key) items.get(key)?.focus();
+    if (key) { panels.get(key).dispatchEvent(new Event('tabshow')); if (!quiet) onChange(key); }
+  };
+  const nav = h('nav', { class: 'settings-nav', 'aria-label': 'Settings sections' }, grouped.map(([name, keys]) => h('div', { class: 'settings-nav-group' },
+    h('div', { class: 'settings-nav-head' }, name),
+    keys.map((k) => {
+      const el = h('a', { class: 'settings-nav-item', href: `#/settings/${k}`, 'data-tab': k,
+        onclick: (e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey) return; // a new tab: the browser's
+          e.preventDefault();
+          // On a phone the list goes back to by Back (a step of history); on a computer the address just follows.
+          if (onPhone()) history.pushState({ settingsSection: true }, '', `#/settings/${k}`); else history.replaceState(null, '', `#/settings/${k}`);
+          show(k);
+          if (onPhone()) window.scrollTo(0, 0);
+        },
+        onkeydown: (e) => {
+          const i = order.indexOf(k);
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const next = order[(i + (e.key === 'ArrowDown' ? 1 : order.length - 1)) % order.length];
+            history.replaceState(null, '', `#/settings/${next}`);
+            show(next, { focus: true });
+          }
+        } }, icon(NAV_ICONS[k] || 'settings', 15), h('span', {}, byKey.get(k).label));
+      items.set(k, el);
+      return el;
+    }))));
+  // Back to the list: the step of history the list pushed, when it did (no pile of entries); else the list's address.
+  const back = h('a', { class: 'docs-back settings-back', href: '#/settings',
+    onclick: (e) => { if (history.state?.settingsSection) { e.preventDefault(); history.back(); } } }, icon('left', 14), 'Settings');
+  layout.append(nav, h('div', { class: 'settings-main' }, back, ...panels.values()));
+  show(active, { quiet: true });
+  layout.show = show;
+  return layout;
+}
 
 const since = (s) => { // seconds → "3 h 12 min"
   const m = Math.floor(s / 60);
@@ -124,13 +183,27 @@ export function mount(root, param) {
   const form = h('div', { class: 'settings' });
   root.replaceChildren(pageHead({ title: 'Settings' }), form);
   const known = (k) => tabs().some(([t]) => t === k);
-  let tab = known(param) ? param : known(pref('settings.tab')) ? pref('settings.tab') : 'general';
+  // A phone at #/settings shows the list of sections; a computer the one last open.
+  let tab = known(param) ? param : onPhone() ? null : known(pref('settings.tab')) ? pref('settings.tab') : 'general';
   const exportsTab = exportPanel();
   const appTab = appPanel();
   const guideTab = guidePanel();
   const statusesTab = statusPanel();
   const schedTab = schedulesPanel();
+  let nav = null;
+  // Back (or ‹ Settings) changes the address without a new route when it stays on Settings: follow it here. A phone at
+  // #/settings goes back to the list; a computer keeps the section it shows.
+  const onHash = () => {
+    const m = location.hash.match(/^#\/settings(?:\/(\w+))?$/);
+    if (!m || !nav?.isConnected) return;
+    const k = known(m[1]) ? m[1] : null;
+    if (k === tab || (!k && !onPhone())) return;
+    tab = k;
+    nav.show(k);
+  };
+  window.addEventListener('hashchange', onHash);
   return {
+    unmount() { window.removeEventListener('hashchange', onHash); },
     update() {
       const c = state.config;
       const kinds = h('input', { type: 'text', class: 'wide', 'aria-label': 'Work kinds', value: (c.work_kinds || []).join(', ') });
@@ -263,11 +336,10 @@ export function mount(root, param) {
       const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
         themes: [themesPanel().el],
         documentation: [guideTab.el] };
-      form.replaceChildren(...tabPanels(tabs().map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
+      // The address follows the section without a hashchange (settingsNav): a remount would drop what is being typed.
+      form.replaceChildren(nav = settingsNav(tabs().map(([key, label]) => ({ key, label, content: content[key] })), tab, (key) => {
         tab = key;
         setPref('settings.tab', key);
-        // The address follows the tab without a hashchange: a remount would drop what is being typed.
-        history.replaceState(null, '', `#/settings/${key}`);
         if (key === 'export') exportsTab.load();
         if (key === 'app') appTab.load();
         if (key === 'statuses') statusesTab.load();

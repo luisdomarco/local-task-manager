@@ -6,6 +6,9 @@
 //          moves the goal, and takes the priority of the goals it lands among.
 //   List   a section per goal, the same rows as Planning's (planrows.js), dragged the same way.
 //
+//   Timeline the goals and their items as bars over days, weeks or months (timelineview.js): nested, foldable, a bar's
+//          ends dragged to set its start and due.
+//
 //   Canvas a whiteboard (canvas/canvasview.js): open goals beside it, dragged in as cards, and around them arrows,
 //          notes, shapes and frames. Its canvases are files in <Docs>/Canvases/Goals.
 //
@@ -29,6 +32,7 @@ import { countOf, cssKey, dropdown, dropZone, h, icon, priorityChip, seg, status
 import { viewBar } from '../viewbar.js';
 import { cardShows, closedShown, filterFields, matches } from '../viewmodel.js';
 import { vaultCtx } from './list.js';
+import { paintTimeline } from '../timelineview.js';
 import { isPhone } from '../phone.js';
 
 const write = (patches) => (patches.length ? updateMany(patches.map(([i, v]) => [i.key, v])).catch(() => {}) : null);
@@ -143,7 +147,7 @@ export function mount(root) {
   const vb = viewBar({
     view, save, fields, ctx: vaultCtx, items: members, closable: true, closedDefault: 'none', search: false,
     layout: { current: () => view.layout, pick: (l) => change({ layout: l }),
-      options: [['list', 'List', 'list'], ['board', 'Board', 'kanban'], has('canvas') ? ['canvas', 'Canvas', 'canvas'] : null].filter(Boolean) },
+      options: [['list', 'List', 'list'], ['board', 'Board', 'kanban'], ['timeline', 'Timeline', 'timeline'], has('canvas') ? ['canvas', 'Canvas', 'canvas'] : null].filter(Boolean) },
     // Closed goals: left out unless asked (a goal is closed by hand, its items may still be open).
     displayRows: () => [h('div', { class: 'vb-row' }, h('span', {}, 'Closed goals'), seg([[false, 'Hide'], [true, 'Show']], !!view.goalsClosed, (v) => change({ goalsClosed: v }), { aria: 'Closed goals' }))],
     onText: () => {}, onChange: () => api.update(),
@@ -172,13 +176,22 @@ export function mount(root) {
         if (g && ids.has(g)) { if (!byGoal.has(g)) byGoal.set(g, []); byGoal.get(g).push(i); }
       }
       for (const its of byGoal.values()) its.sort(byGoalOrder);
-      root.classList.toggle('board-layout', view.layout === 'board' || onCanvas);
-      body.classList.toggle('list-main', view.layout === 'board' || onCanvas); // the board takes the height left (app.css)
+      const fills = view.layout === 'board' || view.layout === 'timeline' || onCanvas;
+      root.classList.toggle('board-layout', fills);
+      body.classList.toggle('list-main', fills); // the board (the timeline, the canvas) takes the height left (app.css)
       if (onCanvas) {
         if (canvas) canvas.update(); else canvas = mountCanvasView(body, { host: 'Goals', provider: goalsProvider });
         return;
       }
       if (canvas) { canvas.destroy(); canvas = null; } // its last strokes saved first
+      if (view.layout === 'timeline') {
+        // The goals in their order, each followed by its items in theirs: the rows nest them (timeline.js rowsOf).
+        paintTimeline(body, {
+          items: goals.flatMap((g) => [g, ...(byGoal.get(g.id) || [])]), types: ['goal', ...types()],
+          defaults: ['goal', 'project', 'initiative'], view, change, onOpen: openItem,
+        });
+        return;
+      }
       (view.layout === 'board' ? paintBoard : paintList)(body, { goals, byGoal }, view, change);
     },
     unmount: () => canvas?.destroy(),

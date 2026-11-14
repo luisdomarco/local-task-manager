@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { setFeatures } from '../../static/js/features.js';
-import { EDITOR_KEYS, GLOBAL_KEYS, is, keyText, keymap } from '../../static/js/keymap.js';
+import { EDITOR_KEYS, GLOBAL_KEYS, closesCard, is, keyText, keymap } from '../../static/js/keymap.js';
 import { GO_KEYS, ITEM_KEYS } from '../../static/js/shortcuts.js';
 
 const source = (path) => readFileSync(new URL(`../../static/js/${path}`, import.meta.url), 'utf8');
@@ -65,3 +65,19 @@ describe('keymap', () => {
     assert.equal(keyText(GLOBAL_KEYS.quick), 'q');
   });
 });
+
+// INB-009: Esc while writing a description must not close the card under the editor (it is Done: save, then leave).
+describe('Esc and the open card', () => {
+  const inside = (sel) => ({ closest: (q) => (q.split(',').map((x) => x.trim()).includes(sel) ? {} : null) });
+  const esc = (mods = {}) => ({ key: 'Escape', defaultPrevented: false, isComposing: false, keyCode: 27, target: inside('body'), ...mods });
+  it('a plain Esc closes it', () => assert.equal(closesCard(esc()), true));
+  it('not one a menu or a field already took', () => assert.equal(closesCard(esc({ defaultPrevented: true })), false));
+  it('not one that ends an accent being composed', () => {
+    assert.equal(closesCard(esc({ isComposing: true })), false);
+    assert.equal(closesCard(esc({ keyCode: 229 })), false);
+  });
+  it('not one from inside a Markdown editor (Source or Live)', () => assert.equal(closesCard(esc({ target: inside('.mde') })), false));
+  it('another key never', () => assert.equal(closesCard(esc({ key: 'Enter' })), false));
+  it('the page asks it before closing the card', () => assert.match(source('main.js'), /if \(!closesCard\(e\)\) return;[^\n]*\n\s*if \(menuIsOpen\(\)/));
+});
+

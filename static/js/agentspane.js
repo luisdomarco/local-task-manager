@@ -100,8 +100,8 @@ function head(d, count) {
       onclick: (e) => folderMenu(e.currentTarget, d) }, icon('more', 14)));
 }
 
-/** Favourites' title, as the Projects mode's section (index.html #side-favs): it never folds, and shows only once an
- *  agent is starred. */
+/** Favourites' title, a section title as the sidebar's: unlike the Projects mode's (index.html #side-favs) it never folds,
+ *  and shows only once an agent is starred. */
 const favsHead = () => h('div', { class: 'agents-favs' }, h('div', { class: 'side-title' }, 'Favourites'));
 
 let marks = {}; // agentKey → 'needs_you' | 'working' | 'unread' (runmodel.js agentMarks), as the tree was last drawn

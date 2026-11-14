@@ -62,9 +62,9 @@ describe('quick add parser', () => {
   });
 
   it('drops planning for types that cannot be planned', () => {
-    const p = parseQuick('Remember this /note @today !high due:fri', { values: { today_list: 'morning' } });
+    const p = parseQuick('Remember this /note @today !high due:fri', { values: { list: 'doing' } });
     assert.equal(p.type, 'note');
-    for (const k of ['plan_day', 'plan_week', 'priority', 'due', 'status', 'list', 'today_list']) assert.equal(p.values[k], undefined, k);
+    for (const k of ['plan_day', 'plan_week', 'priority', 'due', 'status', 'list']) assert.equal(p.values[k], undefined, k);
   });
 
   it('checks the relation it was asked for', () => {

@@ -9,7 +9,8 @@
 //   session:name                 session_name (the Claude session handling it)
 import { addDays, isoWeek, monthLabel, nextDow, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
 import { PARENT_TYPES, PLANNABLE, PRIORITIES, TYPE_DEFS, onStructure } from './rules.js';
-import { createItem, state, toast } from './state.js';
+import { addAttachments, createItem, state, toast } from './state.js';
+import { carriesFiles, keptName } from './attachtext.js';
 import { h, icon, keyboardShy, labelChip, openDialog, priorityChip } from './ui.js';
 import { withMic } from './dictation.js';
 import { isPhone, isTouch } from './phone.js';
@@ -55,7 +56,7 @@ export function parseQuick(text, defaults = {}) {
   out.title = words.join(' ');
   out.values = { ...defaults.values, ...out.values };
   if (!PLANNABLE.has(out.type)) {
-    for (const k of ['plan_day', 'plan_week', 'plan_month', 'priority', 'due', 'status', 'list', 'today_list']) delete out.values[k];
+    for (const k of ['plan_day', 'plan_week', 'plan_month', 'priority', 'due', 'status', 'list']) delete out.values[k];
   }
   const parent = out.values.related_to && state.byId.get(out.values.related_to);
   if (out.values.related_to && !parent) out.errors.push(`${out.values.related_to} not found`);
@@ -82,7 +83,12 @@ function preview(p) {
 
 /** Input + live preview. `defaults` = { type, values } applied under the tokens. `mic: false` inside an item, where
  *  only the description dictates. */
-export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true } = {}) {
+/**
+ * The quick add box: a line of text parsed as it is typed (parseQuick), Enter creates. `files` (the Inbox's): a picture
+ * or file pasted or dropped on it, or picked with its paperclip (on a phone, a photo), waits as a chip and is attached to
+ * the item created (with no text, the item is named after the first file). `value`: the text it opens with (a share).
+ */
+export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '' } = {}) {
   const prev = h('div', { class: 'chips qa-preview' });
   const phone = isPhone();
   const hint = placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note';
@@ -91,12 +97,27 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     // A phone's box is narrow: what to type, not the tokens after it (they still work); its keyboard says Done.
     placeholder: phone ? hint.split('  ')[0] : hint, enterkeyhint: phone ? 'done' : null,
   });
+  input.value = value;
+  const waiting = []; // files to attach to what Enter creates
+  const filesRow = files ? h('div', { class: 'chips qa-files' }) : null;
+  const drawFiles = () => filesRow?.replaceChildren(...waiting.map((f, i) => h('span', { class: 'chip qa-file', title: f.name },
+    icon(f.type.startsWith('image/') ? 'image' : 'paperclip', 12), h('span', { class: 'qa-file-name' }, f.name),
+    h('button', { type: 'button', class: 'btn icon qa-file-x', 'aria-label': `Leave out ${f.name}`, onclick: () => { waiting.splice(i, 1); drawFiles(); } }, icon('x', 12)))));
+  const take = (list) => {
+    for (const f of list) {
+      const name = keptName(f.name, f.type);
+      waiting.push(name === f.name ? f : new File([f], name, { type: f.type }));
+    }
+    drawFiles();
+    input.focus();
+  };
   const refresh = () => {
     prev.replaceChildren(...(input.value.trim() ? preview(parseQuick(input.value, defaults)) : []));
   };
   input.addEventListener('input', refresh);
   const submit = async () => {
-    const p = parseQuick(input.value, defaults);
+    const text = input.value.trim() || (waiting.length ? waiting[0].name.replace(/\.[^.]+$/, '') : '');
+    const p = parseQuick(text, defaults);
     if (!p.title) return;
     if (p.errors.length) return toast(p.errors[0], true);
     let item;
@@ -104,6 +125,11 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     toast(`Created ${refOf(item)}`);
     input.value = '';
     refresh();
+    if (waiting.length) {
+      const sent = waiting.splice(0);
+      drawFiles();
+      await addAttachments(item.key, sent); // its own toasts (what could not go, and why)
+    }
     onCreated && onCreated(item);
   };
   // Not while a word is still being composed (an accent, a suggestion, Japanese): that Enter only ends it.
@@ -113,7 +139,33 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
   if (autofocus && !keyboardShy()) setTimeout(() => input.focus(), 0);
   // A phone's keyboard may not show Enter as "add": a button that does (phone.css). Its mic is the keyboard's own.
   const add = phone ? h('button', { type: 'button', class: 'btn qa-add', onclick: submit }, 'Add') : null;
-  return h('div', { class: `quick-add ${add ? 'has-add' : ''}`.trim() }, mic && !isTouch() ? withMic(input) : input, add, prev);
+  let clip = null;
+  if (files) {
+    input.addEventListener('paste', (e) => {
+      const list = [...(e.clipboardData?.files || [])];
+      if (!list.length) return;
+      e.preventDefault();
+      take(list);
+    });
+    const picker = h('input', { type: 'file', multiple: true, hidden: true });
+    picker.addEventListener('change', () => { take([...picker.files]); picker.value = ''; });
+    clip = h('button', { type: 'button', class: 'btn icon ghost qa-clip', title: 'Attach a picture or file (or paste or drop it here)', 'aria-label': 'Attach a picture or file',
+      onclick: () => picker.click() }, icon('paperclip', 16), picker);
+  }
+  const box = h('div', { class: `quick-add ${add ? 'has-add' : ''} ${clip ? 'has-clip' : ''}`.trim() },
+    mic && !isTouch() ? withMic(input) : input, clip, add, filesRow, prev);
+  if (files) {
+    box.addEventListener('dragover', (e) => { if (carriesFiles(e.dataTransfer)) { e.preventDefault(); box.classList.add('qa-drop'); } });
+    box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('qa-drop'); });
+    box.addEventListener('drop', (e) => {
+      box.classList.remove('qa-drop');
+      if (!carriesFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      take([...e.dataTransfer.files]);
+    });
+  }
+  if (value) setTimeout(refresh, 0);
+  return box;
 }
 
 /** Quick capture: lands as an inbox item unless a /task, /note… token says otherwise. */

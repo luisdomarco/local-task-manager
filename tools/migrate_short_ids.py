@@ -40,6 +40,7 @@ import sys
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
+from tm import boards  # noqa: E402
 from tm import frontmatter as fm  # noqa: E402
 from tm.fsutil import atomic_write  # noqa: E402
 from tm.history import path_of as history_path  # noqa: E402
@@ -400,7 +401,7 @@ def _worklog(text, fields, ids, refs):
 
 def _meta(target, plan):
     """.task-manager: ids.json with the number's mark, legacy-ids.json with the id map, each history under its number,
-    the pins and the sidebar by number. → how many files were written."""
+    the pins, the sidebar and each Custom board's cards (boards/*.json) by number. → how many files were written."""
     meta = os.path.join(target, META_DIR)
     ids, refs = plan['id_map'], plan['refs']
     # A plan or an analysis with no id was known by its path (its key), and its history file named after it. (The pins
@@ -451,6 +452,18 @@ def _meta(target, plan):
             text = with_body(text, replace_ids(fm.split(text)[1], refs))
             atomic_write(path, text)
             n += 1
+    # A Custom board names its cards by id (tm/boards.py); one that cannot be read is left as it was.
+    board_dir = os.path.join(meta, boards.DIR)
+    for name in sorted(os.listdir(board_dir)) if os.path.isdir(board_dir) else []:
+        if not name.endswith('.json'):
+            continue
+        try:
+            board = boards.parse(read(board_dir, name))
+        except boards.BoardError:
+            continue
+        board['cards'] = {str(ids.get(k, k)): v for k, v in board['cards'].items()}
+        atomic_write(os.path.join(board_dir, name), boards.dump(board))
+        n += 1
     return n
 
 

@@ -31,6 +31,7 @@ import signal
 from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules, vaultsettings
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write, download_on_read
+from tm.index import ACTOR as INDEX_ACTOR
 from tm.launch import (CLAUDE_EFFORTS, CLAUDE_MODELS, claude_flags, claude_script, claude_theme, desktop_new_url, desktop_resume_flags,
                        ide_open_url, recent_sessions, resume_flags, session_facts, session_flags, session_folders, session_updated,
                        transcript_path)
@@ -451,6 +452,21 @@ class App:
         with self._stores_lock:
             self._put(vault_id, store)
 
+    def reload_from_disk(self, vault_id):
+        """Settings → Vaults → Reload from disk (and ⌘K): the vault opened again as a change of its folder would (its
+        store built anew, so nothing it had read is kept), its index dropped with the copy this device keeps of it
+        (tm/index.py), and read again whole. Under the old store's lock: no write of this process runs meanwhile (one
+        the reopening makes takes the vault's lock itself). → {vault, items, files, ms}."""
+        started = time.perf_counter()
+        old = self.store_for(vault_id)
+        with old._lock:
+            old.index.forget()
+            self._reload_vault(vault_id)
+        store = self.store_for(vault_id)
+        items = len(store.items())
+        files = sum(1 for e in store.index.entries().values() if e.kind == 'file')
+        return {'vault': vault_id, 'items': items, 'files': files, 'ms': round((time.perf_counter() - started) * 1000)}
+
     def move_settings_into_vault(self, vault):
         """Once per vault, before serving: the types it turned off move from this device's config.json into the vault,
         so the other devices that open it see them. Only a vault that keeps no settings yet and has some to move; the
@@ -720,6 +736,15 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method):
         if not self.host_ok():
             return self.send_json({'error': 'forbidden host/origin'}, 403)
+        # Which tab of the page writes (api.js X-TM-Tab), for the length of the request: the vault's index (tm/index.py)
+        # does not report a tab's own changes back to it.
+        INDEX_ACTOR.tab = self.headers.get('X-TM-Tab') or None
+        try:
+            return self._dispatch(method)
+        finally:
+            INDEX_ACTOR.tab = None
+
+    def _dispatch(self, method):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
         route = (method, url.path)
@@ -2127,6 +2152,26 @@ class AgentsRefresh:
 AGENTS_REFRESH = AgentsRefresh()
 
 
+# The page asks what changed in its vault every few seconds while it is in view (static/js/vaultwatch.js). Each ask
+# keeps the vault's index watched (tm/index.py) for POLL_WATCH seconds: reads between two asks reuse its last walk, and
+# an ask walks again when that walk is older than POLL_FRESH. A poll, not a stream: the iPhone app answers each request
+# in memory (no socket), so an event stream would never flow there.
+POLL_WATCH = 15.0
+POLL_FRESH = 1.0
+
+
+def vault_changes(store, q):
+    """→ {epoch, seq, paths, more}: what changed in the vault since the page's last ask (`since`, of `epoch`), but what
+    its own tab wrote (`tab`). The first ask (no `since`) only learns where to start."""
+    index = store.index
+    index.watch(POLL_WATCH)
+    index.entries(max_age=POLL_FRESH)
+    since = str(q.get('since') or '')
+    out = index.changes(int(since) if since.isdigit() else None, q.get('epoch') or None, q.get('tab') or None)
+    index.save()  # what files say, kept for the next run (at most every few seconds)
+    return out
+
+
 ROUTES = {
     ('GET', '/api/config'): lambda s, q, b: APP.public_config(),
     ('POST', '/api/config'): lambda s, q, b: (APP.set_config(b), APP.public_config())[1],
@@ -2143,11 +2188,18 @@ ROUTES = {
     ('POST', '/api/vault/create-folders'): lambda s, q, b: {'check': s.create_missing_folders()},
     # The vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, on or off (Settings → Vaults).
     ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on')), APP_DIR),
+    ('GET', '/api/vault/changes'): lambda s, q, b: vault_changes(s, q),
+    ('POST', '/api/vault/reload'): lambda s, q, b: APP.reload_from_disk(s.vault_id),
     ('GET', '/api/vault/settings'): lambda s, q, b: {'vault': s.vault_id, 'settings': s.vault_settings()},
     # The body each type starts with in this vault (Settings → Vaults → Item types; the create form fills it in)
+    # A type's text, and per initiative kind (`kinds`: [id, label] in order; `kind_texts`: {type: {kind: text}}, '' its type's).
     ('GET', '/api/vault/default-texts'): lambda s, q, b: {'texts': s.default_texts(), 'editable': s.has_default_texts(),
-                                                          'placeholders': list(DEFAULT_TEXT_PLACEHOLDERS)},
-    ('POST', '/api/vault/default-text'): lambda s, q, b: {'texts': s.set_default_text(str(b.get('type') or ''), b.get('text'))},
+                                                          'placeholders': list(DEFAULT_TEXT_PLACEHOLDERS),
+                                                          'kinds': [[k.id, k.label] for k in s.structure.kinds.values()] if s.has_kind_texts() else [],
+                                                          'kind_texts': s.default_kind_texts()},
+    ('POST', '/api/vault/default-text'): lambda s, q, b: {'texts': s.set_default_text(str(b.get('type') or ''), b.get('text'),
+                                                                                      str(b.get('kind') or '') or None),
+                                                         'kind_texts': s.default_kind_texts()},
     ('POST', '/api/vault/settings'): lambda s, q, b: APP.set_vault_settings(s.vault_id, b),
     ('GET', '/api/items'): lambda s, q, b: {'items': s.items()},
     # The vault as a graph: its items and docs, and every link between them (tm/graph.py). The page filters it.
@@ -2177,6 +2229,13 @@ ROUTES = {
     ('POST', '/api/files/upload'): lambda s, q, b: s.upload_file(q.get('folder') or '', b['filename'], b['data']),
     ('GET', '/api/item'): lambda s, q, b: s.read(q['key']),
     ('GET', '/api/item/history'): lambda s, q, b: {'entries': s.item_history(q['key'])},
+    # A definition's versions (an architecture, an entity: tm/versions.py): the list, one with its diff, cut, restore.
+    ('GET', '/api/item/versions'): lambda s, q, b: s.item_versions(q['key']),
+    ('GET', '/api/item/version'): lambda s, q, b: s.item_version(q['key'], q.get('version')),
+    ('POST', '/api/item/versions/cut'): lambda s, q, b: s.cut_version(b['key'], bool(b.get('major')), b.get('note') or '',
+                                                                     by='agent' if b.get('by') == 'agent' else 'owner'),
+    ('POST', '/api/item/versions/restore'): lambda s, q, b: s.restore_version(b['key'], b.get('version'), b.get('base_rev'),
+                                                                             by='agent' if b.get('by') == 'agent' else 'owner'),
     ('POST', '/api/item/create'): lambda s, q, b: s.create(
         # no body (null or left out): the vault's default text for the type (Store.create)
         b['type'], b.get('subject'), b.get('values'), b.get('body') if isinstance(b.get('body'), str) else None),
@@ -2198,6 +2257,10 @@ ROUTES = {
     ('POST', '/api/assign-ids'): lambda s, q, b: {'assigned': s.assign_missing_ids()},
     ('GET', '/api/board'): lambda s, q, b: s.board(),
     ('POST', '/api/board'): lambda s, q, b: s.save_board(b['lists']),
+    # A custom board (tm/boards.py): Today's, a Custom grouping's. `name` the view it is of; POST columns and/or place.
+    ('GET', '/api/boards'): lambda s, q, b: s.custom_board(q.get('name')),
+    ('POST', '/api/boards'): lambda s, q, b: s.save_custom_board(b.get('name'), b.get('columns'), b.get('place')),
+    # The routes of before, the columns alone (Today's, the week's Free board): kept for one release.
     ('GET', '/api/today'): lambda s, q, b: s.today_lists(),
     ('POST', '/api/today'): lambda s, q, b: s.save_today_lists(b.get('lists')),
     ('GET', '/api/week-board'): lambda s, q, b: s.week_lists(),
@@ -2217,6 +2280,14 @@ ROUTES = {
     ('POST', '/api/labels'): lambda s, q, b: s.add_label(b.get('name')),
     ('POST', '/api/labels/rename'): lambda s, q, b: s.rename_label(b.get('old'), b.get('new')),
     ('POST', '/api/labels/delete'): lambda s, q, b: s.delete_label(b.get('name')),
+    # Properties: every frontmatter key of the vault's notes; rename a key or one of its values, or remove it (Store.properties)
+    # Bases: a .base file's view, worked out (Store.base); a cell edited writes that note's frontmatter key
+    ('GET', '/api/bases'): lambda s, q, b: s.base(q.get('path'), q.get('view'), q.get('this')),
+    ('POST', '/api/bases/cell'): lambda s, q, b: s.set_note_property(b.get('path'), b.get('key'), b.get('value')),
+    ('GET', '/api/properties'): lambda s, q, b: s.properties(),
+    ('POST', '/api/properties/rename'): lambda s, q, b: s.rename_property(b.get('key'), b.get('new')),
+    ('POST', '/api/properties/value'): lambda s, q, b: s.rename_property_value(b.get('key'), b.get('old'), b.get('new')),
+    ('POST', '/api/properties/delete'): lambda s, q, b: s.delete_property(b.get('key')),
     ('POST', '/api/pins'): lambda s, q, b: s.save_pins(b.get('items')),
     ('GET', '/api/sidebar'): lambda s, q, b: s.sidebar_order(),
     ('POST', '/api/sidebar'): lambda s, q, b: s.save_sidebar_order(b.get('items')),

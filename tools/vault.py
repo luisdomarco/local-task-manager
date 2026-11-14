@@ -20,6 +20,10 @@ Read
                                       when asked)
     context REF [--instruction TEXT]  the item as a prompt, as the app hands it to Claude
     check                             whether the vault matches its structure (it is read-only until it does)
+    base PATH [--view NAME]           an index (an Obsidian .base): one view's rows, as the app draws them
+    board [NAME] [--place REF=COLUMN]…
+                                      the custom boards; with NAME, its columns and cards; --place puts a card in a
+                                      column (by its name or id; REF= takes it off). Never writes the item's file
     agents [--on | --off | --print]   the vault's guide for agents (AGENTS.md): whether it has it, turn it on or off,
                                       or print what it would say
 
@@ -432,6 +436,75 @@ def cmd_comment(store, args):
     return written(store, [it], 'Commented on')
 
 
+BASE_ROWS = 100  # rows `base` prints (all of them with --json)
+
+
+def cmd_base(store, args):
+    out = store.base(args.path, args.view)
+    if out.get('error'):
+        raise CliError(out['error'])
+    cols = out['columns']
+
+    def text(v):
+        return ', '.join(map(str, v)) if isinstance(v, list) else '' if v is None else str(v)
+    lines = [f"# {out['path']} · {out['views'][out['view']]['name'] if out['views'] else ''}", '',
+             f"{out['total']} results" + (f" · first {out['limit']}" if out.get('limit') else '') + ' · views: '
+             + ', '.join(v['name'] for v in out['views'])]
+    lines += [f'Not supported here: {", ".join(out["unsupported"])}' for _ in out['unsupported'][:1]]
+    lines += [f'Error: {e}' for e in out['errors']]
+    lines += ['', '| ' + ' | '.join(cell(c['label']) for c in cols) + ' |', '|' + '---|' * len(cols)]
+    rows = out['rows']
+    order = ([(g['label'], g['rows']) for g in out['groups']] if out.get('groups') else [(None, list(range(len(rows))))])
+    shown = 0
+    for label, idx in order:
+        if label is not None:
+            lines.append(f"| **{cell(label)}** ({len(idx)}) |" + ' |' * (len(cols) - 1))
+        for i in idx:
+            if shown >= BASE_ROWS:
+                break
+            lines.append('| ' + ' | '.join(cell(text(v)) for v in rows[i]['cells']) + ' |')
+            shown += 1
+    if len(rows) > shown:
+        lines.append(f'\n…and {len(rows) - shown} more rows (--json has them all).')
+    return out, lines
+
+
+def cmd_board(store, args):
+    if not args.name:
+        if args.place:
+            raise CliError('--place needs the board: board NAME --place REF=COLUMN')
+        boards = store.agents_info()['boards']
+        lines = ['# Boards', ''] + ([f"- {b['name']}: {', '.join(b['columns'])}" for b in boards] or ['none saved yet'])
+        return {'boards': boards}, lines
+    board = store.custom_board(args.name)
+    if args.place:
+        place = {}
+        for pair in args.place:
+            ref, sep, col = pair.partition('=')
+            if not sep:
+                raise CliError(f'--place takes REF=COLUMN, not {pair!r}')
+            it = store.find(ref.strip())
+            if it.get('id') is None:
+                raise CliError(f'{ref} has no id: only an item goes on a board')
+            col = col.strip()
+            if not col:
+                place[str(it['id'])] = None
+                continue
+            hit = next((c['id'] for c in board['columns'] if col in (c['id'], c['name'])
+                        or c['name'].casefold() == col.casefold()), None)
+            if hit is None:
+                raise CliError(f"board {args.name} has no column {col!r} (it has: {', '.join(c['name'] for c in board['columns'])})")
+            place[str(it['id'])] = [hit, None]
+        board = store.save_custom_board(args.name, place=place)
+    refs = {str(it['id']): it.get('ref') or it['title'] for it in store.items() if it.get('id') is not None}
+    lines = [f"# Board {board['name']}", '']
+    for c in board['columns']:
+        cards = sorted((v[1] if v[1] is not None else float('inf'), refs.get(k, k)) for k, v in board['cards'].items()
+                       if v[0] == c['id'] and k in refs)
+        lines.append(f"- {c['name']} (`{c['id']}`): " + (', '.join(r for _, r in cards) or '—'))
+    return board, lines
+
+
 WRITES = (cmd_new, cmd_set, cmd_move, cmd_link, cmd_unlink, cmd_comment)
 
 
@@ -464,6 +537,9 @@ def parser():
         (('--kinds',), {'help': ','.join(tm_graph.KINDS)}))
     add('context', cmd_context, 'the item as a prompt', (('ref',), {}), (('--instruction',), {}))
     add('check', cmd_check, 'whether the vault matches its structure')
+    add('base', cmd_base, "an index (an Obsidian .base): one view's rows", (('path',), {}), (('--view',), {}))
+    add('board', cmd_board, 'the custom boards; place a card', (('name',), {'nargs': '?'}),
+        (('--place',), {'action': 'append', 'metavar': 'REF=COLUMN'}))
     agents = add('agents', cmd_agents, "the vault's guide for agents (AGENTS.md)", (('--print',), {'dest': 'print_it', 'action': 'store_true'}))
     onoff = agents.add_mutually_exclusive_group()
     onoff.add_argument('--on', action='store_true')

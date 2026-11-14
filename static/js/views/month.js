@@ -10,7 +10,8 @@
 // days, as on Today), This week (the rest of it), Next week and Later this month (rules.js planHorizon). Drag a card
 // onto a column to plan it there: Today gives it that day, This week and Next week that week with no day, Later this
 // month the month with neither. Cards say what they are planned for and keep the order they are dropped in
-// (`plan_order`, as on Today and Week).
+// (`plan_order`, as on Today and Week). Group (on the board): Horizons, or Custom — the same cards in columns of your
+// own (.task-manager/boards/month.json, customboard.js), where a drop only moves the card on that board.
 import { dayLabel, isoWeek, monthLabel, shiftMonth, shiftWeek, thisMonth, thisWeek, today } from '../dates.js';
 import { openItem } from '../panel.js';
 import { MONTH_HORIZONS, PLANNABLE, byManualOrder, carriedOverDay, isDone, isLate, monthBuckets, planHorizon } from '../rules.js';
@@ -18,15 +19,16 @@ import { noMonth, placeInPlan, planWeek, state, updateMany } from '../state.js';
 import { byPriority, cssKey, dropZone, h, openDialog } from '../ui.js';
 import { isPhone } from '../phone.js';
 import { opener } from '../links.js';
-import { boardOf } from '../boardview.js';
+import { boardOf, customColumns } from '../boardview.js';
 import { viewBar } from '../viewbar.js';
-import { filterFields, matches } from '../viewmodel.js';
+import { CUSTOM, filterFields, matches } from '../viewmodel.js';
 import { idMatches } from '../shownid.js';
 import { vaultCtx } from './list.js';
 import { cellEntries, monthCalendar } from '../calendar.js';
 import { moveNow, periodHead, planCard, planViewOf } from '../planrows.js';
 
 const LAYOUTS = [['calendar', 'Calendar', 'calendardays'], ['board', 'Board', 'kanban']];
+const HORIZONS = 'horizons'; // the board's columns: its horizons (the default), or Custom
 const CLOSED = [['none', 'None'], ['all', 'All']];
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const find = (key) => state.items.find((i) => i.key === key);
@@ -48,6 +50,7 @@ const EMPTY = {
 
 export function mount(root) {
   const { view, save } = planViewOf('month', { closed: 'all', layout: 'calendar' });
+  if (view.groupBy !== CUSTOM) view.groupBy = HORIZONS;
   let shift = 0; // months away from this one (the calendar)
   let text = '';
   const opened = new Set(); // days whose "+N more" was opened
@@ -62,6 +65,7 @@ export function mount(root) {
     view, save, fields, ctx: vaultCtx, items: pool, closable: true, closedModes: CLOSED, closedDefault: 'all',
     placeholder: 'Search this month…',
     layout: { current: () => view.layout, pick: (l) => change({ layout: l }), options: LAYOUTS, isBoard: () => view.layout === 'board' },
+    boardGroupKeys: [HORIZONS, CUSTOM], groupLabel: (k) => (k === CUSTOM ? 'Custom' : 'Horizons'),
     onText: (t) => { text = t; api.update(); },
     onChange: () => api.update(),
   });
@@ -169,6 +173,17 @@ export function mount(root) {
     const toWeek = (i) => moveNow(i, 'this week', (it) => planWeek(it, thisWeek()));
     const toToday = (i) => moveNow(i, 'today', (it) => placeInPlan(it, planFor('today', it), b.today, 0));
     const t = today();
+    if (view.groupBy === CUSTOM) {
+      const custom = customColumns('month', MONTH_HORIZONS.flatMap(([key]) => b[key] || []), {
+        sort: byManualOrder(byPriority), fold: view.customFold || {}, cls: 'custom-col',
+        card: (i) => planCard(i, { onOpen: openItem, plan: true, action: b.carried.includes(i) ? toWeek(i) : null }),
+        quick: () => ({ type: 'task', values: { plan_month: thisMonth() } }),
+      });
+      const board = boardOf({ columns: custom.columns, onFold: (k, f) => change({ customFold: { ...(view.customFold || {}), [k]: f } }), onOpen: openItem, after: custom.after, onReorder: custom.onReorder });
+      board.classList.add('plan-board', 'month-board');
+      body.replaceChildren(board);
+      return;
+    }
     const cols = MONTH_HORIZONS.filter(([key]) => key !== 'carried' || b.carried.length).map(([key, title]) => {
       const items = b[key];
       const carried = key === 'carried';

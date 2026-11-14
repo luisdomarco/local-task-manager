@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GROUPS, NONE, ancestorsOf, initiativeOf, planBucket, projectOf, topInitiativeOf } from '../../static/js/grouping.js';
+import { GROUPS, NONE, ancestorsOf, directed, initiativeOf, planBucket, projectOf, topInitiativeOf } from '../../static/js/grouping.js';
 
 const item = (id, type, related_to) => ({ id, type, fields: { related_to } });
 const byIdOf = (...items) => new Map(items.map((i) => [i.id, i]));
@@ -32,6 +32,22 @@ describe('grouping', () => {
     assert.deepEqual(['P3', 'P0', 'P2'].sort(GROUPS.priority.order), ['P0', 'P2', 'P3']);
     const two = byIdOf({ id: 'INI-2', title: 'Beta' }, { id: 'INI-3', title: 'Alpha' });
     assert.deepEqual([NONE, 'INI-2', 'INI-3'].sort((a, b) => GROUPS.initiative.order(a, b, two)), ['INI-3', 'INI-2', NONE]);
+  });
+
+  it('orders status groups as the list\'s own type lists them, whatever another type says', () => {
+    // A goal starts at ToDo, a project at Backlog: in Projects, Backlog goes first.
+    const inList = (types) => (a, b) => GROUPS.status.order(a, b, new Map(), undefined, types);
+    assert.deepEqual(['InProgress', 'ToDo', 'Backlog'].sort(inList(['project'])), ['Backlog', 'ToDo', 'InProgress']);
+    assert.deepEqual(['InProgress', 'ToDo', 'Done'].sort(inList(['goal'])), ['ToDo', 'InProgress', 'Done']);
+    // a status the list's types do not have still sorts, by any type's
+    assert.deepEqual(['Review', 'Backlog'].sort(inList(['project'])), ['Backlog', 'Review']);
+  });
+
+  it('reverses groups on descending, the one with no value still last', () => {
+    const gs = [{ key: 'a' }, { key: 'b' }, { key: NONE }];
+    assert.deepEqual(directed(gs, true).map((g) => g.key), ['b', 'a', NONE]);
+    assert.equal(directed(gs, false), gs);
+    assert.deepEqual(directed([['x', []], ['y', []]], true, (g) => g[0]).map((g) => g[0]), ['y', 'x']);
   });
 
   it('groups a Ticketing item by its project key, by name, no project last', () => {

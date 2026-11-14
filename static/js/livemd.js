@@ -149,9 +149,9 @@ function blockField(cm, renderBlock, isFocused, refresh) {
 // outside the page's cascade layers (css/main.css), so they beat any rule of app.css; a theme of its own comes after
 // its base theme and wins. What it draws for the app (.cm-h1, .cm-link…: livemarks.js) is styled in app.css.
 const THEME = {
-  '&': { color: 'var(--foreground)', backgroundColor: 'transparent', fontSize: 'var(--fs-base)' },
+  '&': { color: 'var(--foreground)', backgroundColor: 'transparent', fontSize: 'calc(var(--fs-base) * var(--md-k, 1))' }, // Themes → Reading
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font)', lineHeight: '1.65', overflow: 'visible' },
+  '.cm-scroller': { fontFamily: 'var(--font)', lineHeight: 'var(--md-lh, 1.65)', overflow: 'visible' },
   '.cm-content': { padding: '12px 16px', caretColor: 'var(--foreground)', cursor: 'text' },
   '.cm-line': { padding: '0' },
   '.cm-placeholder': { color: 'var(--muted-foreground)' },
@@ -175,7 +175,7 @@ export const lfOffset = (raw, offset) => offset - (String(raw).slice(0, offset).
 /**
  * liveSurface({ value, minHeight, placeholder, label, onChange, onKey, completions, isRef, onOpen, renderBlock }) → a surface, or null when
  * CodeMirror is not loaded or the text mixes line breaks (lineSepOf). A surface (mdeditor.js) is
- *   { kind, el, input, value(), saved(), sel() → [from, to], select(from, to, { scroll }), replace(from, to, text, [selFrom, selTo]),
+ *   { kind, el, input, value(), saved(), sel() → [from, to], select(from, to, { scroll }), replace(from, to, text, [selFrom, selTo]), posAt(x, y),
  *     focus(), hasFocus(), rectAt(pos), setValue(text), destroy() }
  * Positions count a line break as one character, as the textarea does; `value()` is the text that way too. `saved()`
  * and `onChange(text)` give it with the file's own line breaks. `setValue(text)` → false when `text` has other line
@@ -282,6 +282,8 @@ export function liveSurface({ value = '', minHeight = '320px', placeholder = '',
     },
     focus: (opts) => { view.focus(); if (opts?.preventScroll === false) view.dispatch({ scrollIntoView: true }); },
     hasFocus: () => view.hasFocus,
+    /** The position under a point of the screen (where a file is dropped), or null off the text. */
+    posAt: (x, y) => view.posAtCoords({ x, y }),
     rectAt: (pos) => { const r = view.coordsAtPos(clamp(pos)); return r ? { top: r.top, bottom: r.bottom, left: r.left, height: r.bottom - r.top } : null; },
     /** The whole text replaced (an outside edit reloaded): one change, so undo can bring the old one back. */
     setValue(text) {

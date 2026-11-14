@@ -25,15 +25,18 @@ import { sideFold } from '../itemform.js';
 import { pref, setPref } from '../prefs.js';
 import { diffBlock } from '../diffview.js';
 import { agentStats } from '../homemodel.js';
+import { directed } from '../grouping.js';
 import { INBOX_GROUPS, INBOX_ORDERS, INBOX_PROPS, filtersFromOld, groupName, groupRuns, groupTone, inboxFields, inboxGroupLabel, orderValue, runMs, sortRuns, sourceLabel } from '../inboxview.js';
-import { wantsNewTab } from '../links.js';
+import { itemHref, wantsNewTab } from '../links.js';
 import { canArchive, costLabel, durationLabel, filterRuns, inboxCount, isArchived, isUnread, RUN_STATUSES, runLabel, runStatus } from '../runmodel.js';
 import { closePopover, viewBar } from '../viewbar.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
 import { boardOf } from '../boardview.js';
 import { columnOn, fresh, matches } from '../viewmodel.js';
 import { parseUnifiedDiff } from '../udiff.js';
-import { toast } from '../state.js';
+import { state, toast } from '../state.js';
+import { entityForFile } from '../archmodel.js';
+import { refOf } from '../shownid.js';
 import { setAlertTitle, setPageTitle } from '../tabtitle.js';
 import { countOf, dropdown, emptyLine, emptyState, formActions, h, icon, linkButton, loadingLine, openDialog, pageEmpty, pageHead, propRow, secondaryButton, select, tabPanels } from '../ui.js';
 
@@ -209,7 +212,7 @@ function inboxPage(dirs) {
     const folded = new Set(view.folded);
     const inGroups = view.groupBy && view.orderInGroups ? view.orderInGroups : order();
     const group = view.groupBy ? {
-      list: groupRuns(sortRuns(runs, inGroups, dir()), view.groupBy, ctx()),
+      list: directed(groupRuns(sortRuns(runs, inGroups, dir()), view.groupBy, ctx()), view.groupDesc, (g) => g[0]),
       header: (key, rows) => {
         const tone = groupTone(view.groupBy, key);
         return [tone ? h('span', { class: `td-dot tone-${tone}`, 'aria-hidden': 'true' }) : null,
@@ -446,6 +449,7 @@ function agentPage(folder, agent, openRunId = '') {
       : h('span', { class: 'muted' }, 'None: it asks for each one')),
     prop('Model', a.model || h('span', { class: 'muted' }, 'The one it is run with')),
     prop('Started by', a.disable_model_invocation ? 'You only' : 'You, or Claude when it fits'),
+    designRow(a.file),
     prop('File', h('span', { class: 'mono small agents-path', title: `${folder.path}/${a.file}` }, a.file)),
     prop('Folder', h('span', { class: 'mono small agents-path', title: folder.path }, folder.path)));
 
@@ -828,3 +832,15 @@ function runsPanel(folder, agent, useArgs, openId = '', editSchedule = () => {},
 }
 
 const prop = (label, value) => propRow(label, h('div', { class: 'agents-value' }, value), { tag: 'div' });
+
+/** The design this agent is a piece of: the entity whose `path` is its file (archmodel.js entityForFile) and that
+ *  entity's architecture, both opening, with the architecture's AR id. None when no entity names the file. */
+function designRow(file) {
+  const e = entityForFile(state.items.filter((i) => i.type === 'entity'), file);
+  if (!e) return null;
+  const arch = state.byId.get(e.fields.related_to);
+  return prop('Design', h('span', { class: 'agents-design' },
+    h('a', { href: itemHref(e), class: 'mono', title: `${refOf(e)} · its entity` }, e.title),
+    arch ? [h('span', { class: 'muted' }, 'in'), h('a', { href: itemHref(arch), title: `${refOf(arch)} · its architecture` }, arch.title),
+      arch.fields.architecture ? h('span', { class: 'chip mono' }, arch.fields.architecture) : null] : null));
+}

@@ -83,6 +83,10 @@ def main():
     print(f'demo vault ready: {target}')
 
 
+# The cards of Today's board and their columns (its board file, .task-manager/boards/today.json).
+TODAY_COLUMNS = {'t_button': 'morning', 't_sandbox': 'afternoon', 't_filter': 'morning', 't_ssl': 'afternoon'}
+
+
 def build(s):
     made = {}
 
@@ -188,13 +192,13 @@ def build(s):
         created=-12, updated=-7, closed=-7)
     mk('t_button', 'task', 'Implement the Apple Pay button on the payment step', {
         'status': 'InProgress', 'priority': 'High', 'related_to': made['us_applepay'], 'labels': ['frontend', 'payments'],
-        'plan_day': day(0), 'plan_week': week(), 'due': day(2), 'session_name': 'checkout-applepay', 'today_list': 'morning'},
+        'plan_day': day(0), 'plan_week': week(), 'due': day(2), 'session_name': 'checkout-applepay'},
         '- [x] Detect support with `ApplePaySession.canMakePayments()`\n- [x] Render the button with the brand style\n'
         '- [ ] Handle the `onpaymentauthorized` callback\n- [ ] Fall back to the card form when cancelled\n',
         created=-8, updated=0)
     mk('t_sandbox', 'task', 'Fix the payment sandbox returning 502 on staging', {
         'status': 'Review', 'priority': 'Urgent', 'related_to': made['us_applepay'], 'labels': ['bug', 'payments', 'infra'],
-        'plan_day': day(0), 'plan_week': week(), 'today_list': 'afternoon', 'session_name': 'staging-502'},
+        'plan_day': day(0), 'plan_week': week(), 'session_name': 'staging-502'},
         'The provider sandbox started answering 502 after we rotated the API key. Root cause: the key was set for the wrong environment.\n',
         created=-3, updated=0)
     mk('t_delivery_api', 'task', 'Spike: delivery date API from the carrier', {
@@ -211,7 +215,7 @@ def build(s):
         'Check keyboard order, labels, error announcements and contrast with the 4.5:1 rule.\n', created=-5, updated=-5)
     mk('t_filter', 'task', 'Fix the channel filter resetting on date change', {
         'status': 'Review', 'priority': 'High', 'related_to': made['us_channel'], 'labels': ['bug', 'frontend'],
-        'plan_day': day(0), 'plan_week': week(), 'today_list': 'morning'}, created=-4, updated=0)
+        'plan_day': day(0), 'plan_week': week()}, created=-4, updated=0)
     mk('t_numbers', 'task', 'Reconcile dashboard revenue with the finance report', {
         'status': 'InProgress', 'priority': 'Urgent', 'related_to': made['analytics'], 'labels': ['research'],
         'plan_day': day(-1), 'plan_week': week(), 'due': day(1), 'session_name': 'analytics-revenue-check'},  # carried over
@@ -236,7 +240,7 @@ def build(s):
         'status': 'Blocked', 'priority': 'High', 'related_to': made['seo'], 'labels': ['infra', 'seo'], 'plan_day': day(-3), 'plan_week': week(),
         'due': day(3)}, 'Waiting for Elena to confirm a window. Escalated in the weekly sync.\n', created=-10, updated=-3)
     mk('t_ssl', 'task', 'Renew the SSL certificate for shop.acme-shop.com', {
-        'status': 'ToDo', 'priority': 'Urgent', 'labels': ['infra'], 'plan_day': day(0), 'plan_week': week(), 'due': day(6), 'today_list': 'afternoon'},
+        'status': 'ToDo', 'priority': 'Urgent', 'labels': ['infra'], 'plan_day': day(0), 'plan_week': week(), 'due': day(6)},
         'Expires in 6 days. The wildcard is managed by DevOps; ask for the CSR.\n', created=-2, updated=0)
     mk('t_backup', 'task', 'Verify the nightly database backup restores', {
         'status': 'ToDo', 'priority': 'Normal', 'labels': ['infra'], 'plan_day': day(1), 'plan_week': week(), 'due': day(14)},
@@ -394,8 +398,9 @@ def build(s):
 
     # ── pins and the Today board ─────────────────────────────────────────────────────────────────────
     s.save_pins([made['checkout'], made['t_sandbox']])
-    s.save_today_lists([{'id': 'uncategorized', 'name': 'Uncategorized'}, {'id': 'morning', 'name': 'Morning'},
-                        {'id': 'afternoon', 'name': 'Afternoon'}, {'id': 'waiting', 'name': 'Waiting'}])
+    s.save_custom_board('today', columns=[{'id': 'uncategorized', 'name': 'Uncategorized'}, {'id': 'morning', 'name': 'Morning'},
+                                          {'id': 'afternoon', 'name': 'Afternoon'}, {'id': 'waiting', 'name': 'Waiting'}],
+                        place={made[k]: [col, None] for k, col in TODAY_COLUMNS.items()})
     print(f"created {len(made)} items, {len(log)} work-log entries")
 
 

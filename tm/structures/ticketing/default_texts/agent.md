@@ -1,18 +1,24 @@
-## Purpose
+## Objective
 
-What it does, for whom, and why it is worth having.
+What the system sets out to achieve, for whom; what it must never sacrifice; when it is done.
 
-## Inputs
+## Context
 
-## Outputs
+What enters its context window and what does not: the entity it governs, the boundary.
 
-## Tools
+## Harness and architecture
 
-## Prompt
+Which harness and architecture, and why: the branch of the decision tree taken, and the evidence for it, dated.
+Start at AR-1 and move up only with measured evidence.
 
-## Evaluation
+## Contracts
 
-How you know it works: the cases it must get right, and how they are checked.
+Per boundary: what goes in, what comes out, its maximum size, the single writer, what does not travel, what happens
+if it fails.
+
+## Evals
+
+One case per rule it must not break, run more than once. "Not checked" is not "passed".
 
 ## Runbook
 

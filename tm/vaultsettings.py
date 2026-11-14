@@ -19,7 +19,7 @@ KEYS = ('disabled_types', 'disabled_features')  # what the file may hold; anythi
 # Nothing is ever deleted: turned on again, everything is back.
 FEATURES = (
     {'id': 'agents', 'label': 'AI Agents', 'types': ('agent', 'prompt'), 'follows_types': False,
-     'hides': 'Agents and Prompts, an item’s AI Agents tab and Claude button, the sidebar’s Agents mode and its runs'},
+     'hides': 'Agents and Prompts, an item’s AI Sessions tab and Claude button, the sidebar’s Agents mode and its runs'},
     {'id': 'canvas', 'label': 'Canvas', 'types': (), 'follows_types': False,
      'hides': 'the Canvas page, an item’s Canvas tab and the Goals page’s canvas layout'},
     {'id': 'inbox', 'label': 'Inbox', 'types': ('inbox',), 'follows_types': True,

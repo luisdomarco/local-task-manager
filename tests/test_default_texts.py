@@ -108,6 +108,71 @@ class CreateTest(Base):
         self.assertEqual(body_of(read(self.root, task['path'])), 'Ask Ana first.\n\n## Steps')
 
 
+class KindTextTest(Base):
+    """An initiative's text, and its stories', PRDs' and plans', may differ by its kind: <type>.<kind>.md, else <type>.md."""
+
+    def ini(self, kind, **extra):
+        return self.s.create('initiative', f'A {kind} one', {'project': 'ACME', 'initiative_kind': kind, **extra})
+
+    def body(self, it):
+        return body_of(read(self.root, it['path']))
+
+    def test_the_shipped_kind_texts_are_seeded_and_a_kind_without_one_reads_its_types(self):
+        shipped = TicketingCodec.default_kind_texts()
+        self.assertEqual(read(self.folder, 'initiative.system.md'), shipped['initiative']['system'])
+        self.assertEqual(read(self.folder, 'initiative.simple.md'), shipped['initiative']['simple'])
+        self.assertFalse(os.path.exists(os.path.join(self.folder, 'initiative.product.md')))
+        texts = self.s.default_kind_texts()
+        self.assertEqual(set(texts['initiative']), {'product', 'system', 'simple'})
+        self.assertEqual(set(texts['story']), {'product', 'system'})  # none hangs from a simple one
+        self.assertNotIn('task', texts)
+        self.assertEqual(texts['initiative']['product'], '')
+
+    def test_an_initiative_starts_with_its_kinds_text(self):
+        self.assertIn('## Architecture', self.body(self.ini('system')))
+        self.s.create('project', 'Ops', {'project_key': 'OPS'})  # no project_kind of before: a new one is simple
+        self.assertIn('## Steps', self.body(self.s.create('initiative', 'Plain', {'project': 'OPS'})))
+        # In a project of before (project_kind: product), one that says no kind is a product, as its others
+        self.assertNotIn('## Steps', self.body(self.s.create('initiative', 'Old', {'project': 'ACME'})))
+        self.assertEqual(self.body(self.ini('product')), self.s.default_text('initiative').strip('\n'))
+
+    def test_a_story_or_a_plan_takes_its_initiatives_kind(self):
+        self.s.set_default_text('story', '## Agent story', kind='system')
+        system, product = self.ini('system'), self.ini('product')
+        self.assertEqual(self.body(self.s.create('story', 'S', {'project': 'ACME', 'related_to': system['id']})), '## Agent story')
+        self.assertIn('## Acceptance criteria', self.body(self.s.create('story', 'P', {'project': 'ACME', 'related_to': product['id']})))
+        self.s.set_default_text('plan', '## Agent plan', kind='system')
+        self.assertEqual(self.body(self.s.create('plan', 'Pl', {'project': 'ACME', 'related_to': system['id']})), '## Agent plan')
+
+    def test_an_emptied_kind_text_means_its_types_and_is_not_seeded_again(self):
+        self.s.set_default_text('initiative', '', kind='system')
+        self.assertEqual(read(self.folder, 'initiative.system.md'), '')
+        self.assertFalse(self.s.seed_default_texts())
+        self.assertEqual(self.body(self.ini('system')), self.s.default_text('initiative').strip('\n'))
+
+    def test_a_vault_from_before_kind_texts_gets_them_at_its_next_write(self):
+        for k in ('system', 'simple'):
+            os.remove(os.path.join(self.folder, f'initiative.{k}.md'))
+        s = Store(self.root, structure='ticketing', enforce_structure=True)
+        self.assertIn('## Architecture', s.default_kind_texts()['initiative']['system'])  # read: what it will be given
+        self.assertFalse(os.path.exists(os.path.join(self.folder, 'initiative.system.md')))
+        self.assertTrue(s.seed_default_texts())
+        self.assertEqual(read(self.folder, 'initiative.system.md'), TicketingCodec.default_kind_texts()['initiative']['system'])
+        self.assertEqual(read(self.folder, 'story.md'), TicketingCodec.default_texts()['story'])  # a type's: untouched
+
+    def test_set_refuses_a_kind_a_type_has_no_text_for(self):
+        for t, k in (('task', 'system'), ('story', 'simple'), ('initiative', 'nope')):
+            with self.subTest(t=t, k=k), self.assertRaises(StoreError):
+                self.s.set_default_text(t, 'x', kind=k)
+
+    def test_a_converted_inbox_item_takes_its_kinds_text_after_what_was_captured(self):
+        inbox = self.s.create('inbox', 'Bot', {}, body='Ask Ana first.')
+        it = self.s.convert(inbox['key'], 'initiative', {'project': 'ACME', 'initiative_kind': 'system'})
+        body = self.body(it)
+        self.assertTrue(body.startswith('Ask Ana first.\n\n> [!owner]'), body[:60])
+        self.assertIn('## Architecture', body)
+
+
 class RouteTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -139,6 +204,14 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(out['texts']['task'], '')
         out = self.route('POST', '/api/vault/default-text', {'type': 'task', 'text': '## Notes\r\n'})
         self.assertEqual(out['texts']['task'], '## Notes\n')
+
+    def test_texts_per_kind_through_the_routes(self):
+        out = self.route('GET', '/api/vault/default-texts')
+        self.assertEqual([k for k, _ in out['kinds']], ['product', 'system', 'simple'])
+        self.assertIn('## Architecture', out['kind_texts']['initiative']['system'])
+        out = self.route('POST', '/api/vault/default-text', {'type': 'story', 'kind': 'system', 'text': '## Bot'})
+        self.assertEqual(out['kind_texts']['story']['system'], '## Bot\n')
+        self.assertNotIn('## Bot', out['texts']['story'])  # the type's own: untouched
 
     def test_the_server_seeds_a_vault_once_at_start(self):
         self.assertTrue(self.s.check()['ok'], self.s.check())

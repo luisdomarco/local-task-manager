@@ -147,8 +147,8 @@
   #modal.is-create .prop-rows .field { grid-template-columns: minmax(0, 1fr); row-gap: 4px; padding: 6px 0; }
   .full-btn { width: var(--tap); height: var(--tap); }
 
-  /* Settings: tabs, swatches, switches and row actions a finger hits; the fold heads of Export too */
-  .settings .tab-btn, .settings .tabs-bar .btn { height: var(--tap); }
+  /* Settings: its section links, swatches, switches and row actions a finger hits; the fold heads of Export too */
+  .settings-nav-item { min-height: var(--tap); }
   .swatch { width: var(--tap); height: var(--tap); }
   .seg .btn { height: 40px; }
   .btn.icon.row-action { width: var(--tap); height: var(--tap); }
@@ -162,19 +162,18 @@
   /* ── collections (phase 3): lists, tables, Inbox, boards, planning ── */
   /* A list's row (app.css's two-line row, from 760 on a phone): the subject in full on up to two lines; the box to tick
      and the status's dot each a finger's target (list.js wraps the box in .pick-hit) */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 38px 30px auto minmax(0, 1fr) auto; column-gap: 6px; min-height: 64px; padding: 8px 4px 8px 0; }
+  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 44px 36px auto auto auto minmax(0, 1fr); column-gap: 0; min-height: 64px; padding: 8px 4px 8px 0; }
   /* The tick box and the dot (44px targets) down both lines, so neither stretches the first: the subject and its id
      sit together, the id right under it (no gap, a tight line), the pair centred in the row. A row is 60px with a
      one-line subject — a list app's row on a phone, not a card — and grows with a second line */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject subject when" "pick dot id where where";
+  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject subject subject subject" "pick dot id prio when where";
     align-content: center; row-gap: 0; min-height: 60px; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { font-size: var(--fs-base); line-height: 1.3; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .item-link { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-initiative, .c-project, .c-parent) { font-size: var(--fs-2xs); line-height: 1.3; }
-  /* (a date at the right makes the first line's track taller: the subject keeps to its foot, the id to its head, so
-     the two stay together whatever sits beside them) */
+  /* (the subject keeps to its line's foot, what is under it to its head, so the two stay together) */
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { align-self: end; }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-initiative, .c-project, .c-parent) { align-self: start; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-priority, .c-plan, .c-due, .c-date, .c-initiative, .c-project, .c-parent) { align-self: start; line-height: 1.3; }
   .list-main .grid tbody tr > td.c-status .select-btn { width: var(--tap); max-width: none; height: var(--tap); margin: 0 -7px; }
   /* (app.css holds the cell at 20px with !important: it stays, centred, and its target spills over it) */
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { overflow: visible; justify-self: center; justify-content: center; }
@@ -232,7 +231,8 @@
   .quick-add.has-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .quick-add.has-add > .qa-input { flex: 1 1 0; min-width: 0; }
   .quick-add.has-add > .qa-add { flex: none; height: var(--tap); padding: 0 16px; }
-  .quick-add.has-add > .qa-preview { flex: 1 1 100%; margin-top: 0; }
+  .quick-add.has-add > :is(.qa-preview, .qa-files) { flex: 1 1 100%; margin-top: 0; }
+  .quick-add.has-clip > .qa-clip { width: var(--tap); height: var(--tap); }
   .qa-input { height: 48px; font-size: var(--fs-field); }
   .board-col .qa-input { height: var(--tap); }
   /* Inbox (Projects): "Related to" is in the card's Properties (file_under), Convert to in its head; the row is its
@@ -272,6 +272,7 @@
   .tag-grid tbody tr:not(.tag-edit) > td:not(.c-name, .c-count, .c-actions):has(> .muted:only-child) { display: none; } /* a — says nothing */
   .tag-grid td.c-actions .row-action:first-child { display: none; } /* Edit: the row is */
   .tag-grid tr.tag-edit, .tag-grid tr.tag-edit > td { display: block; }
+  .tag-grid tr.tag-edit > td { height: auto; overflow: visible; }  /* .grid td's row height would clip the open row */
   /* Settings → Vaults (views/vaults.js): a vault's name and chips (This page, Default) on its line, its folder under it,
      then its structure, types and features; Edit and Remove a finger's at the right. A tap on the name edits it. */
   .vault-grid { width: 100%; }

@@ -41,6 +41,16 @@ import { refOf } from './shownid.js';
 export const kindOfBinding = (b) => kindFor({ type: b.type, fields: { project: b.get('project'), project_key: b.get('project_key'),
   [STRUCTURE.kind_key]: b.get(STRUCTURE.kind_key), [STRUCTURE.legacy_kind_key]: b.get(STRUCTURE.legacy_kind_key) } }, state.all);
 
+/** What a binding's fields' conditions read (rules.js shownWhen): its own values, and `parent.<key>` from the item it
+ *  hangs from (an entity's architecture). */
+export const whenOf = (b) => (key) => {
+  if (!key.startsWith('parent.')) return b.get(key);
+  const id = b.get('related_to');
+  return id ? state.all.find((i) => i.id === id)?.fields[key.slice(7)] : null;
+};
+/** A binding's own fields: as its kind keeps them, and those whose condition holds. */
+export const propsOfBinding = (b) => propsOf(b.type, kindOfBinding(b), whenOf(b));
+
 // ── the shell ────────────────────────────────────────────────────────────────
 
 // The right column of a card, a form or a page folds to a narrow strip. It starts open, and the choice is kept per kind
@@ -195,7 +205,7 @@ export function itemFields(b) {
   const out = [];
   // Fields the right column shows instead: all of them on a card (sidePanel), the ones the create form names (aside).
   const aside = (key) => b.sidePanel || !!b.aside?.has(key);
-  const props = propsOf(type, kindOfBinding(b)); // its own fields, as its project's kind keeps them
+  const props = propsOfBinding(b); // its own fields, as its kind keeps them and their conditions allow
 
   const text = (key, attrs = {}) => {
     const el = h('input', { type: 'text', value: b.get(key) || '', 'data-fk': key, ...attrs });
@@ -235,6 +245,14 @@ export function itemFields(b) {
       (v) => b.set('priority', v), { class: 'prio-select', 'aria-label': 'Priority', 'data-fk': 'priority' })));
     out.push(propRow('Priority reason', text('priority_reason', { placeholder: 'Why this priority', 'aria-label': 'Priority reason' }), { cls: 'span2' }));
   };
+
+  // What the item is, above all the rest (`slot: 'lead'`: an initiative's Kind), a block of its own (.prop-lead).
+  for (const p of props.filter((x) => x.slot === 'lead')) {
+    if (b.creating && !askedOnCreate(p)) continue;
+    const row = propField(b, p);
+    row?.classList?.add('prop-lead');
+    if (row) out.push(row);
+  }
 
   if (type === 'activity') { // where the message came from comes before what it is about
     out.push(propRow('Source', select(ACTIVITY_SOURCES.map((s) => [s, s]), b.get('source') || 'Email', (v) => b.set('source', v), { 'data-fk': 'source' })));
@@ -302,7 +320,7 @@ export function itemFields(b) {
   // An item's card or page shows here only its properties (tab 'main'); the rest sit in their side tab (panel.js). The
   // create form moves the tabs it names (b.aside: 'tab:details', 'tab:delivery', 'tab:relations') to its right column.
   for (const p of props) {
-    if (p.slot === 'priority') continue; // drawn in priority's slot, above
+    if (p.slot === 'priority' || p.slot === 'lead') continue; // drawn in their slot, above
     if (b.creating && !askedOnCreate(p)) continue; // set by the app, nothing to fill in yet
     const tab = tabOf(p);
     if (tab === 'hidden' || (tab !== 'main' && aside(`tab:${tab}`))) continue;
@@ -327,10 +345,11 @@ export function breakBlocks(rows) {
 }
 
 /** The block (PROP_BLOCKS) of each of a list's own rows, by the key of its field: a row of no block goes with the one
- *  before it. → [row, block number] */
+ *  before it; a lead row (.prop-lead) is a block of its own, before them all. → [row, block number] */
 export function blocksOf(rows) {
   let n = 0;
   return rows.map((el) => {
+    if (el.classList?.contains('prop-lead')) { n = -1; return [el, n]; }
     const at = PROP_BLOCKS.findIndex((keys) => keys.includes(el.querySelector('[data-fk]')?.dataset.fk));
     if (at >= 0) n = at;
     return [el, n];
@@ -370,7 +389,7 @@ export function aimFields(b) {
 
 /** The groups of one tab's props without a title of their own (a tab of the page holds them); null without any. */
 function groupedBody(b, tab) {
-  const props = propsIn(b.type, tab, kindOfBinding(b)).filter((p) => !b.creating || askedOnCreate(p));
+  const props = propsIn(b.type, tab, kindOfBinding(b), whenOf(b)).filter((p) => !b.creating || askedOnCreate(p));
   if (!props.length) return null;
   return quietBlanks(h('div', { class: `fold-groups ${tab}-body prop-rows quiet`, id: `${tab}-${String(b.key || 'new').replace(/[^\w-]/g, '-')}` }, propGroups(props, b)));
 }

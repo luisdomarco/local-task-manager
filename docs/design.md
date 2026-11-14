@@ -77,6 +77,15 @@ the themes layer, so a forced size that is Classic's alone is scoped to `:where(
 `modern.css` repeats the layer statement at its top: it can reach the page before main.css, and the first sheet to
 name the layers fixes their order.
 
+### The desktop app's window buttons
+
+Safari's web app on a Mac (*Add to Dock*, shown `standalone`) has no title bar: macOS draws close · minimise · zoom over
+the page's top-left corner. index.html's first script marks it with `mac-app` on the root (standalone, a Mac, no
+touch screen: never an iPhone or an iPad, which say *MacIntel* too); app.css, under `@media (display-mode:
+standalone)`, gives the sidebar `--titlebar-h` (28px) more at its top and, while the sidebar is hidden or a drawer,
+the top bar `--titlebar-w` (78px) more at its left. Full screen is not `standalone`, so the room goes with the buttons.
+Anything new pinned to the window's top-left corner leaves the same room.
+
 ### The phone layer
 
 A phone is **760px or less and a coarse pointer** (`phone.js` `PHONE_TOUCH`; `isPhone()` in JS). A narrow window on a
@@ -99,7 +108,7 @@ A computer never matches either, so the desktop is unchanged by construction (§
 | **The keyboard** | `keyboardShy()` (ui.js: ≤760 or a coarse pointer): a picker focuses its current row, not its search, and `focusFirst` skips text fields. A prompt whose only job is typing keeps its focus. |
 | **One tap acts** | iOS withholds the click of a tap whose mousemove changed the page. Hover in a list (the palette, the item picker) reacts to `pointerType === 'mouse'` only; tooltips too. |
 | **Hover** | What hover reveals shows from the start on `(pointer: coarse)` — not a quiet field's frame or a row's select's: those stay quiet, as on a computer, read as values, not a form. A hover background that would stick after a tap is in `@media (hover: hover)` in app.css. |
-| **The shell** | The drawer, the top bar, the view bar, the date picker, ⌘K, dialogs, Settings and the create form are sized in phone.css (`--control-h-sm` is 44 there). What a phone does differently in JS asks `isPhone()` / `isTouch()`: the drawer's focus and close (sidebar.js), long press on a tree row (treepane.js `longPress`), the Pinned button (pinbar.js), ⌘K's Cancel, `touchSearch()` (ui.js) on a search field, Settings' Keyboard tab. |
+| **The shell** | The drawer, the top bar, the view bar, the date picker, ⌘K, dialogs, Settings and the create form are sized in phone.css (`--control-h-sm` is 44 there). What a phone does differently in JS asks `isPhone()` / `isTouch()`: the drawer's focus and close (sidebar.js), long press on a tree row (treepane.js `longPress`), the Pinned button (pinbar.js), ⌘K's Cancel, `touchSearch()` (ui.js) on a search field, Settings' Keyboard section and its list of sections (`onPhone()` in views/settings.js). |
 | **Collections** | A list's row, an agenda's row (`.plan-row`, a grid of areas *tick · subject · act* over *tick · meta · act*), Labels' and Contacts' rows are two lines: the subject whole on two lines, what it carries under it. A list's row is a list app's, not a card: 60px with a one-line subject, growing with a second, its subject and id one block (no gap between them, the id's line 1.3) centred in it. A box that cannot grow (a list's tick, held at 20px by app.css's `!important`) sits in a 44px `label.pick-hit` that list.js builds only on a phone. A drag has a tap's way too: a board card's ⋯ *Move to…* and a column's ⋯ (boardview.js), Month's day sheet (month.js). A layout that is a screen of columns defaults to its list on a phone (Goals; Today already did). |
 | **Item, pages, Docs, graph** | The card is the whole screen (`#item-modal:not(.is-prompt)`, its height `--vvh`); the status pill under the title is as clear of it as of the tabs under the pill (the title's block pulls the tabs up; `.item-tabs` has no top padding there); panel.js on a phone puts the head's resolve, Promote, Escalate and Convert under the title (`.im-title-acts`). On a touch screen a tap on a description's text opens it (no Edit button) and **Done** (`.body-done`) or a tap outside closes it, saving; the outside close listens to pointer events with a 10px slop (mdblock.js `watchOutside`), never `click`, which WebKit does not fire on a tap on what is not clickable, a comment's Return is a newline (panel.js `commentBox`), and a render waits until a focused field is left (`keepFocus`). `.mde` is `overflow: clip` there, so its toolbar can stick. Docs shows its trees or a doc, never both (`.docs-page.no-doc` / `.has-doc`, app.css ≤760, with `.docs-back` *‹ Docs* over the doc), and a file's head puts its title on a line of its own and the modes (stretched) and *Download* (`.files-download`, its icon) in one row under it; graphcanvas.js gives a touch pointer `TOUCH_REACH` and `TOUCH_SLOP`, tap-to-light in place of hover, and *Centre here* while a node is lit. A drag down from the card's head closes it (`phone.js` `swipeDown`, `swipeCloses`; the head is `touch-action: none`). Properties keep the computer's two columns; a row of `row-list` is one line, the title at least 70% (`.work-meta`: the status's dot, the priority's bars and word). A comment's actions are one ⋯ (panel.js `commentActions`). A box too small to grow gets an `::after` hit area (`.vb-switch`). |
 | **Desktop untouched** | A control only a phone has is **built only when `isPhone()`**, never built and hidden: an extra element changes a computer's DOM (and the §5 gate's hash). `replaceChildren(...)` writes a `null` as the text "null": filter the list first. app.css's ≤640 rules a phone shares are widened with `, (max-width: 760px) and (pointer: coarse)`, which no computer matches. |
@@ -120,9 +129,22 @@ what one leaves out is the default.
 module), its rules in `modern.css` under `:root[data-skin="modern"][data-<option>="<value>"]`, a row in
 `views/themes.js` `ROWS`; if it changes a colour, add it to the loops of `tests/js/contrast.test.mjs`.
 
-**Reading options** (`READING` in `themeprefs.js`: `width`, Fit | Expanded) count in every look, Classic too: a
-`data-<key>` on the root in both, set before the first paint by the same script. A rule reads them as
-`:root[data-width="wide"] …` or `:root:not([data-width="wide"]) …`, never under `[data-skin]`.
+**Reading options** (`READING` in `themeprefs.js`: `width` Fit | Wide, `textsize`, `leading`, `paragraphs`,
+`lists`) count in every look, Classic too: a `data-<key>` on the root in both, set before the first paint by the same
+script. app.css turns them into tokens on `:root` — `--md-k` (a factor of the place's own size), `--md-lh` and
+`--md-lh-src` (the mono editors'), `--md-gap` (between paragraphs), `--md-list-gap` and `--md-li` (around a list and
+between items) — each default what the page had before. `.md`, the source editors (`.mde-text`, `.mde-hl`,
+`.body-editor`: both layers of the coloured editor read the same two, or the caret leaves its letter) and Live
+(`livemd.js` THEME) read the tokens, never the attributes; a rule that reads an attribute does it as
+`:root[data-width="wide"] …`, never under `[data-skin]`.
+
+**Shades** (`SHADES`: `light` Bright | Soft | Custom, `dark` Deep | Dim) are Modern's, like OPTIONS, but not part of a
+preset or Shuffle (as the density: how bright a page sits is not a look). Their rules sit right after the dark block,
+the attribute inside `:where()` — `:root[data-skin="modern"]:not(.dark):where([data-light="soft"])` — so they weigh what
+the dark block does and the sidebar's and canvas' options, later in the file, still win over them. Custom reads
+`--custom-bg`, which theme.js sets on the root from `tm-lightbg`; the panel only keeps a colour that
+`backgroundGuard` passes against the page's own inks, painted to sRGB through a canvas (a Radix colour is display-p3).
+`contrast.test.mjs` checks Soft and Dim with every base, accent, sidebar and canvas.
 
 **What reads the theme live**: the graph (`graphcanvas.js`) and the canvas (`canvas/whiteboard.js`) watch the root's
 attributes (`THEME_ATTRS`) and redraw on any of them. A terminal in the dock does not: it takes Claude Code's own theme.
@@ -257,8 +279,26 @@ of its own.
   item's tabs too: §Tabs); an empty one says what goes in it, its helper text (the field's `placeholder` in
   `tm/structures`: *feat/<topic>*, *Why it was dropped*), or *Empty* when it has none (`quietBlanks()`, which fills an
   empty `placeholder` too, and the `.select-label:empty::before` rule). A field is never left blank. Blocks of rows split by a line:
-  `blocksOf` + `breakBlocks` (`PROP_BLOCKS`: priority · dates · labels; the outside ticket last).
+  `blocksOf` + `breakBlocks` (`PROP_BLOCKS`: priority · dates · labels; the outside ticket last). A prop with `slot:
+  'lead'` (an initiative's Kind) is drawn first, a block of its own above the priority (`.prop-lead`), on the card, the
+  page and the create form alike; `slot: 'priority'` is the priority's own row.
 - Section heading over them: small caps grey (*PROPERTIES*), not a bold title.
+- **A note's frontmatter** (Explorer, Docs: `views/files.js` `propRowsOf`) is the same rows, read only, as Obsidian
+  draws them: `propRows` (`props.js`) gives each its type — text · list · tags · number · checkbox · date · datetime —
+  and `PROP_ICONS` its icon, drawn by the key (`.prop-key`, cut with … at 150px; 112px on a phone); a list's items and
+  `tags` are chips (`labelChip` for a tag), a date `shortDate`, a `[[note]]` a link (`.md-missing` when it is not in
+  the vault). A doc's own fields are the first rows of the same block (`.files-props`), with their icons too.
+- **A field shown only when it applies** says so as data, never in a view: its prop's `when` (`{entity_type: ['agent'],
+  'parent.scheme': ['B']}`, every key must hold; `parent.<key>` reads the item it hangs from). `rules.js shownWhen` /
+  `propsOf(type, kind, get)` and `itemform.js propsOfBinding` filter by it on the card, the page and the create form;
+  the form draws itself again when what it shows changes. A list's columns ignore it.
+- **A versioned item** (a `version` prop, read only: an architecture, an entity) gets a **Versions** side tab and a
+  `v1.2` chip after its ref, `.chip.warn` with *· edited* once it changed after its last version (`versionstab.js`). Its
+  dialogs are `.versions-modal` (`wide` to read or compare one: `diffBlock` over `parseUnifiedDiff`, the server's diff).
+- **An architecture's page** (`archview.js`): a notice under the title (`.arch-notice`: grey a hint, `.error` red for
+  AP-1), an **Entities** tab of `stackGroup`s per level, each row a `rowItem` with its shape (`.arch-shape model ·
+  deterministic · state · event · other`, the Map's language), and a **Map** tab drawn by `renderDiagrams` when it
+  shows (tabPanels `onShow`).
 
 ### Title
 
@@ -286,6 +326,7 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   (`tr.hover-host`), its main action (Restore, Confirm, Add) a small ghost button always shown; nothing to show is
   `pageEmpty(text)`, a quiet grey line, no box. Contacts' People · Groups are a section's tab links (`.section-tabs`).
   The Explorer's and Docs' tree filters are the same search box.
+- **Properties** (`views/properties.js`) is a page of that kind with an *Editable · All* `seg` in its bar: a row is the key as a note draws it (`.prop-key`: `PROP_ICONS` by `propType`), its type, its count and up to three value chips (`labelChip`, then *+N*). ✎ opens the Labels way, a `tr.tag-edit` under it with `.props-edit`: `propRow`s (*Name* with *Rename*; *Values*, a `ul.props-values` whose row turns into an input on a click) and `formActions` with the red *Delete property* as `lead`. A key the app keeps opens to a line saying so, never disabled controls. On a phone the open row grows with what it holds (`.tag-grid tr.tag-edit > td` drops the row height).
 - **Work log** is a list over log rows, not items: the whole `viewBar` (Filter, Group, Display) with its own fields,
   groups and columns (`worklogview.js`: `logFields`, `LOG_GROUPS`, `LOG_PROPS`), its date range a button right after
   Filter (`lead`) that opens a popover of presets and two days (`popover`, exported by viewbar.js). Its groups are a
@@ -307,7 +348,7 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   × on hover —, never a filled picker beside its row; an empty picker names what it picks in grey (*Pick a parent…*); the row
   that adds a relation has a
   primary *Add*, faded until an item is picked (`btn small primary`).
-- **Activity / AI Agents**: lists without frames but for what someone wrote or started. Activity under the name of each
+- **Activity / AI Sessions**: lists without frames but for what someone wrote or started. Activity under the name of each
   day (`.activity-day`), a comment a `surface-card` (`.activity-card`), an event a grey line with a dot; a session a
   `surface-card` too (`.cs-item`, title over a short meta with `agoLabel`, its ↗ ⋯ over its corner, `hover-reveal`).
 - **The view bar** (`viewbar.js` on `viewmodel.js`, the same on every list, board and section tab): `[Search] [Filter]
@@ -316,7 +357,10 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   its status dot, its name and its count (`valueCounts`, grey at 0), and *is / is not*. What is applied shows as chips
   under the bar — 26px pills with a hairline border on the page's background, "Project is" grey and the values
   dark ("Project is **Acme Web** ×" … *Clear* · *Save as view*) — which take no room when there are none. **Group** offers the
-  type's `group_by` plus Label (an item sits in each of its labels' groups), *Order in groups* and *Show empty groups*.
+  type's `group_by` plus Label (an item sits in each of its labels' groups), *Order in groups* and *Show empty groups*;
+  its head is *Group by* with the same ↑ / ↓ `seg` as Order's (`view.groupDesc`, through `grouping.js directed`: the
+  NONE group stays last), shown only for the list's own keys, not a board's Custom or Days. Status groups follow the
+  list's types (`rules.js statusRankIn`), never the best rank across every type of the vault.
   **Display**: Show closed (None / Last week / All), the columns to show (on a board, **Show on cards**: priority, ID,
   planned, due, labels, parent, project, ticket — `cardProps` / `cardShows`), on a board *Empty columns* (Show / Fold
   / Hide), and a foot with *Reset to default* left and **Save as view** right. Pills that turn a thing on or off
@@ -348,8 +392,10 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   focused head moves it one place, as a pinned chip does. The order is the view's, per grouping (`view.colOrder`,
   `colorder.js`), never Order's; Group says *Drag a column by its header to move it*, and once one moved, offers
   *Reset column order*. A board of columns that move is `boardOf({ onReorder })` with `movable` columns.
-- **On a phone (≤ 640px)**: a row is two lines — dot, subject and when (Planned, else Due, else Date) on the first, the
-  id · initiative or project in grey on the second; the top bar takes the list's title and its Add as "+", the pins
+- **On a phone (≤ 640px)**: a row is two lines — dot and subject, the whole width, on the first; on the second the id,
+  its priority (the list's own select, frameless, its bars and word; nothing when none was given), when (Planned, else
+  Due, else Date; red when late) and · initiative or project in grey, cut with … when it does not fit. No column gap:
+  a cell that shows keeps its own distance, so one left out leaves no hole; the top bar takes the list's title and its Add as "+", the pins
   giving way; the view bar and the applied filters slide sideways as 40px chips; the top bar's buttons are 44px.
 - **Bulk**: a pick column + `.bulk-bar` with one Undo (`bulk.js`); never confirm dialogs for reversible changes —
   toast with **Undo** (`toast(msg, false, { label: 'Undo', run })`).
@@ -396,7 +442,7 @@ until hovered or edited, an empty one saying what goes in it — and a text or a
 date or a number only what it needs (280px; a number 120px, a due day 96px), a read-only
 one plain (`.item-tabs .prop-readonly`), never a filled box. Which kinds
 stay in Overview: `WORK_KINDS` in `panel.js`. The side panel keeps what is about the item, not its content:
-Properties · Activity · AI Agents · Relations · Time, last.
+Properties · Activity · AI Sessions · Relations · Time, last.
 
 ### Planning (Today, Week, Month; `planrows.js`, `calendar.js`)
 
@@ -407,8 +453,14 @@ Properties · Activity · AI Agents · Relations · Time, last.
   title with the day line (date · done of planned · logged · next meeting). On a phone the title goes to the top
   bar and the switch, the nav and the day line stay.
 - **The view bar** on every Planning page: no search on Today; *Show closed* is None / All; the layout switch is the
-  page's own (`layout.options`): Today List | Board, Week List | Board | Free board, Month Calendar | Board. A note on
+  page's own (`layout.options`): Today List | Board, Week List | Board, Month Calendar | Board. A note on
   the bar says how the period goes (*3 of 7 done*, `note`); the Week board adds *Days* to Display (`displayRows`).
+- **Custom grouping**: a board's *Group* can offer keys only a board has (viewbar `boardGroupKeys`): the Week's
+  *Days | Custom*, the Month's *Horizons | Custom*, a type's board *… | Custom*. Custom's columns are the user's own
+  (Today's board is always Custom): `boardview.js customColumns(name, items, opts)` draws them — each with
+  `listHeader` (rename on double-click, ⋯ Rename · Move · Delete), *Uncategorized* first and fixed (`.default`, its
+  name muted), *Add a column* last (`addListColumn`), a header that drags. Where a card sits is the board's file
+  (customboard.js), never a field: reuse `customColumns`, never a list of columns of a page's own.
 - **Agenda** (Today's list, Week's list): sections, not boxes. A section head (`planSection`) is 36px — dot, name,
   count, a tag (*Today*), its action at the right (*Move all to this week*, a "+" on hover that opens the quick add) — a
   line under it, black for today; a past day grey. A row (`planRow`) is 42px on a grid: 14px box · subject (a
@@ -432,7 +484,8 @@ Properties · Activity · AI Agents · Relations · Time, last.
 
 - **Head**: *Goals* · *2 open · 1 closed* in grey · **Add goal** (primary). The view bar: **Filter** over the items
   (not the goals), **Display** (Show closed items; *Closed goals* Hide / Show, a `displayRows` row) and **List |
-  Board | Canvas**, kept per vault in this browser (`planViewOf('goals')`). Canvas: see *Canvases*.
+  Board | Timeline | Canvas**, kept per vault in this browser (`planViewOf('goals')`). Timeline: see *Timeline*;
+  Canvas: see *Canvases*.
 - **Board**: a column per goal (`boardOf`, `--board-col-w`), its head a `listHeader` — the goal's status dot, its name
   as a link that opens it, the count (its tooltip: *2 of 5 closed*) and ⋯ (Open, Rename, Move earlier / later, Mark
   done / Reopen). Its cards are the board's own. The last column is **Add a goal** (`addListColumn`: a name, Enter).
@@ -446,6 +499,30 @@ Properties · Activity · AI Agents · Relations · Time, last.
   group per kind it can hold, in the order of the hierarchy — Projects, Initiatives, Stories, Tasks, Notes —, shown even
   when empty, spaced as another item's groups under its description (no line of its own). Projects, initiatives and stories are born in their project, so their **+ Add** is an `itemPicker` of that
   type's open items in no goal; Tasks and Notes keep their quick add.
+
+### Timeline (`timelineview.js`, `timeline.js`)
+
+The layout Goals, Projects and Initiatives add after List · Board (`viewbar.js` `layout.options`; a list offers it when
+its type has `start`). The page's box takes the window's height (`board-layout`, as a board), and the timeline fills it.
+
+- **Its bar** (`.tl-tools`, over the grid, not in the view bar): **Types** a `checkSelect` (only when there is more than
+  one), **Days | Weeks | Months** a `seg`, then `.tl-move`: − / + as `btn icon small` (disabled at ±3) and **Today**
+  `btn ghost small` — kept together so they wrap as one on a phone.
+- **The grid** (`.tl-scroll` > `.tl-grid`): an HTML/CSS grid, `--tl-label` (280px; 150px under 640px) then the days'
+  width; every cell placed by `grid-area` (an auto-placed one would be shifted by today's line). The head's two lines
+  (`.tl-bands`: months, or years on Months; `.tl-ticks`: days, weeks or months) and the `.tl-corner` are sticky on top;
+  each row's `.tl-label` sticky left, indented by `--depth`; a band's name sticks past the names column (`overflow: clip`
+  on the band — `hidden` would make it a scroller and the name would not stick). Weekends are `--muted` on Days; the
+  lanes draw the ticks' lines with a repeating gradient.
+- **A bar** (`.tl-span`): its status's `--st-dot` (`s-<status>` class, so a custom status has its colour) mixed light
+  for the fill, full for the border; `.done` faded; `.open-end` (no due, running to today) dashed at its end; its name in
+  it, cut. `.tl-grip.start` / `.end` are invisible 8px handles over its ends (an `ew-resize` cursor), there only when the type has both `start` and `due`. A due alone is a
+  `.tl-diamond` (a 45° square). Today is `.tl-now`, a `--destructive` line over the rows, its tick red in the head.
+- **Dragging**: pointer capture, whole days (`dragSpan`), the bar redrawn live; on release `updateItem` with only the
+  keys that changed (`start`, `due`). A press that doesn't move opens the item; a cancelled pointer puts it back.
+  No drag on a phone (the row scrolls instead).
+- **Kept** in the page's view, `view.timeline` { types, scale, zoom, folded }; where it was scrolled survives a repaint
+  (a `WeakMap` per box), and a zoom keeps the day under the pointer (or the middle) where it was.
 
 ### Canvases (`canvas/`: Goals' Canvas, any page's)
 
@@ -590,7 +667,13 @@ Properties · Activity · AI Agents · Relations · Time, last.
   `prop-rows`, a row's keys as `kbd` chips where its name goes (`.keys`; "or" between two, none between keys pressed
   one after the other), what they do at the right, and a search over all of it (`.keys-search`). Themes opens with
   **Mode** (light, dark, system), its only place: the sidebar has no switch.
-- Settings: form tabs at `max-width: 860px`, sections one under another divided by a line, each setting a row
+- Settings: its sections in a column of links on the left (`settingsNav` in `views/settings.js`, the groups in
+  `settingsnav.js` `NAV_GROUPS`): a group's name a quiet title, each link drawn as the sidebar's (icon, name, the
+  current one `--accent` and `aria-current`), the panels `div.tab-panel[data-tab]` as `tabPanels`' so their CSS holds.
+  The address follows a pick with `replaceState` (a remount would drop what is typed); on a phone (≤760) the list and
+  a section are one at a time (`.settings-layout.no-section` / `.has-section`, with `.docs-back` *‹ Settings*), a pick
+  pushes a step of history so Back returns to the list. A new section goes in `ALL_TABS` and in one group.
+- Settings: every section the whole width beside its column of sections (no reading width), groups one under another divided by a line, each setting a row
   (`setRow(label, control, help)` in `views/settings.js`), the save bar sticky at the foot (`.settings-save`).
 - Settings → Vaults (`views/vaults.js`) is a page's rows (`table.grid.fixed.vault-grid`, its ✎ × `rowAction`s on hover,
   *New vault* a small ghost button in the section head), and one dialog per vault: `openDialog({ cls: 'vault-modal' })`
@@ -599,7 +682,9 @@ Properties · Activity · AI Agents · Relations · Time, last.
   (`phone.css`: name and its chips, the folder, then structure · types · features; the Default column is a chip by the
   name, as *This page*: a fourth item on line 3 has no room), and the dialog scrolls under its sticky foot. A setting that is the vault's own (its item types) is
   saved into the vault (`api.saveVaultSettings`), what is this device's (name, folder, default) into config.json.
-  **Default texts**, a tab of its own (`.vault-texts`), is in Projects a `select` of the types on and one `mdBlock` (`tabbed`, as the
+  **Default texts**, a tab of its own (`.vault-texts`), is in Projects a `select` of the types on (beside it, in
+  `.vault-text-pick`, a second `select` of initiative kinds for a type that has texts per kind: *Any kind* first, a kind
+  with none of its own marked *(uses any kind's)*) and one `mdBlock` (`tabbed`, as the
   create form's Description) saved as you type (`api.setDefaultText`), never through the dialog's Save; a save redraws
   only the picker's *(empty)* marks, so the editor keeps its focus. Its placeholders are listed under it as `code`. With
   nothing to set (a new vault, a folder gone, a structure changed but not saved, a legacy one) the tab is one `muted small` line saying why.
@@ -623,6 +708,10 @@ What marked reads plus Obsidian's own, one look everywhere Markdown is shown (a 
 - **Table**: always in `.md-table`, which scrolls sideways — never squeeze a table to fit. A cell of prose gets
   `.md-cell-mid` / `.md-cell-long` (9–28em / 16–28em, `cellClass` by its length); a short one stays on one line.
 - `==mark==` a soft yellow; `#tag` a quiet pill (`.md-tag`).
+- **Task list** (`- [ ]`): its line flows as any text, never a flex row (that made each word run, `code` and bold a
+  column of its own). The box hangs to the left of the first line, centred on it, and the wrapped lines start under the
+  text: the hang is `--task-box` (the checkbox's own size, larger on a phone, 18px in Classic) + 10px, and marked's
+  space after the box is dropped (`mdextras.js listitem`) so the first line starts where the others do.
 - **Blank lines**: each beyond the first is a `.md-gap` one line high (`keepBlankLines`, marked's `preprocess` hook).
 - **Diagram**: a ```` ```mermaid ```` fence becomes `.md-diagram` (`diagrams.js renderDiagrams`, called after the HTML
   is set; Mermaid loads only then), in Mermaid's `default` or `dark` theme by the page's, scrolling sideways when wider.
@@ -636,9 +725,35 @@ What marked reads plus Obsidian's own, one look everywhere Markdown is shown (a 
   (`setLinkContext`: Docs sets `docsHref` while shown, so nothing followed there leaves it). Call it after every
   `renderMarkdown` of vault text, next to `linkRefs`.
 - **A `[[link]]` to nothing**: `.md-missing`, its label muted with a dashed underline, `Not found: …` as its title.
+- **After the HTML is in, call `mdview.js drawRendered(root, {self, href})`** — never the renderers one by one: it draws
+  the diagrams, bases and draw.io diagrams, the embedded notes, Copy on code and the footnotes' tooltips, and hooks the
+  page's footnote clicks and hover preview once.
+- **Embedded note** (`![[Note]]`, `![[Note#Heading]]`, `![[Note#^id]]`): `.md-note-embed`, a `--border` box with a 3px
+  `--muted-foreground` bar on its left (a quote's shape, quieter), `.note-embed-head` its name (the `note` icon, muted,
+  a link) over `.note-embed-body.md`. `filetree.js noteSection` picks the part; three deep at most (`EMBED_DEPTH`).
+- **Code block**: `.md-code` wraps the `<pre>`; `.md-copy` an icon button (`copy`) at its top right over `--muted`,
+  shown on hover or focus, always on `pointer: coarse`.
+- **Footnotes**: the mark `sup.fn-ref > a.fn-link` (muted, 600; no href: the page's routes are its `#/…`), the list
+  `section.footnotes` under a `--border` rule in `--fs-sm`; a click lights the target (`.fn-lit`, the highlight's
+  yellow fading).
+- **Hover preview**: one `.md-hover` card for the page, `--popover` surface, `--shadow-lg`, at most 420 × 360, under
+  the link or over it when there is no room; its head `.md-hover-head` sticks. Mouse only (`pointerType`), never on touch.
 - **In the Live editor** (`livemd.js blockField`, `livemarks.js liveBlocks`): a table, a callout and a diagram the
   caret is not on are one `.cm-block-widget .md` drawn by `renderMarkdown`, so they look as here; hover outlines it
   (dashed `--border`), a click shows its Markdown.
+
+- **A draw.io diagram** (`.drawio`, `drawioview.js`): draw.io's viewer in a sandboxed `iframe.drawio-frame`, as tall as
+  the diagram (the frame says, 80–2000 px), on white paper in both themes (`.drawio-view`: a `--border` box, radius
+  `--radius`, its corners clipping the paper). Embedded (`.md-drawio`), it is framed as a base is, its name a link with
+  the `diagram` icon. Never draw its XML into the page: only the frame does.
+- **A base** (`.base`, `baseview.js`): its views a `seg` of tabs (`role: tablist`, the type's icon) with the count at
+  the right (*4 results*, muted), then a list's `table.grid` in `.table-wrap` (`th-btn` heads that sort, a group's
+  `tr.group-head` with `foldHead`, its summaries a muted last row), **Cards** (`.base-cards`: a grid of `--card` boxes,
+  radius `--radius` + 4px, a picture on top at 16:9, the title, then `prop-rows` of 72px names) or **List** (rows of
+  the name and its values joined by ·). A cell's value is drawn by `propview.js propValue`, the same as a note's
+  header; one that edits shows the hand and `--row-hover` on hover, its field a framed `.base-cell-input`. What it
+  cannot do is a `.base-notice` (the On hold tint; `.error` the destructive one), one line. Embedded, it is framed
+  (`.base-embed`: a `--border` box), its name a link with the `table` icon.
 
 **A file's header** (`views/files.js headMenu`): title · modes (`.seg`) · ⋯ (`.files-more`, a `dropdown`) — never
 more buttons beside it; what is done with the file goes in that menu. The reading column is `.files-col`,
@@ -686,7 +801,7 @@ does not match*, a vault row's *Folders for new items*), never for a section.
 
 ### Panel kit (the side panel's patterns, as components)
 
-The side panel (Properties · Activity · AI Agents · Relations · Time), Docs and Links are built of these; reach for them
+The side panel (Properties · Activity · AI Sessions · Relations · Time), Docs and Links are built of these; reach for them
 anywhere before a new style. JS in `ui.js`, CSS in `app.css` under *Panel kit*. They take the size of where they sit:
 the side panel sets 12px for all it holds (`--fs-side` on `.im-side.tabbed`, and `.menu-side` for what opens from it).
 
@@ -699,7 +814,7 @@ the side panel sets 12px for all it holds (`--fs-side` on `.im-side.tabbed`, and
 | Quiet pickers | a `.picks-quiet` around any `select()` (or a `propField`) | Frameless until hovered: then a border and its chevron, never a fill; the focus ring while open. An empty one reads its placeholder in grey. |
 | Group | `stackGroup(label, content, { title, aside })` → `.stack-group` / `.stack-label` (`.stack-head` with an `aside`) | Its name above what it holds (grey, `--fs-sm`), a line between one group and the next; no name, only the line. `aside` goes on the name's line at the right. |
 | Rows | `rowList(rows, { ordered })` of `rowItem({ text, href, ico, meta, mono, lead, depth, actions, linkAttrs, tip })` | Plain rows: no box, no line, the accent on hover; icon + title, a muted meta at the right (an id, a folder, a link's label), text level with the group's name; `depth` steps a chain in. With `onClick` instead of `href`, a button (a file opened in a dialog); with neither, a muted line. In an item's tabs, the title in plain weight. |
-| Row action | `rowAction(ico, label, (e, btn) => …)` | A 24px icon button (× to unlink, ☆ to make it the main, ⋯ for more), shown on the row's hover. A row that opens to edit (a link's *Edit*) is a `.row-edit` li holding the same row the add button opens. |
+| Row action | `rowAction(ico, label, (e, btn) => …)` | A 24px icon button (× to unlink, ☆ to make it the main, ⋯ for more, the Inbox's trash to discard), shown on the row's hover (its host `.hover-host`). A row that opens to edit (a link's *Edit*) is a `.row-edit` li holding the same row the add button opens. |
 | Remove (×) | `removeButton(label, onClick, { size, cls, keepFocus })` | `size: 'chip'` inside a chip or a tag: its colour, at .7 until hovered. `'row'` (the default) a 22px square, muted, `--row-hover` on hover: a pinned item's, a terminal's, a filter pill's (round there, `vb-chip-x`). `label` is its tooltip and its name; where it shows is the caller's (`.td-x` only on its row's hover). A row's own × is a `rowAction('x', …)`. Its size class is `x-row` / `x-chip`, never a bare `chip`: that would make it a chip to `.chip`'s rules and selectors. |
 | Segmented choice | `seg(options, current, onPick, { aria, role, small, disabled, cls })`, `options` of `[value, label, { ico, tip, disabled, lead, attrs }]` | One `.seg` of buttons, the picked one pressed. A `label` of `null` is an icon-only button named by `tip`. `role` says what it is: `group` (`aria-pressed`, the default), `tablist` (`role="tab"`, `aria-selected`: Canvas's *Shapes · Items*) or `radiogroup` (`aria-checked`: a label filter's *And · Or*). Not for links (Planning's *Day · Week · Month* are links in a `.seg`). |
 | Section label | `sectionLabel(content, tag = 'h4')` → `.section-label` (`content` a text, or `[text, …nodes]`) | The small uppercase grey title over a block (Settings' groups, Statuses' kinds, an item's property groups, Schedule's): `--fs-2xs`, 600, `.04em`. Its margin is its place's. |
@@ -776,8 +891,8 @@ Inbox and the Home unless Display → *Archived runs* shows them (a `vb-row` wit
 *Closed goals*); an agent's page keeps them, *Archived* in their meta. Neither the Inbox nor the Home has a max
 width: they take the column, as every page of the section. **The status is a dot and a word, never a filled chip**: amber needs you, blue works, green done, red
 failed, grey stopped; the same dot marks an agent's row in the sidebar and the Inbox row's count turns amber while one
-needs you. The agents themselves are listed in the sidebar only, under **Favourites** (`.agents-favs`: the Projects
-mode's `.side-title`, never folding, not there while none is starred) and then a section per folder.
+needs you. The agents themselves are listed in the sidebar only, under **Favourites** (`.agents-favs`: a
+`.side-title`, never folding — the Projects mode's Favourites and Views fold, as More — not there while none is starred) and then a section per folder.
 
 **An agent's page** is a head and tabs, its figures in the side panel. **The head** (`.agents-head-page`): crumbs (`.agents-crumbs`:
 folder icon and name, its namespace after a `/`, muted and small), then a row of the name (the `h1`, as an item
@@ -921,9 +1036,14 @@ behave:
 | `h`, `icon`, `select`, `dropdown`, `tabPanels`, `itemCard`, `statusChip`, `statusLabel`, `emptyState`, `openDialog`, `trapFocus`, `emptyLine`, `loadingLine`, `formActions`, `linkButton`, `closedToggle`, `propRow`, `floating`, `closeFloating`, `floatingFrom`, `carriedAction`, `foldHead`; the Panel kit (`secondaryButton`, `tabAddButton`, `stackGroup`, `rowList`, `rowItem`, `rowAction`, `removeButton`, `seg`, `sectionLabel`, `countOf`) | `static/js/ui.js` |
 | Property fields, `statusSelect`, `quietBlanks`, `planControl` | `static/js/itemform.js` |
 | The description block (`mdBlock`: rendered box, editor on a click, full screen) | `static/js/mdblock.js` |
-| The Markdown editor (`mdEditor`: toolbar, Live / Markdown / Both / View); Live's drawing; its menus and links | `static/js/mdeditor.js`; `livemd.js` (CodeMirror, its `THEME`) and `livemarks.js`; `completions.js` and `vaultlinks.js` |
+| The quick add (`quickAddBar`; `files` for the Inbox's paperclip, paste and drop — the waiting files are `.qa-files` chips, the frame lit by `.qa-drop` — and `value` for a share, `share.js`) | `static/js/quickadd.js` |
+| The Markdown editor (`mdEditor`: toolbar, Live / Markdown / Both / View; `attach` for a doc's paperclip, paste and drop, the text in `attachtext.js`, `.mde-drop` while files are over it); Live's drawing; its menus and links | `static/js/mdeditor.js`; `livemd.js` (CodeMirror, its `THEME`) and `livemarks.js`; `completions.js` and `vaultlinks.js` |
 | Card and page layout, Properties, Relations, tabs of children | `static/js/panel.js` |
 | Tables | `static/js/datatable.js` |
 | The graph: canvas, layout and filters, edge styles | `static/js/graphcanvas.js`, `graphlayout.js`, `graphmodel.js`, `graphstyle.js` |
+| The Timeline layout: spans, scale, rows (pure); drawing and dragging | `static/js/timeline.js`; `timelineview.js` |
+| A base (.base): sort and cells (pure); its views drawn; a property's value as a note draws it | `static/js/bases.js`; `baseview.js`; `propview.js` |
+| A draw.io diagram: the sandboxed frame's document (pure); the frame, Diagram mode and `![[x.drawio]]` | `static/js/drawiodoc.js`; `drawioview.js` |
+| Read Markdown after it is drawn: embedded notes, Copy on code, footnote clicks, hover preview; Obsidian's syntax marked lacks (callouts, footnotes, comments) | `static/js/mdview.js`; `mdextras.js` |
 | Dates for reading | `static/js/dates.js` |
 | The redesign's mock-ups (card A, header B, initiative C, phone D) | the owner's design canvas: https://claude.ai/artifact/KjaKJv2B5fgcuN8EheQP7p (private; option A is the one built) |

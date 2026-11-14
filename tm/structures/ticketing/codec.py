@@ -18,6 +18,7 @@ import unicodedata
 
 from ... import frontmatter as fm
 from .. import NUMBER_RE
+from ..kinds import text_kinds
 from . import rules, wikilinks
 from .definition import (CLOSED, INDEX_NOTE, LEGACY_PARENT, OWN_CLOSED, OWN_STATUSES, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, STATUSES, BY_FILE_CLASS,
                          PROPS)
@@ -329,6 +330,20 @@ class TicketingCodec:
                 pass
         return out
 
+    @staticmethod
+    def default_kind_texts():
+        """The body a type starts with in an initiative of one kind, until a vault sets its own: {type: {kind: text}},
+        only the ones shipped (default_texts/<type>.<kind>.md); the others start with the type's own text."""
+        out = {}
+        for t in SPEC:
+            for k in text_kinds(t):
+                try:
+                    with open(os.path.join(DEFAULT_TEXTS, f'{t}.{k}.md'), encoding='utf-8') as f:
+                        out.setdefault(t, {})[k] = f.read()
+                except FileNotFoundError:
+                    pass
+        return out
+
     def new_file(self, t, subject, values, body, r, item_id, stamp, parent=None):
         """→ (path relative to the vault, text) of a new item: its frontmatter, filled in and patched with `values`, then
         `body` (what the form sent, or the vault's default text for the type: Store.create), its placeholders filled in
@@ -338,6 +353,8 @@ class TicketingCodec:
         parent_ref = ref(parent['type'], parent['id']) if parent else None
         name = self.file_name(t, item_id, subject, stamp, parent_id=parent_ref)
         folder = self.folder_of(t, project, r, subject)
+        if SPEC[t]['under_parent'] and parent_ref:  # an entity, in its architecture's folder (`Agents/AGT-3/`)
+            folder = f'{folder}/{parent_ref}'
         variables = {'id': item_id or '', 'ref': ref(t, item_id), 'key': project or '', 'project': p['name'] if p else '', 'title': subject,
                      'date': stamp[:10], 'slug': slugify(subject),
                      # what it hangs from (a plan's text names the initiative or story it executes)

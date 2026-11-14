@@ -1,27 +1,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { KEYS, OPTIONS, PRESETS, READING, SKINS, applyTheme, presetOf, presetValues, resolveTheme, shuffled } from '../../static/js/themeprefs.js';
+import { KEYS, OPTIONS, PRESETS, READING, SHADES, SKINS, applyTheme, backgroundGuard, contrastRatio, hexColour, presetOf, presetValues, resolveTheme,
+  rgbOf, shuffled } from '../../static/js/themeprefs.js';
 
-/** A stand-in for <html>: its dataset and classList, as applyTheme and index.html's script use them. */
+/** A stand-in for <html>: its dataset, classList and style (its custom properties in `props`), as applyTheme and
+ *  index.html's script use them. */
 function fakeRoot() {
   const classes = new Set();
+  const props = {};
   return {
     dataset: {},
+    props,
     classList: {
       toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); },
       add: (c) => classes.add(c),
       contains: (c) => classes.has(c),
     },
-    style: { setProperty() {} },
+    style: { setProperty: (k, v) => { props[k] = v; }, removeProperty: (k) => { delete props[k]; } },
   };
 }
-const shown = (root) => ({ ...root.dataset, dark: root.classList.contains('dark') });
+/** What a root shows: its attributes, `.dark` (as `isDark`: data-dark is the dark's shade) and its properties. */
+const shown = (root) => ({ ...root.dataset, isDark: root.classList.contains('dark'), ...root.props });
 
 const reading = Object.fromEntries(Object.entries(READING).map(([k, list]) => [k, list[0]])); // in every look
-const none = { ...Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, null])), ...reading };
+const none = { ...Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, null])), light: null, dark: null, lightbg: null, ...reading };
 const look = Object.fromEntries(Object.entries(OPTIONS).map(([k, list]) => [k, list[0]]));
-const defaults = { ...look, ...reading };
+const shade = { light: 'bright', dark: 'deep', lightbg: null }; // Modern's, the defaults
+const defaults = { ...look, ...shade, ...reading };
 
 test('defaults: Modern and its first options (Comfortable), the system decides light or dark', () => {
   assert.deepEqual(resolveTheme({}, false), { mode: 'system', theme: 'light', skin: 'modern', ...defaults });
@@ -46,7 +52,52 @@ test("Modern's options count only in Modern", () => {
     font: 'serif', heading: 'mono', menu: 'translucent', icons: 'thin' };
   assert.deepEqual(Object.keys(picked).sort(), Object.keys(OPTIONS).sort(), 'one of each option');
   assert.deepEqual(resolveTheme({ skin: 'classic', ...picked }), { mode: 'system', theme: 'light', skin: 'classic', ...none });
-  assert.deepEqual(resolveTheme({ skin: 'modern', ...picked }), { mode: 'system', theme: 'light', skin: 'modern', ...picked, ...reading });
+  assert.deepEqual(resolveTheme({ skin: 'modern', ...picked }), { mode: 'system', theme: 'light', skin: 'modern', ...picked, ...shade, ...reading });
+  // and so do the shades
+  assert.deepEqual(resolveTheme({ skin: 'classic', light: 'soft', dark: 'dim', lightbg: '#ffeedd' }), { mode: 'system', theme: 'light', skin: 'classic', ...none });
+});
+
+test("each mode's shade: known values, and Custom only with a colour kept", () => {
+  assert.deepEqual(Object.keys(SHADES), ['light', 'dark']);
+  assert.equal(resolveTheme({ light: 'soft', dark: 'dim' }).light, 'soft');
+  assert.equal(resolveTheme({ light: 'soft', dark: 'dim' }).dark, 'dim');
+  assert.equal(resolveTheme({ light: 'sepia', dark: 'oled' }).light, 'bright');
+  assert.equal(resolveTheme({ light: 'custom' }).light, 'bright', 'no colour kept: Bright');
+  assert.equal(resolveTheme({ light: 'custom', lightbg: 'peach' }).light, 'bright');
+  assert.deepEqual([resolveTheme({ light: 'custom', lightbg: ' #FFEEDD ' }).light, resolveTheme({ light: 'custom', lightbg: ' #FFEEDD ' }).lightbg],
+    ['custom', '#ffeedd']);
+  assert.equal(resolveTheme({ light: 'soft', lightbg: '#ffeedd' }).lightbg, '#ffeedd', 'kept while another shade shows, for the picker');
+  assert.ok(!('light' in presetValues('paper')) && !('light' in shuffled()), 'not part of a look');
+  assert.equal(KEYS.lightbg, 'tm-lightbg');
+});
+
+test('the custom colour is a token on the root, and comes off with it', () => {
+  const root = fakeRoot();
+  applyTheme(root, resolveTheme({ light: 'custom', lightbg: '#ffeedd' }));
+  assert.equal(root.props['--custom-bg'], '#ffeedd');
+  assert.equal(root.dataset.lightbg, '#ffeedd');
+  assert.equal(applyTheme(root, resolveTheme({ skin: 'classic' })), true);
+  assert.equal(root.props['--custom-bg'], undefined);
+});
+
+test('the contrast guard: what would not read on a colour of one\'s own, worst first', () => {
+  assert.deepEqual(rgbOf('#ffeedd'), [255, 238, 221]);
+  assert.deepEqual(rgbOf('#fed'), [255, 238, 221]);
+  assert.deepEqual(rgbOf('rgb(1, 2, 3)'), [1, 2, 3]);
+  assert.deepEqual(rgbOf('rgba(1, 2, 3, 0.5)'), [1, 2, 3]);
+  assert.equal(rgbOf('peach'), null);
+  assert.equal(hexColour('#ABCDEF'), '#abcdef');
+  assert.equal(hexColour('#abc'), null);
+  assert.equal(contrastRatio([0, 0, 0], [255, 255, 255]).toFixed(1), '21.0');
+  const inks = [
+    { name: 'Text', rgb: [32, 32, 32], min: 4.5 },
+    { name: 'Secondary text', rgb: [100, 100, 100], min: 4.5 },
+    { name: 'A field', rgb: [141, 141, 141], min: 3 },
+  ];
+  assert.deepEqual(backgroundGuard([252, 252, 252], inks), [], 'near white: everything reads');
+  const grey = backgroundGuard([170, 170, 170], inks);
+  assert.deepEqual(grey.map((r) => r.name), ['A field', 'Secondary text'], 'the furthest under its floor first');
+  assert.ok(grey.every((r) => r.ratio < r.min));
 });
 
 test('how Markdown reads counts in every look, Classic too', () => {
@@ -88,10 +139,11 @@ test('shuffle: one known value of each option, the density left alone', () => {
 test('applyTheme sets the attributes and the .dark class, and says when something changed', () => {
   const root = fakeRoot();
   assert.equal(applyTheme(root, resolveTheme({ skin: 'modern', mode: 'dark', accent: 'blue' })), true);
-  assert.deepEqual(shown(root), { theme: 'dark', skin: 'modern', ...defaults, accent: 'blue', dark: true });
+  const { lightbg, ...shownDefaults } = defaults; // no colour kept: no attribute
+  assert.deepEqual(shown(root), { theme: 'dark', skin: 'modern', ...shownDefaults, accent: 'blue', isDark: true });
   assert.equal(applyTheme(root, resolveTheme({ skin: 'modern', mode: 'dark', accent: 'blue' })), false);
   applyTheme(root, resolveTheme({ skin: 'classic', mode: 'light' }));
-  assert.deepEqual(shown(root), { theme: 'light', skin: 'classic', ...reading, dark: false });
+  assert.deepEqual(shown(root), { theme: 'light', skin: 'classic', ...reading, isDark: false });
 });
 
 // index.html applies the same choices before the first paint, in a few lines of its own: run them against the module.
@@ -127,6 +179,9 @@ test("index.html's first script shows what theme.js would, for every choice", ()
         check({ mode, skin }, systemDark);
         // each of Modern's options, one at a time, every value
         for (const [k, list] of Object.entries(OPTIONS)) for (const v of values(list)) check({ mode, skin, [k]: v }, systemDark);
+        // each mode's shade, and the light's own colour
+        for (const [k, list] of Object.entries(SHADES)) for (const v of values(list)) check({ mode, skin, [k]: v }, systemDark);
+        for (const bg of [null, '#ffeedd', ' #FFEEDD', 'peach']) check({ mode, skin, light: 'custom', lightbg: bg }, systemDark);
         // and how Markdown reads, in both looks
         for (const [k, list] of Object.entries(READING)) for (const v of values(list)) check({ mode, skin, [k]: v }, systemDark);
       }
@@ -134,4 +189,22 @@ test("index.html's first script shows what theme.js would, for every choice", ()
   }
   // and all of them at once
   check({ skin: 'modern', ...shuffled(() => 0.6), density: 'compact' }, true);
+});
+
+// The desktop app: the same first script marks Safari's web app on a Mac (`mac-app`), whose window buttons sit over
+// the page (app.css leaves them room); never a browser tab, an iPhone or an iPad.
+test("index.html's first script marks the Mac desktop app, and nothing else", () => {
+  const withNavigator = new Function('document', 'localStorage', 'matchMedia', 'innerWidth', 'location', 'URLSearchParams', 'navigator', firstScript);
+  const marked = (platform, maxTouchPoints, standalone) => {
+    const root = fakeRoot();
+    const matchMedia = (q) => ({ matches: q.includes('standalone') ? standalone : false });
+    withNavigator({ documentElement: root, write() {} }, { getItem: () => null }, matchMedia, 1200, { search: '' }, URLSearchParams,
+      { platform, maxTouchPoints });
+    return root.classList.contains('mac-app');
+  };
+  assert.equal(marked('MacIntel', 0, true), true, 'Add to Dock on a Mac');
+  assert.equal(marked('MacIntel', 0, false), false, 'a Safari or Chrome tab');
+  assert.equal(marked('MacIntel', 5, true), false, 'an iPad on the Home Screen says MacIntel too');
+  assert.equal(marked('iPhone', 5, true), false, 'an iPhone');
+  assert.equal(marked('Win32', 0, true), false, 'a desktop app elsewhere keeps its own title bar');
 });

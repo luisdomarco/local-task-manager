@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, MONTH_HORIZONS, carriedOverMonth, isLate, monthBuckets, planHorizon, matchesWhere, placement, planFilter,
+  PARENT_TYPES, PLANNABLE, PLAN_FILTERS, byManualOrder, carriedOverDay, carriedOverWeek, isArchived, isDone, isOverdue, isPlannedToday, labelsOf, labelsPass, MONTH_HORIZONS, carriedOverMonth, isLate, monthBuckets, planHorizon, matchesWhere, placement, planFilter, shownWhen,
 } from '../../static/js/rules.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -216,4 +216,23 @@ describe('status groups (TSK-037)', () => {
       setStructure(FOLDER_PER_TYPE);
     }
   });
+});
+
+describe('shownWhen: a field shown only when its condition holds', () => {
+  const role = { key: 'agent_role', when: { entity_type: ['agent'] } };
+  const steering = { key: 'steering', when: { entity_type: ['agent'], 'parent.scheme': ['B'] } };
+  const of = (vals) => (key) => vals[key];
+  it('a field without one always shows', () => assert.equal(shownWhen({ key: 'path' }, of({})), true));
+  it('nothing to read shows every field (a list\'s columns)', () => assert.equal(shownWhen(role, null), true));
+  it('one key: its value must be listed', () => {
+    assert.equal(shownWhen(role, of({ entity_type: 'agent' })), true);
+    assert.equal(shownWhen(role, of({ entity_type: 'skill' })), false);
+    assert.equal(shownWhen(role, of({})), false);
+  });
+  it('every key must hold, a parent\'s value too', () => {
+    assert.equal(shownWhen(steering, of({ entity_type: 'agent', 'parent.scheme': 'B' })), true);
+    assert.equal(shownWhen(steering, of({ entity_type: 'agent', 'parent.scheme': 'A' })), false);
+    assert.equal(shownWhen(steering, of({ entity_type: 'agent' })), false);
+  });
+  it('a value is read trimmed', () => assert.equal(shownWhen(role, of({ entity_type: ' agent ' })), true));
 });

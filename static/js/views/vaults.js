@@ -13,14 +13,16 @@ import { has, onPlatform } from '../features.js';
 import { folderButton } from '../folderpick.js';
 import { warningGroups } from '../housekeeping.js';
 import { reload, saveConfig, state, toast } from '../state.js';
-import { emptyLine, formActions, h, icon, loadingLine, openDialog, propRow, select, tabPanels } from '../ui.js';
+import { emptyLine, formActions, h, icon, loadingLine, openDialog, propRow, secondaryButton, select, tabPanels } from '../ui.js';
+import { reloadFromDisk } from '../vaultwatch.js';
 import { vaultId } from '../vault.js';
 import { isPhone } from '../phone.js';
 import { mdBlock } from '../mdblock.js';
 
-// Name and folder share what is left (their least here); the rest keep their widths.
+// The name takes what is left (its least here): it is what you look for. The folder keeps a width of its own (all of it
+// in its tooltip), as the rest do; together they fit Settings' 860px, so the table never scrolls on a desktop.
 const COLUMNS = fixedColumns([{ key: 'name' }, { key: 'path' }, { key: 'structure' }, { key: 'types' }, { key: 'features' }, { key: 'default' }, { key: 'actions' }],
-  { name: 180, path: 200 }, { structure: 130, types: 96, features: 96, default: 88, actions: 76 });
+  { name: 220 }, { path: 180, structure: 112, types: 94, features: 84, default: 76, actions: 76 });
 
 /** What a vault of a legacy structure is told: it keeps working, and how it moves to the current one. */
 export function legacyNote(structure, current) {
@@ -87,6 +89,18 @@ const typesHere = () => {
   return JSON.stringify([v?.disabled_types || [], v?.features_off || []]);
 };
 
+/** Reload from disk (vaultwatch.js): the vault read again whole, at once, not with Save. Files edited outside the app
+ *  show by themselves a few seconds later; this is for when something still looks out of date. */
+function reloadRow(id) {
+  const btn = secondaryButton('Reload from disk', { ico: 'refresh', class: 'small',
+    onclick: async () => {
+      btn.disabled = true;
+      try { await reloadFromDisk(id); } finally { btn.disabled = false; }
+    } });
+  return propRow('Read again', btn, { tag: 'div',
+    help: 'Files changed outside the app (Obsidian, iCloud, an agent) show by themselves within seconds. If something still looks out of date, this reads every file of the vault again.' });
+}
+
 /** The dialog that adds a vault (`vault` null) or edits one. Its own Save: General goes to config.json, Item types to
  *  the vault. */
 export function openVaultEditor(vault) {
@@ -139,7 +153,8 @@ export function openVaultEditor(vault) {
         h('input', { type: 'checkbox', checked: isDefault, disabled: !isNew && c.default_vault === v.id, 'aria-label': 'Default vault',
           onchange: (e) => { isDefault = e.target.checked; } }), 'Open this one when the address names none'),
       { tag: 'div', help: !isNew && c.default_vault === v.id ? 'To change it, make another vault the default.' : null }),
-      isNew || !has('agents') ? null : status ? agentsToggle(v.id, status) : propRow('Guide for agents', loadingLine(), { tag: 'div' })].filter(Boolean)),
+      isNew || !has('agents') ? null : status ? agentsToggle(v.id, status) : propRow('Guide for agents', loadingLine(), { tag: 'div' }),
+      isNew || v.missing ? null : reloadRow(v.id)].filter(Boolean)),
       movable.length ? h('details', {}, h('summary', {}, 'Folders for new items'),
         h('p', { class: 'muted small' }, 'Relative to the vault. Every one must exist for the vault to match its structure.'),
         h('div', { class: 'fields' }, movable.map(([t, def]) => propRow(t, h('input', { type: 'text', value: v.folders?.[t] || def,
@@ -210,36 +225,55 @@ export function openVaultEditor(vault) {
   // (.task-manager/templates/<type>.md) and saved as it is typed, apart from the dialog's Save. Only for a vault already
   // added whose folder is there; otherwise the tab says why it has nothing to set.
   const textsPane = h('div', { class: 'vault-texts' });
-  let texts = null; // GET /api/vault/default-texts of that vault: { texts, editable, placeholders }
+  // { texts, editable, placeholders, kinds: [[id, label]], kind_texts: {type: {kind: text}} } of that vault: GET
+  // /api/vault/default-texts. A type in kind_texts (an initiative, a story…) may have a text per initiative kind.
+  let texts = null;
   let textType = null;
+  let textKind = ''; // '' the type's own text (any kind)
+  const kindsOf = (t) => Object.keys((texts.kind_texts || {})[t] || {});
+  const kindLabel = (k) => ((texts.kinds || []).find(([x]) => x === k) || [k, k])[1];
+  const textOf = (t, k) => (k ? texts.kind_texts[t][k] : texts.texts[t]) || '';
   const textBlock = mdBlock({ fk: 'vault-default-text', minHeight: '160px', write: async (text) => {
     const t = textType;
-    const out = await api.setDefaultText(t, text, v.id);
-    texts = { ...texts, texts: out.texts };
-    drawPick(); // only its picker's "(empty)": the editor stays as it is, focused
+    const k = textKind;
+    const out = await api.setDefaultText(t, text, v.id, k);
+    texts = { ...texts, texts: out.texts, kind_texts: out.kind_texts || texts.kind_texts };
+    drawPick(); // only its pickers' "(empty)": the editor stays as it is, focused
     return text;
   } });
-  const showText = (t) => {
+  const showText = (t, k = '') => {
     textType = t;
-    textBlock.reset(texts.texts[t] || '');
-    textBlock.configure({ label: 'Default text', tabbed: true, title: `${labelOf(v.structure)} · ${typeLabel(t)}`,
-      emptyText: 'Empty: a new one starts with no text. Click to write one.', placeholder: 'Markdown — the sections a new one starts with' });
+    textKind = kindsOf(t).includes(k) ? k : '';
+    textBlock.reset(textOf(t, textKind));
+    textBlock.configure({ label: 'Default text', tabbed: true,
+      title: [labelOf(v.structure), typeLabel(t), textKind ? kindLabel(textKind) : null].filter(Boolean).join(' · '),
+      emptyText: textKind ? `Empty: a new one in an initiative of this kind starts with the text for any kind. Click to write one.`
+        : 'Empty: a new one starts with no text. Click to write one.',
+      placeholder: 'Markdown — the sections a new one starts with' });
   };
   const typeLabel = (t) => (((c.structure_types || {})[v.structure] || { types: [] }).types.find(([x]) => x === t) || [t, t])[1];
-  const pickHolder = h('div', { class: 'vault-text-type' });
+  const pickHolder = h('div', { class: 'vault-text-pick' });
   const shownTypes = () => {
     const gone = new Set(FEATURES.filter((f) => v.disabled_features.includes(f.id)).flatMap((f) => f.types));
     const off = new Set([...v.disabled_types, ...gone]);
     const order = ((c.structure_types || {})[v.structure] || { types: [] }).types.map(([t]) => t); // as the list above
     return order.filter((t) => t in texts.texts && !off.has(t));
   };
+  const pickText = async (t, k) => {
+    if (!t || (t === textType && k === textKind) || !(await textBlock.flush())) return;
+    showText(t, k);
+    drawPick();
+    textBlock.render();
+  };
   const drawPick = () => {
-    pickHolder.replaceChildren(select(shownTypes().map((t) => [t, texts.texts[t].trim() ? typeLabel(t) : `${typeLabel(t)} (empty)`]), textType, async (t) => {
-      if (!t || t === textType || !(await textBlock.flush())) return;
-      showText(t);
-      drawPick();
-      textBlock.render();
-    }, { 'aria-label': 'Type of the default text', search: !isPhone() }));
+    const kinds = kindsOf(textType);
+    pickHolder.replaceChildren(
+      select(shownTypes().map((t) => [t, texts.texts[t].trim() ? typeLabel(t) : `${typeLabel(t)} (empty)`]), textType,
+        (t) => pickText(t, textKind), { 'aria-label': 'Type of the default text', search: !isPhone() }),
+      // An initiative's text (a story's…) may differ by the initiative's kind: "Any kind" is the type's own, used by
+      // every kind with none of its own.
+      ...(kinds.length ? [select([['', 'Any kind'], ...kinds.map((k) => [k, textOf(textType, k).trim() ? kindLabel(k) : `${kindLabel(k)} (uses any kind’s)`])],
+        textKind, (k) => pickText(textType, k || ''), { 'aria-label': 'Initiative kind of the default text' })] : []));
   };
   let textsShown = false; // the picker and the editor are in the tab (drawn once, so an open editor keeps its focus)
   const textsNote = (text) => { textsShown = false; textsPane.replaceChildren(h('p', { class: 'muted small' }, text)); };
@@ -256,7 +290,7 @@ export function openVaultEditor(vault) {
     if (!textsShown) {
       textsShown = true;
       textsPane.replaceChildren(
-        h('p', { class: 'muted small' }, 'What a new item of each type starts with, here and in what agents and the vault’s command line create. Empty, it starts with no text. Kept in the vault, saved as you type.'),
+        h('p', { class: 'muted small' }, 'What a new item of each type starts with, here and in what agents and the vault’s command line create. Empty, it starts with no text. An initiative, and its stories, PRDs and plans, can have one per kind of initiative. Kept in the vault, saved as you type.'),
         pickHolder,
         textBlock.el,
         h('p', { class: 'muted small vault-placeholders' }, 'Filled in when the item is made: ',

@@ -2,7 +2,7 @@
 // Pure: no DOM, no state (the item lookup is passed in), so the rules are testable on their own.
 // The group headers are drawn by the list view (views/list.js).
 import { isoWeek, monthOf, shiftWeek, today, weekMonth } from './dates.js';
-import { PRIORITY_RANK, anyStatusRank, isDone } from './rules.js';
+import { PRIORITY_RANK, isDone, statusRankIn } from './rules.js';
 import { byGoalRank } from './goals.js';
 
 export const NONE = ''; // the group of rows that have no value: "No initiative", "Unplanned"…
@@ -65,15 +65,15 @@ export function planBucket(item, now = today()) {
 }
 
 const rank = (list) => (key) => { const i = list.indexOf(key); return i < 0 ? list.length : i; };
-const statusRank = anyStatusRank; // by group (Not started · In progress · Closed), then each type's order
 const planRank = rank(PLAN_BUCKETS.map(([k]) => k));
 
 /** Group keys by a name, the rows with no value (NONE) last. */
 const byName = (name) => (a, b) => (a === NONE ? 1 : b === NONE ? -1 : name(a).localeCompare(name(b)));
 
 /**
- * The ways a list can be grouped: { label, by(item, byId) → key, order(a, b, byId, projectName), lead?(key, item) }.
- * `projectName(key)` names a project by its key (a project note has no id, so it is not in byId). `lead` picks the
+ * The ways a list can be grouped: { label, by(item, byId) → key, order(a, b, byId, projectName, types), lead?(key, item) }.
+ * `projectName(key)` names a project by its key (a project note has no id, so it is not in byId); `types` are the list's
+ * own (its statuses go in their order: by group, Not started · In progress · Closed, then as the type lists them). `lead` picks the
  * row that goes first in its group, before the sort: the one the group is.
  * Which ones a list offers is up to its type (the structure's list config, views/list.js listConfig).
  */
@@ -100,7 +100,7 @@ export const GROUPS = {
     // By the project's name, the rows with no project last.
     order: (a, b, byId, projectName = (k) => k) => byName(projectName)(a, b),
   },
-  status: { label: 'Status', by: (i) => i.fields.status || 'Backlog', order: (a, b) => statusRank(a) - statusRank(b) },
+  status: { label: 'Status', by: (i) => i.fields.status || 'Backlog', order: (a, b, byId, projectName, types) => statusRankIn(types, a) - statusRankIn(types, b) },
   priority: {
     label: 'Priority',
     by: (i) => i.fields.priority || 'Normal',
@@ -110,3 +110,13 @@ export const GROUPS = {
 };
 
 export const planLabel = (key) => PLAN_BUCKETS.find(([k]) => k === key)?.[1] || key;
+
+/**
+ * Groups in the way picked (Group → ↑ / ↓): as they come, or reversed with the group of rows that have no value (NONE:
+ * no initiative, unplanned…) still last. `keyOf` reads a group's key ({ key } here; [key, rows] in the Inbox and Work log).
+ */
+export function directed(groups, desc, keyOf = (g) => g.key) {
+  if (!desc) return groups;
+  const none = groups.filter((g) => keyOf(g) === NONE);
+  return [...groups.filter((g) => keyOf(g) !== NONE).reverse(), ...none];
+}

@@ -181,6 +181,23 @@
   --shadow-lg: 0 18px 50px -12px rgb(0 0 0 / .8), 0 0 0 1px rgb(255 255 255 / .08);
   color-scheme: dark;
 }
+/* Each mode's shade (Settings → Themes → Mode; themeprefs.js SHADES), its default with no rule. The attribute in
+   :where(), so these weigh what the dark block does and the sidebar's and canvas' options (below) still win over them.
+   Soft: the page a step grey, the cards and menus white on it. Custom: the page a colour of one's own (--custom-bg,
+   set by theme.js; the panel refuses one that text would not read on). Dim: the dark a step up from near black, the
+   cards half a step more. tests/js/contrast.test.mjs checks Soft and Dim with every base and accent. */
+:root[data-skin="modern"]:not(.dark):where([data-light="soft"]) {
+  --background: var(--base-2); --well: var(--base-3); --sidebar: var(--base-3); --sidebar-hover: var(--base-5);
+  --card: var(--base-1); --popover: var(--base-1); --muted: var(--base-4); --accent: var(--base-5);
+}
+:root[data-skin="modern"]:not(.dark):where([data-light="custom"]) {
+  --background: var(--custom-bg, var(--base-1)); --well: var(--custom-bg, var(--base-2)); --sidebar: var(--custom-bg, var(--base-2));
+}
+:root[data-skin="modern"].dark:where([data-dark="dim"]) {
+  --background: var(--base-2); --sidebar: var(--base-2); --well: var(--base-2);
+  --card: color-mix(in srgb, var(--base-2) 50%, var(--base-3)); --popover: color-mix(in srgb, var(--base-2) 50%, var(--base-3)); /* step 3 drops iris' fill under 3:1 */
+  --muted: var(--base-4); --accent: var(--base-5); --sidebar-hover: var(--base-5); --border: var(--base-7);
+}
 /* figures line up in a table's columns */
 :root[data-skin="modern"] .grid { font-variant-numeric: tabular-nums; }
 /* Basecoat's switch (.vb-switch) has a fixed track, 32 × 18.4px, drawn round a knob of 4 steps of 4px: here the track

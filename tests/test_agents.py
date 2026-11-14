@@ -17,7 +17,8 @@ def read(root, rel):
 
 def sidebar(structure):
     """The 'types' group of the sidebar as the page draws it (static/js/main.js renderNav): plurals in order, '|' where
-    the section changes, a type in one of the structure's `sections` left for its tab; then those sections' names."""
+    the section changes, a type in one of the structure's `sections` left for its tab; then those sections' names, and
+    the 'after' group's plurals (Projects: AI Agents)."""
     sections = structure.extras.get('sections', [])
     tabs = {name for s in sections for name in s['types']}
     types = sorted((t for t in structure.types.values() if t.nav and t.nav['group'] == 'types' and t.name not in tabs),
@@ -27,22 +28,23 @@ def sidebar(structure):
         if i and t.nav['section'] != types[i - 1].nav['section']:
             out.append('|')
         out.append(t.plural)
-    return out + (['|', *(s['label'] for s in sections)] if sections else [])
+    after = sorted((t for t in structure.types.values() if t.nav and t.nav['group'] == 'after'), key=lambda t: t.nav['order'])
+    return out + (['|', *(s['label'] for s in sections)] if sections else []) + [t.plural for t in after]
 
 
 class SidebarTest(unittest.TestCase):
     def test_folders_in_sections(self):
         self.assertEqual(sidebar(FOLDER_PER_TYPE), ['Initiatives', 'User stories', 'Tasks', '|', 'Meetings', 'Transcriptions', 'Notes',
-                                           '|', 'Agents'])
+                                           '|', 'Architectures'])
 
     def test_ticketing_in_sections(self):
-        # Agents sit with the tools, under More; the rest are tabs of Meetings, Brief, Issues and Records
-        self.assertEqual(sidebar(get('ticketing')), ['Projects', 'Initiatives', 'Tasks', '|', 'Notes', '|',
-                                                     'Meetings', 'Brief', 'Issues', 'Records'])
+        # Goals open the main items; AI Agents come right after the sections (Meetings, Brief, Issues and Records)
+        self.assertEqual(sidebar(get('ticketing')), ['Goals', 'Projects', 'Initiatives', 'Tasks', '|', 'Notes', '|',
+                                                     'Meetings', 'Brief', 'Issues', 'Records', 'AI Agents'])
 
     def test_a_type_turned_off_leaves_no_tab_and_a_section_with_none_no_link(self):
         off = get('ticketing').without(['hotfix', 'error', 'learning'])
-        self.assertEqual(sidebar(off)[-4:], ['|', 'Meetings', 'Brief', 'Issues'])
+        self.assertEqual(sidebar(off)[-5:], ['|', 'Meetings', 'Brief', 'Issues', 'AI Agents'])
         self.assertEqual(next(s for s in off.public()['sections'] if s['key'] == 'issues')['types'], ['story', 'support'])
 
 
@@ -63,7 +65,7 @@ class FolderPerTypeAgentTest(unittest.TestCase):
         self.assertTrue(a['id'].startswith('AGT-'))
         self.assertEqual(a['fields']['status'], 'Idea')  # its own first status, not the Backlog
         self.assertEqual((a['fields']['platform'], a['fields']['trigger']), ('Agent SDK', 'scheduled'))
-        self.assertIn('## Purpose', read(self.root, a['path']))
+        self.assertIn('## Objective', read(self.root, a['path']))
         self.assertIn('## Runbook', read(self.root, a['path']))
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
@@ -76,7 +78,7 @@ class FolderPerTypeAgentTest(unittest.TestCase):
 
     def test_a_body_given_is_kept(self):
         a = self.s.create('agent', 'Mine', body='Just this')
-        self.assertNotIn('## Purpose', read(self.root, a['path']))
+        self.assertNotIn('## Objective', read(self.root, a['path']))
 
     def test_a_missing_required_folder_still_blocks(self):
         os.rmdir(os.path.join(self.root, 'tasks'))
@@ -104,7 +106,7 @@ class TicketingAgentTest(unittest.TestCase):
         self.assertIn('fileClass: Ticket Agent', text)
         self.assertIn('status_agent: Idea', text)
         self.assertIn('model: claude-sonnet-5-5', text)
-        self.assertIn('## Evaluation', text)
+        self.assertIn('## Evals', text)
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
     def test_its_status_is_written_as_it_is_and_logged(self):

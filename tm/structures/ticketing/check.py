@@ -152,8 +152,11 @@ def check(root, load=None):
                 continue
             if spec['scope'] == 'root':
                 home = spec['folder']
-                if rel_dir != home:
-                    blocking.append(_finding('wrong_folder', rel, f'A {t} belongs in "{home}".'))
+                # an entity sits in its architecture's own folder, one level down (`Agents/AGT-3/`); Agents/ itself too
+                own = spec['under_parent'] and rel_dir.startswith(home + '/') and '/' not in rel_dir[len(home) + 1:]
+                if rel_dir != home and not own:
+                    where = f'"{home}" or a folder in it' if spec['under_parent'] else f'"{home}"'
+                    blocking.append(_finding('wrong_folder', rel, f'A {t} belongs in {where}.'))
                     continue
                 prefix = spec['code']
             elif top not in projects and rel_dir == spec['folder']:  # a ticket in no project: its type's folder at the top

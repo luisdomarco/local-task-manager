@@ -1,0 +1,20 @@
+<mxfile host="Electron" version="24.7.17">
+  <diagram id="checkout" name="Checkout">
+    <mxGraphModel dx="800" dy="500" grid="1" gridSize="10" page="1" pageWidth="827" pageHeight="583">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cart" value="Cart" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="20" y="60" width="120" height="50" as="geometry" /></mxCell>
+        <mxCell id="saved" value="Card saved?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="190" y="45" width="120" height="80" as="geometry" /></mxCell>
+        <mxCell id="pay" value="Pay with saved card" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="370" y="0" width="140" height="50" as="geometry" /></mxCell>
+        <mxCell id="form" value="Card form" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="370" y="120" width="140" height="50" as="geometry" /></mxCell>
+        <mxCell id="done" value="Order confirmed" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="570" y="55" width="130" height="60" as="geometry" /></mxCell>
+        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="cart" target="saved"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="saved" target="pay"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="saved" target="form"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="pay" target="done"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;" edge="1" parent="1" source="form" target="done"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

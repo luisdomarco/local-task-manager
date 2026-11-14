@@ -12,8 +12,9 @@
 // or Shift+←/→ on it. The board fills the window: it scrolls sideways at the bottom, and each column on its own.
 import { dragsList, listDropZone, addListColumn, listHeader, moveEntries, moveList, startRename } from './kanban.js';
 import { quickAddBar } from './quickadd.js';
-import { STATUSES, anyStatusRank } from './rules.js';
-import { saveBoard, slugId, state, toast } from './state.js';
+import { STATUSES, anyStatusRank, isDone } from './rules.js';
+import { customBoard, saveBoard, saveCustomBoard, slugId, state, toast } from './state.js';
+import { UNCATEGORIZED, byColumn, placeCard, withoutColumn } from './customboard.js';
 import { countOf, cssKey, dropdown, dropZone, h, icon, itemCard, select, statusLabel } from './ui.js';
 import { isPhone } from './phone.js';
 
@@ -25,7 +26,8 @@ import { isPhone } from './phone.js';
  * target: a day's meetings), movable? (it drags by its own header or strip: a board whose page keeps its columns'
  * order) }]. onFold(key, folded) remembers a column folded or unfolded; `after` goes last ("Add another list");
  * onReorder(from, to) lets the columns be dragged by their header (board.md lists, and the `movable` ones: `from` and
- * `to` count the board's columns that move); shows(key) what the cards carry (Display → Show on cards).
+ * `to` count the board's columns that move); shows(key) what the cards carry (Display → Show on cards). A column's
+ * quick may carry onCreated(item), run once the card it adds is made (a Custom column places it there).
  */
 export function boardOf({ columns, onFold, onOpen, projectName, after = null, onReorder = null, shows }) {
   const board = h('div', { class: 'board vboard' });
@@ -116,7 +118,7 @@ function column(c, { onFold, onOpen, projectName, shows, move = null, targets = 
   if (c.drop) dropZone(cards, (key, index) => c.drop(key, index));
   return h('section', { class: `board-col ${c.cls || ''}`, 'aria-label': `${c.label} column`, ...(c.attrs || {}), ...(move ? { 'data-list': c.key } : {}) },
     head, c.lead?.length ? h('div', { class: 'col-cards col-lead' }, c.lead) : null, cards,
-    c.quick ? h('div', { class: 'col-add' }, quickAddBar(c.quick, { placeholder: '+ Add a card' })) : null);
+    c.quick ? h('div', { class: 'col-add' }, quickAddBar(c.quick, { placeholder: '+ Add a card', onCreated: c.quick.onCreated })) : null);
 }
 
 // ── the board.md lists (a task's board grouped by status) ─────────────────────
@@ -171,3 +173,58 @@ export const addList = () => addListColumn({
   extra: () => select(boardStatuses().map((st) => [st, `Sets ${st}`]), STATUSES.includes('ToDo') ? 'ToDo' : boardStatuses()[0], () => {}, { 'aria-label': 'Status for its cards' }),
   onAdd: (name, status) => editLists((ls) => ls.push({ id: slugId(name, ls.map((l) => l.id)), name, status: status.value })),
 });
+
+// ── Custom: columns of the user's own (customboard.js, .task-manager/boards/<name>.json) ──────────────────────────────
+/**
+ * The columns of the Custom board `name` holding `items`, for boardOf: { columns, after, onReorder }. Each column is a
+ * drop target that only moves the card on the board (its file is never written), has its own header (rename, move,
+ * delete: its cards go to Uncategorized, which cannot be deleted), and "+ Add a card" puts the new card in it.
+ * `sort` orders what was never placed by hand (all of it when not `manual`: the page's Order wins); `card(item)` draws
+ * a card (boardOf's own when none), `quick(column)` → { type, values } or null; `fold` the columns folded; `cls` a class
+ * for every column; `placeholder` the "Add a column" box's.
+ */
+export function customColumns(name, items, { sort = () => 0, manual = true, card = null, quick = () => null, fold = {}, cls = 'custom-col', placeholder = 'Column name… (Waiting, Deep work, Errands)' } = {}) {
+  const board = customBoard(name);
+  const save = (body) => saveCustomBoard(name, body);
+  const edit = (fn) => { const next = board.columns.map((c) => ({ ...c })); fn(next); return save({ columns: next }); };
+  const placed = byColumn(board, items, sort, { manual });
+  const last = board.columns.length - 1;
+  const menu = (anchor, col, idx, nameEl) => dropdown(anchor, [
+    { heading: col.name },
+    { label: 'Rename', icon: 'pencil', onSelect: () => startRename(nameEl, col.name, (v) => edit((cs) => { cs[idx].name = v; })) },
+    ...moveEntries(idx, last, (from, to) => edit((cs) => moveList(cs, from, to))),
+    '-',
+    col.id === UNCATEGORIZED
+      ? { label: 'Default column — cannot be deleted', icon: 'inbox', onSelect: () => {} }
+      : { label: 'Delete column (its cards go to Uncategorized)', icon: 'trash', danger: true, onSelect: () => save({ columns: withoutColumn(board.columns, col.id) }) },
+  ], { width: 300 });
+  const columns = board.columns.map((col, idx) => {
+    const its = placed.get(col.id) || [];
+    const open = its.filter((i) => !isDone(i)).length;
+    const q = quick(col);
+    return {
+      key: col.id, label: col.name, items: its, attrs: { 'data-list': col.id }, cls: `${cls} ${col.id === UNCATEGORIZED ? 'default' : ''}`,
+      face: [h('span', { class: 'group-name' }, col.name)],
+      head: listHeader({
+        list: col, idx, count: open || '', countTitle: `${open} open`,
+        menu: (anchor, nameEl) => menu(anchor, col, idx, nameEl),
+        onRename: (v) => edit((cs) => { cs[idx].name = v; }),
+      }),
+      ...(card ? { card } : {}),
+      drop: (key, index) => {
+        const item = state.all.find((i) => i.key === key);
+        if (!item?.id) return; // a card without an id (an item from before ids) stays in Uncategorized
+        const place = placeCard(board, item, col.id, its, index, { manual });
+        if (Object.keys(place).length) save({ place });
+        else if (!manual) toast('Pick Order → Manual to place cards by hand');
+      },
+      quick: q ? { ...q, onCreated: col.id === UNCATEGORIZED ? null : (item) => item.id && save({ place: { [item.id]: [col.id, null] } }) } : null,
+      folded: fold[col.id] ?? false,
+    };
+  });
+  return {
+    columns,
+    after: addListColumn({ label: 'Add a column', placeholder, button: 'Add column', onAdd: (n) => edit((cs) => cs.push({ id: slugId(n, cs.map((c) => c.id)), name: n })) }),
+    onReorder: (from, to) => edit((cs) => moveList(cs, from, to)),
+  };
+}

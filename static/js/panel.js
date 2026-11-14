@@ -35,7 +35,7 @@ import { sumTime } from './worktime.js';
 import { kindLabel, kindOf, kinded, relatedIn, relationWrites } from './relkinds.js';
 import {
   addComment, allContacts, childrenOf, convertItem, deleteComment, deleteItem, editComment, itemAction, setArchived, isPinned, logOf, logWork, planDay, planMonth, planWeek, setStatus, updateLog,
-  noteToDoc, state, toast, togglePin, unlogWork, unplan, updateItem,
+  noteToDoc, saveBody, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
 import { closedToggle, countOf, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
@@ -45,6 +45,8 @@ import { mountCanvasView } from './canvas/canvasview.js';
 import { canvasHost, canvasItems } from './canvas/itemcanvas.js';
 import { foldTabs } from './tabfold.js';
 import { itemPicker } from './itempicker.js';
+import { versionChip, versionsTab } from './versionstab.js';
+import { archNotice, entitiesTab, mapTab } from './archview.js';
 
 /** A phone's width, where the card's head keeps only its essentials (app.css matches it). */
 const PHONE = '(max-width: 640px)';
@@ -902,7 +904,10 @@ function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPi
     { key: 'links', label: 'Links', count: linked, content: links(item, c.rerender) },
     docsTab(item, c.rerender), // the docs it links and those that mention it
   ].filter(Boolean).map((t) => ({ ...t, own: true }));
-  const all = [...tabs, ...groupTabs(item, groups, c.rerender), canvasTab(item, c)].filter(Boolean);
+  // An architecture's entities: by level in a tab of their own (archview.js), not a table in More; then its Map.
+  const arch = item.type === 'agent' ? [entitiesTab(item, openFromItem), mapTab(item)].filter(Boolean).map((t) => ({ ...t, own: true })) : [];
+  const kept = arch.length ? groups.map((g) => ({ ...g, tables: g.tables.filter((t) => t.key !== 'entity') })).filter((g) => g.tables.length) : groups;
+  const all = [...tabs, ...arch, ...groupTabs(item, kept, c.rerender), canvasTab(item, c)].filter(Boolean);
   // Seven at most, its own sections and Canvas always; the groups past them in "+" until they hold an item (tabfold.js).
   const opened = c.openedTabs || new Set();
   const fold = foldTabs(all, { active: current, opened });
@@ -1176,8 +1181,9 @@ const NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)
 /**
  * The side panel, the same on an item's card and on its page: one row of tabs, Properties first.
  *   Properties · its fields, its outside ticket and local path, its watchers
- *   Activity · comments · AI Agents · its Claude conversations
+ *   Activity · comments · AI Sessions · its Claude conversations
  *   Relations · its project, parent, link fields, children and related (Docs is a tab of its own sections: itemTabs)
+ *   Versions · a definition's (an architecture, an entity): versionstab.js
  *   Time · its work log, last
  * On a narrow screen Properties sits under the title instead (app.css), so the first tab there is Activity.
  */
@@ -1187,8 +1193,9 @@ function sideTabs(item, rerender, current, onPick) {
   const tabs = [
     { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
     has('activity') ? { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) } : null,
-    has('terminal') ? { key: 'ai', label: 'AI Agents', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
+    has('terminal') ? { key: 'ai', label: 'AI Sessions', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
     relationsTab(item, rerender),
+    versionsTab(item, rerender), // a definition's (an architecture, an entity): tm/versions.py
     // The time logged on it, last.
     item.id && has('worklog') ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
   ].filter(Boolean);
@@ -1427,7 +1434,7 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     write: async (text, force = false) => {
       savingBody = true;
       try {
-        const out = await updateItem(current, {}, text, force ? undefined : bodyRev);
+        const out = await saveBody(current, text, force ? undefined : bodyRev);
         bodyRev = out.body_rev ?? bodyRev;
         if (out.body_rev) ownRevs.add(out.body_rev);
         return out.body;
@@ -1658,7 +1665,7 @@ function ticketActions(item) {
 // One layout for every item type (modalFrame, itemFields): the type decides which
 // properties and sections show up, not where they sit.
 //   main: title · properties · description · related tables · (activity: resolution) · foot
-//   side: tabs (sideTabs) — Properties · Activity · AI Agents · Relations · Time
+//   side: tabs (sideTabs) — Properties · Activity · AI Sessions · Relations · Time
 // The tabs in use, main and side: kept while the card re-renders, back to the first ones whenever an item is opened
 // (a minimized card or Back brings its own back: snapshot).
 let sideTab = 'properties';
@@ -1681,6 +1688,7 @@ function modalLayout(item, c) {
         icon('left', 14), `${refOf(back)} ${back.title}`.trim()) : null,
       h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), TYPE_DEFS[item.type]?.label || item.type),
       h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
+      versionChip(item, c.rerender),
       parent ? h('span', { class: 'muted small im-in' }, 'in ',
         linkButton(parent.title, null, { attrs: opener(parent, openFromItem) })) : null,
       f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
@@ -1698,6 +1706,7 @@ function modalLayout(item, c) {
     main: [
       // A prompt keeps its few fields here (it has no side column); everything else has them at the top of its side.
       item.type === 'prompt' ? h('div', { class: 'im-props' }, itemFields(editBinding(item))) : propertiesSection(item, { inline: true }),
+      archNotice(item),
       // Its own sections in one tab bar (a prompt has only what it says), then what hangs from it.
       item.type === 'prompt' ? h('section', { class: 'im-section' }, c.bodyEl) : itemTabs(item, c, kids, mainTab, (k) => { mainTab = k; }),
       c.foot,
@@ -1874,6 +1883,7 @@ function pageLayout(item, c, rerender) {
     up ? [icon('right', 13), h('a', { href: itemHref(up) }, up.title)] : null,
     icon('right', 13),
     h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
+    versionChip(item, rerender),
     f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
     h('span', { class: 'spacer' }),
     c.claude, c.sidebar, c.pin, c.more); // Claude first, then the Favourites star, as on the card; Copy path in ⋯
@@ -1884,6 +1894,7 @@ function pageLayout(item, c, rerender) {
   const kids = splitChildren(pageTables(item, rerender), { flat: item.type === 'goal' });
   const main = [
     h('div', { class: 'page-title' }, c.subject, statusSelect(editBinding(item))), // its properties are in the side column
+    archNotice(item), // an architecture's AP-1, or a harness that usually comes out as another one
     propertiesSection(item, { inline: true }), // …or here, on a narrow screen
     itemTabs(item, c, kids, pageMainTab, (k) => { pageMainTab = k; }), // its own sections in one tab bar, its children among them
     c.foot,

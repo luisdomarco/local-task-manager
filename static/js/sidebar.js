@@ -111,8 +111,8 @@ function syncButtons() {
   if (btn && !btn.firstChild) btn.append(icon('sidebar', 15));
 }
 
-// The nav's folding groups (index.html: Plan, Items, More), open or folded as last left; More starts folded.
-const GROUPS_OPEN = { plan: true, items: true, more: false };
+// The nav's folding groups (index.html: Favourites, Views, More), open or folded as last left; More starts folded.
+const GROUPS_OPEN = { favs: true, views: true, more: false };
 function initGroups() {
   const open = { ...GROUPS_OPEN, ...pref('side.groups', {}) };
   for (const d of document.querySelectorAll('#sidebar details.side-group')) {

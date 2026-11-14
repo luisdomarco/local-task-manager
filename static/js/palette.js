@@ -12,13 +12,14 @@ import { bodyHits, groupByType, matches, norm, typeOrder } from './search.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, filesHref } from './filetree.js';
 import { state } from './state.js';
-import { emptyLine, h, icon, TYPE_ICON_NAME, typeIcon } from './ui.js';
+import { emptyLine, h, icon, lowerName, TYPE_ICON_NAME, typeIcon } from './ui.js';
+import { reloadFromDisk } from './vaultwatch.js';
 import { refOf } from './shownid.js';
 import { isTouch } from './phone.js';
 
 // The views every vault has (main.js FIXED_VIEWS); each type's list joins them from the vault's structure (views()).
 const DAYS = [['today', 'Today', 'sun'], ['week', 'Week', 'calendar'], ['nextweek', 'Next week', 'calendarplus'], ['month', 'Month', 'calendardays'], ['board', 'Board', 'kanban'], ['table', 'List', 'table'], ['graph', 'Graph', 'graph']];
-const TOOLS = [['log', 'Work log', 'clock'], ['labels', 'Labels', 'tag'], ['contacts', 'Contacts', 'user']];
+const TOOLS = [['log', 'Work log', 'clock'], ['labels', 'Labels', 'tag'], ['properties', 'Properties', 'list'], ['contacts', 'Contacts', 'user']];
 const LAST = [['trash', 'Trash', 'trash'], ['settings', 'Settings', 'settings']];
 const PER_TYPE = 5; // items shown of each type until its "Show all"
 const BODY_DELAY = 250; // ms of no typing before the text is searched
@@ -34,7 +35,7 @@ function views() {
   const of = (group) => STRUCTURE.types.filter((t) => t.list && t.nav?.group === group)
     .sort((a, b) => a.nav.order - b.nav.order).map((t) => [t.route, t.plural, t.icon]);
   const unlinked = STRUCTURE.types.filter((t) => t.list && !t.nav).map((t) => [t.route, t.plural, t.icon]);
-  return [...of('capture'), ...DAYS, ...of('types'), ['docs', 'Docs', 'book'], ...unlinked, ...TOOLS, ...of('tools'), ...LAST]
+  return [...of('capture'), ...DAYS, ...of('types'), ['docs', 'Docs', 'book'], ...of('after'), ...unlinked, ...TOOLS, ...of('tools'), ...LAST]
     .filter(([view]) => viewOn(view)); // a feature the vault turned off (features.js)
 }
 
@@ -102,10 +103,14 @@ function results(query) {
   const newQ = q.replace(/^(new|create|add)\s*/, '');
   for (const t of CREATE_TYPES.filter((k) => inSomeProject(k, state.all))) { // the types with a place in this vault
     if (!q || norm(`new ${TYPE_LABEL[t]}`).includes(q) || norm(TYPE_LABEL[t]).startsWith(newQ)) {
-      out.push({ group: 'Create', label: `New ${TYPE_LABEL[t].toLowerCase()}`, icon: TYPE_ICON_NAME[t], run: () => openCreateModal(t) });
+      out.push({ group: 'Create', label: `New ${lowerName(TYPE_LABEL[t])}`, icon: TYPE_ICON_NAME[t], run: () => openCreateModal(t) });
     }
   }
   if (has('inbox') && (!q || 'capture to inbox'.includes(q))) out.push({ group: 'Create', label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', run: () => openQuickModal() });
+  // Files edited outside the app show by themselves (vaultwatch.js); this reads the whole vault again at once
+  if (q && ['reload from disk', 'read the vault again', 'reindex', 'refresh'].some((w) => w.includes(q) || norm(w).includes(q))) {
+    out.push({ group: 'Vault', label: 'Reload from disk', meta: 'read every file of the vault again', icon: 'refresh', run: () => reloadFromDisk() });
+  }
   return out.slice(0, 60);
 }
 

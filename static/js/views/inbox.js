@@ -5,10 +5,11 @@ import { TYPES, TYPE_ICON, TYPE_LABEL } from '../create.js';
 import { convertTo, openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
 import { PARENT_TYPES, propsOf } from '../rules.js';
-import { state, updateItem } from '../state.js';
-import { dropdown, emptyState, h, itemCard, parentOptions, select, selectButton } from '../ui.js';
+import { deleteItem, state, updateItem } from '../state.js';
+import { dropdown, emptyState, h, itemCard, parentOptions, rowAction, select, selectButton } from '../ui.js';
 import { refOf } from '../shownid.js';
 import { planSection } from '../planrows.js';
+import { pendingShare } from '../share.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders. A Projects inbox item keeps it in
 // its own `file_under` instead (its card's Properties shows it too, and Convert to carries it over).
@@ -19,7 +20,8 @@ const relatedOf = (item) => (keptOnItem() ? item.fields.file_under || undefined 
 // Every type a captured item can be related to (activity accepts the widest set).
 const relatable = () => PARENT_TYPES.activity; // read when used: the structure arrives after this module loads
 
-/** "Related to…" + "Convert to" for one captured item. */
+/** "Related to…" + "Convert to" for one captured item, and its trash: discarded as any item is deleted (to the
+ *  trash, Undo in the toast). On a computer the trash shows on the row's hover; a phone keeps the card's ⋯ (app.css). */
 function triage(item, rerender) {
   // Only open items: parentOptions already leaves out done, discarded and archived ones.
   const related = select(parentOptions(relatable(), 'Related to…'), relatedOf(item),
@@ -43,7 +45,8 @@ function triage(item, rerender) {
       })),
     ], { align: 'end' });
   });
-  return [related, transform];
+  const discard = rowAction('trash', `Discard ${item.title}`, () => deleteItem(item.key).catch(() => {}), { class: 'inbox-discard' }); // toasted
+  return [related, transform, discard];
 }
 
 const newestFirst = (a, b) => String(b.fields.created_at || '').localeCompare(String(a.fields.created_at || ''));
@@ -52,7 +55,9 @@ export function mount(root) {
   const list = h('div', { class: 'plan-list inbox-list' });
   root.replaceChildren(
     h('header', { class: 'view-head' }, h('h1', {}, 'Inbox')),
-    quickAddBar({ type: 'inbox' }, { autofocus: true, placeholder: 'Capture anything…  (/task, /note… to file it straight away)' }),
+    // A link typed or pasted goes in the item's url; a picture pasted, dropped or picked is attached to it.
+    quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: pendingShare() || '',
+      placeholder: 'Capture anything…  a link, a picture  (/task, /note… to file it straight away)' }),
     list);
   const api = {
     update() {
@@ -62,7 +67,7 @@ export function mount(root) {
           planSection({ title: 'Captured', count: captured.length || '' }),
           captured.length
             ? h('div', { class: 'cards rows' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()),
-              cls: keptOnItem() ? 'triage-in-card' : '' })))
+              cls: `hover-host ${keptOnItem() ? 'triage-in-card' : ''}` })))
             : emptyState('Inbox zero. Nothing captured waiting to be sorted.')),
       ].filter(Boolean));
     },

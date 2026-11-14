@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calloutHtml, calloutType, cellClass, keepBlankLines, useExtras } from '../../static/js/mdextras.js';
+import { calloutHtml, calloutType, cellClass, hideBlockIds, keepBlankLines, stripComments, useExtras } from '../../static/js/mdextras.js';
 
 // marked is a UMD script the page loads as is (no module): run it with an `exports` to fill (package.json is "module").
 const exports = {};
@@ -78,3 +78,38 @@ test('every blank line past the first keeps its gap, never inside code', () => {
   const html = render('one\n\n\ntwo');
   assert.match(html, /<p>one<\/p>\n<div class="md-gap"><\/div>\n+<p>two<\/p>/);
 });
+
+test('a task\'s box has no space after it, tight or loose; other items are marked\'s own', () => {
+  assert.match(render('- [ ] `a` → b'), /<li><input disabled="" type="checkbox"><code>a<\/code> → b<\/li>/);
+  assert.match(render('- [x] done'), /<li><input checked="" disabled="" type="checkbox">done<\/li>/);
+  assert.match(render('- [ ] one\n\n- [ ] two'), /<li><p><input disabled="" type="checkbox">one<\/p>/);
+  assert.match(render('- plain'), /<li>plain<\/li>/);
+  assert.match(render('- [ ] outer\n  - [ ] inner'), /<li><input disabled="" type="checkbox">outer<ul>\n<li><input disabled="" type="checkbox">inner<\/li>/);
+});
+
+test('%%comments%% are not shown: inline, over lines, unclosed to the end; code keeps them', () => {
+  assert.equal(stripComments('a %%hidden%% b'), 'a  b');
+  assert.equal(stripComments('a\n%%\nblock\nof lines\n%%\nb'), 'a\n\nb');
+  assert.equal(stripComments('a `%%kept%%` b'), 'a `%%kept%%` b');
+  assert.equal(stripComments('```\n%%kept%%\n```\nx %%y%%'), '```\n%%kept%%\n```\nx ');
+  assert.equal(stripComments('shown %%from here on\nnothing'), 'shown ');
+  assert.equal(stripComments('100% sure'), '100% sure');
+  assert.doesNotMatch(render('Before %%secret%% after'), /secret/);
+});
+
+test('a block\'s ^id is not shown, outside code', () => {
+  assert.equal(hideBlockIds('para ^abc\n2^3\n```\nx ^keep\n```'), 'para\n2^3\n```\nx ^keep\n```');
+  assert.equal(render('A line ^id-1'), '<p>A line</p>\n');
+});
+
+test('footnotes: numbered as they are read, listed under the note; one not written reads as text', () => {
+  const html = render('One[^a] two[^b] again[^a] and [^gone].\nInline^[an **inline** one].\n\n[^b]: Bee\n    goes on.\n[^a]: First *note*.');
+  const marks = [...html.matchAll(/data-fn="(\d)"/g)].map((m) => m[1]);
+  assert.deepEqual(marks, ['1', '2', '1', '3']);
+  assert.match(html, /and \[\^gone\]\./);
+  assert.match(html, /<section class="footnotes"><ol><li data-fn-note="1">First <em>note<\/em>\. <a class="fn-back" data-fn-back="1"[^>]*>↩<\/a><\/li><li data-fn-note="2">Bee<br>goes on\./);
+  assert.match(html, /<li data-fn-note="3">an <strong>inline<\/strong> one/);
+  assert.doesNotMatch(html, /\[\^a\]:|href=/, 'the definitions are not drawn where they are; the marks have no href');
+  assert.doesNotMatch(render('No notes.'), /footnotes/, 'a note without footnotes has no list (the last parse\'s are not kept)');
+});
+

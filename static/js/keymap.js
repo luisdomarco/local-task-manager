@@ -29,6 +29,16 @@ export function is(e, id) {
   return mod && !!e.shiftKey === !!k.shift && String(e.key).toLowerCase() === k.key;
 }
 
+/**
+ * Whether an Esc that reached the page should close the open card. Not one something already took (a menu, a field
+ * that stepped back: `defaultPrevented`), not one that ends an IME composition (an accent being typed), and not one
+ * from inside a Markdown editor, whose own Esc is Done (it saves, then leaves the editor; the next Esc closes the card).
+ */
+export function closesCard(e) {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229) return false;
+  return !e.target?.closest?.('.mde');
+}
+
 /** How a key is drawn: ⌘⇧E, ⌘\, q, ?. */
 export const keyText = ({ key, mod, shift }) => (mod ? `⌘${shift ? '⇧' : ''}${key.toUpperCase()}` : key);
 

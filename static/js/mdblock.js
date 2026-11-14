@@ -2,7 +2,7 @@
 // in a bordered box that opens the editor on a click, and back to the text once left. Out of panel.js so the create form
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
-import { renderDiagrams } from './diagrams.js';
+import { drawRendered } from './mdview.js';
 import { lfOffset } from './livemd.js';
 import { mdEditor } from './mdeditor.js';
 import { isPhone, isTouch } from './phone.js';
@@ -97,7 +97,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
   // editor (mdeditor.js onEscape: Done); the next one, caught here before the card's own Esc, leaves full screen.
   const escFull = (e) => {
     if (!el.isConnected) { document.removeEventListener('keydown', escFull, true); return; }
-    if (e.key !== 'Escape' || e.target.closest?.('textarea')) return;
+    if (e.key !== 'Escape' || e.target.closest?.('textarea, .mde')) return; // the editor's Esc (Source or Live) is Done first
     e.preventDefault(); e.stopPropagation();
     setFull(false);
   };
@@ -124,6 +124,14 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       // A blur and a click can both ask to save the same text. Only one goes out: the other waits for it and then
       // looks again, because the file's version has moved on and a second send would conflict with the first.
       clearTimeout(autosave);
+      // What is on screen is what is saved: the editor's text, not only what its input events reported (an accent
+      // still being composed, a keystroke the editor had not passed on yet when Esc or a click came).
+      // Line breaks aside: a textarea reads a CRLF file as LF, and opening one must not rewrite it.
+      if (editing && mde) {
+        const now = mde.get();
+        const lf = (t) => String(t).replace(/\r\n?/g, '\n');
+        if (typeof now === 'string' && lf(now) !== lf(draft ?? saved)) draft = now;
+      }
       if (inflight) { await inflight; return blk.flush(); }
       if (!blk.hasUnsaved()) { draft = null; return true; }
       const sending = draft;
@@ -260,7 +268,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         content.innerHTML = renderMarkdown(linkVault(text));
         linkPaths(content);
         linkRefs(content);
-        renderDiagrams(content);
+        drawRendered(content); // diagrams, bases, embedded notes, Copy on code (mdview.js)
         // The docs' names come with the vault's file tree: a [[link]] drawn before it came is drawn again once it has.
         if (/\[\[/.test(text) && !linkedDocs) {
           linkedDocs = true;

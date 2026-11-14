@@ -7,22 +7,27 @@
 // disk meanwhile asks which text wins). An item's file can be edited too, as Obsidian would; its card stays the
 // place for its fields.
 import { fileUrl, api } from '../api.js';
-import { renderDiagrams } from '../diagrams.js';
 import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
-import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
+import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, isBase, isDrawio, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
 import { highlight } from '../highlight.js';
 import { itemHref, pageHref } from '../links.js';
 import { mdEditor } from '../mdeditor.js';
 import { openItem } from '../panel.js';
 import { pref, setPref } from '../prefs.js';
+import { propRows } from '../props.js';
+import { propKey, propValue } from '../propview.js';
+import { mountBase } from '../baseview.js';
+import { drawioView } from '../drawioview.js';
+import { drawRendered } from '../mdview.js';
 import { TYPE_DEFS, hasPage } from '../rules.js';
 import { allLabels, allPeople, reload, state, toast } from '../state.js';
 import { refOf } from '../shownid.js';
 import { linkPaths, setLinkContext } from '../vaultlinks.js';
 import { setTheme } from '../theme.js';
-import { cssKey, dropdown, emptyLine, h, icon, linkButton, loadingLine, renderMarkdown, rowItem, rowList, seg, select, stackGroup, tagInput, typeIcon } from '../ui.js';
+import { cssKey, dropdown, emptyLine, h, icon, linkButton, loadingLine, propRow, renderMarkdown, rowItem, rowList, seg, select, stackGroup, tagInput, typeIcon } from '../ui.js';
+import { shortDate } from '../dates.js';
 
 const MAX_TEXT = 2 * 1024 * 1024; // larger text is not read into the page: download it (nor edited: Store.SAVE_MAX)
 const AUTOSAVE_MS = 800;
@@ -156,11 +161,17 @@ function folderView(node, href = filesHref) {
   ];
 }
 
-/** A note's property as it reads: a [list] as its values with commas, a web address as a link. */
-function propValue(v) {
-  const list = /^\[(.*)\]$/s.exec(v);
-  const text = list ? list[1].split(',').map((t) => t.trim().replace(/^(['"])(.*)\1$/, '$2')).filter(Boolean).join(', ') : v;
-  return /^https?:\/\/\S+$/.test(text) ? h('a', { href: text, target: '_blank', rel: 'noopener noreferrer' }, text) : text;
+/** The keys of a doc (`fileClass: Doc`) that its own fields show (docProps), or that only say what it is. */
+const DOC_KEYS = new Set(['fileClass', 'project', 'doc_status', 'owner', 'tags', 'creation_date', 'updated_date']);
+
+/**
+ * A note's properties as Obsidian draws them at its top (props.js): a row each, its type's icon and its key on the
+ * left, its value as that type reads — tags as #chips, a list as chips, a date as a day, a checkbox as a box, a
+ * [[note]] or a web address as a link (a [[note]] not in the vault grey, as in the text). Only read here: Source and
+ * Edit are where they are written. `self` is this note's path, `href(path, heading)` a link into the view.
+ */
+function propRowsOf(rows, { self, href }) {
+  return rows.map((r) => propRow(propKey(r.icon, r.key), h('div', { class: `prop-value t-${r.type}` }, propValue(r, { self, href })), { tag: 'div' }));
 }
 
 /** The item a file is, as the page knows it (for its card or page). */
@@ -179,19 +190,21 @@ function itemBar(node) {
 // Markdown: Preview · Source · Edit. Code and text: Source · Edit. Edit only once the text is read (and not too large).
 const MODES = { markdown: [['preview', 'eye', 'Preview'], ['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']],
   text: [['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']],
-  table: [['preview', 'table', 'Table'], ['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']] };
+  table: [['preview', 'table', 'Table'], ['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']],
+  base: [['preview', 'table', 'Views'], ['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']],
+  drawio: [['preview', 'diagram', 'Diagram'], ['source', 'code', 'Source'], ['edit', 'pencil', 'Edit']] };
 const TABLE_MAX = 1000; // rows shown; Source has them all
 
 function fileView(node, mode, setMode, body, editable) {
   const kind = fileKind(node.path);
   const url = fileUrl(node.path);
-  const modes = tableKind(node.path) ? MODES.table : MODES[kind];
-  const shown = kind === 'text' && mode === 'preview' && !tableKind(node.path) ? 'source' : mode;
+  const modes = isBase(node.path) ? MODES.base : isDrawio(node.path) ? MODES.drawio : tableKind(node.path) ? MODES.table : MODES[kind];
+  const shown = kind === 'text' && mode === 'preview' && !tableKind(node.path) && !isBase(node.path) && !isDrawio(node.path) ? 'source' : mode;
   const toggle = modes ? seg(modes.map(([m, ico, label]) => [m, label, { ico, disabled: m === 'edit' && !editable,
     tip: m === 'edit' ? (editable ? 'Edit it here (saved as you type)' : 'Not readable as text here') : null }]), shown, (m) => setMode(m), { aria: 'Show as' }) : null;
   return [
     h('div', { class: 'files-head' }, h('h1', { title: node.path }, node.item ? typeIcon(node.item.type, 20) : icon(kind === 'image' ? 'image' : 'file', 20),
-      node.item?.title || (kind === 'markdown' ? node.name.replace(/\.md$/i, '') : node.name)), h('span', { class: 'spacer' }), toggle, headMenu(node, { url })),
+      node.item?.title || (kind === 'markdown' ? node.name.replace(/\.md$/i, '') : isBase(node.path) ? node.name.replace(/\.base$/i, '') : isDrawio(node.path) ? node.name.replace(/\.drawio$/i, '') : node.name)), h('span', { class: 'spacer' }), toggle, headMenu(node, { url })),
     h('p', { class: 'muted small files-meta' }, `${size(node.size)} · modified ${when(node.mtime)}`),
     itemBar(node),
     body,
@@ -251,6 +264,26 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
   };
 
 
+  // A base (.base): its views, mounted once and kept across redraws; worked out again when the vault's files change.
+  let base = null; // { el, view, tree }
+  const baseBody = () => {
+    if (!base) {
+      const el = h('div', {});
+      base = { el, tree: fileTree(), view: mountBase(el, { path, view: heading, href }) };
+    } else if (base.tree !== fileTree()) {
+      base.tree = fileTree();
+      base.view.refresh();
+    }
+    return base.el;
+  };
+
+  // A diagram (.drawio): its frame, made again only when the text read changes (a frame reloads the viewer).
+  let diagram = null; // { sig, el }
+  const diagramBody = () => {
+    if (diagram?.sig !== textSig) diagram = { sig: textSig, el: drawioView(text, { path }) };
+    return diagram.el;
+  };
+
   // The files that link here ([[its name]]), fetched once per version of it read: { sig, links } or null.
   let backlinks = null;
   const linkedFrom = () => {
@@ -286,25 +319,28 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
       api.docsRoots().then((r) => { docGroups = docsGroups(r.containers); render(); }, () => {});
     }
     const get = (k) => (all.find(([key]) => key === k) || [])[1] || '';
+    const one = (k) => [get(k)].flat()[0] || ''; // a key written as a list by hand (owner: [[[Ana]]]): its first
     const save = (values) => api.docProps(path, values, rev).then((out) => {
       if (out.path !== path) loadFiles().then(() => location.replace(href(out.path))); // the tree knows it there first
       else loadFiles();
     }, (e) => toast(e.message, true));
-    const owner = get('owner').replace(/^\[\[|\]\]$/g, '');
+    const owner = String(one('owner')).replace(/^\[\[|\]\]$/g, '');
     const people = [...new Set([...allPeople(), owner].filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    const tags = get('tags').replace(/^\[|\]$/g, '').split(',').map((t) => t.trim().replace(/^(['"])(.*)\1$/, '$2')).filter(Boolean); // "ux" in a [..] list
+    const tags = [get('tags')].flat().filter(Boolean); // splitFrontmatter: a list, [ux, "web"] or - ux lines
     const here = docsGroupOf(docGroups, path);
-    // One per row, the name on the left, quiet (design.md §Properties), as an item's properties
-    const field = (label, control) => h('div', { class: 'field' }, h('span', {}, label), control);
-    return h('div', { class: 'fields prop-rows quiet doc-props', role: 'group', 'aria-label': 'Doc properties' },
-      field('Status', select([['draft', 'Draft'], ['published', 'Published']], get('doc_status') || 'draft',
+    // One per row, the name on the left, quiet (design.md §Properties), as an item's properties; its type's icon by it,
+    // as the note's other properties (propRowsOf) under them
+    const field = (ico, label, control) => propRow(propKey(ico, label), control, { tag: 'div' });
+    return h('div', { class: 'fields prop-rows quiet files-props doc-props', role: 'group', 'aria-label': 'Doc properties' },
+      field('checkbox', 'Status', select([['draft', 'Draft'], ['published', 'Published']], get('doc_status') || 'draft',
         (v) => save({ doc_status: v || 'draft' }), { 'aria-label': 'Doc status', search: false })),
-      field('Owner', select([[null, 'No owner'], ...people.map((p) => [p, p])], owner || null, (v) => save({ owner: v || '' }), { 'aria-label': 'Owner' })),
+      field('user', 'Owner', select([[null, 'No owner'], ...people.map((p) => [p, p])], owner || null, (v) => save({ owner: v || '' }), { 'aria-label': 'Owner' })),
       // × clears it: no project, so the doc goes to the vault's own Docs
-      field('Project', docGroups.length ? select([[null, 'No project'], ...docGroups.filter((g) => g.project).map((g) => [g.project, g.title])],
+      field('project', 'Project', docGroups.length ? select([[null, 'No project'], ...docGroups.filter((g) => g.project).map((g) => [g.project, g.title])],
         here?.project ?? null, (v) => save({ project: v || null }), { 'aria-label': 'Project', search: false, clearable: true }) : h('span', { class: 'muted' }, '…')),
-      field('Tags', tagInput(tags, (list) => save({ tags: list }), { suggest: allLabels, placeholder: 'Add a tag' })),
-      field('Updated', h('span', { class: 'prop-readonly' }, get('updated_date') || 'Empty')));
+      field('tag', 'Tags', tagInput(tags, (list) => save({ tags: list }), { suggest: allLabels, placeholder: 'Add a tag' })),
+      field('calendar', 'Updated', h('span', { class: 'prop-readonly', title: get('updated_date') }, shortDate(get('updated_date')) || 'Empty')),
+      propRowsOf(propRows(all.filter(([k]) => !DOC_KEYS.has(k))), { self: path, href }));
   };
 
   // The initiatives and tasks whose `docs` link this doc, or a folder that holds it (TSK-039 phase 3).
@@ -322,15 +358,16 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     if (mode === 'source') return codeBlock('markdown', true);
     const { props: all, body } = splitFrontmatter(text);
     const isDoc = all.some(([k, v]) => k === 'fileClass' && v === 'Doc');
-    const props = isDoc ? [] : all.filter(([, v]) => v && v !== '[]' && v !== '{}'); // Source shows the empty ones
+    const rows = isDoc ? [] : propRowsOf(propRows(all), { self: path, href }); // empty ones left out: Source shows them
     const md = h('div', { class: 'md files-md' });
     // [[links]] as Obsidian resolves them: a note or a folder by name or path, [[#heading]] in this note (filetree.js)
     const tree = fileTree();
     md.innerHTML = body.trim() ? renderMarkdown(linkWikilinks(body, (t) => wikiTarget(tree, t), { self: path, href, src: fileUrl })) : '<p class="muted">No content.</p>'; // sanitized by renderMarkdown
     linkPaths(md, { self: path, href }); // [text](Guides/Setup.md), ![](img/a.png): into the vault, in this view
-    renderDiagrams(md);
-    return [isDoc ? docProps(all) : null, linkedItems(), props.length ? h('table', { class: 'files-props', 'aria-label': 'Properties' },
-      h('tbody', {}, props.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', {}, propValue(v)))))) : null, outline(md), md, linkedFrom()];
+    drawRendered(md, { self: path, href }); // diagrams, bases, embedded notes, Copy on code (mdview.js)
+    return [isDoc ? docProps(all) : null, linkedItems(),
+      rows.length ? h('div', { class: 'fields prop-rows quiet files-props', role: 'group', 'aria-label': 'Properties' }, rows) : null,
+      outline(md), md, linkedFrom()];
   };
 
   const fetchText = () => fetch(fileUrl(path)).then((r) => (r.ok ? r.text().then((t) => [t, r.headers.get('X-TM-Rev')]) : Promise.reject(new Error(`${r.status}`))));
@@ -414,6 +451,18 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
       value: text, minHeight: 'calc(100dvh - 330px)', label: node.name, fk: 'file-text', placeholder: '', preview: md,
       markdown: md, highlight: lang, wrap: md || !lang, // code keeps its lines; prose wraps
       onEscape: done,
+      // A picture or file pasted, dropped or picked in a doc goes beside it, under its own name or the first free one
+      // ("name (2).png"), as Obsidian's default; the tree shows it at once (the watch never reports this tab's writes).
+      attach: md ? async (file) => {
+        try {
+          const { path } = await api.uploadFile(node.path.split('/').slice(0, -1).join('/'), file);
+          loadFiles();
+          return path;
+        } catch (e) {
+          toast(`${file.name}: ${e.message}`, true);
+          return null;
+        }
+      } : null,
       onInput: (v) => {
         draft = v;
         setStatus('● unsaved');
@@ -462,7 +511,9 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
       const table = tableKind(node.path);
       body = failed ? h('p', { class: 'muted' }, `Could not read it (${failed}).`)
         : text === null ? loadingLine()
-          : table && mode === 'preview' ? tableBody(table)
+          : isBase(node.path) && mode === 'preview' ? baseBody()
+            : isDrawio(node.path) && mode === 'preview' ? diagramBody()
+            : table && mode === 'preview' ? tableBody(table)
             : codeBlock(lang, !lang); // code scrolls sideways; prose wraps
     } else if (kind === 'other') {
       body = externalView(node);

@@ -9,18 +9,20 @@ import { isOpen, openItem } from '../panel.js';
 import { NONE, planLabel } from '../grouping.js';
 import { pref, saveSort, savedSort, setPref } from '../prefs.js';
 import {
-  PLANNABLE, PRIORITIES, TYPE_DEFS, byManualOrder, hasField, isClosedStatus, isDone, movesProject, placement, projectHas, statusesOf,
+  PLANNABLE, PRIORITIES, TYPE_DEFS, byManualOrder, hasField, isClosedStatus, isDone, isEnabled, movesProject, placement, projectHas, statusesOf,
 } from '../rules.js';
+import { KIDS, withKids } from '../timeline.js';
+import { paintTimeline } from '../timelineview.js';
 import { byType, deleteMany, listOf, moveToList, state, toast, updateItem, updateMany } from '../state.js';
 import { bulkPatches } from '../bulk.js';
 import { saveView, viewsChanged } from '../savedviews.js';
 import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
-import { countOf, cssKey, h, icon, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
+import { countOf, cssKey, h, icon, lowerName, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
-import { cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, sortColumn } from '../viewmodel.js';
+import { CUSTOM, cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, sortColumn } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
-import { addList, boardOf, editLists, listHead } from '../boardview.js';
+import { addList, boardOf, customColumns, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
 import { idMatches, idTip, refOf, shownId } from '../shownid.js';
 import { PHONE_TOUCH, isPhone } from '../phone.js';
@@ -120,13 +122,23 @@ export function listView(type, { page = null } = {}) {
   const isClosed = many ? (i) => isDone(i) || i.fields.archived === true : archivable ? (i) => i.fields.archived === true : isDone;
   const scopes = SCOPE_NAMES[cfg.scopes] || SCOPE_NAMES.status;
   const label = many ? 'Item' : TYPE_LABEL[type];
-  // "Add task", but "Add PRD" and "3 PRDs": a name in capitals is an acronym and keeps them (as panel.js does)
-  const lower = (s) => (/^[A-Z]{2,}s?$/.test(s) ? s : s.toLowerCase());
+  const lower = lowerName; // "Add task", but "Add PRD", "3 PRDs" and "Add AI agent"
   const groups = groupsOf(types); // the structure's, and Label
+  // A type that runs from a start to a due date (a goal, a project, an initiative) is also a Timeline (timelineview.js),
+  // with what hangs from its items (KIDS) to show under them.
+  const spanned = !many && !asBoard && hasField(type, 'start');
+  const kidTypes = spanned ? (KIDS[type] || []).filter((t) => TYPE_DEFS[t] && isEnabled(t)) : [];
+  // A type's board can also group by Custom: columns of your own, its own board file named as the view (customboard.js).
+  const boardGroupKeys = !many && groups.length ? [CUSTOM] : [];
+  const fitted = (v) => {
+    const out = fitView(v, fields(), [...groups, ...boardGroupKeys]);
+    if (out.groupBy === CUSTOM && out.layout !== 'board' && !asBoard) out.groupBy = null; // a list never groups by it
+    return out;
+  };
   const fields = () => filterFields(types, vaultCtx());
   const key = asBoard ? `list.board.${type}` : many ? 'list.items' : `list.${type}`;
   const sortKey = asBoard ? `board.${type}` : many ? 'items' : `list.${type}`;
-  const view = fitView(loadView(type, key, page), fields(), groups);
+  const view = fitted(loadView(type, key, page));
   if (asBoard) { view.layout = 'board'; if (!view.groupBy) view.groupBy = groups.includes('status') ? 'status' : groups[0] || null; }
   let text = '';
   let sort = savedSort(sortKey, cfg.sort);
@@ -168,7 +180,7 @@ export function listView(type, { page = null } = {}) {
   return {
     mount(root) {
       // What is saved, read again: a saved view opened from the sidebar (savedviews.js) wrote it since the last visit.
-      const now = fitView(loadView(type, key, page), fields(), groups);
+      const now = fitted(loadView(type, key, page));
       if (asBoard) { now.layout = 'board'; if (!now.groupBy) now.groupBy = groups.includes('status') ? 'status' : groups[0] || null; }
       for (const k of Object.keys(view)) delete view[k];
       Object.assign(view, now);
@@ -223,8 +235,10 @@ export function listView(type, { page = null } = {}) {
       const columns = cfg.columns.filter((c) => c.key !== 'id' && !/^subject/.test(c.key) && c.label);
       // List | Board: a type's page switches in place; the List page goes to the Board (the type it is filtered to);
       // the Board page goes to the List, filtered to its type.
-      const layout = groups.length ? {
-        current: () => (board() ? 'board' : 'list'),
+      const onTimeline = () => spanned && view.layout === 'timeline';
+      const layout = groups.length || spanned ? {
+        current: () => (onTimeline() ? 'timeline' : board() ? 'board' : 'list'),
+        options: spanned ? [['list', 'List', 'list'], ...(groups.length ? [['board', 'Board', 'kanban']] : []), ['timeline', 'Timeline', 'timeline']] : undefined,
         pick: (l) => {
           if (many && l === 'board') {
             const t = onlyValue('type');
@@ -234,11 +248,11 @@ export function listView(type, { page = null } = {}) {
             const items = migrateView(pref('list.items', null));
             setPref('list.items', { ...items, layout: 'list', filters: [...items.filters.filter((f) => f.field !== 'type'), { field: 'type', op: 'is', values: [type] }] });
             location.hash = '#/table';
-          } else change({ layout: l, ...(l === 'board' && !view.groupBy ? { groupBy: groups.includes('status') ? 'status' : groups[0] } : {}) });
+          } else change({ layout: l, ...(l === 'board' && !view.groupBy ? { groupBy: groups.includes('status') ? 'status' : groups[0] } : {}), ...(l === 'list' && view.groupBy === CUSTOM ? { groupBy: null } : {}) });
         },
       } : null;
       const vb = viewBar({
-        view, save, fields, ctx: vaultCtx, items: all, groups, closable, layout,
+        view, save, fields, ctx: vaultCtx, items: all, groups, boardGroupKeys, closable, layout,
         placeholder: 'Filter by subject or ID…',
         onText: (t) => { text = t; api.update(); },
         onChange: () => api.update(),
@@ -258,7 +272,7 @@ export function listView(type, { page = null } = {}) {
         props: columns.map((c) => [c.key, c.label]),
         cardProps: cardProps(types),
         columnOrder: {
-          on: () => board() && !boardLists(),
+          on: () => board() && !boardLists() && boardBy() !== CUSTOM, // Custom's columns move by their own header
           custom: () => (view.colOrder?.[boardBy()] || []).length > 0,
           reset: () => { const { [boardBy()]: _, ...rest } = view.colOrder || {}; change({ colOrder: rest }); },
         },
@@ -440,7 +454,13 @@ export function listView(type, { page = null } = {}) {
         const cols = [];
         let after = null;
         let onReorder = null;
-        if (boardLists()) {
+        if (by === CUSTOM) {
+          const custom = customColumns(key, rows, {
+            sort: cardSort(), manual: manual(), fold, quick: () => ({ type, values: quickValues(null, NONE) }),
+          });
+          cols.push(...custom.columns);
+          ({ after, onReorder } = custom);
+        } else if (boardLists()) {
           const placed = new Map(state.board.lists.map((l) => [l.id, []]));
           const orphans = [];
           for (const t of rows) { const l = listOf(t); (l ? placed.get(l.id) : orphans).push(t); }
@@ -473,7 +493,7 @@ export function listView(type, { page = null } = {}) {
           };
         } else {
           const keys = empties === 'hide' ? [] : emptyKeys(by, fs, ctx, items);
-          const grouped = groupItems(rows, by, { byId: state.byId, projectName, sort: cardSort(), showEmpty: empties !== 'hide', keys });
+          const grouped = groupItems(rows, by, { byId: state.byId, projectName, sort: cardSort(), showEmpty: empties !== 'hide', keys, types, desc: !!view.groupDesc });
           const saved = view.colOrder?.[by];
           const byKey = new Map(grouped.map((g) => [g.key, g]));
           const shown = applyOrder(grouped.map((g) => g.key), saved);
@@ -516,7 +536,16 @@ export function listView(type, { page = null } = {}) {
             : shownClosed ? [`${shownClosed} ${closedWord} shown · `,
               h('button', { type: 'button', class: 'link-btn', onclick: () => change({ closed: 'none' }) }, `Hide ${closedWord}`)] : []));
           tableBox.classList.toggle('as-board', board());
-          root.classList.toggle('board-layout', board());
+          root.classList.toggle('board-layout', board() || onTimeline());
+          if (onTimeline()) {
+            picked.clear(); paintBulk();
+            // Its rows in the list's order, then what hangs from them, shown or closed as the list's own are.
+            const kids = closedShown(state.items.filter((i) => kidTypes.includes(i.type)), view.closed, { isClosed: isDone }).items;
+            paintTimeline(tableBox, {
+              items: withKids([...rows].sort(orderBy(sort)), kids), types: [type, ...kidTypes], defaults: [type], view, change, onOpen: openItem,
+            });
+            return;
+          }
           if (board()) { picked.clear(); paintBulk(); paintBoard(rows, items, fs, ctx); return; }
           // Grouped: the groups made here (an item in each of its labels'; the empty ones when asked), each in Order in
           // groups (else the list's order), the closed rows last. Folded groups are kept with the view.
@@ -525,7 +554,7 @@ export function listView(type, { page = null } = {}) {
             const folded = new Set(view.folded || []);
             group = {
               list: groupItems(rows, view.groupBy, {
-                byId: state.byId, projectName, sort: innerSort(),
+                byId: state.byId, projectName, sort: innerSort(), types, desc: !!view.groupDesc,
                 showEmpty: !!view.showEmpty, keys: view.showEmpty ? emptyKeys(view.groupBy, fs, ctx, items) : [],
               }).map((g) => [g.key, g.items]),
               collapsed: folded,
@@ -562,6 +591,8 @@ export function listView(type, { page = null } = {}) {
             if (c.key === 'id') return { ...c, cell: (i) => h('span', { class: 'mono', title: idTip(i) }, shownId(i, { full })) };
             // Planned is edited in place (COL.plan); a phone's two-line row reads it as text, else its Due (app.css).
             if (c.key === 'plan' && matchMedia(PHONE).matches) return only((i) => PLANNABLE.has(i.type), COL.planned);
+            // A phone's row draws its priority under the title only when one was given: none leaves the cell blank.
+            if (c.key === 'priority' && matchMedia(PHONE).matches) return { ...c, cell: (i) => (i.fields.priority ? c.cell(i) : '') };
             return c;
           };
           const ordered = columnOrder([pickCol, ...wanted.map(quiet)]);

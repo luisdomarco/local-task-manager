@@ -63,6 +63,7 @@ class MigrateBase(unittest.TestCase):
         s.update(self.sty['key'], {'priority': 'P1'}, by='owner')  # a history file
         s.log_work(self.task['id'], 'Analysis', '', '2026-11-01', time='00:30')
         s.save_pins([self.ini['id'], self.task['id']])
+        s.save_custom_board('week', columns=[{'id': 'waiting', 'name': 'Waiting'}], place={self.task['id']: ['waiting', 10]})
         s.delete(self.gone['key'])
         write(self.src, 'Docs/Team/How we ship.md', '# How we ship\n\nStart from [[ACME-INI-001 Checkout|the checkout]].\n')
         write(self.src, 'Docs/Canvases/ACME-INI-001/Flow.excalidraw.md', '---\nexcalidraw-plugin: parsed\n---\n\n'
@@ -186,6 +187,7 @@ class ApplyTest(MigrateBase):
         self.assertFalse(os.path.exists(os.path.join(self.new, '.task-manager/history', self.sty['id'] + '.md')))
         s = Store(self.new, structure='ticketing', enforce_structure=True)
         self.assertEqual(s.pins(), {'items': [ids[self.ini['id']], ids[self.task['id']]]})
+        self.assertEqual(s.custom_board('week')['cards'], {str(ids[self.task['id']]): ['waiting', 10]})  # a card by its number
         marks = json.loads(read(self.new, '.task-manager/ids.json'))
         self.assertEqual((marks['number'], marks['TSK']), (plan['top'], 41))
         legacy = json.loads(read(self.new, '.task-manager/legacy-ids.json'))

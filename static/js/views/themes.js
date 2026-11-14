@@ -1,10 +1,11 @@
-// Settings → Themes: first the mode (light, dark or the system's: the only place it is chosen), then the look (Classic
-// or Modern) and Modern's appearance: density, a preset or each option on its own (themeprefs.js OPTIONS), beside a
-// preview drawn with the app's own components. Each choice applies at once and is kept in this browser (theme.js,
-// themeprefs.js): it is not config, so it has no Save.
+// Settings → Themes: first the mode (light, dark or the system's: the only place it is chosen) and, in Modern, each
+// mode's shade (themeprefs.js SHADES; the light's own colour checked against its text, `backgroundGuard`), then the
+// look (Classic or Modern) and Modern's appearance: density, a preset or each option on its own (OPTIONS), beside a
+// preview drawn with the app's own components; last, how Markdown reads (READING), in every look, over a sample. Each
+// choice applies at once and is kept in this browser (theme.js, themeprefs.js): it is not config, so it has no Save.
 import { setTheme, setThemes, themeNow } from '../theme.js';
-import { OPTIONS, PRESETS, presetOf, presetValues, shuffled } from '../themeprefs.js';
-import { h, icon, propRow, seg, statusChip } from '../ui.js';
+import { OPTIONS, PRESETS, READING, backgroundGuard, hexColour, presetOf, presetValues, rgbOf, shuffled } from '../themeprefs.js';
+import { h, icon, propRow, renderMarkdown, seg, statusChip } from '../ui.js';
 
 const LOOKS = [
   ['modern', 'Modern', 'Larger text and controls, Radix colours, and an appearance of your own: colours, shape, fonts. The default.'],
@@ -18,6 +19,50 @@ const NAMES = {
   heading: { same: 'Same as text' },
   font: { system: 'System' },
 };
+/** Reading's rows, their values in the order they read (smaller to larger; READING keeps the default first).
+ *  [key, row name, what it changes, values] */
+const READ_ROWS = [
+  ['textsize', 'Text size', 'The text of docs, descriptions and the editors, as a step of the page’s own.', ['small', 'default', 'large', 'larger']],
+  ['leading', 'Line height', 'The space between a paragraph’s lines.', ['tight', 'default', 'loose']],
+  ['paragraphs', 'Paragraphs', 'The space between one paragraph and the next.', ['compact', 'default', 'airy']],
+  ['lists', 'Lists', 'The space around a list and between its items.', ['compact', 'default', 'airy']],
+  ['width', 'Width', 'Fit keeps a doc in a centred column; Wide gives it the whole width.', ['fit', 'wide']],
+];
+const SAMPLE = `### A sample
+
+Text reads as you set it here, in docs, an item's description and the editors.
+
+A second paragraph, to show the space between two.
+
+- A list item
+- Another, with **bold** and \`code\`
+  - and one under it`;
+/** The light's colour first offered when none was picked: a warm paper. */
+const PAPER = '#faf7f0';
+/** What is drawn on the page, and its floor on a colour of one's own: [token, name, min]. */
+const INKS = [
+  ['--foreground', 'Text', 4.5],
+  ['--muted-foreground', 'Secondary text', 4.5],
+  ['--destructive', 'An error', 4.5],
+  ['--input', 'A field’s outline', 3],
+  ['--primary', 'The accent', 3],
+];
+/** A token's colour as [r, g, b] in sRGB, as the page paints it (a Radix display-p3 colour converted by a canvas). */
+function painted(el, token) {
+  const probe = h('span', { style: `color: var(${token})`, hidden: '' });
+  el.append(probe);
+  const css = getComputedStyle(probe).color;
+  probe.remove();
+  const direct = rgbOf(css);
+  if (direct) return direct;
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = css;
+  ctx.fillRect(0, 0, 1, 1);
+  return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+}
+/** What would not read on `hex` with the theme the page shows now (light): [{ name, ratio, min }]. */
+const unreadable = (el, hex) => backgroundGuard(rgbOf(hex), INKS.map(([token, name, min]) => ({ name, min, rgb: painted(el, token) })));
+const sayUnreadable = (low) => `${low[0].name} would read at ${low[0].ratio.toFixed(1)}:1 on it (it needs ${low[0].min}:1)${low.length > 1 ? `, and ${low.length - 1} more` : ''}.`;
 const nameOf = (key, value) => NAMES[key]?.[value] || label(value);
 /** Modern's options as rows, in the order they read: colour, then shape and type. [key, row name, what it changes] */
 const ROWS = [
@@ -42,10 +87,15 @@ const FACES = {
 /** A row of buttons, one per [value, text, extra], the picked one pressed. */
 function choice(aria, pairs, picked, pick, disabled = false) {
   return seg(pairs.map(([value, text, extra = {}]) => [value, text, {
-    lead: extra.dot ? h('span', { class: 'swatch-dot', 'data-sw': value, 'aria-hidden': 'true' }) : null,
+    lead: extra.steps ? steps(value) : extra.dot ? h('span', { class: 'swatch-dot', 'data-sw': value, 'aria-hidden': 'true' }) : null,
     attrs: extra.style ? { style: extra.style } : {},
   }]), picked, pick, { aria, small: false, disabled });
 }
+
+/** A base's real steps (2, 4, 7, 9, 11 of its Radix scale, in the mode the page shows): a tint reads where one grey dot
+ *  would look like the next. Its dot's colour where the scale is not on the page (Classic). */
+const steps = (base) => h('span', { class: 'base-steps', 'data-sw': base, 'aria-hidden': 'true' },
+  ...[2, 4, 7, 9, 11].map((n) => h('i', { style: `background: var(--${base}-${n}, var(--sw))` })));
 
 /** The accents as round swatches: their name on hover and for a screen reader. */
 function swatches(picked, pick, disabled) {
@@ -80,6 +130,23 @@ function preview() {
           h('span', { class: 'menu-item danger' }, icon('trash', 15), h('span', {}, 'Delete'))))));
 }
 
+/** Reading: its rows, then a sample drawn as Markdown reads now, and Reset. In every look. */
+function readingSection(t, row) {
+  const defaults = Object.fromEntries(Object.entries(READING).map(([k, list]) => [k, list[0]]));
+  const changed = Object.keys(READING).some((k) => t[k] !== defaults[k]);
+  const sample = h('div', { class: 'md' });
+  sample.innerHTML = renderMarkdown(SAMPLE); // sanitized by renderMarkdown, a fixed text of this file
+  return h('section', { class: 'group ap-reading' },
+    h('header', { class: 'ap-head' }, h('h3', {}, 'Reading'),
+      h('button', { type: 'button', class: 'btn small ghost', disabled: !changed, onclick: () => setThemes(defaults) }, icon('reset', 14), 'Reset')),
+    h('p', { class: 'muted' }, 'How Markdown reads — docs, descriptions, the editors — in both looks. Kept in this browser.'),
+    h('div', { class: 'ap-layout' },
+      h('div', { class: 'fields prop-rows' },
+        ...READ_ROWS.map(([key, name, about, values]) => row(name, about,
+          choice(name, values.map((v) => [v, label(v)]), t[key], (v) => setTheme(key, v))))),
+      h('div', { class: 'ap-sample', 'aria-label': 'Sample', role: 'img', inert: '' }, sample)));
+}
+
 /** → { el }: re-drawn whenever a choice changes, here or anywhere else (another tab of the app). */
 export function themesPanel() {
   const el = h('div', { class: 'themes-panel' });
@@ -94,7 +161,7 @@ export function themesPanel() {
     const control = (key) => {
       if (key === 'accent') return swatches(t.accent, (v) => setTheme('accent', v), off);
       const pairs = OPTIONS[key].map((v) => [v, nameOf(key, v), {
-        dot: key === 'base',
+        steps: key === 'base',
         style: (key === 'font' || key === 'heading') && FACES[v] ? `font-family:${FACES[v]}` : null,
       }]);
       return choice(ROWS.find((r) => r[0] === key)[1], pairs, t[key], (v) => setTheme(key, v), off);
@@ -103,7 +170,11 @@ export function themesPanel() {
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Mode')),
         h('div', { class: 'fields prop-rows' },
-          row('Mode', 'System follows your computer’s or phone’s light and dark.', choice('Mode', MODES, t.mode, (v) => setTheme('mode', v))))),
+          row('Mode', 'System follows your computer’s or phone’s light and dark.', choice('Mode', MODES, t.mode, (v) => setTheme('mode', v))),
+          row('Light', off ? 'Modern’s: Classic keeps its own light.' : 'Bright: a white page. Soft: a grey page, white cards on it. Custom: a colour of your own.',
+            lightControl(t, off)),
+          row('Dark', off ? 'Modern’s: Classic keeps its own dark.' : 'Deep: near black. Dim: a step lighter, softer on the eyes.',
+            choice('Dark', [['deep', 'Deep'], ['dim', 'Dim']], t.dark, (v) => setTheme('dark', v), off)))),
       h('section', { class: 'group' },
         h('header', {}, h('h3', {}, 'Theme')),
         h('p', { class: 'muted' }, 'How the app looks in this browser. It changes at once and is kept here, not in the app’s settings.'),
@@ -133,7 +204,43 @@ export function themesPanel() {
                   icon('reset', 14), 'Reset')))),
             ...ROWS.map(([key, name, about]) => row(name, about, control(key)))),
           off ? null : preview())), // in Classic it would draw Classic, not the look these choices make
+      readingSection(t, row),
     );
+  };
+
+  /** The light's shade: Bright · Soft · Custom, and Custom's colour. A colour is checked against the light's text
+   *  before it is used, so it is picked with the page light; one kept that a later base or accent no longer reads
+   *  on is said under it. */
+  const lightControl = (t, off) => {
+    const note = h('span', { class: 'ap-guard', role: 'status' });
+    const lightNow = t.theme === 'light';
+    const use = (hex) => {
+      const low = unreadable(el, hex);
+      if (low.length) { note.textContent = `Not used: ${sayUnreadable(low)} Pick a lighter one.`; note.classList.add('bad'); return; }
+      setThemes({ lightbg: hex, light: 'custom' });
+    };
+    const picker = h('input', {
+      type: 'color', value: t.lightbg || PAPER, disabled: off || !lightNow, 'aria-label': 'Custom light colour',
+      title: lightNow ? 'Your own page colour' : 'Switch the mode to Light to pick it: it is checked against the light’s text',
+      onchange: (e) => { const hex = hexColour(e.target.value); if (hex) use(hex); },
+    });
+    const pick = (v) => {
+      if (v !== 'custom') return setTheme('light', v);
+      if (t.lightbg && lightNow) return use(t.lightbg);
+      if (t.lightbg) return setTheme('light', 'custom'); // checked when it was picked
+      if (lightNow) { try { picker.showPicker(); } catch { picker.click(); } } else {
+        note.textContent = 'Switch the mode to Light first: a colour is checked against the light’s text.';
+      }
+      return null;
+    };
+    if (!off && lightNow && t.light === 'custom' && t.lightbg) {
+      const low = unreadable(el, t.lightbg);
+      if (low.length) { note.textContent = `${sayUnreadable(low)} Pick a lighter colour, or Bright.`; note.classList.add('bad'); }
+    }
+    return h('div', { class: 'ap-shade' },
+      choice('Light', [['bright', 'Bright'], ['soft', 'Soft'], ['custom', 'Custom']], t.light, pick, off),
+      h('label', { class: `ap-colour ${t.light === 'custom' ? 'on' : ''}` }, picker, h('span', {}, t.lightbg || 'Colour')),
+      note);
   };
   // Settings builds its tabs again on a reload: a panel no longer on the page stops listening.
   const onChange = () => { if (el.isConnected) render(); else window.removeEventListener('tm:themeprefs', onChange); };

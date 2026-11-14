@@ -1,11 +1,12 @@
 // Every theme's colour pairs, read from its token files as the browser would resolve them: text ≥ 4.5:1, what makes a
 // control or an icon out ≥ 3:1 (WCAG 1.4.3, 1.4.11; docs/design.md §2). Classic is app.css's :root and its dark block;
 // Modern is the Radix scales, then app.css (what Modern does not redefine stays Classic's), then css/themes/modern.css
-// with every base, accent, sidebar and canvas of its appearance (themeprefs.js OPTIONS).
+// with every base, accent, sidebar and canvas of its appearance (themeprefs.js OPTIONS), in each shade of each mode
+// (SHADES) but Custom, whose colour the panel checks when it is picked (themeprefs.js backgroundGuard).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ACCENTS, BASES, OPTIONS } from '../../static/js/themeprefs.js';
+import { ACCENTS, BASES, OPTIONS, SHADES } from '../../static/js/themeprefs.js';
 
 const read = (path) => readFileSync(new URL(`../../static/${path}`, import.meta.url), 'utf8');
 
@@ -64,6 +65,9 @@ const RADIX_DARK = ['.dark, .dark-theme'];
 const MODERN = [':root[data-skin="modern"]'];
 const MODERN_DARK = [':root[data-skin="modern"].dark'];
 const opt = (key, value) => `:root[data-skin="modern"][data-${key}="${value}"]`;
+/** A shade's rule (css/themes/modern.css), none for a mode's default. */
+const shadeRule = (dark, shade) => (dark ? `:root[data-skin="modern"].dark:where([data-dark="${shade}"])`
+  : `:root[data-skin="modern"]:not(.dark):where([data-light="${shade}"])`);
 
 const THEMES = {
   'Classic light': tokens([app], CLASSIC_ROOT),
@@ -72,22 +76,27 @@ const THEMES = {
 /** Modern with one appearance, `look` a value per option ({ base, accent, sidebar, canvas }), in light or dark. The
  *  rules are taken in the file's order, as the browser's cascade does for selectors of the same weight (the accent's
  *  dark rule weighs more and comes later). */
-function modernTheme(look, dark) {
-  const sels = [...MODERN, ...(dark ? MODERN_DARK : []), ...Object.entries(look).map(([k, v]) => opt(k, v))];
+function modernTheme(look, dark, shade = null) {
+  const sels = [...MODERN, ...(dark ? MODERN_DARK : []), ...(shade ? [shadeRule(dark, shade)] : []), ...Object.entries(look).map(([k, v]) => opt(k, v))];
   if (dark) sels.push(`${opt('accent', look.accent)}.dark`);
   return {
     ...tokens(radix, RADIX_LIGHT), ...(dark ? tokens(radix, RADIX_DARK) : {}),
     ...tokens([app], dark ? [...CLASSIC_ROOT, ...CLASSIC_DARK] : CLASSIC_ROOT), ...tokens([modern], sels),
   };
 }
-/** Every Modern that is checked: per base and mode, each accent with each sidebar and canvas. */
+/** Every Modern that is checked: per base, mode and shade, each accent with each sidebar and canvas. A mode's default
+ *  shade is named by the mode alone (*Modern light, gray*), another after it (*Modern dark dim, gray*). */
 const MODERNS = {};
 for (const base of BASES) {
   for (const dark of [false, true]) {
-    const group = MODERNS[`Modern ${dark ? 'dark' : 'light'}, ${base}`] = {};
-    for (const accent of ACCENTS) {
-      for (const sidebar of OPTIONS.sidebar) {
-        for (const canvas of OPTIONS.canvas) group[`${accent}, sidebar ${sidebar}, canvas ${canvas}`] = modernTheme({ base, accent, sidebar, canvas }, dark);
+    const list = SHADES[dark ? 'dark' : 'light'].filter((s) => s !== 'custom');
+    for (const shade of list) {
+      const rule = shade === list[0] ? null : shade;
+      const group = MODERNS[`Modern ${dark ? 'dark' : 'light'}${rule ? ` ${rule}` : ''}, ${base}`] = {};
+      for (const accent of ACCENTS) {
+        for (const sidebar of OPTIONS.sidebar) {
+          for (const canvas of OPTIONS.canvas) group[`${accent}, sidebar ${sidebar}, canvas ${canvas}`] = modernTheme({ base, accent, sidebar, canvas }, dark, rule);
+        }
       }
     }
   }
@@ -211,6 +220,12 @@ test('the reader resolves what it reads: every theme defines every checked token
   assert.notEqual(at('indigo, sidebar grey, canvas plain', '--sidebar'), at('indigo, sidebar tinted, canvas plain', '--sidebar'));
   assert.notEqual(at('indigo, sidebar grey, canvas plain', '--border'),
     at('indigo, sidebar grey, canvas plain', '--border', MODERNS['Modern light, sand']));
+  // a shade changes the page, and the sidebar's option still wins over it
+  const plain = 'indigo, sidebar grey, canvas plain';
+  assert.notEqual(at(plain, '--background'), at(plain, '--background', MODERNS['Modern light soft, gray']));
+  assert.notEqual(at(plain, '--background', MODERNS['Modern dark, gray']), at(plain, '--background', MODERNS['Modern dark dim, gray']));
+  assert.equal(at('indigo, sidebar tinted, canvas plain', '--sidebar', MODERNS['Modern dark dim, gray']),
+    at('indigo, sidebar tinted, canvas plain', '--sidebar', MODERNS['Modern dark, gray']));
   // sanity: the known pair
   assert.equal(ratio([255, 255, 255], [0, 0, 0]).toFixed(1), '21.0');
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
+  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, noteSection, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -130,11 +130,17 @@ describe('filetree', () => {
     assert.equal(headingIndex(heads, ''), -1);
   });
 
-  it('reads the frontmatter as rows, lists joined', () => {
+  it('reads the frontmatter as rows, a list as its items', () => {
     const { props, body } = splitFrontmatter('---\nid: TSK-1\nsubject: "Hola: mundo"\nlabels:\n  - a\n  - b\n---\n# Body\n');
-    assert.deepEqual(props, [['id', 'TSK-1'], ['subject', 'Hola: mundo'], ['labels', 'a, b']]);
+    assert.deepEqual(props, [['id', 'TSK-1'], ['subject', 'Hola: mundo'], ['labels', ['a', 'b']]]);
     assert.equal(body, '# Body\n');
     assert.deepEqual(splitFrontmatter('no frontmatter'), { props: [], body: 'no frontmatter' });
+  });
+
+  it('reads an inline list, a block of text and an empty key', () => {
+    const { props } = splitFrontmatter('---\ntags: [ux, "a, b", \'c\']\nnone: []\nabout: |\n  line one\n  line two\nfold: >-\n  one\n  two\nempty:\nowner: "[[Ana]]"\n---\n');
+    assert.deepEqual(props, [['tags', ['ux', 'a, b', 'c']], ['none', []], ['about', 'line one\nline two'],
+      ['fold', 'one two'], ['empty', ''], ['owner', '[[Ana]]']]);
   });
 
   it('turns the wikilinks that name a file into links to it', () => {
@@ -162,7 +168,7 @@ describe('filetree', () => {
     assert.equal(linkWikilinks('| [[Note#Part\\|p]] |', (t) => (t === 'Note' ? 'Note.md' : null)), '| [p](#/files/Note.md?heading=Part) |');
   });
 
-  it('draws ![[picture]] from the vault, at the width asked; a note embedded reads as a link', () => {
+  it('draws ![[picture]] from the vault, at the width asked; a note embedded is a box to draw it in', () => {
     const pathOf = (t) => ({ 'orbit.png': 'Docs/img/orbit.png', Note: 'Docs/Note.md' })[t] || null;
     const src = (p) => `/api/files/raw?path=${encodeURIComponent(p)}`;
     assert.equal(linkWikilinks('![[orbit.png]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="orbit.png">');
@@ -170,7 +176,10 @@ describe('filetree', () => {
     assert.equal(linkWikilinks('![[orbit.png|300x200]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="orbit.png" width="300" height="200">');
     assert.equal(linkWikilinks('![[orbit.png|The orbit]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="The orbit">');
     assert.equal(linkWikilinks('![[gone.png]]', pathOf, { src }), '<span class="md-missing" title="Not found: gone.png">gone.png</span>');
-    assert.equal(linkWikilinks('![[Note]]', pathOf, { src }), '![Note](#/files/Docs/Note.md)'.slice(1)); // the "!" stays out: a link
+    assert.equal(linkWikilinks('![[Note]]', pathOf, { src }), '<div class="md-note-embed" data-embed="Docs/Note.md"></div>');
+    assert.equal(linkWikilinks('![[Note#Set up]]', pathOf), '<div class="md-note-embed" data-embed="Docs/Note.md" data-heading="Set up"></div>');
+    assert.equal(linkWikilinks('![[Note#^ab-1]]', pathOf), '<div class="md-note-embed" data-embed="Docs/Note.md" data-heading="^ab-1"></div>');
+    assert.equal(linkWikilinks('![[Gone]]', pathOf), '<span class="md-missing" title="Not found: Gone">Gone</span>');
     assert.equal(linkWikilinks('![[orbit.png]]', pathOf), '![orbit.png](#/files/Docs/img/orbit.png)'.slice(1), 'no src: a link to it');
   });
 
@@ -267,5 +276,34 @@ describe('hidden files (Show hidden files)', () => {
     assert.equal(findNode(tree, '.git').sealed, true);
     assert.deepEqual(findNode(tree, '.git').children, []);
     assert.equal(findNode(tree, '.obsidian').sealed, undefined);
+  });
+
+  it('the part of a note an embed names: a heading and what is under it, or a block by its ^id', () => {
+    const md = '# Top\nintro\n## Set up\nstep one\n```\n# not a heading\n```\n### Sub\nmore\n## Next\nafter\nwith an id ^abc\n\n- item one ^li-1\n- item two';
+    assert.equal(noteSection(md, null), md, 'no heading: the whole note');
+    assert.equal(noteSection(md, 'set  UP'), '## Set up\nstep one\n```\n# not a heading\n```\n### Sub\nmore', 'up to the next heading of its level; code is not a heading');
+    assert.equal(noteSection(md, 'Sub'), '### Sub\nmore');
+    assert.equal(noteSection(md, '^abc'), 'after\nwith an id', 'its paragraph, without the id');
+    assert.equal(noteSection(md, '^li-1'), '- item one', 'a list item alone');
+    assert.equal(noteSection(md, 'Nope'), null);
+    assert.equal(noteSection(md, '^none'), null);
+    assert.equal(noteSection(md, 'not a heading'), null, 'a # line in code is not one');
+  });
+});
+
+describe('an embed alone on its line', () => {
+  const pathOf = (t) => ({ 'shot.png': 'Docs/shot.png', Note: 'Docs/Note.md' }[t] || null);
+  const src = (p) => `/raw/${p}`;
+  it('ends its HTML block, so the next line is still Markdown', () => {
+    assert.equal(linkWikilinks('![[shot.png|300]]\n# Heading', pathOf, { src }),
+      '<img class="md-embed" src="/raw/Docs/shot.png" alt="shot.png" width="300">\n\n# Heading');
+    assert.match(linkWikilinks('![[Note]]\nNext line', pathOf, { src }), /<\/div>\n\nNext line$/);
+    assert.match(linkWikilinks('![[gone.png]]\n[[Note]]', pathOf, { src }), /<\/span>\n\n\[Note\]/);
+  });
+  it('is left as it is inside a line, before a blank line, or last', () => {
+    assert.equal(linkWikilinks('see ![[shot.png]] here\nnext', pathOf, { src }),
+      'see <img class="md-embed" src="/raw/Docs/shot.png" alt="shot.png"> here\nnext');
+    assert.match(linkWikilinks('![[shot.png]]\n\nnext', pathOf, { src }), />\n\nnext$/);
+    assert.match(linkWikilinks('text\n![[shot.png]]', pathOf, { src }), /alt="shot.png">$/);
   });
 });

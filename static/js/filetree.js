@@ -95,7 +95,7 @@ const CODE = {
   sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'bash', command: 'bash', ps1: 'powershell', psm1: 'powershell',
   sql: 'sql', graphql: 'graphql', gql: 'graphql',
   json: 'json', jsonc: 'json', json5: 'json', webmanifest: 'json', ipynb: 'json',
-  yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini', cfg: 'ini', conf: 'ini', env: 'ini', properties: 'ini', editorconfig: 'ini',
+  yaml: 'yaml', yml: 'yaml', base: 'yaml', drawio: 'xml', toml: 'ini', ini: 'ini', cfg: 'ini', conf: 'ini', env: 'ini', properties: 'ini', editorconfig: 'ini',
   xml: 'xml', html: 'xml', htm: 'xml', xhtml: 'xml', vue: 'xml', svelte: 'xml', plist: 'xml', xsd: 'xml', rss: 'xml',
   css: 'css', scss: 'scss', sass: 'scss', less: 'less',
   diff: 'diff', patch: 'diff', mk: 'makefile', dockerfile: 'dockerfile',
@@ -131,6 +131,12 @@ export function fenceLanguage(tag) {
   return FENCE[t] || CODE[t] || null; // '' (```text) is plain: null too
 }
 
+/** An Obsidian base (a .base file): shown as its views (baseview.js), its YAML in Source and Edit. */
+export const isBase = (path) => /\.base$/i.test(String(path));
+
+/** A draw.io diagram (a .drawio file): shown as its diagram (drawioview.js), its XML in Source and Edit. */
+export const isDrawio = (path) => /\.drawio$/i.test(String(path));
+
 /** How a file is shown, by its name: 'markdown', 'image', 'pdf', 'text' (code too) or 'other'. */
 export function fileKind(path) {
   const ext = (String(path).match(/\.([^./]+)$/) || [])[1]?.toLowerCase() || '';
@@ -140,22 +146,49 @@ export function fileKind(path) {
   return codeLanguage(path) === undefined ? 'other' : 'text';
 }
 
-/** A Markdown file's frontmatter as [key, value] rows for a properties table (top-level keys; a list's items joined
- * with ", "), and its body. Only to show it: the server's frontmatter.py is what reads it for real. */
+/** An inline YAML list's items (`[a, "b, c", 'd']` → a · b, c · d), each unquoted. */
+function inlineList(s) {
+  const out = [];
+  let cur = '';
+  let quote = null;
+  for (const c of s) {
+    if (quote) { if (c === quote) quote = null; else cur += c; } else if (c === '"' || c === "'") quote = c;
+    else if (c === ',') { out.push(cur.trim()); cur = ''; } else cur += c;
+  }
+  out.push(cur.trim());
+  return out.filter(Boolean);
+}
+
+/** A Markdown file's frontmatter as [key, value] rows for its properties (top-level keys, in their order; a list —
+ * `- a` lines or `[a, b]` — an array of its items; a `|` or `>` block its lines), and its body. Only to show it: the
+ * server's frontmatter.py is what reads it for real. */
 export function splitFrontmatter(text) {
   const m = String(text || '').match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
   if (!m) return { props: [], body: String(text || '') };
   const props = [];
   const unquote = (v) => v.trim().replace(/^(['"])(.*)\1$/, '$2');
+  let block = null; // a `key: |` (or >) whose indented lines follow: [its row, '|' or '>']
   for (const line of m[1].split(/\r?\n/)) {
+    if (block && (/^\s/.test(line) || !line.trim())) {
+      const [row, style] = block;
+      const t = line.trim();
+      row[1] = row[1] ? `${row[1]}${style === '|' ? '\n' : ' '}${t}` : t;
+      continue;
+    }
+    block = null;
     const key = line.match(/^([^\s#:][^:]*):(?:\s+(.*))?$/);
     const item = line.match(/^\s*-\s+(.*)$/);
-    if (key) props.push([key[1].trim(), unquote(key[2] || '')]);
-    else if (item && props.length) {
+    if (key) {
+      const raw = (key[2] || '').trim();
+      const row = [key[1].trim(), /^\[.*\]$/.test(raw) ? inlineList(raw.slice(1, -1)) : unquote(raw)];
+      props.push(row);
+      if (/^[|>][+-]?$/.test(raw)) { row[1] = ''; block = [row, raw[0]]; }
+    } else if (item && props.length) {
       const last = props[props.length - 1];
-      last[1] = last[1] ? `${last[1]}, ${unquote(item[1])}` : unquote(item[1]);
+      last[1] = [...(Array.isArray(last[1]) ? last[1] : last[1] ? [last[1]] : []), unquote(item[1])];
     }
   }
+  for (const row of props) if (typeof row[1] === 'string') row[1] = row[1].trimEnd();
   return { props, body: String(text).slice(m[0].length) };
 }
 
@@ -250,7 +283,7 @@ function outsideCode(md, fn) {
  * with it, `![[picture.png|300]]` is drawn as the picture (else as a link). Code is left as written.
  */
 export function linkWikilinks(md, pathOf, { self = null, href = filesHref, src = null } = {}) {
-  return outsideCode(md, (text) => text.replace(WIKILINK, (all, bang, rawTarget, part, alias) => {
+  const draw = (all, bang, rawTarget, part, alias) => {
     const target = rawTarget.trim().replace(/\\$/, '').trim();
     const heading = wikiHeading(part?.replace(/\\$/, '')); // `[[#Part\|alias]]` in a table: the bar's escape is not the heading's
     if (!target && !heading) return all;
@@ -262,10 +295,87 @@ export function linkWikilinks(md, pathOf, { self = null, href = filesHref, src =
       if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target}`)}">${alt}</span>`;
       return `<img class="md-embed" src="${escapeHtml(src(path))}" alt="${alt}"${size ? ` width="${size[1]}"` : ''}${size?.[2] ? ` height="${size[2]}"` : ''}>`;
     }
+    // `![[x.base]]`, `![[x.base#View]]`: a base's view, drawn there once the HTML is in (baseview.js renderBases)
+    if (bang && /\.base$/i.test(target)) {
+      if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target}`)}">${escapeHtml(target.split('/').pop())}</span>`;
+      return `<div class="md-base" data-base="${escapeHtml(path)}"${heading ? ` data-view="${escapeHtml(heading)}"` : ''}></div>`;
+    }
+    // `![[x.drawio]]`: a draw.io diagram, drawn there once the HTML is in (drawioview.js renderDrawios)
+    if (bang && /\.drawio$/i.test(target)) {
+      if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target}`)}">${escapeHtml(target.split('/').pop())}</span>`;
+      return `<div class="md-drawio" data-drawio="${escapeHtml(path)}"></div>`;
+    }
     const label = (alias?.trim() || (target && heading ? `${target} > ${heading}` : target || heading)).replace(/[[\]]/g, ''); // as Obsidian shows it
     if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target || `#${heading}`}`)}">${escapeHtml(label)}</span>`;
-    return `[${label}](${href(path, heading)})`; // an embed of a note (![[note]]) reads as a link to it, for now
+    // `![[Note]]`, `![[Note#Heading]]`, `![[Note#^block]]`: the note (that part of it) drawn there once the HTML is in
+    // (mdview.js renderEmbeds); any other file reads as a link to it
+    if (bang && /\.md$/i.test(path)) {
+      return `<div class="md-note-embed" data-embed="${escapeHtml(path)}"${heading ? ` data-heading="${escapeHtml(heading)}"` : ''}></div>`;
+    }
+    return `[${label}](${href(path, heading)})`;
+  };
+  return outsideCode(md, (text) => text.replace(WIKILINK, (...args) => {
+    const out = draw(...args.slice(0, 5));
+    return out === args[0] ? out : blockEnds(out, args[0], args[args.length - 2], args[args.length - 1]);
   }));
+}
+
+/**
+ * An embed drawn as HTML (`<img>`, a base's or a note's box, a missing one's span) alone on its line, with text on the
+ * next: a blank line after it. Else Markdown reads that line as the start of an HTML block, which runs to the next
+ * blank line and leaves what follows raw — `![[shot.png]]` then `# Heading` would show `# Heading` as written. The text
+ * is only changed for drawing it, never on disk. `match` was at `at` in `whole`.
+ */
+function blockEnds(out, match, at, whole) {
+  if (!out.startsWith('<')) return out;
+  const lineStart = whole.lastIndexOf('\n', at - 1) + 1;
+  const end = at + match.length;
+  const nl = whole.indexOf('\n', end);
+  const lineEnd = nl === -1 ? whole.length : nl;
+  if (whole.slice(lineStart, at).trim() || whole.slice(end, lineEnd).trim()) return out; // in a line of text: inline
+  return nl !== -1 && whole.slice(nl + 1).split('\n', 1)[0].trim() ? `${out}\n` : out;
+}
+
+const headingLine = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+const fenceLine = /^ {0,3}(`{3,}|~{3,})/;
+/**
+ * The part of a note's text (`md`, its body) a `![[Note#heading]]` shows: the heading's line and what is under it, up to
+ * the next heading of its level or higher. `^id` (a block's id, written at the end of its line): that paragraph or
+ * list item, without its id. No `heading`: the whole text. Null when the note has no such heading or block.
+ */
+export function noteSection(md, heading) {
+  const text = String(md || '');
+  if (!heading) return text;
+  const lines = text.split('\n');
+  const fenced = []; // whether each line is in fenced code
+  let fence = null;
+  for (const line of lines) {
+    const f = fenceLine.exec(line);
+    if (fence) { fenced.push(true); if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.trim().slice(f[1].length).trim()) fence = null; continue; }
+    if (f) fence = f[1];
+    fenced.push(Boolean(f));
+  }
+  if (heading.startsWith('^')) {
+    const id = heading.slice(1).trim();
+    const mark = new RegExp(`[ \\t]\\^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[ \\t]*$`, 'i');
+    const at = lines.findIndex((l, i) => !fenced[i] && mark.test(l));
+    if (at < 0 || !id) return null;
+    const item = /^\s*(?:[-*+]|\d+[.)])\s/.test(lines[at]);
+    let a = at;
+    let b = at;
+    if (!item) {
+      while (a > 0 && lines[a - 1].trim() && !fenced[a - 1] && !headingLine.test(lines[a - 1])) a -= 1;
+      while (b < lines.length - 1 && lines[b + 1].trim() && !fenced[b + 1] && !headingLine.test(lines[b + 1])) b += 1;
+    }
+    return lines.slice(a, b + 1).join('\n').replace(mark, '').replace(/(^|\n)[ \t]*\^[\w-]+[ \t]*(?=\n|$)/g, '$1');
+  }
+  const titles = lines.map((l, i) => (fenced[i] ? null : headingLine.exec(l)));
+  const at = headingIndex(titles.map((m) => (m ? m[2] : '\u0000')), heading);
+  if (at < 0) return null;
+  const level = titles[at][1].length;
+  let end = at + 1;
+  while (end < lines.length && !(titles[end] && titles[end][1].length <= level)) end += 1;
+  return lines.slice(at, end).join('\n').trimEnd();
 }
 
 const routeOf = (view, path, heading) => `#/${view}${path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''}${

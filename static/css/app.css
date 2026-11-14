@@ -389,7 +389,7 @@ input[type=number] { padding-right: 6px; }
 #sidebar nav a.active { background: var(--accent); color: var(--foreground); font-weight: 600; }
 #sidebar nav a.active .icon { color: var(--foreground); }
 .nav-sep { height: 1px; background: var(--border); margin: 6px 10px; }
-/* Folding groups of the nav (Plan, Items, More): a quiet title that folds what is under it (sidebar.js remembers it). */
+/* Folding groups of the nav (Favourites, Views, More): a quiet title that folds what is under it (sidebar.js remembers it). */
 .side-group { display: flex; flex-direction: column; gap: 2px; }
 .side-group > summary {
   list-style: none; display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 10px; border-radius: var(--radius-sm);
@@ -417,8 +417,9 @@ input[type=number] { padding-right: 6px; }
 h3 .count, .h3 .count { margin-left: 8px; }
 .group h3 .muted { margin-left: 8px; font-weight: 400; }
 .side-section { display: flex; flex-direction: column; gap: 2px; }
-/* Its closing separator sits 8px over Inbox, as every separator does (6px margin + the nav's 2px gap), not 6 + the sidebar's 14 */
-.side-section { margin-bottom: -12px; }
+/* Its closing separator stands apart from both sides: 12px under the last favourite or view, 16px over Inbox */
+.side-section { margin-bottom: -4px; }
+.side-section > .nav-sep { margin-top: 10px; }
 /* The foot (vault, mode, theme, Settings) keeps to the bottom: the room left over goes under More, never over it */
 .side-bottom { margin-top: auto; }
 /* Its separator opens it: 8px under the last link above, as every separator (6px margin + the nav's 2px gap), not the sidebar's 14 */
@@ -500,6 +501,31 @@ h3 .count, .h3 .count { margin-left: 8px; }
 @media (max-width: 760px) { .person-fields { grid-template-columns: 1fr; } }
 .tag-edit-row .tag-rename { width: 240px; height: var(--control-h); font-size: var(--fs-sm); }
 .tag-edit-row .spacer { flex: 1; }
+/* Properties (views/properties.js): a key with its type's icon (as a note's, .prop-key), its first values as chips;
+   open, its name to rename and every value, a row each, to rename onto another (they merge), then Delete. */
+.props-table .c-name .prop-key { color: var(--foreground); }
+.props-table .props-kept { margin-left: 6px; vertical-align: -1px; }
+.props-table .c-values .chips-inline { max-width: 100%; overflow: hidden; } /* one line: the open row lists them all */
+.props-table .c-values .chip { min-width: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.props-table .c-values .muted { flex: none; }
+.props-edit { display: flex; flex-direction: column; gap: 8px; position: sticky; left: 12px;
+  max-width: min(720px, calc(100vw - var(--sidebar-w, 248px) - 110px)); }
+.side-collapsed .props-edit { max-width: min(720px, calc(100vw - 110px)); }
+.props-edit .prop-rows .field { grid-template-columns: 112px minmax(0, 1fr); align-items: start; }
+.props-edit .prop-rows .field > span:first-child { padding-top: 8px; }
+.props-values { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow: auto; }
+.props-value { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 0 6px; border-radius: var(--radius); cursor: pointer; }
+.props-value:hover { background: color-mix(in srgb, var(--foreground) 5%, transparent); }
+.props-value .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.props-value .num { margin-left: auto; }
+.props-value.editing { cursor: default; flex-wrap: wrap; padding: 6px; background: var(--card, var(--background)); }
+.props-value.editing .tag-rename { width: 240px; height: var(--control-h); font-size: var(--fs-sm); }
+.props-value.editing .form-actions { margin-left: auto; }
+@media (max-width: 760px) {
+  .props-edit { max-width: calc(100vw - 48px); }
+  .props-edit .prop-rows .field { grid-template-columns: minmax(0, 1fr); }
+  .props-value.editing .tag-rename { width: 100%; }
+}
 /* Work log: a list's bar, then a table grouped as a list's (its group heads the lists' grey band); suggestions are
    the dashed, muted rows */
 .log-grid td.c-actions, .log-grid th.c-actions { text-align: right; white-space: nowrap; }
@@ -672,19 +698,43 @@ h3 .count, .h3 .count { margin-left: 8px; }
   .files-head > .seg > .btn { flex: 1; justify-content: center; }
   .files-head > .seg + .files-more { margin-left: auto; }
 }
-.files-props a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .files-meta { margin: 0 0 14px; }
 .files-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well); }
 .files-item .btn { margin-left: auto; }
-.files-props { border-collapse: collapse; margin: 0 0 18px; font-size: var(--fs-sm); }
-.files-props th { text-align: left; padding: 3px 18px 3px 0; color: var(--muted-foreground); font-weight: 500; vertical-align: top; white-space: nowrap; }
-.files-props td { padding: 3px 0; overflow-wrap: anywhere; }
-/* A doc's own properties (views/files.js docProps): prop-rows, quiet, as an item's (design.md §Properties) */
-.doc-props { max-width: 560px; margin: 0 0 18px; }
+/* A note's properties at its top, as Obsidian draws them (views/files.js propRowsOf, props.js): prop-rows, quiet, as an
+   item's (design.md §Properties); each key with its type's icon, cut with … when long; the value as its type reads.
+   A doc's own fields (docProps) are the first rows of the same block. */
+.files-props { max-width: 640px; margin: 0 0 18px; }
+.files-props .field { grid-template-columns: 150px minmax(0, 1fr); min-height: 30px; }
+.prop-key { display: inline-flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted-foreground); }
+.prop-key > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop-key .icon { flex: none; opacity: .8; }
+.prop-value { min-width: 0; padding: 4px 10px; /* as .prop-readonly: under a quiet control's text */ overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.prop-value a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
+.prop-value a:hover { text-decoration-color: currentColor; }
+.prop-text { white-space: pre-line; }
+.prop-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-inline-start: -8px; } /* a chip's text under the others' */
+.prop-value.t-number, .prop-value.t-date, .prop-value.t-datetime { font-variant-numeric: tabular-nums; }
+.prop-value input[type=checkbox] { width: 18px; height: 18px; margin: 0; vertical-align: middle; } /* not .field input's 100% */
+@media (max-width: 600px) { .files-props .field { grid-template-columns: 112px minmax(0, 1fr); } }
 /* The reading width (Themes → Reading, themeprefs.js READING): Fit keeps the whole file — its head, properties,
    outline, text and backlinks — in one centred column; Expanded (wide) lets it take the whole width. */
 .files-col { --read-max: 900px; }
 :root:not([data-width="wide"]) .files-col { max-width: var(--read-max); margin-inline: auto; }
+/* How Markdown reads (Themes → Reading, themeprefs.js READING), in every look: the text's size as a factor of the
+   place's own (--md-k), the line height (--md-lh; --md-lh-src in the source editors, whose mono runs a little
+   tighter), the space between paragraphs (--md-gap), around a list (--md-list-gap) and between its items (--md-li).
+   Each default is what the page had before these choices. */
+:root { --md-k: 1; --md-lh: 1.65; --md-lh-src: 1.6; --md-gap: .5em; --md-list-gap: .5em; --md-li: 0em; }
+:root[data-textsize="small"] { --md-k: .93; }
+:root[data-textsize="large"] { --md-k: 1.125; }
+:root[data-textsize="larger"] { --md-k: 1.25; }
+:root[data-leading="tight"] { --md-lh: 1.45; --md-lh-src: 1.45; }
+:root[data-leading="loose"] { --md-lh: 1.9; --md-lh-src: 1.8; }
+:root[data-paragraphs="compact"] { --md-gap: .2em; }
+:root[data-paragraphs="airy"] { --md-gap: 1em; }
+:root[data-lists="compact"] { --md-list-gap: .25em; }
+:root[data-lists="airy"] { --md-list-gap: .75em; --md-li: .4em; }
 /* A heading scrolled to (a [[note#heading]] link, On this page) lands under the sticky top bar, not behind it */
 .files-md :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: calc(var(--pinbar-h, 46px) + 12px); }
 .files-source { margin: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well);
@@ -735,6 +785,60 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .find-text mark { background: color-mix(in srgb, var(--hl-title) 30%, transparent); color: inherit; border-radius: 2px; }
 .side-explorer-search { margin-top: -2px; }
 .files-table { max-height: calc(100dvh - 260px); overflow: auto; }
+/* ── Bases (baseview.js): an Obsidian .base's views — opened as a file, or embedded with ![[x.base]] ── */
+.base-view { margin: 0 0 16px; min-width: 0; }
+.base-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+.base-bar .seg { max-width: 100%; overflow-x: auto; }
+.base-count { white-space: nowrap; }
+.base-embed { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px 4px; margin: 12px 0; }
+.base-embed-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--foreground); text-decoration: none; }
+.md .base-embed-title { text-decoration: none; }
+/* draw.io diagrams (drawioview.js): draw.io's viewer in a sandboxed frame, as tall as the diagram says */
+.drawio-view { margin: 0 0 16px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.drawio-frame { display: block; width: 100%; height: 240px; border: 0; background: transparent; color-scheme: normal; }
+.drawio-notice { margin: 6px 12px; }
+.md-drawio { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px 4px; margin: 12px 0; min-width: 0; }
+.drawio-embed-head { margin: 0 0 6px; }
+.drawio-embed-name, .md .drawio-embed-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--foreground); text-decoration: none; }
+.base-notice { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--st-onhold-bg); color: var(--foreground); font-size: var(--fs-sm); }
+.base-notice .icon { flex: none; color: var(--st-onhold-fg); }
+.base-notice.error { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
+.base-notice.error .icon { color: var(--destructive); }
+.base-table td { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+.base-table td { white-space: nowrap; }
+.base-table td .prop-value { padding: 0; overflow-wrap: normal; }
+.base-table .prop-chips { flex-wrap: nowrap; margin-inline-start: 0; }
+.md .base-table table { border-collapse: separate; border-spacing: 0; margin: 0; }
+.md .base-table :is(td, th) { border: 0; border-bottom: 1px solid var(--border); }
+.md .base-table th { padding: 8px 12px; }
+.base-name, .md .base-name { color: var(--foreground); font-weight: 500; text-decoration: none; }
+.base-name:hover { text-decoration: underline; }
+td.base-editable { cursor: pointer; }
+@media (hover: hover) { td.base-editable:hover { background: var(--row-hover); } }
+td.base-editing { padding-block: 4px; }
+.base-cell-input { width: 100%; min-width: 120px; height: var(--control-h-sm); padding: 0 8px; border: 1px solid var(--input);
+  border-radius: var(--radius-sm); background: var(--background); color: var(--foreground); font: inherit; }
+.base-cell-input:focus { outline: none; border-color: var(--field-ring, var(--ring)); box-shadow: 0 0 0 3px var(--field-halo, transparent); }
+.base-summaries td { height: 32px; font-size: var(--fs-xs); border-bottom: 0; }
+.base-group-head { margin: 10px 0 4px; }
+.base-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 4px 0 16px; }
+.base-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--card); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px); }
+.base-card-img { aspect-ratio: 16 / 9; background: var(--muted); }
+.base-card-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.md .base-card-img img { cursor: auto; }
+.base-card-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px 12px; }
+.base-card-title { color: var(--foreground); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.md .base-card-title { text-decoration: none; }
+.fields.base-card-props .field { grid-template-columns: minmax(0, 72px) minmax(0, 1fr); gap: 2px 10px; min-height: 24px; font-size: var(--fs-xs); }
+.base-card-props .prop-value { padding: 2px 0; }
+.fields.base-card-props .field > span:first-child { color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.base-list { list-style: none; margin: 4px 0 12px; padding: 0; }
+.base-list > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.md .base-list > li + li { margin-top: 0; }
+.base-list-meta { display: inline-flex; flex-wrap: wrap; align-items: center; color: var(--muted-foreground); font-size: var(--fs-sm); }
+.base-more { margin: 4px 0 12px; }
 .files-table th { position: sticky; top: 0; background: var(--card); }
 .files-table td, .files-table th { white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
 .files-rownum { width: 1%; text-align: right; font-variant-numeric: tabular-nums; }
@@ -848,6 +952,18 @@ body.card-drag .pin-empty { display: inline; }
 .qa-input { width: 100%; height: 38px; padding: 0 12px; border-radius: var(--radius); font-size: var(--fs-base); }
 .qa-preview { min-height: 0; margin-top: 8px; }
 .qa-preview:empty { display: none; }
+/* The Inbox's capture (quickadd.js `files`): its paperclip right of the field, the files waiting as chips under it
+   (each with its ×), and its frame lit while files are dragged over it */
+.quick-add.has-clip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.quick-add.has-clip > :is(.qa-input, .dictation-host) { flex: 1 1 0; min-width: 0; }
+.quick-add.has-clip > .qa-clip { flex: none; width: 38px; height: 38px; color: var(--muted-foreground); }
+.quick-add.has-clip > :is(.qa-files, .qa-preview) { flex: 1 1 100%; }
+.qa-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.qa-files:empty { display: none; }
+.qa-file { max-width: 260px; gap: 4px; padding-right: 2px; }
+.qa-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-file-x { width: 20px; height: 20px; }
+.quick-add.qa-drop .qa-input { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); }
 
 /* ── cards ───────────────────────────────────────────────── */
 .cards { display: flex; flex-direction: column; gap: 8px; }
@@ -880,6 +996,7 @@ body.card-drag .pin-empty { display: inline; }
 @media (max-width: 760px) {
   .cards.rows .card-extra { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
   .cards.rows .card-extra > :is(.select-btn, select) { width: 100%; max-width: none; }
+  .inbox-discard { display: none; } /* a phone discards from the card's ⋯ */
 }
 
 /* checkbox — shadcn style, square, 18px hit area 32px */
@@ -1059,7 +1176,7 @@ button.chip.kind:hover { background: var(--accent); }
 .row-actions { display: flex; align-items: center; gap: 6px; }
 
 /* ── Today's own columns (views/today.js) and cards' heads ── */
-.today-col.default .list-head .list-name { color: var(--muted-foreground); }
+:is(.today-col, .free-col, .custom-col).default .list-head .list-name { color: var(--muted-foreground); }
 .card-head { display: flex; align-items: flex-start; gap: 4px 8px; flex-wrap: wrap; }
 .card-head .card-title { flex: 1 1 120px; min-width: 0; } /* a narrow column puts what is beside the title (how late) under it */
 .menu-check { cursor: pointer; }
@@ -1077,14 +1194,16 @@ button.chip.kind:hover { background: var(--accent); }
   #item-modal .im-head > .mono { white-space: nowrap; flex: none; }
   .create-keys { display: none; } /* keyboard hints: no keyboard to speak of on a phone, and they squeezed the buttons */
   /* A list on a phone (design.md §3): each row two lines, the header row left out —
-       [☐] ● Subject ……………… Planned (or Due, or Date; red when late)
-           ID · Initiative (else Project, else Parent), in grey
-     The status keeps its select, drawn as its dot; the rest of the row is in the item's card. */
+       [☐] ● Subject ………………………………………
+           ID  Priority  Planned (or Due, or Date; red when late) · Initiative (else Project, else Parent), in grey
+     The status keeps its select, drawn as its dot, and so does the priority, drawn as its bars and word (only when
+     one was given: list.js); the rest of the row is in the item's card. No column gap: a cell of the second line
+     that shows keeps its own distance, so one left out leaves no hole. */
   .list-main .grid thead, .list-main .grid colgroup { display: none; }
   .list-main .grid, .list-main .grid tbody { display: block; width: 100% !important; min-width: 0 !important; }
   .list-main .grid tbody tr:not(.group-head) {
-    display: grid; grid-template-columns: 20px 24px auto minmax(0, 1fr) auto; align-items: center; column-gap: 8px; row-gap: 3px; /* the dot keeps its place in a type without status */
-    grid-template-areas: "pick dot subject subject when" "pick . id where where"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 28px 32px auto auto auto minmax(0, 1fr); align-items: center; column-gap: 0; row-gap: 3px; /* the dot keeps its place in a type without status */
+    grid-template-areas: "pick dot subject subject subject subject" "pick . id prio when where"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
   }
   .list-main .grid tbody tr:not(.group-head) > td { display: none; height: auto; padding: 0; border: 0; width: auto !important; min-width: 0; max-width: 100%; }
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { display: flex; grid-area: pick; width: 20px !important; }
@@ -1093,23 +1212,30 @@ button.chip.kind:hover { background: var(--accent); }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .title-cell > :not(.item-link) { display: none; } /* its labels: in the card */
   .list-main .grid tbody tr:not(.group-head) > td.c-id:not(.blank) { display: block; grid-area: id; font-size: var(--fs-2xs); color: var(--muted-foreground); }
   /* when: what it is planned for, else its due date, else (a meeting) its date */
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-plan, .c-due, .c-date) { grid-area: when; font-size: var(--fs-xs); color: var(--muted-foreground); white-space: nowrap; }
+  .list-main .grid tbody tr:not(.group-head) > td.c-priority:not(.blank) { display: block; grid-area: prio; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-plan, .c-due, .c-date) { grid-area: when; font-size: var(--fs-2xs); color: var(--muted-foreground); white-space: nowrap; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-priority, .c-plan, .c-due, .c-date) { margin-left: 10px; }
+  .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-id:not(.blank))) > td.c-priority { margin-left: 0; }
   /* (one :has each: a :has inside a :has is invalid, and drops the whole rule) */
   .list-main .grid tbody tr:not(.group-head) > td.c-plan:not(.blank),
   .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-plan:not(.blank))) > td.c-due:not(.blank),
   .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-plan:not(.blank), > td.c-due:not(.blank))) > td.c-date:not(.blank) { display: block; }
   /* where: its initiative, else its project, else its parent */
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) { grid-area: where; font-size: var(--fs-xs); overflow: hidden; }
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) { grid-area: where; font-size: var(--fs-xs); overflow: hidden; margin-left: 6px; }
   .list-main .grid tbody tr:not(.group-head) > td.c-initiative:not(.blank),
   .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-initiative:not(.blank))) > td.c-project:not(.blank),
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td:is(.c-initiative, .c-project):not(.blank))) > td.c-parent:not(.blank) { display: block; }
-  .list-main .grid tbody tr:not(.group-head) > td.c-id:not(.blank) ~ td:is(.c-initiative, .c-project, .c-parent)::before { content: "· "; color: var(--muted-foreground); }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) .ref-text { display: inline-flex; vertical-align: baseline; }
+  .list-main .grid tbody tr:not(.group-head):not(:has(> td:is(.c-initiative, .c-project):not(.blank))) > td.c-parent:not(.blank) { display: flex; align-items: baseline; }
+  .list-main .grid tbody tr:not(.group-head) > td.c-id:not(.blank) ~ td:is(.c-initiative, .c-project, .c-parent)::before { content: "·"; flex: none; margin-right: 4px; color: var(--muted-foreground); }
+  /* (a flex row: a name too long for what is left is cut with …, never pushed under the line) */
+  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) .ref-text { display: inline-flex; vertical-align: baseline; min-width: 0; }
   /* the status as its dot: still a button that opens its select */
   .list-main .grid tbody tr > td.c-status .select-btn { width: 24px; height: 24px; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; }
   .list-main .grid tbody tr > td.c-status .select-text { padding-left: 0; width: 100%; height: 100%; }
   .list-main .grid tbody tr > td.c-status .select-text::before { left: 50%; transform: translate(-50%, -50%); }
   .list-main .grid tbody tr > td.c-status :is(.select-label, .select-sizer) { display: none; }
+  /* the priority as its bars and word, small and frameless: still a button that opens its select */
+  .list-main .grid tbody tr > td.c-priority .select-btn { width: auto; height: auto; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; font-size: var(--fs-2xs); }
+  .list-main .grid tbody tr > td.c-priority .select-sizer { display: none; }
   .list-main .grid tbody tr > td.empty { display: block; grid-column: 1 / -1; }
   .list-main .grid tbody tr.group-head { display: block; }
   .list-main .grid tbody tr.group-head > td { display: block; }
@@ -1552,12 +1678,14 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .body-wrap.in-tab:not(.full) > :is(.md-wrap, .body-empty) { padding-right: 72px; }
 .body-wrap.in-tab:not(.full) > .mde .mde-bar { padding-right: 72px; }
 .body-tabs h4 { margin-right: auto; }
-.body-editor { width: 100%; min-height: 220px; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; resize: vertical; }
+.body-editor { width: 100%; min-height: 220px; font-family: var(--mono); font-size: calc(var(--fs-sm) * var(--md-k)); line-height: var(--md-lh-src); resize: vertical; }
 /* markdown editor: toolbar + textarea + live preview */
 .mde { border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); box-shadow: var(--shadow-sm); overflow: hidden; }
 .mde:hover { border-color: var(--foreground); }
 .mde-bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: var(--well); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .mde-bar .btn.icon { width: 28px; height: 28px; }
+/* Files from the computer dragged over a doc's text (mdeditor.js attach): its frame says they will be taken */
+.mde.mde-drop { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); }
 .mde-bar > .unsaved { margin-left: 8px; white-space: nowrap; } .mde-bar > .unsaved:empty { display: none; } /* mdblock.js: Saved / ● unsaved, last in the bar while editing a tab's description */
 .mde-swatches { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 4px 8px 6px; }
 .mde-swatch { width: 24px; height: 24px; border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 0; cursor: pointer; font-weight: 700; font-size: var(--fs-sm); background: var(--card); color: var(--swatch); }
@@ -1570,14 +1698,14 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde-modes .btn { height: 26px; font-size: var(--fs-xs); padding: 0 7px; } /* four modes on the bar's row in a card */
 .mde-panes { display: grid; grid-template-columns: 1fr; }
 .mde.with-preview .mde-panes { grid-template-columns: 1fr 1fr; }
-.mde-text { width: 100%; min-height: 320px; border: 0; border-radius: 0; box-shadow: none; padding: 12px 14px; font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; resize: vertical; background: transparent; }
+.mde-text { width: 100%; min-height: 320px; border: 0; border-radius: 0; box-shadow: none; padding: 12px 14px; font-family: var(--mono); font-size: calc(var(--fs-sm) * var(--md-k)); line-height: var(--md-lh-src); resize: vertical; background: transparent; }
 .mde-text:focus-visible { outline: none; box-shadow: none; }
 .mde-preview { padding: 12px 16px; border-left: 1px solid var(--border); background: var(--card); overflow: auto; max-height: 70vh; font-size: var(--fs-base); }
 /* Coloured as typed (mdeditor.js `highlight`): the text drawn again behind a transparent textarea, in the same font,
    padding and wrapping. The textarea grows with its text (no scrollbar of its own), so both wrap at one width. */
 .mde-code { position: relative; min-width: 0; }
 .mde-code .mde-hl { position: absolute; inset: 0 0 auto; margin: 0; padding: 12px 14px; overflow: hidden; pointer-events: none;
-  font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+  font-family: var(--mono); font-size: calc(var(--fs-sm) * var(--md-k)); line-height: var(--md-lh-src); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
 .mde-code .mde-hl code { font: inherit; background: none; padding: 0; color: var(--foreground); }
 .mde-code .mde-hl .hljs-section, .mde-code .mde-hl .hljs-strong { font-weight: inherit; } /* bold would move the caret off its letter */
 .mde-code .mde-hl .hljs-emphasis, .mde-code .mde-hl .hljs-comment, .mde-code .mde-hl .hljs-quote { font-style: normal; }
@@ -1688,7 +1816,8 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .page .page-side .tab-panel > .panel-section:first-child { padding-top: 0; }
 
 /* markdown */
-.md { overflow-wrap: anywhere; line-height: 1.65; }
+.md { overflow-wrap: anywhere; line-height: var(--md-lh); font-size: calc(1em * var(--md-k)); }
+.md .md { font-size: inherit; } /* one inside another (an embed) is not scaled twice */
 /* The rendered description: a bordered box, as tall as the empty one (.body-empty) at least. */
 .md-wrap { display: flex; flex-direction: column; min-height: 216px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius); cursor: text; }
 .md-wrap > .md { flex: 1; min-height: 0; }
@@ -1724,9 +1853,22 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .md > :first-child { margin-top: 0; }
 .md h1, .md h2, .md h3 { margin: 1.2em 0 .4em; line-height: 1.25; letter-spacing: -.015em; }
 .md h1 { font-size: var(--fs-doc-h1); } .md h2 { font-size: var(--fs-doc-h2); } .md h3 { font-size: var(--fs-doc-h3); }
-.md p, .md ul, .md ol { margin: .5em 0; }
+.md p { margin: var(--md-gap) 0; }
+.md ul, .md ol { margin: var(--md-list-gap) 0; }
+.md li + li { margin-top: var(--md-li); }
+.md li > :is(ul, ol) { margin-block: calc(var(--md-li) * .5) 0; } /* a nested list hangs from its item */
 .md ul:has(input[type=checkbox]) { list-style: none; padding-left: 2px; }
-.md li:has(> input[type=checkbox]) { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+/* A task: its line flows as any text (a flex row made each word run, code and bold a column of its own, broken
+   apart), its box hung out to the left on the first line, centred on its text, its wrapped lines under the text.
+   The hang is the box's own size (Basecoat's, larger on a phone; Classic's 18px) plus the gap, so they line up. */
+.md { --task-box: calc(var(--spacing) * 4); }
+:where(:root[data-skin="classic"]) .md { --task-box: 18px; }
+.md li:has(> input[type=checkbox]) { padding: 4px 0 4px calc(var(--task-box) + 10px); }
+.md li > input[type=checkbox]:first-child {
+  display: inline-flex; width: var(--task-box); height: var(--task-box);
+  margin: 0 10px 0 calc(-10px - var(--task-box));
+  vertical-align: calc(.4em - var(--task-box) / 2); /* its middle on the text's, whatever the box's size */
+}
 .md input[type=checkbox] { cursor: pointer; }
 .md code { font-family: var(--mono); font-size: var(--fs-xs); background: var(--muted); padding: 2px 5px; border-radius: var(--radius-xs); }
 .md pre { background: var(--muted); padding: 12px 14px; border-radius: var(--radius); overflow-x: auto; }
@@ -1747,6 +1889,36 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .md mark { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, #facc15 45%, transparent); color: inherit; }
 .md .md-tag { display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .9em; line-height: 1.6; white-space: nowrap; }
 .md img { max-width: 100%; height: auto; }
+/* What mdview.js adds to a read note. A code block's Copy, at its top right, shown on hover (always on a touch
+   screen); the block keeps its own sideways scroll under it. */
+.md .md-code { position: relative; margin: 1em 0; }
+.md .md-code > pre { margin: 0; padding-right: 40px; }
+.md .md-copy { position: absolute; top: 4px; right: 4px; --icon-btn: 26px; opacity: 0; transition: opacity .12s; background: var(--muted); }
+.md .md-code:hover .md-copy, .md .md-copy:focus-visible { opacity: 1; }
+@media (pointer: coarse) { .md .md-copy { opacity: 1; } }
+/* ![[Note]]: the note in a box, its name (a link to it) over it, as an embedded base or diagram is */
+.md-note-embed { border: 1px solid var(--border); border-left: 3px solid var(--muted-foreground); border-radius: var(--radius-sm);
+  padding: 8px 12px; margin: 12px 0; min-width: 0; }
+.note-embed-head { margin: 0 0 4px; font-size: var(--fs-sm); }
+.note-embed-name, .md .note-embed-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--muted-foreground); text-decoration: none; }
+.md .note-embed-name:hover { color: var(--foreground); }
+.note-embed-body > :first-child { margin-top: 0; } .note-embed-body > :last-child { margin-bottom: 0; }
+/* Footnotes (mdextras.js): the mark a small raised number, the notes under a rule; a click lights the one it goes to */
+.md .fn-ref { line-height: 0; }
+.md .fn-link, .md .fn-back { cursor: pointer; color: var(--muted-foreground); text-decoration: none; padding: 0 1px; font-weight: 600; }
+.md .fn-link:hover, .md .fn-back:hover { color: var(--foreground); }
+.md .fn-back { font-size: .85em; }
+.md .footnotes { margin-top: 1.6em; padding-top: .6em; border-top: 1px solid var(--border); font-size: var(--fs-sm); color: var(--muted-foreground); }
+.md .footnotes ol { margin: 0; }
+.md .fn-lit { animation: fn-lit 1.2s ease-out; border-radius: 3px; }
+@keyframes fn-lit { from { background: color-mix(in srgb, #facc15 45%, transparent); } to { background: transparent; } }
+/* Hover preview (mdview.js): a link to a note, the pointer resting on it, shows the note in a card */
+.md-hover { position: fixed; z-index: var(--z-popover); overflow: auto; background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.md-hover-head { position: sticky; top: 0; display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: var(--fs-sm);
+  font-weight: 600; color: var(--muted-foreground); background: var(--popover); border-bottom: 1px solid var(--border); }
+.md-hover-body { padding: 8px 14px 12px; font-size: var(--fs-sm); }
+.md-hover-body > :first-child { margin-top: 0; }
 /* A callout (mdextras.js: > [!type] Title): a tinted box, a bar in its type's colour, its icon and title over its body;
    `-` / `+` fold it (a <details>). The colours are the status dots', the same in both themes. */
 .md .callout { --c: var(--st-todo-dot); margin: .8em 0; padding: 10px 14px; border-left: 3px solid var(--c); border-radius: var(--radius-sm);
@@ -1835,9 +2007,30 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 
 /* settings */
 .settings input.wide { width: 100%; }
-/* Settings in tabs: the bar across the top, each tab a column of groups */
-.settings .tabs-bar { padding: 0; margin-bottom: 24px; }
+/* Settings in sections (views/settings.js settingsNav): their names in a column on the left, grouped by theme as the
+   sidebar's groups are (a quiet title, links like the sidebar's), the section picked beside it, a column of groups */
+.settings-layout { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 36px; align-items: start; }
+.settings-nav { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 14px; }
+.settings-nav-group { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav-head { padding: 0 10px 2px; font-size: var(--fs-2xs); font-weight: 600; color: var(--muted-foreground); }
+.settings-nav-item { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 10px; border-radius: var(--radius-sm);
+  color: color-mix(in srgb, var(--foreground) 85%, transparent); text-decoration: none; font-weight: 450; }
+.settings-nav-item .icon { color: var(--muted-foreground); }
+.settings-nav-item:hover { background: var(--sidebar-hover); color: var(--foreground); }
+.settings-nav-item[aria-current] { background: var(--accent); color: var(--foreground); font-weight: 600; }
+.settings-nav-item[aria-current] .icon { color: var(--foreground); }
+.settings-nav-item:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.settings-main { min-width: 0; display: flex; flex-direction: column; }
 .settings .tab-panel { padding: 0; gap: 32px; overflow: visible; }
+.settings .tab-panel[hidden] { display: none; }
+/* A narrow screen shows one at a time: the list of sections (#/settings), or a section with "‹ Settings" over it */
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .settings-nav { position: static; gap: 18px; }
+  .settings-nav-item { min-height: 40px; }
+  .settings-layout.has-section .settings-nav, .settings-layout.no-section .settings-main { display: none; }
+  .settings-back { display: inline-flex; }
+}
 .settings-save { display: flex; align-items: center; gap: 12px; }
 .export-new { display: flex; gap: 8px; }
 .export-kind h4 { margin: 18px 0 8px; }
@@ -1849,8 +2042,6 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .export-grid td.c-actions, .export-grid th.c-actions { text-align: right; white-space: nowrap; }
 .export-grid .chip.warn { margin-left: 6px; }
 .settings ul { margin: 6px 0 10px; }
-/* Settings → Documentation: the user guide, at a reading width */
-.settings .guide { max-width: 760px; }
 /* Documentation's head (views/settings.js guidePanel): the name and version, then the public repository's links, each
    opening outside the app (a new tab; Safari from the iPhone app). */
 .guide-head { padding-bottom: 18px; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
@@ -1859,13 +2050,10 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .guide-links a { display: inline-flex; align-items: center; gap: 4px; color: var(--foreground); text-underline-offset: 3px; }
 .guide-links a .icon { color: var(--muted-foreground); }
 .settings .group p.muted { margin: 0 0 10px; }
-/* Settings in the new style: the form tabs at a reading width, one section after the other with a line between them,
-   each setting a row (its name on the left, its control on the right, as a card's properties); Save stays in view at
-   the foot of the page while a form tab is long. The tables (Export) and the guide keep the page's width. */
+/* Settings in the new style: every section the whole width beside the column of sections, one group after the other
+   with a line between them, each setting a row (its name on the left, its control on the right, as a card's
+   properties); Save stays in view at the foot of the page while a form section is long. */
 .settings .tab-panel { gap: 0; }
-.settings .tabs-bar { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
-.settings .tab-btn { white-space: nowrap; flex: none; }
-.settings .tab-panel:is([data-tab=vaults], [data-tab=statuses], [data-tab=general], [data-tab=claude], [data-tab=maintenance], [data-tab=keyboard], [data-tab=app]) { max-width: 860px; }
 .settings .tab-panel > .group, .settings .tab-panel > :is(.stack, .themes-panel) > .group { padding: 24px 0; }
 .settings .tab-panel > .group:first-child, .settings .tab-panel > .themes-panel > .group:first-child { padding-top: 4px; }
 .settings .tab-panel > .group + .group, .settings .tab-panel > :is(.stack, .themes-panel) > .group + .group { border-top: 1px solid var(--border); }
@@ -1966,9 +2154,28 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .ap-row .check { margin-top: 0; }
 .ap-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ap-menu { position: static; z-index: auto; animation: none; min-width: 0; width: min(100%, 190px); align-self: flex-end; }
+/* a base's real steps on its button (themes.js steps): five small squares, light to dark */
+.base-steps { display: inline-flex; flex: none; border-radius: 3px; overflow: hidden; box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 12%, transparent); }
+.base-steps i { width: 6px; height: 12px; }
+/* each mode's shade: the light's segments, its own colour, and what the guard says */
+.ap-shade { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ap-colour { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.ap-colour.on { color: var(--foreground); }
+.ap-colour input[type=color] { width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }
+.ap-colour input[type=color]:disabled { opacity: .5; cursor: default; }
+.ap-guard { flex-basis: 100%; font-size: var(--fs-sm); color: var(--muted-foreground); }
+.ap-guard:empty { display: none; }
+.ap-guard.bad { color: var(--destructive); }
+/* Reading: Reset at the head's right, the sample beside the rows as the Look's preview */
+.ap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ap-reading > p.muted { margin: 0 0 8px; }
+.ap-sample { position: sticky; top: 12px; padding: 14px 18px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--background); box-shadow: var(--shadow-card); user-select: none; }
+.ap-sample .md > :first-child { margin-top: 0; }
 @media (max-width: 1100px) {
   .ap-layout { grid-template-columns: minmax(0, 1fr); }
   .ap-preview { position: static; order: -1; max-width: 460px; }
+  .ap-sample { position: static; order: -1; max-width: 560px; }
 }
 @media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   .ap-layout .prop-rows .field { grid-template-columns: minmax(0, 1fr); gap: 2px; padding-top: 8px; }
@@ -2256,7 +2463,7 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-match .icon { color: var(--destructive); flex: none; margin-top: 2px; }
 .vault-notice details summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--fs-sm); }
 /* Settings → Vaults: the table (views/vaults.js), and the dialog that adds or edits one, in tabs (as the Claude dialog's). */
-.vault-grid div.c-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vault-grid div.c-name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; } /* a chip goes under a long name */
 .vault-grid .vault-open { font-weight: 500; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-grid .vault-open:hover { text-decoration: underline; }
 .vault-grid div.c-path { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -2301,7 +2508,7 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-feature-name { font-size: var(--fs-sm); font-weight: 500; }
 .vault-texts { display: flex; flex-direction: column; gap: 8px; }
 .vault-modal .vault-texts > p { margin: 0; }
-.vault-text-type { align-self: flex-start; }
+.vault-text-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } /* type · its initiative kind */
 .vault-placeholders { line-height: 1.8; }
 .vault-agents p { margin: 4px 0 0 22px; max-width: 72ch; }
 /* The top bar's terminal: New request / History as tabs inside the dialog (the side panel's tab styles, without its padding) */
@@ -3213,6 +3420,19 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
    head row goes (a Board's keeps its type picker). The view bar is a row of chips that slides sideways, as are the
    filters applied; what is tapped is 44px tall in the top bar, 40 in the rows of chips. */
 #pinbar-title, #pinbar-add { display: none; }
+/* The desktop app: Safari's web app (File → Add to Dock) on a Mac has no title bar, and macOS draws the window's
+   buttons over the page's top-left corner, where the sidebar's name and its hide button are. index.html's first
+   script marks it (`mac-app`: shown standalone, on a Mac, with no touch screen, so never on an iPhone or an iPad); the
+   sidebar's head then starts under the buttons' band, and while the sidebar is hidden (or a drawer, ≤ 760px) the top
+   bar's first button starts beside them. Full screen hides the buttons and is no longer `standalone`: the room goes. */
+@media (display-mode: standalone) {
+  :root.mac-app { --titlebar-h: 28px; --titlebar-w: 78px; }
+  :root.mac-app #sidebar { padding-top: calc(12px + var(--titlebar-h)); }
+  :root.mac-app.side-collapsed #pinbar { padding-left: calc(8px + var(--titlebar-w)); }
+}
+@media (display-mode: standalone) and (max-width: 760px) {
+  :root.mac-app #pinbar { padding-left: calc(8px + var(--titlebar-w)); }
+}
 @media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
   #pinbar { gap: 4px; padding: 0 8px; min-height: 52px; }
   #pinbar .btn.icon { width: 44px; height: 44px; }
@@ -3529,7 +3749,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
   display: grid; place-items: center; font-size: 9.5px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
   background: var(--tone-accent); color: var(--background); box-shadow: 0 0 0 2px var(--muted); }
 .side-mode-badge.tone-warning { background: var(--tone-warning); }
-/* Favourites, on top of the Agents mode's folders: the Projects mode's section title (.side-title), never folding */
+/* Favourites, on top of the Agents mode's folders: a section title (.side-title), never folding */
 .agents-favs { padding-top: 6px; }
 .agents-favs .side-title { padding-bottom: 4px; }
 .agents-head.dim .count-plain.agents-count { font-style: italic; }
@@ -3546,6 +3766,43 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 #modal.keys-modal .keys-body { overflow-y: auto; min-height: 0; margin: 0 -8px; padding: 0 8px; }
 #modal.agents-modal { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
 #modal.agents-modal:has(.agents-sched-form) { width: min(620px, 100%); }
+/* A definition's versions (versionstab.js): the side tab's head, the New version form, a version read or compared. */
+.versions-tab { display: flex; flex-direction: column; gap: 8px; }
+.versions-head { display: flex; align-items: center; gap: 8px; }
+.versions-now { flex: 1; min-width: 0; font: var(--fs-sm)/1.4 var(--mono); color: var(--muted-foreground); }
+/* An architecture's page (archview.js): the KB's notice, its entities by level, its Map and the shapes' legend. */
+.arch-notice { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; padding: 8px 10px; border-radius: var(--radius-sm);
+  font-size: var(--fs-sm); line-height: 1.45; color: var(--muted-foreground); background: var(--muted); }
+.arch-notice .icon { flex: none; margin-top: 2px; }
+.arch-notice.error { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 10%, transparent); }
+.arch-entities { display: flex; flex-direction: column; }
+.arch-meta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.arch-entities .row-link { flex-wrap: wrap; row-gap: 2px; }
+.arch-entities .row-title { flex: 1 1 auto; min-width: 0; }
+.arch-entities .row-meta { max-width: none; overflow: visible; }
+@media (max-width: 600px) { .arch-entities .row-meta { flex-basis: 100%; margin-left: 20px; padding-left: 0; } }
+.arch-shape { display: inline-block; flex: none; width: 12px; height: 10px; border: 1.5px solid currentColor; opacity: .7; vertical-align: -1px; }
+.arch-shape.model { border-radius: 2px; }
+.arch-shape.deterministic { width: 12px; border: none; background: currentColor; clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%); }
+.arch-shape.state { border-radius: 50% / 30%; }
+.arch-shape.event { width: 10px; border-radius: 50%; }
+.arch-shape.other { border-radius: 5px; }
+.arch-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0 0 8px; }
+.arch-legend .arch-shape { margin-left: 6px; }
+.arch-legend .arch-shape:first-child { margin-left: 0; }
+.arch-map .md-diagram { overflow: auto; }
+.agents-design { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+#modal.versions-modal { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; }
+#modal.versions-modal.wide { width: min(980px, 100%); max-height: calc(var(--vvh, 100vh) - 48px); }
+#modal.versions-modal .modal-head { flex-wrap: wrap; }
+.versions-form { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.versions-form .prop-rows { display: flex; flex-direction: column; gap: 6px; }
+.versions-form .prop-rows .field { grid-template-columns: 110px minmax(0, 1fr); }
+.versions-form p { margin: 0; line-height: 1.5; }
+.versions-view { min-height: 0; overflow: auto; }
+.versions-view .cv-diff { max-height: none; }
+.versions-text { margin: 0; padding: 10px 12px; font-size: var(--fs-caption); line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  background: var(--muted); border-radius: var(--radius-sm); }
 .agents-add-form { display: flex; flex-direction: column; gap: 12px; }
 .agents-add-form .prop-rows { display: flex; flex-direction: column; gap: 6px; }
 .agents-add-form .prop-rows .field { grid-template-columns: 84px minmax(0, 1fr); }
@@ -3768,3 +4025,59 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .agents-home-row .cs-item-meta .td-dot { display: inline-block; width: 7px; height: 7px; margin-right: 2px; vertical-align: 0; box-shadow: none; }
 .agents-home-row:hover .agents-unread { visibility: hidden; }
 .agents-home-empty { margin: 0; }
+
+/* ── Timeline (timelineview.js; docs/design.md §3 Timeline) ── */
+.tl-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; min-height: 0; }
+.tl-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tl-move { display: inline-flex; align-items: center; gap: 8px; }
+.tl-zoom { display: inline-flex; gap: 2px; }
+.tl-scroll { position: relative; flex: 1; min-height: 160px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+.tl-grid { --tl-label: 280px; --tl-row: 34px; display: grid; grid-auto-rows: var(--tl-row); position: relative; min-width: min-content; }
+/* the head: names' corner and the scale stay on top, the names column on the left */
+.tl-corner, .tl-scale { position: sticky; top: 0; z-index: 3; height: 48px; background: var(--background); border-bottom: 1px solid var(--border); }
+.tl-grid { grid-template-rows: 48px; }
+.tl-grid > .tl-corner { grid-area: 1 / 1; }
+.tl-grid > .tl-scale { grid-area: 1 / 2; }
+.tl-corner { left: 0; z-index: 4; display: flex; align-items: flex-end; padding: 0 12px 7px; border-right: 1px solid var(--border); color: var(--muted-foreground); font-size: var(--fs-2xs); font-weight: 550; }
+.tl-bands, .tl-ticks { position: relative; height: 24px; }
+.tl-bands > span, .tl-ticks > span { position: absolute; top: 0; height: 24px; display: flex; align-items: center; padding: 0 6px; overflow: hidden; white-space: nowrap;
+  border-left: 1px solid var(--border); font-size: var(--fs-2xs); color: var(--muted-foreground); box-sizing: border-box; }
+/* a band's name stays in sight while its band does: sticky inside it, past the names column (clip, not hidden: a
+   hidden overflow would make the band its own scroller and the name would never stick) */
+.tl-bands > span { color: var(--foreground); font-weight: 550; overflow: clip; }
+.tl-bands > span > span { position: sticky; left: calc(var(--tl-label) + 6px); }
+.tl-ticks > span { justify-content: center; padding: 0; font-variant-numeric: tabular-nums; }
+.tl-ticks > span.weekend { background: var(--muted); }
+.tl-ticks > span.now { color: var(--destructive); font-weight: 650; }
+/* a row: its name (sticky left) and its lane */
+.tl-label { position: sticky; left: 0; z-index: 2; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 10px 0 calc(6px + var(--depth, 0) * 18px);
+  background: var(--background); border-right: 1px solid var(--border); border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); }
+.tl-label.done .tl-title { color: var(--muted-foreground); text-decoration: line-through; }
+.tl-fold { flex: none; width: 22px; height: 22px; }
+.tl-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 0; border: 0; background: none; color: var(--foreground); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.tl-name:hover .tl-title { text-decoration: underline; }
+.tl-ref { flex: none; color: var(--muted-foreground); font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; }
+.tl-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tl-lane { position: relative; border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent); }
+.tl-grid:is(.scale-days, .scale-weeks) .tl-lane {
+  background-image: repeating-linear-gradient(to right, color-mix(in oklab, var(--border) 60%, transparent) 0 1px, transparent 1px var(--tl-tick)); }
+/* today: one line down the lanes */
+.tl-now { grid-column: 2; position: relative; pointer-events: none; z-index: 1; }
+.tl-now > span { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--destructive); opacity: .7; }
+/* a bar: the status's hue, its name inside; its ends drag */
+.tl-span { position: absolute; top: 7px; height: 20px; display: flex; align-items: center; box-sizing: border-box; padding: 0 8px; border-radius: 5px;
+  background: color-mix(in oklab, var(--st-dot, var(--muted-foreground)) 22%, var(--background)); border: 1px solid color-mix(in oklab, var(--st-dot, var(--muted-foreground)) 70%, transparent);
+  color: var(--foreground); font-size: var(--fs-2xs); font-weight: 500; cursor: grab; user-select: none; touch-action: pan-y; }
+.tl-span.done { opacity: .6; }
+.tl-span.open-end { border-right-style: dashed; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tl-span.dragging, .tl-diamond.dragging { cursor: grabbing; box-shadow: 0 2px 8px rgb(0 0 0 / .18); z-index: 2; }
+.tl-span-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; }
+.tl-grip { position: absolute; top: -1px; bottom: -1px; width: 8px; cursor: ew-resize; }
+.tl-grip.start { left: -4px; }
+.tl-grip.end { right: -4px; }
+@media (hover: hover) { .tl-span:hover { border-color: var(--st-dot, var(--foreground)); } }
+.tl-diamond { position: absolute; top: 10px; width: 14px; height: 14px; margin-left: -7px; padding: 0; transform: rotate(45deg); border-radius: 2px;
+  border: 1px solid var(--st-dot, var(--foreground)); background: color-mix(in oklab, var(--st-dot, var(--foreground)) 45%, var(--background)); cursor: grab; }
+.tl-empty { position: absolute; top: 64px; left: 0; right: 0; margin: 0; text-align: center; color: var(--muted-foreground); }
+/* a phone: a narrower names column, the IDs left out; the lanes scroll under it with a finger */
+@media (max-width: 640px) { .tl-grid { --tl-label: 150px; } .tl-ref { display: none; } }

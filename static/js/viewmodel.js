@@ -4,16 +4,16 @@
 // is tested on its own (tests/js/viewmodel.test.mjs). The bar that draws it is viewbar.js.
 //
 // A view, as saved per list (prefs.js `list.<type>`):
-//   { v: 2, filters: [{ field, op: 'is' | 'isnot', values: [...] }], groupBy, orderInGroups, showEmpty,
+//   { v: 2, filters: [{ field, op: 'is' | 'isnot', values: [...] }], groupBy, groupDesc (the groups reversed), orderInGroups, showEmpty,
 //     closed: 'none' | 'week' | 'all', orderBy, props: { <column or card property>: false }, folded: [group keys],
 //     layout: 'list' | 'board', and on a board: boardSort, boardFold: { <column key>: folded }, emptyCols,
 //     colOrder: { <groupBy>: [column keys, as dragged] } (colorder.js) }
 import { dayLabel, isoWeek, lateBy, monthLabel, monthOf, shiftWeek, thisWeek, today } from './dates.js';
-import { GROUPS, NONE, PLAN_BUCKETS, ancestorsOf, projectOf } from './grouping.js';
+import { GROUPS, NONE, PLAN_BUCKETS, ancestorsOf, directed, projectOf } from './grouping.js';
 import { byGoalRank } from './goals.js';
 import {
-  ACTIVITY_SOURCES, EXTERNAL_REF, PARENT_TYPES, PLANNABLE, PLAN_FILTERS, PRIORITIES, PRIORITY_RANK, TYPE_DEFS, anyStatusRank, hasExternalRef,
-  hasField, isDone, labelsOf, planFilter, statusesOf,
+  ACTIVITY_SOURCES, EXTERNAL_REF, PARENT_TYPES, PLANNABLE, PLAN_FILTERS, PRIORITIES, PRIORITY_RANK, TYPE_DEFS, hasExternalRef,
+  hasField, isDone, labelsOf, planFilter, statusRankIn, statusesOf,
 } from './rules.js';
 
 export const DEFAULT_VIEW = Object.freeze({
@@ -69,7 +69,7 @@ export function filterFields(types, ctx = {}) {
   if (statuses.length && defs.some((d) => d.statuses?.length)) {
     out.push({
       key: 'status', label: 'Status', kind: 'status',
-      values: () => [...statuses].sort((a, b) => anyStatusRank(a) - anyStatusRank(b)).map((s) => ({ value: s, label: s })),
+      values: () => [...statuses].sort((a, b) => statusRankIn(types, a) - statusRankIn(types, b)).map((s) => ({ value: s, label: s })),
       of: (i) => [i.fields.status || 'Backlog'],
     });
   }
@@ -193,22 +193,25 @@ export function groupOptions(types) {
   if (types.some((t) => hasField(t, 'labels'))) keys.push('label');
   return keys;
 }
-export const groupLabel = (key) => (key === 'label' ? 'Label' : GROUPS[key]?.label || 'None');
+export const groupLabel = (key) => (key === 'label' ? 'Label' : key === CUSTOM ? 'Custom' : GROUPS[key]?.label || 'None');
+/** A board's Custom grouping: columns of the user's own (customboard.js), offered on a board only (viewbar boardGroupKeys). */
+export const CUSTOM = 'custom';
 
 /**
  * Items in groups: [{ key, items }] in the group's order (the rows with no value last). Grouped by label an item sits
  * in each of its labels' groups. `keys` are the group keys to show even with no item (Show empty groups: a type's
  * statuses, the priorities…); `sort` orders the items inside each group; a group's `lead` (an initiative heading its
- * own tree) goes first.
+ * own tree) goes first. `types` are the list's own (a status group follows their order); `desc` reverses the groups,
+ * the one with no value still last.
  */
-export function groupItems(items, by, { byId = new Map(), projectName, sort = null, showEmpty = false, keys = [] } = {}) {
+export function groupItems(items, by, { byId = new Map(), projectName, sort = null, showEmpty = false, keys = [], types = [], desc = false } = {}) {
   const g = by === 'label' ? null : GROUPS[by];
   const keysOf = by === 'label' ? (i) => { const ls = labelsOfItem(i); return ls.length ? ls : [NONE]; } : (i) => [g.by(i, byId)];
   const groups = new Map();
   if (showEmpty) for (const k of keys) groups.set(k, []);
   for (const i of items) for (const k of keysOf(i)) { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(i); }
-  const order = by === 'label' ? (a, b) => (a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b)) : (a, b) => g.order(a, b, byId, projectName);
-  return [...groups.keys()].sort(order).map((key) => {
+  const order = by === 'label' ? (a, b) => (a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b)) : (a, b) => g.order(a, b, byId, projectName, types);
+  return directed([...groups.keys()].sort(order), desc, (k) => k).map((key) => {
     const rows = sort ? [...groups.get(key)].sort(sort) : groups.get(key);
     const lead = g?.lead ? rows.findIndex((i) => g.lead(key, i)) : -1;
     return { key, items: lead > 0 ? [rows[lead], ...rows.slice(0, lead), ...rows.slice(lead + 1)] : rows };

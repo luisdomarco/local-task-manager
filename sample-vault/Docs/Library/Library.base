@@ -1,0 +1,39 @@
+filters:
+  and:
+    - file.inFolder("Docs/Library")
+    - file.hasProperty("topic")
+formulas:
+  stars: 'if(score, "★".repeat(score), "")'
+properties:
+  formula.stars:
+    displayName: Stars
+views:
+  - type: table
+    name: By topic
+    groupBy:
+      property: topic
+      direction: ASC
+    order:
+      - file.name
+      - topic
+      - score
+      - formula.stars
+      - website
+    sort:
+      - property: score
+        direction: DESC
+    summaries:
+      score: Average
+  - type: cards
+    name: Cards
+    order:
+      - file.name
+      - topic
+      - blurb
+  - type: list
+    name: Repos
+    filters: topic == "Repos"
+    order:
+      - file.name
+      - website
+      - tool

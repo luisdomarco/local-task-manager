@@ -7,6 +7,8 @@ import { renderPinbar, setBarTitle } from './pinbar.js';
 import { initSidebar, onSidebarMode, setSidebarMode, sidebarMode, syncSidebarMode, toggleSidebar, revealActiveLink } from './sidebar.js';
 import { handleItemKey } from './itemkeys.js';
 import { initExplorer } from './explorer.js';
+import { initVaultWatch } from './vaultwatch.js';
+import { takeShare } from './share.js';
 import { filesHref } from './filetree.js';
 import { restoreTerms } from './term.js';
 import { openQuickModal } from './quickadd.js';
@@ -18,7 +20,7 @@ import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sec
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
 import { GO } from './shortcuts.js';
-import { is } from './keymap.js';
+import { closesCard, is } from './keymap.js';
 import { openKeys } from './views/keyboard.js';
 import { initMentions } from './mentions.js';
 import { loadLive } from './livemd.js';
@@ -34,6 +36,7 @@ import * as inbox from './views/inbox.js';
 import { boardTypes, listView } from './views/list.js';
 import * as log from './views/log.js';
 import { contacts, labels } from './views/tags.js';
+import { properties } from './views/properties.js';
 import { setPageTitle } from './tabtitle.js';
 import * as trash from './views/trash.js';
 import * as settings from './views/settings.js';
@@ -56,11 +59,11 @@ import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, contacts, trash, settings, files, find, docs, canvas, graph, runs, lab };
+const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, properties, contacts, trash, settings, files, find, docs, canvas, graph, runs, lab };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
   inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
-  labels: 'Labels', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
+  labels: 'Labels', properties: 'Properties', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
   runs: 'Agents', lab: 'Lab', // #/lab: the design-system spike, by its address only (not in the sidebar or ⌘K)
 };
 // The views only a computer has (features.js): on a phone their address goes home, as an unknown one does.
@@ -452,6 +455,7 @@ document.addEventListener('keydown', (e) => {
   if (is(e, 'docs')) { e.preventDefault(); location.hash = '#/docs'; return; }
   if (e.key === 'Escape') {
     if (paletteIsOpen()) { closePalette(); return; }
+    if (!closesCard(e)) return; // a menu's, a composition's or the editor's own Esc (keymap.js)
     if (menuIsOpen() || !document.getElementById('modal-backdrop').hidden) return;
     if (isOpen()) closeItem();
     return;
@@ -478,8 +482,8 @@ window.addEventListener('hashchange', async () => {
 window.addEventListener('beforeunload', (e) => {
   if (hasUnsaved() || filesUnsaved()) e.preventDefault();
 });
-// Pick up edits made outside the app (Obsidian, an editor, an agent) when you come back.
-window.addEventListener('focus', () => reload());
+// Edits made outside the app (Obsidian, an editor, an agent) come in when you come back: vaultwatch.js asks the server
+// what changed (on focus too), and loads everything again after a long time away.
 
 initTheme();
 trackViewport(); // --vvh: the height the keyboard leaves, for what floats over a phone's page (phone.js)
@@ -497,8 +501,10 @@ firstLoad.then(syncSidebarMode); // the vault's own mode, now that the page know
 // On a vault that does not match, the mode decides what the middle shows: its files, or the notice.
 onSidebarMode(() => { if (vaultBlocked()) route(); });
 initExplorer();
+initVaultWatch();
 firstLoad.then(() => { if (has('agents')) initAgents(); }); // the Agents mode's pane: none where agents cannot run
 onChange(renderAll);
+takeShare(); // what another app shared: the Inbox, its capture box filled in (share.js)
 reload().then(route).then(() => { if (has('terminal')) restoreTerms(); }); // terminals the server still runs get their tabs back
 
 /**

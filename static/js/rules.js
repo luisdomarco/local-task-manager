@@ -77,6 +77,12 @@ export function statusRank(type, status) {
 export function anyStatusRank(status) {
   return Math.min(1000, ...STRUCTURE.types.filter((t) => t.statuses?.length).map((t) => statusRank(t.name, status)));
 }
+/** Where a status sorts in a list of `types` (a list's own): its best place among those that have it, else in any type.
+ *  So Projects' Backlog goes before its To do even where another type (a goal) starts at To do. */
+export function statusRankIn(types, status) {
+  const own = (types || []).filter((t) => TYPE_DEFS[t]?.statuses?.includes(status));
+  return own.length ? Math.min(...own.map((t) => statusRank(t, status))) : anyStatusRank(status);
+}
 /** Whether a status closes the types that have it (the board's Done list). */
 export const isClosedStatus = (status) => closedName(status) || CLOSED.has(status);
 /** The statuses of `types` under each group, for the Group → Status filters: [[group, label, [status…]]], each status
@@ -134,16 +140,23 @@ export const findByPageRef = (type, ref, items) => items.find((i) => i.type === 
 export const tabOf = (p) => p.tab || (p.kind === 'link' || p.kind === 'links' ? 'relations' : 'main');
 /** A type's own fields, as `kind` keeps them (none: all of them): the ones it hides go (kindFor: a simple
  *  initiative's readiness, a project's delivery settings while it has no delivering initiative). */
-export function propsOf(type, kind = null) {
+export function propsOf(type, kind = null, get = null) {
   const props = TYPE_DEFS[type]?.props || [];
-  return kind ? props.filter((p) => !hides(kind, type, p.key)) : props;
+  return props.filter((p) => !(kind && hides(kind, type, p.key)) && shownWhen(p, get));
+}
+/** Whether a field's condition holds (`when`: {key: [values]}, every key; an entity's Role only for an agent, Steering
+ *  only under a Scheme B architecture): `get(key)` reads the item's own value, `get('parent.scheme')` its parent's.
+ *  A field without one always shows; so does every field when there is nothing to read (`get` null: a list's columns). */
+export function shownWhen(p, get) {
+  if (!p.when || !get) return true;
+  return Object.entries(p.when).every(([key, values]) => values.includes(String(get(key) ?? '').trim()));
 }
 /** Whether the create form asks for a type's own field. Not the ones the app sets (readonly), nor the ones a later
  *  step writes (`later`: how it is carried out and released, its triage, a pause, its outcome: the template's value
  *  until then); but those chosen once, on creation (`once`). */
 export const askedOnCreate = (p) => !p.later && ((p.kind !== 'readonly' && !p.readonly) || !!p.once);
 /** A type's own fields shown in one place (tabOf), as `kind` keeps them. */
-export const propsIn = (type, tab, kind = null) => propsOf(type, kind).filter((p) => tabOf(p) === tab);
+export const propsIn = (type, tab, kind = null, get = null) => propsOf(type, kind, get).filter((p) => tabOf(p) === tab);
 
 // ── initiative kinds (tm/structures/kinds.py, mirrored) ─────────────────────
 /** An initiative kind by its id; null for an unknown one, and in a structure without kinds (folder per type). */

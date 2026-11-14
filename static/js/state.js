@@ -1,5 +1,6 @@
 // App state + every mutation. Each mutation hits the API, reloads, and notifies
 // listeners, so views stay dumb: they read `state` and call these functions.
+import { serial } from './serial.js';
 import { api } from './api.js';
 import { has, setFeatures } from './features.js';
 import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
@@ -8,14 +9,14 @@ import { pickVault, vaultId } from './vault.js';
 import { isTentative } from './worktime.js';
 import { refOf } from './shownid.js';
 import { goalProgress } from './goals.js';
+import { emptyBoard } from './customboard.js';
 
 export const state = {
   all: [],      // every item, archived included (Table "Show archived")
   items: [],    // what every other view sees: archived items left out
   byId: new Map(),
   board: { lists: [] },
-  today: { lists: [] },   // Today board columns (<root>/.task-manager/today.md)
-  weekBoard: { lists: [] }, // Free board columns of Week and Next week (<root>/.task-manager/week.md)
+  boards: {},   // Custom boards by name ({ today, week, month, 'list.initiative'… }: customboard.js), as loaded
   pins: [],      // ordered ids fixed to the top bar (<root>/.task-manager/pins.md)
   sidebar: [],   // initiative ids in their sidebar order (<root>/.task-manager/sidebar.md)
   config: { work_kinds: [] },
@@ -49,8 +50,7 @@ function forgetVaultData() {
   state.items = [];
   state.byId = new Map();
   state.board = { lists: [] };
-  state.today = { lists: [] };
-  state.weekBoard = { lists: [] };
+  state.boards = {};
   state.pins = [];
   state.sidebar = [];
   state.worklog = [];
@@ -64,7 +64,20 @@ function forgetVaultData() {
 
 let structureLoaded = false;
 
-export async function reload() {
+/** The vault's structure asked for again at the next reload (Reload from disk: the vault was opened again). */
+export function reloadStructure() {
+  structureLoaded = false;
+}
+
+// One load at a time (serial.js): an answer that left the server earlier must never land after a later one — a load
+// started on coming back to the page, answered from before the Mac slept, would otherwise overwrite what the poll had
+// just brought in, and the poll would not report those files again. A reload asked for while one runs runs after it.
+const loadOnce = serial(loadAll);
+export function reload() {
+  return loadOnce();
+}
+
+async function loadAll() {
   try {
     // The config first: it says which vaults there are, and so which one this page shows (every request after
     // this one names it). A vault that vanished from Settings while this page showed it: start again, clean.
@@ -91,11 +104,13 @@ export async function reload() {
       loadedOnce(); // its files still show (the Explorer), and what waits for the first load must not wait forever
       return;
     }
-    const [items, board, log, pins, sidebar, todayLists, weekLists, people, groups, labels, trash] = await Promise.all([
+    // Today's and the Week's boards always (their pages draw at once), and every other board a page has asked for.
+    const boardNames = [...new Set(['today', 'week', ...Object.keys(state.boards)])];
+    const [items, board, log, pins, sidebar, people, groups, labels, trash, ...boards] = await Promise.all([
       // A feature the vault turned off is not asked for (its routes refuse it: server.py FEATURE_ROUTES)
-      api.items(), api.board(), has('worklog') ? api.worklog() : { entries: [] }, api.pins(), api.sidebar(), api.today(), api.weekBoard(),
+      api.items(), api.board(), has('worklog') ? api.worklog() : { entries: [] }, api.pins(), api.sidebar(),
       has('contacts') ? api.people() : { people: [] }, has('contacts') ? api.groups() : { groups: [] },
-      api.labels(), api.trash(),
+      api.labels(), api.trash(), ...boardNames.map((n) => api.customBoard(n).catch(() => emptyBoard())),
     ]);
     state.all = items.items;
     state.items = state.all.filter((i) => !isArchived(i));
@@ -103,8 +118,7 @@ export async function reload() {
     state.board = board;
     state.pins = pins.items;
     state.sidebar = sidebar.items;
-    state.today = todayLists;
-    state.weekBoard = weekLists;
+    state.boards = Object.fromEntries(boardNames.map((n, i) => [n, boards[i]]));
     state.worklog = log.entries;
     state.people = people.people;
     state.groups = groups.groups;
@@ -184,6 +198,22 @@ export function createItem(type, subject, values = {}, body = null) {
 
 /** `baseBodyRev`: the version of the description the caller started from; a 409 says it changed on disk meanwhile. */
 export const updateItem = (key, values, body, baseBodyRev) => mutate(() => api.update(key, values, body, baseBodyRev));
+/**
+ * An item's description saved: done once the file is written, the lists reloading behind it. The editor's Esc and
+ * Done wait for this, and on a big vault the full reload (every list, the vault's status) takes a second or more —
+ * long enough to look like Esc did nothing.
+ */
+export async function saveBody(key, body, baseBodyRev) {
+  try {
+    const out = await api.update(key, {}, body, baseBodyRev);
+    reload();
+    return out;
+  } catch (e) {
+    toast(e.message, true);
+    reload();
+    throw e;
+  }
+}
 /** One of the structure's actions on an item (Ticketing: 'promote' or 'escalate' a support ticket). → { support, created } */
 export const itemAction = (action, key) => mutate(() => api.itemAction(action, key));
 /** Attach files to an item, one after the other; one that fails says why and the rest still go. */
@@ -230,6 +260,10 @@ export async function deleteMany(keys) {
 /** Inbox item → task / initiative / note / meeting (new id, new folder). */
 export const convertItem = (key, type, values = {}) => mutate(() => api.convert(key, type, values));
 export const addComment = (key, text) => mutate(() => api.addComment(key, text));
+/** Name what a definition is now as its next version (minor, or `major`: it changes a contract), with what changed. */
+export const cutVersion = (key, major, note) => mutate(() => api.cutVersion(key, major, note));
+/** Put a definition back as it was at `version`: a new version "Restored <version>"; 409 when it changed on disk since. */
+export const restoreVersion = (key, version, baseRev) => mutate(() => api.restoreVersion(key, version, baseRev));
 /** Delete a comment, with an Undo in the toast that puts the same comment back at its place. */
 export async function deleteComment(key, index) {
   const out = await mutate(() => api.deleteComment(key, index));
@@ -327,29 +361,26 @@ export function slugId(name, taken) {
 
 export const saveBoard = (lists) => mutate(() => api.saveBoard(lists));
 
-// ── Today board ──────────────────────────────────────────────────────────────
-export const TODAY_DEFAULT = 'uncategorized';
-export const saveTodayLists = (lists) => mutate(() => api.saveToday(lists));
-/** The Today column an item sits in: its own when that column still exists, else the default. */
-export const todayListOf = (item) =>
-  state.today.lists.find((l) => l.id === item.fields.today_list) || state.today.lists.find((l) => l.id === TODAY_DEFAULT) || state.today.lists[0];
-export const setTodayList = (item, listId) => updateItem(item.key, { today_list: listId === TODAY_DEFAULT ? null : listId });
-
-// ── Free board of Week and Next week ─────────────────────────────────────────
-export const saveWeekLists = (lists) => mutate(() => api.saveWeekBoard(lists));
-/** The Free board column an item sits in: its own when that column still exists, else the default (Uncategorized). */
-export const weekListOf = (item) =>
-  state.weekBoard.lists.find((l) => l.id === item.fields.week_list) || state.weekBoard.lists.find((l) => l.id === TODAY_DEFAULT) || state.weekBoard.lists[0];
-/**
- * A card dropped on a Free board column (`listId`) at `index` among `cards`: its `week_list` and `week_order`, and the
- * column's when it has to be numbered (rules.js placement). Its day and week stay as they are.
- */
-export function placeInWeekList(item, listId, cards, index) {
-  const patches = placement(item, cards.filter((c) => c.key !== item.key), index, 'week_order');
-  const others = patches.filter(([c, o]) => c.key !== item.key && c.fields.week_order !== o).map(([c, o]) => [c.key, { week_order: o }]);
-  const move = weekListOf(item)?.id !== listId ? { week_list: listId === TODAY_DEFAULT ? null : listId } : {};
-  const mine = { ...move, week_order: patches.find(([c]) => c.key === item.key)[1] };
-  return updateMany([...others, [item.key, mine]]).catch(() => {});
+// ── Custom boards (customboard.js) ───────────────────────────────────────────
+/** The board `name` as loaded; one never asked for is asked for now (the page redraws when it comes) and is empty meanwhile. */
+export function customBoard(name) {
+  if (!state.boards[name]) {
+    state.boards[name] = emptyBoard();
+    api.customBoard(name).then((b) => { state.boards[name] = b; notify(); }).catch(() => {});
+  }
+  return state.boards[name];
+}
+/** Saves the board's columns and/or cards' places ({ columns?, place? }); the page redraws from what the server kept.
+ *  Only the board: no item is written, so nothing else is reloaded. */
+export async function saveCustomBoard(name, body) {
+  try {
+    state.boards[name] = await api.saveCustomBoard(name, body);
+  } catch (e) {
+    toast(e.message, true);
+    try { state.boards[name] = await api.customBoard(name); } catch { /* keep what it had */ }
+  }
+  notify();
+  return state.boards[name];
 }
 
 // ── pins (top bar) ───────────────────────────────────────────────────────────

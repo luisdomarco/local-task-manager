@@ -5,8 +5,9 @@
 // The form modal is the item card's dialog (itemform.js: same frame, same property
 // fields in the same order), bound to the form state instead of to a saved item.
 import { today } from './dates.js';
+import { withPrefix } from './archmodel.js';
 import {
-  aimFields, blocksOf, breakBlocks, itemFields, kindOfBinding, modalFrame, modalTitle, parentControl, planValues, propField, quietBlanks, settingsBody, statusSelect,
+  aimFields, blocksOf, breakBlocks, itemFields, kindOfBinding, propsOfBinding, whenOf, modalFrame, modalTitle, parentControl, planValues, propField, quietBlanks, settingsBody, statusSelect,
 } from './itemform.js';
 import {
   EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, leavesProject, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
@@ -16,7 +17,7 @@ import { has } from './features.js';
 import { mdBlock } from './mdblock.js';
 import { openQuickModal } from './quickadd.js';
 import { createItem, state, toast } from './state.js';
-import { dropdown, formActions, h, icon, openDialog, propRow, sectionLabel, select, stackGroup } from './ui.js';
+import { dropdown, formActions, h, icon, lowerName, openDialog, propRow, sectionLabel, select, stackGroup } from './ui.js';
 import { refOf } from './shownid.js';
 import { isPhone } from './phone.js';
 
@@ -73,14 +74,16 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   // Its description, as on the item's page (mdblock.js): a box that opens the editor on a click. Made once, so what is
   // being written stays when the form is drawn again (another type, another project).
   const body = mdBlock({ fk: 'cf-body', minHeight: '220px', write: async (text) => { form.body = text; return text; } });
-  // It starts as the vault's default text for the type (Settings → Vaults → Item types), and follows the type while it
-  // is untouched: one typed in stays across types. Untouched when created, it goes as null, so the server writes the
-  // text with its placeholders filled ({{ref}}, {{date}}…).
+  // It starts as the vault's default text for the type (Settings → Vaults → Item types), its kind's when it has one
+  // (a simple initiative's), and follows the type and the kind while it is untouched: one typed in stays across them.
+  // Untouched when created, it goes as null, so the server writes the text with its placeholders filled ({{ref}},
+  // {{date}}…).
   let defaults = null; // { type: text } of this vault, once fetched
+  let kindTexts = {}; // { type: { kind: text } }: '' is none, the type's own
   let fromDefault = ''; // the default text the description holds while untouched
   const applyDefault = () => {
     if (!defaults || body.isEditing() || form.body !== fromDefault) return;
-    const next = defaults[form.type] || '';
+    const next = kindTexts[form.type]?.[kindOfBinding(binding)?.id] || defaults[form.type] || '';
     if (next === fromDefault) return;
     fromDefault = form.body = next;
     body.reset(next);
@@ -123,7 +126,8 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); }
       return;
     }
-    const subject = form.subject.trim();
+    // An entity's name carries its type's prefix (ski-, age-spe-…: archmodel.js withPrefix), added when it is missing.
+    const subject = form.type === 'entity' ? withPrefix(form.subject, form.entity_type, form.agent_role, STRUCTURE.agents) : form.subject.trim();
     const v = {};
     const statuses = statusesOf(form.type);
     if (PLANNABLE.has(form.type)) {
@@ -140,7 +144,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     // A Ticketing item: its project (a project itself: its key), and the fields of its own type (an initiative: its kind).
     if (hasField(form.type, 'project') && form.project) v.project = form.project;
     if (form.type === 'project') v.project_key = form.project_key.trim().toUpperCase();
-    for (const p of propsOf(form.type, kindOfBinding(binding))) { // not those its kind hides
+    for (const p of propsOfBinding(binding)) { // not those its kind hides, nor those whose condition fails
       if (p.kind === 'readonly' || p.readonly) continue;
       const x = form[p.key];
       if (x !== undefined && x !== null && x !== '' && !(Array.isArray(x) && !x.length)) v[p.key] = x;
@@ -197,10 +201,12 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     // Project and a type's own fields of Relations sit in the right column, as on the item's card; a project's
     // Settings is a section of the main column, as there. What a ticket's Delivery asks for on creation (its size, its
     // regime: the rest is written later, rules.js askedOnCreate) is among its properties.
+    // Which of its own fields the form shows now: when that changes (another kind, another entity type), it is drawn again.
+    const shownProps = () => `${kindOfBinding(binding)?.id}|${propsOfBinding(binding).map((p) => p.key)}`;
     binding = { type: form.type, live: true, creating: true, exclude: new Set(), propList: true, titleStatus: hasField(form.type, 'status'),
       optional: OPTIONAL, aside: new Set(['project', 'related_to', 'session_name', 'tab:settings', 'tab:relations']), get: (key) => form[key],
       set: (key, value) => {
-        const before = kindOfBinding(binding)?.id;
+        const before = shownProps();
         form[key] = value;
         recheck();
         if (key === 'related_to') folderEl.textContent = whereText();
@@ -211,8 +217,9 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
           if (now && !projectHas(now, form.type, state.all)) { form.type = 'task'; render(); return; }
           if (now !== project) { render(); return; }
         }
-        if (kindOfBinding(binding)?.id === before) return;
-        // Another kind keeps other fields (a simple initiative has no readiness): draw the form again for it.
+        if (shownProps() === before) return;
+        // Another kind keeps other fields (a simple initiative has no readiness), another value shows others (an entity's
+        // Role, for an agent): draw the form again for them.
         render();
       } };
     const hasProject = hasField(form.type, 'project') && form.type !== 'project';
@@ -222,7 +229,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     // goal, rules.js askedOnCreate), each a group under its name with its picker, no frame. Not "+ Add relation": that
     // needs its id.
     const relationsSection = () => {
-      const props = propsIn(form.type, 'relations', kindOfBinding(binding)).filter(askedOnCreate);
+      const props = propsIn(form.type, 'relations', kindOfBinding(binding), whenOf(binding)).filter(askedOnCreate);
       const parent = hasProject || hasParent
         ? stackGroup(parentLabel(form.type), h('div', { class: 'rel-pick picks-quiet' }, parentControl(binding))) : null;
       return parent || props.length ? h('section', { class: 'panel-section relations quiet', 'aria-label': 'Relations' },
@@ -238,7 +245,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     const ownLocal = ownId && !ticketRef && hasField(form.type, 'local_path');
     // Its copy and full-screen buttons over the box's corner and no title of its own (`tabbed`, as in a page's Overview):
     // the section's names it.
-    body.configure({ label: bodyLabel, tabbed: true, title: form.subject.trim() || `New ${label.toLowerCase()}`,
+    body.configure({ label: bodyLabel, tabbed: true, title: form.subject.trim() || `New ${lowerName(label)}`,
       emptyText: BODY_PLACEHOLDER[form.type] || 'Add a more detailed description…', placeholder: BODY_PLACEHOLDER[form.type] || 'Markdown — "- [ ] step" for a checklist' });
     applyDefault();
     if (!body.isEditing() || !body.ready()) body.render();
@@ -288,7 +295,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       folderEl,
       h('span', { class: 'mono' }, `${TYPE_LABEL[form.type]} · next id assigned on save`));
     modal.className = form.type === 'prompt' ? 'card-modal is-create is-prompt' : 'card-modal is-create';
-    modal.setAttribute('aria-label', `New ${label.toLowerCase()}`);
+    modal.setAttribute('aria-label', `New ${lowerName(label)}`);
     modal.replaceChildren(...modalFrame({
       head: [
         h('span', { class: 'muted' }, 'New'),
@@ -311,7 +318,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       foot: [formActions({
         lead: h('span', { class: 'muted small create-keys' }, '↵ in the subject creates · ⌘↵ anywhere · Esc cancels'),
         onCancel: () => closeModal(),
-        actions: h('button', { class: 'btn primary', onclick: submit }, icon('plus', 16), `Create ${label.toLowerCase()}`),
+        actions: h('button', { class: 'btn primary', onclick: submit }, icon('plus', 16), `Create ${lowerName(label)}`),
       })],
       // The right column (sideSections). With none of them (a prompt) the form is one column, and where it will be
       // saved goes under the main column instead.
@@ -342,7 +349,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   }));
   render();
   // A vault whose structure has no default texts (a legacy one) answers {}: its type's own sections are the server's.
-  api.defaultTexts().then((r) => { if (closed) return; defaults = r.editable ? r.texts : {}; render(); }).catch(() => {});
+  api.defaultTexts().then((r) => { if (closed) return; defaults = r.editable ? r.texts : {}; kindTexts = (r.editable && r.kind_texts) || {}; render(); }).catch(() => {});
 }
 
 /** Sidebar "Add item": the Inbox capture and the forms of the types made most often, in their groups (rules.js

@@ -179,12 +179,114 @@ def seed_ticketing(path=TICKETING_VAULT):
     s.make_folder('Acme Web/Docs/Architecture', parents=True)
     s.create_file('Docs/Team/How we ship.md', HOW_WE_SHIP)
     s.create_file('Acme Web/Docs/Architecture/Overview.md', ARCHITECTURE)
+    for name, text in DIAGRAMS.items():  # a draw.io diagram, and a doc that embeds it
+        s.create_file(f'Acme Web/Docs/Architecture/{name}', text)
+    s.make_folder('Docs/Library', parents=True)
+    for name, text in READING.items():  # notes with properties, and a base (.base) that lists them
+        s.create_file(f'Docs/Library/{name}', text)
     first_task = next(i['id'] for i in s.items() if i['type'] == 'task')
     s.log_work(first_task, 'Analysis', 'steps mapped', y.isoformat(), time='01:15')
     s.log_work(ini, 'Meeting', 'review', y.isoformat(), time='00:30')
     s.log_work(first_task, 'Definition', '', t.isoformat(), time='02:00')
     seed_showcase(s, t)
     return path
+
+
+def _drawio(cells):
+    """A draw.io file (uncompressed, as draw.io saves with Compressed off) of `cells`: (id, value, style, x, y, w, h) a
+    shape, (id, value, style, source, target) an edge."""
+    out = ['<mxCell id="0" />', '<mxCell id="1" parent="0" />']
+    for c in cells:
+        if len(c) == 7:
+            i, v, st, x, y, w, hh = c
+            out.append(f'<mxCell id="{i}" value="{v}" style="{st}" vertex="1" parent="1">'
+                       f'<mxGeometry x="{x}" y="{y}" width="{w}" height="{hh}" as="geometry" /></mxCell>')
+        else:
+            i, v, st, src, tgt = c
+            out.append(f'<mxCell id="{i}" value="{v}" style="{st}" edge="1" parent="1" source="{src}" target="{tgt}">'
+                       '<mxGeometry relative="1" as="geometry" /></mxCell>')
+    return ('<mxfile host="Electron" version="24.7.17">\n  <diagram id="checkout" name="Checkout">\n'
+            '    <mxGraphModel dx="800" dy="500" grid="1" gridSize="10" page="1" pageWidth="827" pageHeight="583">\n'
+            '      <root>\n        ' + '\n        '.join(out) + '\n      </root>\n    </mxGraphModel>\n  </diagram>\n</mxfile>\n')
+
+
+_BOX = 'rounded=1;whiteSpace=wrap;html=1;'
+_EDGE = 'edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;'
+DIAGRAMS = {
+    'Checkout flow.drawio': _drawio([
+        ('cart', 'Cart', _BOX, 20, 60, 120, 50),
+        ('saved', 'Card saved?', 'rhombus;whiteSpace=wrap;html=1;', 190, 45, 120, 80),
+        ('pay', 'Pay with saved card', _BOX, 370, 0, 140, 50),
+        ('form', 'Card form', _BOX, 370, 120, 140, 50),
+        ('done', 'Order confirmed', 'ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;', 570, 55, 130, 60),
+        ('e1', '', _EDGE, 'cart', 'saved'),
+        ('e2', 'yes', _EDGE, 'saved', 'pay'),
+        ('e3', 'no', _EDGE, 'saved', 'form'),
+        ('e4', '', _EDGE, 'pay', 'done'),
+        ('e5', '', _EDGE, 'form', 'done'),
+    ]),
+    'Checkout.md': '# Checkout\n\nHow an order is paid, drawn in draw.io (`Checkout flow.drawio`, opened here as its diagram):\n\n'
+                   '![[Checkout flow.drawio]]\n\n'
+                   '## What it rests on\n\nThe decisions of [[Overview]] it keeps, embedded from there:\n\n'
+                   '![[Overview#Decisions in force]]\n\n'
+                   'Every charge carries the order\'s idempotency key[^key]. %%Ask Marta whether refunds do too.%%\n\n'
+                   '```bash\ncurl -X POST https://payments.example/charges -H "Idempotency-Key: $ORDER_KEY"\n```\n\n'
+                   '[^key]: A random id per order, kept for 24 hours: the same call twice charges once.\n',
+}
+
+
+READING = {
+    '00 Library.md': '# Library\n\nWhat the team reads and uses, by topic: add a `topic` to a note and it shows here.\n\n'
+                     '![[Library.base#By topic]]\n',
+    'Shape Up.md': '---\ntopic: Books\nscore: 5\nwebsite: https://basecamp.com/shapeup\nblurb: Six-week cycles and appetite, not estimates.\n---\n'
+                   '# Shape Up\n\nHow we size initiatives. #process\n',
+    'Accelerate.md': '---\ntopic: Books\nscore: 4\nwebsite: https://itrevolution.com/product/accelerate/\n'
+                     'blurb: The four delivery metrics.\n---\n# Accelerate\n\nWhere our deploy metrics come from.\n',
+    'Ship It podcast.md': '---\ntopic: Podcasts\nwebsite: https://changelog.com/shipit\nblurb: Operations and delivery.\n---\n'
+                          '# Ship It\n',
+    'Ruff.md': '---\ntopic: Repos\nwebsite: https://github.com/astral-sh/ruff\ntool: Python\nblurb: A fast linter.\n---\n'
+               '# Ruff\n\nUsed in the [[How we ship]] checks.\n',
+    'Library.base': """filters:
+  and:
+    - file.inFolder("Docs/Library")
+    - file.hasProperty("topic")
+formulas:
+  stars: 'if(score, "★".repeat(score), "")'
+properties:
+  formula.stars:
+    displayName: Stars
+views:
+  - type: table
+    name: By topic
+    groupBy:
+      property: topic
+      direction: ASC
+    order:
+      - file.name
+      - topic
+      - score
+      - formula.stars
+      - website
+    sort:
+      - property: score
+        direction: DESC
+    summaries:
+      score: Average
+  - type: cards
+    name: Cards
+    order:
+      - file.name
+      - topic
+      - blurb
+  - type: list
+    name: Repos
+    filters: topic == "Repos"
+    order:
+      - file.name
+      - website
+      - tool
+""",
+}
 
 
 HOW_WE_SHIP = """# How we ship

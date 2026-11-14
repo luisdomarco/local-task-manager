@@ -6,6 +6,11 @@
 // - Every blank line past the first keeps its gap (keepBlankLines), as in the editor.
 // - Every table in a box of its own (.md-table) that scrolls sideways: a wide table keeps its words whole instead of
 //   squeezing its columns to a letter each, and a cell of prose keeps room to read (cellClass).
+// - %%comments%% are not shown (stripComments), inline or over several lines, as in Obsidian's reading view; nor is a
+//   block's id (` ^id` at the end of its line, what `![[Note#^id]]` names).
+// - Footnotes: `[^1]` (or `[^name]`) with its `[^1]: text` anywhere in the note, and inline `^[text]`, numbered in the
+//   order they are read and listed under the note (.footnotes). The marks carry no href (the page's routes are its
+//   #/… address): ui.js scrolls to the note and back on a click.
 
 /** A callout's type → [its icon (ui.js ICONS), its colour (.callout-<tone>)]; Obsidian's names and their aliases. */
 const TYPES = {
@@ -89,11 +94,106 @@ export function keepBlankLines(md) {
   return out.join('\n');
 }
 
+/**
+ * A note without its %%comments%%: `%%…%%` on a line or over several, and an unclosed `%%` hides the rest of the note,
+ * as Obsidian reads it. Fenced code and `inline code` keep theirs.
+ */
+export function stripComments(md) {
+  const text = String(md || '');
+  if (!text.includes('%%')) return text;
+  // Fenced blocks (odd parts) are left as they are; in the rest, an inline code span is kept and a comment dropped.
+  const parts = text.split(/(^[ ]{0,3}(?:`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}(?:`{3,}|~{3,})[ \t]*$|(?![\s\S])))/m);
+  let open = false; // a comment opened in an earlier part and not closed yet
+  return parts.map((part, i) => {
+    if (i % 2) return open ? '' : part;
+    let out = '';
+    let rest = part;
+    if (open) {
+      const end = rest.indexOf('%%');
+      if (end < 0) return '';
+      rest = rest.slice(end + 2);
+      open = false;
+    }
+    out += rest.replace(/(`+)[^`]*?\1|%%[\s\S]*?(?:%%|$)/g, (m, tick) => {
+      if (tick) return m;
+      if (!/%%$/.test(m) || m.length < 4) open = true; // not closed in this part
+      return '';
+    });
+    return out;
+  }).join('');
+}
+
+/** The note without its blocks' ids (` ^id` ending a line, or alone on one), outside fenced code. */
+export function hideBlockIds(md) {
+  const text = String(md || '');
+  if (!text.includes('^')) return text;
+  return text.split(/(^[ ]{0,3}(?:`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}(?:`{3,}|~{3,})[ \t]*$|(?![\s\S])))/m)
+    .map((part, i) => (i % 2 ? part : part.replace(/(^|[ \t])\^[A-Za-z0-9-]+[ \t]*$/gm, '')))
+    .join('');
+}
+
+// The footnotes of the note being parsed: reset by the preprocess hook before each parse (marked parses synchronously).
+let notes = null;
+const resetNotes = () => { notes = { defs: new Map(), order: [], numbers: new Map(), html: new Map() }; };
+resetNotes();
+const footKey = (id) => String(id).trim().toLowerCase();
+/** The number a footnote's mark shows (`key` the id, or a fresh one for an inline note): its first read gives it one. */
+function footNumber(key) {
+  if (!notes.numbers.has(key)) { notes.order.push(key); notes.numbers.set(key, notes.order.length); }
+  return notes.numbers.get(key);
+}
+const footMark = (n) => `<sup class="fn-ref"><a class="fn-link" data-fn="${n}">${n}</a></sup>`;
+/** The list of the note's footnotes, under its text (empty when it marks none). */
+function footList() {
+  if (!notes.order.length) return '';
+  const rows = notes.order.map((key, i) => `<li data-fn-note="${i + 1}">${notes.html.get(key) ?? ''} <a class="fn-back" data-fn-back="${i + 1}" title="Back to the text">↩</a></li>`);
+  return `<section class="footnotes"><ol>${rows.join('')}</ol></section>\n`;
+}
+
 /** Adds the extras to `marked` (once: marked.use adds up). `iconSvg(name)` draws a callout's icon. */
 export function useExtras(marked, { iconSvg } = {}) {
   marked.use({
-    hooks: { preprocess: keepBlankLines },
+    hooks: {
+      preprocess: (md) => { resetNotes(); return keepBlankLines(hideBlockIds(stripComments(md))); },
+      postprocess: (html) => `${html}${footList()}`,
+    },
     extensions: [
+      {
+        // `[^id]: text` (its next lines too, when indented): kept for the list under the note, not drawn where it is.
+        name: 'footnoteDef', level: 'block',
+        start(src) { const m = /^ {0,3}\[\^[^\]\s]+\]:/m.exec(src); return m ? m.index : undefined; },
+        tokenizer(src) {
+          const m = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]*([^\n]*(?:\n(?: {2,}|\t)[^\n]*)*)(?:\n|$)/.exec(src);
+          if (!m) return undefined;
+          const key = footKey(m[1]);
+          const text = m[2].replace(/\n(?: {2,}|\t)/g, '\n').trim();
+          const token = { type: 'footnoteDef', raw: m[0], key, tokens: this.lexer.inlineTokens(text) };
+          if (!notes.defs.has(key)) notes.defs.set(key, token);
+          return token;
+        },
+        renderer(token) {
+          if (notes.defs.get(token.key) === token) notes.html.set(token.key, this.parser.parseInline(token.tokens));
+          return '';
+        },
+      },
+      {
+        // `[^id]`: the mark of a footnote written in the note (one that is not reads as written); `^[text]` an inline one.
+        name: 'footnoteRef', level: 'inline',
+        start(src) { const m = /\[\^|\^\[/.exec(src); return m ? m.index : undefined; },
+        tokenizer(src) {
+          const ref = /^\[\^([^\]\s]+)\]/.exec(src);
+          if (ref && notes.defs.has(footKey(ref[1]))) return { type: 'footnoteRef', raw: ref[0], key: footKey(ref[1]) };
+          const inline = /^\^\[([^\]\n]+)\]/.exec(src);
+          if (inline) return { type: 'footnoteRef', raw: inline[0], key: null, tokens: this.lexer.inlineTokens(inline[1]) };
+          return undefined;
+        },
+        renderer(token) {
+          if (token.key) return footMark(footNumber(token.key));
+          const key = `^inline ${notes.order.length + 1}`; // no [^id] can be this: an id has no space
+          notes.html.set(key, this.parser.parseInline(token.tokens));
+          return footMark(footNumber(key));
+        },
+      },
       {
         name: 'highlight', level: 'inline',
         start(src) { const i = src.indexOf('=='); return i < 0 ? undefined : i; },
@@ -117,6 +217,11 @@ export function useExtras(marked, { iconSvg } = {}) {
     ],
     renderer: {
       blockquote(quote) { return calloutHtml(quote, iconSvg) || false; }, // false: marked's own <blockquote>
+      // A task's box with no space after it (marked writes one): the gap is the stylesheet's, so the first line starts
+      // where its wrapped lines do (app.css `.md li > input`).
+      listitem(text, task) {
+        return task ? `<li>${text.replace(/^(<p>)?(<input [^>]*>)\s+/, '$1$2')}</li>\n` : false;
+      },
       // A cell with words to read keeps room for them (.md-cell-mid / -long: a least and a most width), so a table
       // wider than the screen scrolls instead of wrapping its prose a word per line; a short cell is as wide as it is.
       tablecell(content, flags) {

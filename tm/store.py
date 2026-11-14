@@ -18,12 +18,18 @@ from datetime import datetime
 
 from . import agentsmd
 from . import attachments
+from . import bases
+from . import boards
 from . import frontmatter as fm
 from . import graph as tm_graph
 from . import history
 from . import people
+from . import versions
 from . import vaultsettings
 from .fsutil import VaultBusy, atomic_write, vault_lock
+from .index import ACTOR, VaultIndex, link_keys
+from .structures.agents import vocabulary as agents_vocabulary
+from .index import fold as index_fold
 from .launch import SESSION_RE
 from .structures import GROUPS, StatusConfigError, kinds, relations
 from .structures import get as get_structure
@@ -41,13 +47,7 @@ from .structures.traits import RENAMED_KEYS
 DEFAULT_WORK_KINDS = ['Analysis', 'Definition', 'Testing', 'Meeting', 'Management']
 # Default board: one list per status. Lists are user-editable; each maps to a status.
 DEFAULT_LISTS = [{'id': s.lower(), 'name': s, 'status': s} for s in STATUSES]
-# Today board: columns are how you organise the day, not a status. The default
-# column cannot be deleted; an item whose `today_list` names no column lands there.
-TODAY_DEFAULT = 'uncategorized'
-DEFAULT_TODAY_LISTS = [{'id': TODAY_DEFAULT, 'name': 'Uncategorized'}]
-# Free board of Week and Next week: columns of your own, one set for both, like Today's (never a status): Uncategorized
-# is the fixed one, where an item whose `week_list` names no column lands.
-DEFAULT_WEEK_LISTS = [{'id': TODAY_DEFAULT, 'name': 'Uncategorized'}]
+# Today's board and every Custom grouping: columns of your own, never a status (tm/boards.py, Store.board).
 # Where an activity (a pasted email, Slack message, comment…) came from.
 ACTIVITY_SOURCES = ['Email', 'Slack', 'Comment', 'Other']
 # `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; a file without
@@ -102,6 +102,22 @@ def clean_people(value):
             seen.add(name.lower())
             out.append(name)
     return out
+
+
+def _frontmatter_of(text):
+    """A file's frontmatter keys and values ({} when it has none): what the index keeps for Store.properties."""
+    head = fm.split(text)[0]
+    return fm.parse(head) if head is not None else {}
+
+
+def _prop_text(v):
+    """A frontmatter value as the Properties section shows and matches it: true/false, a number, the text; '' for
+    nothing (None, empty) or for a map (not a value it renames)."""
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if v is None or isinstance(v, (dict, list)):
+        return ''
+    return str(v).strip()
 
 
 def clean_label(value):
@@ -364,7 +380,13 @@ def _write_guard(method, refuse_unmatched):
             with self._lock:
                 try:
                     with vault_lock(os.path.join(self.root, META_DIR), VAULT_LOCK_TIMEOUT):
-                        return method(self, *args, **kwargs)
+                        # The index (tm/index.py): what changed before is somebody else's, what changes now is the
+                        # writer's (the tab of the request), and every read meanwhile walks the folder fresh.
+                        self.index.before_write()
+                        try:
+                            return method(self, *args, **kwargs)
+                        finally:
+                            self.index.after_write(getattr(ACTOR, 'tab', None))
                 except VaultBusy as e:
                     raise StoreError(503, f'{e}. Try again in a moment.') from None
         finally:
@@ -458,9 +480,9 @@ class Store:
         # here replaces the file (a new inode): ToDo→Done keeps the size, and on a coarse-clock file
         # system it can keep the mtime too, so (mtime, size) alone would hand back the old content.
         self._cache = {}
-        # abs path -> (the same key, [stems its body links to]): the graph's mentions (graph()), kept apart from
-        # _cache because a doc's entry there is dropped by every scan (docs are no items).
-        self._links_cache = {}
+        # What is in the vault's folder and what its files say, between requests (tm/index.py): every walk of the
+        # vault goes through it (_entries).
+        self.index = VaultIndex(self.root)
         # A leaf lock: held only around the dict operations, never during I/O and never while taking
         # another lock. Order is always _lock → _cache_lock. Not around scan's loop: it calls _load.
         self._cache_lock = threading.Lock()
@@ -486,17 +508,28 @@ class Store:
             return False
         return not any(p.startswith('.') or p in SKIP_DIRS for p in parts) and not self.full_structure.in_docs('/'.join(parts))
 
+    def _entries(self):
+        """The vault's folders and files ({rel: Entry}, tm/index.py): walked now, or the index's last walk while a page
+        polls it. A write in progress always walks: it must see what it just wrote."""
+        writing = getattr(_writing, 'depth', 0) > 0
+        return self.index.entries(fresh=writing, by=getattr(ACTOR, 'tab', None) if writing else None)
+
+    def _md_entries(self, docs=False):
+        """(abs path, stat key) of every .md where an item may be — under no hidden or skipped folder (SKIP_DIRS);
+        `docs` too, those in the Docs folders (TSK-039): documents, never items, but their [[links]] are rewritten like
+        any other's."""
+        for rel, e in self._entries().items():
+            if e.kind != 'file' or not rel.endswith('.md'):
+                continue
+            if any(p.startswith('.') or p in SKIP_DIRS for p in rel.split('/')):
+                continue
+            if not docs and self.full_structure.in_docs(rel):
+                continue
+            yield os.path.join(self.root, rel), (e.ino, e.mtime_ns, e.size)
+
     def _walk_md(self, docs=False):
-        """Every .md where an item may be; `docs` too, those in the Docs folders (TSK-039): documents, never items, but
-        their [[links]] are rewritten like any other's."""
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            dirnames[:] = [d for d in dirnames if not d.startswith('.') and d not in SKIP_DIRS]
-            if not docs:
-                rel_dir = os.path.relpath(dirpath, self.root).replace(os.sep, '/')
-                dirnames[:] = [d for d in dirnames if not self.full_structure.in_docs(f'{rel_dir}/{d}' if rel_dir != '.' else d)]
-            for name in filenames:
-                if name.endswith('.md') and not name.startswith('.'):
-                    yield os.path.join(dirpath, name)
+        """The paths of _md_entries."""
+        return [path for path, _ in self._md_entries(docs)]
 
     def _load(self, path):
         """→ (cache key, fields, body, body_rev). The key comes from fstat on the open file, so it
@@ -519,44 +552,23 @@ class Store:
     def _read(self, path):
         return self._load(path)[1:3]
 
-    def _body_links(self, path):
-        """The stems a file's body links to (wikilinks.targets), read again only when the file changed (the key is
-        _load's: inode, mtime, size). [] for a file that cannot be read."""
-        try:
-            st = os.stat(path)
-        except OSError:
-            return []
-        with self._cache_lock:
-            hit = self._links_cache.get(path)
-        if hit and hit[0] == (st.st_ino, st.st_mtime_ns, st.st_size):
-            return hit[1]
-        try:
-            key, _, body, _ = self._load(path)
-        except OSError:
-            return []
-        stems = wikilinks.targets(body)
-        with self._cache_lock:
-            self._links_cache[path] = (key, stems)
-        return stems
+    def _body_links(self, rel):
+        """The stems a file's body links to (wikilinks.targets), from the index: read again only when the file changed,
+        and kept between runs. [] for a file that cannot be read (or iCloud has not downloaded)."""
+        return self.index.value(rel, 'targets', lambda text: wikilinks.targets(fm.split(text)[1])) or []
 
     def graph(self):
         """The vault as a graph (tm/graph.py): its items and docs, and every link between them — their fields, their
         typed relations and the wikilinks in their bodies. → {nodes, edges}."""
         items = self.items()
-        docs, mentions, live = [], {}, set()
+        docs, mentions = [], {}
         for it in items:
-            path = os.path.join(self.root, it['path'])
-            live.add(path)
-            mentions[tm_graph.node_id(it)] = self._body_links(path)
+            mentions[tm_graph.node_id(it)] = self._body_links(it['path'].replace(os.sep, '/'))
         for path in self._walk_md(docs=True):
             rel = self.rel(path).replace(os.sep, '/')
             if self.full_structure.in_docs(rel):
-                live.add(path)
                 docs.append(rel)
-                mentions[rel] = self._body_links(path)
-        with self._cache_lock:  # what is gone from the vault is gone from the cache
-            for stale in [p for p in self._links_cache if p not in live]:
-                self._links_cache.pop(stale, None)
+                mentions[rel] = self._body_links(rel)
         return tm_graph.build(items, self.structure, docs=docs, mentions=mentions)
 
     # ── the vault's guide for agents (tm/agentsmd.py) ────────────────────────
@@ -576,9 +588,46 @@ class Store:
         projects = [{'key': it['id'] or it['fields'].get('project_key') or it['title'], 'name': it['title'],
                      'folder': os.path.dirname(it['path']) if scoped else ''}
                     for it in items if it['type'] == 'project']
+        bases_list, bases_count = self._bases_info()
         return {'structure': self.structure.id, 'label': self.structure.label, 'types': types, 'projects': projects,
                 'project_scoped': sorted(scoped), 'relation_kinds': self.structure.extras.get('relation_kinds') or {},
-                'docs': [r['path'] for r in self.docs_roots() if r.get('exists')], 'default_texts': self.has_default_texts()}
+                'docs': [r['path'] for r in self.docs_roots() if r.get('exists')], 'default_texts': self.has_default_texts(),
+                'bases': bases_list, 'bases_count': bases_count, 'boards': self._boards_info(),
+                'agentic': agents_vocabulary() if {'agent', 'entity'} <= set(self.structure.types) else None}
+
+    AGENTS_BASES_MAX = 30  # bases the guide names one by one (it says how many more there are)
+
+    def _bases_info(self):
+        """([what each .base asks of a note: {path, views, properties, folders, tags, group_by, shows, error}], how many
+        there are), sorted by path: what the vault's guide says about its indexes (bases.describe)."""
+        rels = sorted((rel for rel, e in self._entries().items()
+                       if e.kind == 'file' and rel.lower().endswith('.base') and self._listable(rel)), key=str.casefold)
+        out = []
+        for rel in rels[:self.AGENTS_BASES_MAX]:
+            try:
+                data = bases.parse_yaml(self.index.text(rel) or '')
+                bases.Base(data, None)  # what the app would refuse to draw, the guide says it cannot read
+                d = bases.describe(data)
+            except bases.BaseError as e:
+                d = {'views': [], 'properties': {}, 'folders': [], 'tags': [], 'group_by': [], 'shows': [], 'error': str(e)}
+            out.append({'path': rel, **d})
+        return out, len(rels)
+
+    def _boards_info(self):
+        """[{name, columns: [names]}] of the custom boards this vault keeps (.task-manager/boards/*.json), by name; a
+        file that cannot be read is left out."""
+        folder = os.path.join(self.root, META_DIR, boards.DIR)
+        try:
+            names = sorted(f[:-5] for f in os.listdir(folder) if f.endswith('.json') and boards.NAME_RE.match(f[:-5]))
+        except OSError:
+            return []
+        out = []
+        for name in names:
+            try:
+                out.append({'name': name, 'columns': [c['name'] for c in self.custom_board(name)['columns']]})
+            except StoreError:
+                continue
+        return out
 
     def agents_status(self):
         """Whether this vault keeps its guide for agents (AGENTS.md with the generated block), and its CLAUDE.md."""
@@ -631,24 +680,84 @@ class Store:
     def default_text(self, item_type):
         return self.default_texts().get(item_type, '')
 
+    def has_kind_texts(self):
+        """Whether a type's default text may differ by the kind of initiative the item is (Projects)."""
+        return self.has_default_texts() and bool(self.structure.kinds) and hasattr(self.structure.codec, 'default_kind_texts')
+
+    def default_kind_texts(self):
+        """{type: {kind: text}} of every type this vault shows that may have a text per initiative kind
+        (`kinds.text_kinds`): the vault's own (.task-manager/templates/<type>.<kind>.md), else the structure's it will
+        be given at its next write. '' is none: an item of that kind starts with its type's text."""
+        if not self.has_kind_texts():
+            return {}
+        folder = self._default_texts_dir()
+        seeds = self.structure.codec.default_kind_texts()
+        out = {}
+        for t in self.structure.types:
+            for k in kinds.text_kinds(t):
+                try:
+                    with open(os.path.join(folder, f'{t}.{k}.md'), encoding='utf-8') as f:
+                        text = f.read()
+                except FileNotFoundError:
+                    text = seeds.get(t, {}).get(k, '')
+                out.setdefault(t, {})[k] = text
+        return out
+
     def _seed_default_texts(self):
-        """Once per vault: its folder of default texts, from the structure's. Never again once it exists, so a text the
-        owner emptied or deleted stays so. Caller holds the write lock."""
-        if not self.has_default_texts() or os.path.isdir(self._default_texts_dir()):
+        """The vault's default texts, from the structure's. A type's: once per vault, with its folder, never again once
+        it exists, so a text the owner emptied or deleted stays so. A kind's: each one the folder lacks (a vault from
+        before texts per kind gets them too); emptied, it stays, and an empty one means its type's text. Caller holds
+        the write lock. → whether it wrote."""
+        if not self.has_default_texts():
             return False
         folder = self._default_texts_dir()
-        os.makedirs(folder, exist_ok=True)
-        for t, text in self.structure.codec.default_texts().items():
-            atomic_write(os.path.join(folder, f'{t}.md'), text)
-        return True
+        wrote = False
+        if not os.path.isdir(folder):
+            os.makedirs(folder, exist_ok=True)
+            for t, text in self.structure.codec.default_texts().items():
+                atomic_write(os.path.join(folder, f'{t}.md'), text)
+            wrote = True
+        if self.has_kind_texts():
+            for t, by_kind in self.structure.codec.default_kind_texts().items():
+                for k, text in by_kind.items():
+                    path = os.path.join(folder, f'{t}.{k}.md')
+                    if not os.path.exists(path):
+                        atomic_write(path, text)
+                        wrote = True
+        return wrote
 
-    def _body_or_default(self, item_type, body):
-        """A new item's body: the one sent ('' included), or, with None sent, the vault's text for its type (seeded at
-        its first write). Caller holds the write lock."""
+    def _body_or_default(self, item_type, body, kind=None):
+        """A new item's body: the one sent ('' included), or, with None sent, the vault's text for its type and the
+        initiative kind it is or is in (`kind`: `_text_kind`), else for its type (seeded at its first write). Caller
+        holds the write lock."""
         if body is not None:
             return body
         self._seed_default_texts()
-        return self.default_text(item_type)
+        own = self.default_kind_texts().get(item_type, {}).get(kind, '') if kind else ''
+        return own if own.strip() else self.default_text(item_type)
+
+    def _text_kind(self, item_type, vals, parent, r):
+        """The initiative kind whose default text a new item starts with: an initiative's own (`vals`, as the rules
+        settled it), or that of the initiative a story, a PRD or a plan hangs from (up its parents). None when the type
+        has no texts per kind or the item is in no initiative."""
+        if not self.has_kind_texts() or not kinds.text_kinds(item_type):
+            return None
+        fields = vals if item_type == 'initiative' else None
+        it, hops = parent, 0
+        while fields is None and it and hops < 6:
+            if it['type'] == 'initiative':
+                fields = it['fields']
+                break
+            up, it, hops = it['fields'].get('related_to'), None, hops + 1
+            if up:
+                try:
+                    it = self.find(up)
+                except StoreError:
+                    it = None
+        if fields is None:
+            return None
+        pf = (r.projects.get(fields.get('project')) or {}).get('fields') or {}
+        return kinds.initiative_kind_of(fields, pf).id
 
     @writes_files
     def seed_default_texts(self):
@@ -656,18 +765,24 @@ class Store:
         return self._seed_default_texts()
 
     @writes_files
-    def set_default_text(self, item_type, text):
-        """Settings → Vaults → Item types: the body a new item of `item_type` starts with in this vault. '' empties it
-        (the file stays, empty, so the structure's text never comes back). → every type's text now."""
+    def set_default_text(self, item_type, text, kind=None):
+        """Settings → Vaults → Default texts: the body a new item of `item_type` starts with in this vault; with `kind`,
+        the one it starts with when it is, or is in, an initiative of that kind. '' empties it (the file stays, empty,
+        so the structure's text never comes back; an empty kind's text means its type's). → every type's text now."""
         if not self.has_default_texts():
             raise StoreError(400, f'a {self.structure.label} vault has no default texts to set')
         if item_type not in self.full_structure.types:
             raise StoreError(400, f'unknown type: {item_type}')
         if not isinstance(text, str):
             raise StoreError(400, 'text must be a string')
+        name = item_type
+        if kind:
+            if not self.has_kind_texts() or kind not in kinds.text_kinds(item_type):
+                raise StoreError(400, f'a {item_type} has no default text for initiatives of kind {kind}')
+            name = f'{item_type}.{kind}'
         self._seed_default_texts()
         text = text.replace('\r\n', '\n').strip('\n')
-        atomic_write(os.path.join(self._default_texts_dir(), f'{item_type}.md'), text + '\n' if text else '')
+        atomic_write(os.path.join(self._default_texts_dir(), f'{name}.md'), text + '\n' if text else '')
         return self.default_texts()
 
     def vault_settings(self):
@@ -851,10 +966,12 @@ class Store:
         items, days = [], {}
         live = set()
         types = self.full_structure.types if hidden_too else self.structure.types
-        for path in self._walk_md():
+        for path, stat_key in self._md_entries():
             live.add(path)
-            try:
-                key, fields, body, brev = self._load(path)
+            with self._cache_lock:
+                hit = self._cache.get(path)
+            try:  # unchanged since it was read (its stat key, from the index's walk): no need to open it again
+                key, fields, body, brev = (stat_key, *hit[1]) if hit and hit[0] == stat_key else self._load(path)
             except OSError:
                 continue
             rel = self.rel(path)
@@ -1036,7 +1153,7 @@ class Store:
             # changed), and a structure with a codec writes only the keys it is given.
             values.setdefault('sidebar', False)
         if self.structure.codec:
-            return self._create_coded(item_type, subject, values, body, given)
+            return self._first_version(self._create_coded(item_type, subject, values, body, given))
         with self._lock:
             self._check_project(item_type, values, new=True)
             if values.get('related_to'):
@@ -1066,12 +1183,13 @@ class Store:
             # Nothing typed: the type's own sections, if it has them (an agent's Purpose, Inputs…).
             body = body if (body or '').strip() else self.structure.types[item_type].body
             atomic_write(path, fm.build(fields, body), exclusive=True)
-        return self.read(item_id)
+        return self._first_version(self.read(item_id))
 
     # ── writes in a structure with its own file format (Structure.codec) ─────
-    def _create_coded(self, item_type, subject, values, body, given=None, number=None):
+    def _create_coded(self, item_type, subject, values, body, given=None, number=None, lead=None):
         """A new item as its structure's template, filled in (a Ticketing ticket: `<ID> <Title>.md` in its project).
-        `number`: the short id it keeps (an inbox item converted), instead of a new one."""
+        `number`: the short id it keeps (an inbox item converted), instead of a new one. `lead`: text that goes before
+        its default text (what an inbox item captured), with `body` None."""
         codec = self.structure.codec
         tdef = self.structure.types[item_type]
         with self._lock:
@@ -1106,7 +1224,7 @@ class Store:
             values = {**values, 'project': project} if project or scoped else values
             dup = self._rule('duplicate_of', item_type, values, self.items())
             if dup:  # the same problem again (an open support ticket with this signature): one more occurrence
-                return self.read(self._rule('add_occurrence', dup, body, r, now_stamp()))
+                return self.read(self._rule('add_occurrence', dup, lead if body is None else body, r, now_stamp()))
             item_id = (number or self.next_id(item_type, project=project)) if tdef.has_id else None
             if item_id:
                 self._mark_ids([item_id])
@@ -1115,7 +1233,9 @@ class Store:
             vals.update(values)
             vals = self._ticket_rules_on_create(item_type, vals, r, stamp)
             vals['created_at'] = vals['updated_at'] = stamp
-            body = self._body_or_default(item_type, body)
+            body = self._body_or_default(item_type, body, self._text_kind(item_type, vals, parent, r))
+            if lead and lead.strip():
+                body = '\n\n'.join(x.strip() for x in (lead, body) if x and x.strip())
             rel, text = codec.new_file(item_type, subject, vals, body, r, item_id, stamp, parent=parent)
             path = self.abs(rel)
             if os.path.exists(path):
@@ -1205,22 +1325,21 @@ class Store:
             body = '\n'.join(line for line in body.strip().split('\n') if line.strip() not in ('## Related', '-', '- ')).strip()
             if body == it['title']:
                 body = ''  # an inbox note's body was its title once (the old template): nothing more was written
-            # What was captured goes first, then the new type's default text in this vault (a story's sections…).
-            self._seed_default_texts()
-            body = '\n\n'.join(x.strip() for x in (body, self.default_text(new_type)) if x and x.strip())
+            # What was captured goes first, then the new type's default text in this vault (a story's sections…, its
+            # initiative kind's if it has one): `lead`.
             if it['id']:
                 self._mark_ids([it['id']])
             if self.structure.is_number(it['id']):  # a short id stays: INB-482 becomes TSK-482, its old ref an alias
                 aside = src + '.converting'  # out of the scan while its number moves to the new file; back if that fails
                 os.replace(src, aside)
                 try:
-                    new = self._create_coded(new_type, it['title'], {**carried, **values, 'aliases': [it['ref']]}, body, number=it['id'])
+                    new = self._create_coded(new_type, it['title'], {**carried, **values, 'aliases': [it['ref']]}, None, number=it['id'], lead=body)
                 except BaseException:
                     os.replace(aside, src)
                     raise
                 os.remove(aside)
             else:
-                new = self._create_coded(new_type, it['title'], {**carried, **values, 'converted_from': it['id']}, body)
+                new = self._create_coded(new_type, it['title'], {**carried, **values, 'converted_from': it['id']}, None, lead=body)
                 os.remove(src)
         return new
 
@@ -1523,9 +1642,9 @@ class Store:
             if values.get('relations'):
                 self._check_relations(it, values['relations'])
             self._settle_relation_kinds(it, values)
-            # Moving the day resets the Today column: each day starts in Uncategorized.
-            if 'plan_day' in values and values['plan_day'] != it['fields'].get('plan_day') and 'today_list' not in values:
-                values['today_list'] = None
+            # Moving the day resets its Today column: each day starts in Uncategorized (Today's board file).
+            if 'plan_day' in values and values['plan_day'] != it['fields'].get('plan_day'):
+                self._unplace('today', it['id'])
             values['updated_at'] = stamp
             self._remember_people(values)
             self._remember_labels(values.get('labels'))
@@ -1555,6 +1674,104 @@ class Store:
         """An item's history, oldest first: [{at, by, field, from, to}] (tm/history.py)."""
         it = self.find(key)
         return history.read(os.path.join(self.root, META_DIR), it.get('id') or it['key'])
+
+    # ── versions (tm/versions.py): a definition's, cut by hand ───────────────
+    def _has_versions(self, item_type):
+        """Whether a type is versioned: it has a `version` field (read only: cut, never typed)."""
+        return any(p.get('key') == 'version' for p in self.structure.types[item_type].props or ())
+
+    def _versioned(self, it):
+        if not self._has_versions(it['type']):
+            raise StoreError(400, f"a {self.structure.types[it['type']].label.lower()} has no versions")
+        return os.path.join(self.root, META_DIR), it.get('id') or it['key']
+
+    def _first_version(self, out):
+        """A new versioned item starts at 1.0, kept as its first snapshot ("Created"). Losing it loses the snapshot,
+        never the item."""
+        if not self._has_versions(out['type']):
+            return out
+        try:
+            meta, name = self._versioned(out)
+            with self._lock:
+                if str(out['fields'].get('version') or '') != versions.FIRST:
+                    self._patch_fields(out, {'version': versions.FIRST})
+                with open(self.abs(out['path']), encoding='utf-8') as f:
+                    text = f.read()
+                versions.record(meta, name, self._version_entry(out, versions.FIRST, 'Created', 'owner'), text)
+            return self.read(out['key'])
+        except Exception:  # noqa: BLE001 — the item is made; only its first snapshot is lost
+            return out
+
+    def _version_entry(self, it, version, note, by):
+        entry = {'version': version, 'at': now_moment(), 'by': by, 'note': str(note or '').strip(), 'title': it['title']}
+        if it['type'] == 'agent' and it.get('id'):  # an architecture: the version each of its entities was at then
+            entry['entities'] = {c['ref']: str(c['fields'].get('version') or '') for c in self.items()
+                                 if c['type'] == 'entity' and c['fields'].get('related_to') == it['id']}
+        return entry
+
+    def item_versions(self, key):
+        """An item's versions, newest first, and whether it changed since the last one (`edited`): {version, edited,
+        versions: [{version, at, by, note, title, entities?}]}."""
+        it = self.find(key)
+        meta, name = self._versioned(it)
+        found = versions.listing(meta, name)
+        edited = False
+        if found:
+            with open(self.abs(it['path']), encoding='utf-8') as f:
+                edited = f.read() != versions.text_of(meta, name, found[-1]['version'])
+        return {'version': str(it['fields'].get('version') or '') or None, 'edited': edited, 'versions': found[::-1]}
+
+    def item_version(self, key, version):
+        """One version: its line, its file as it was, and a unified diff from it to the file now."""
+        it = self.find(key)
+        meta, name = self._versioned(it)
+        old = versions.text_of(meta, name, version)
+        entry = next((e for e in versions.listing(meta, name) if e['version'] == version), None)
+        if old is None or entry is None:
+            raise StoreError(404, f'no version {version} of {it["ref"] or key}')
+        with open(self.abs(it['path']), encoding='utf-8') as f:
+            now = f.read()
+        return {**entry, 'text': old, 'diff': versions.diff(old, now, version)}
+
+    @writes
+    def cut_version(self, key, major=False, note='', by='owner'):
+        """Name what the item is now as its next version: a minor one, or a major one (it changes a contract). Its
+        `version` is written (only that key) and the file is kept as that version's snapshot."""
+        with self._lock:
+            it = self.find(key)
+            meta, name = self._versioned(it)
+            found = versions.listing(meta, name)
+            new = versions.bump(found[-1]['version'] if found else it['fields'].get('version'), major=bool(major))
+            self._patch_fields(it, {'version': new})
+            with open(self.abs(it['path']), encoding='utf-8') as f:
+                text = f.read()
+            versions.record(meta, name, self._version_entry(self.read(it['key']), new, note, by), text)
+        return self.item_versions(key)
+
+    @writes
+    def restore_version(self, key, version, base_rev=None, by='owner'):
+        """Put an item back as it was at `version`: its file as kept then, its title too, and cut a new version
+        "Restored <version>" from it. An edit not cut yet is kept first as its own version ("Before restoring …"), so
+        nothing is lost. `base_rev` (the file's rev the page loaded) makes it a 409
+        when the file changed on disk since."""
+        with self._lock:
+            it = self.find(key)
+            meta, name = self._versioned(it)
+            old = versions.text_of(meta, name, version)
+            entry = next((e for e in versions.listing(meta, name) if e['version'] == version), None)
+            if old is None or entry is None:
+                raise StoreError(404, f'no version {version} of {it["ref"] or key}')
+            path = self.abs(it['path'])
+            with open(path, encoding='utf-8') as f:
+                st = os.fstat(f.fileno())
+            if base_rev is not None and base_rev != file_rev((st.st_ino, st.st_mtime_ns, st.st_size)):
+                raise StoreError(409, 'the item changed on disk since you opened it')
+            if self.item_versions(it['key'])['edited']:  # what it is now, never cut: kept first, so nothing is lost
+                self.cut_version(it['key'], note=f'Before restoring {version}', by=by)
+            atomic_write(path, old)
+            title = str(entry.get('title') or '').strip()
+            self.update(it['key'], {'subject': title} if title and title != it['title'] else {}, by=by)
+            return self.cut_version(self.find(it['id'] or it['key'])['key'], note=f'Restored {version}', by=by)
 
     @writes
     def convert(self, key, new_type, values=None):
@@ -2362,40 +2579,29 @@ class Store:
         by path. A file that is an item carries {key, type, status, title}. Hidden ones (a name starting with '.') only
         with `hidden`; then .git and .task-manager are listed as folders `sealed`, never walked into (git alone would
         fill FILES_MAX)."""
-        items = {it['path']: it for it in self.items()}
+        items = {it['path'].replace(os.sep, '/'): it for it in self.items()}
+        entries = self._entries()  # the index's walk (tm/index.py): each folder's subfolders, then its files, by name
         out, truncated = [], False
-        for dirpath, dirnames, filenames in os.walk(self.root):
-            shown = sorted(d for d in dirnames if (hidden or not d.startswith('.')) and d not in self.FILES_SKIP)
-            sealed = {d for d in shown if self._protected(d)}
-            dirnames[:] = [d for d in shown if d not in sealed]
-            for name, kind in [*((d, 'dir') for d in shown), *((f, 'file') for f in sorted(filenames))]:
-                if name.startswith('.') and not hidden:
-                    continue
-                full = os.path.join(dirpath, name)
-                try:
-                    st = os.stat(full)
-                except OSError:
-                    continue  # a broken symlink, or gone meanwhile
-                if len(out) >= self.FILES_MAX:
-                    truncated = True
-                    break
-                rel = self.rel(full).replace(os.sep, '/')
-                entry = {'path': rel, 'kind': kind, 'mtime': int(st.st_mtime)}
-                if kind == 'dir' and name in sealed:
-                    entry['sealed'] = True
-                if kind == 'dir' and self.full_structure.in_docs(rel):
-                    order = self._read_order(rel)
-                    if order:
-                        entry['order'] = order
-                if kind == 'file':
-                    entry['size'] = st.st_size
-                    it = items.get(rel)
-                    if it:
-                        entry['item'] = {'key': it['key'], 'type': it['type'], 'title': it['title'],
-                                         'status': it['fields'].get('status'), 'rename': self._renames(it['type'])}
-                out.append(entry)
-            if truncated:
+        for rel, e in entries.items():
+            if not hidden and any(p.startswith('.') for p in rel.split('/')):
+                continue
+            if len(out) >= self.FILES_MAX:
+                truncated = True
                 break
+            entry = {'path': rel, 'kind': e.kind, 'mtime': e.mtime}
+            if e.sealed:
+                entry['sealed'] = True
+            if e.kind == 'dir' and self.full_structure.in_docs(rel) and f'{rel}/{ORDER_FILE}' in entries:
+                order = self._read_order(rel)
+                if order:
+                    entry['order'] = order
+            if e.kind == 'file':
+                entry['size'] = e.size
+                it = items.get(rel)
+                if it:
+                    entry['item'] = {'key': it['key'], 'type': it['type'], 'title': it['title'],
+                                     'status': it['fields'].get('status'), 'rename': self._renames(it['type'])}
+            out.append(entry)
         out.sort(key=lambda e: e['path'])
         return {'entries': out, 'truncated': truncated}
 
@@ -2406,26 +2612,19 @@ class Store:
         """The lines of the vault's text files that hold `query` (case and accents aside), file by file, as the
         Explorer lists them (hidden folders out). → {query, results: [{path, line, text}], files, truncated}. A file that
         is not text (not UTF-8, a NUL in it) or larger than SAVE_MAX is skipped."""
-        def fold(t):
-            return ''.join(c for c in unicodedata.normalize('NFKD', t.casefold()) if not unicodedata.combining(c))
-        q = fold(str(query or '').strip())
+        q = index_fold(str(query or '').strip())
         if len(q) < 2:
             raise StoreError(400, 'search for 2 characters or more')
         results, files, truncated = [], 0, False
         for e in self.files()['entries']:
             if e['kind'] != 'file' or e.get('size', 0) > self.SAVE_MAX:
                 continue
-            try:
-                with open(self.abs(e['path']), 'rb') as f:
-                    raw = f.read()
-                if b'\x00' in raw:
-                    continue
-                text = raw.decode('utf-8')
-            except (OSError, UnicodeDecodeError, StoreError):
+            read = self.index.lines(e['path'])  # read and folded once per version of the file (tm/index.py)
+            if read is None:
                 continue
             hits = 0
-            for n, line in enumerate(text.splitlines(), 1):
-                if q in fold(line):
+            for n, (line, folded) in enumerate(zip(*read), 1):
+                if q in folded:
                     if len(results) >= self.SEARCH_MAX:
                         truncated = True
                         break
@@ -2445,14 +2644,17 @@ class Store:
         rel = self._rel_path(path)
         stem = os.path.splitext(os.path.basename(rel))[0]
         link = re.compile(r'\[\[\s*' + re.escape(stem) + r'\s*(?:[#|][^\]\n]*)?\]\]', re.IGNORECASE)
+        # What each file links to is known from the index (and kept between runs): only those naming this stem are read
+        # line by line. A stem with # or | in it cannot be told apart from a heading or an alias that way: every file then.
+        wanted = None if ('#' in stem or '|' in stem) else stem.strip().lower()
         out = []
         for e in self.files()['entries']:
             if e['kind'] != 'file' or e['path'] == rel or not e['path'].lower().endswith('.md') or e.get('size', 0) > self.SAVE_MAX:
                 continue
-            try:
-                with open(self.abs(e['path']), encoding='utf-8') as f:
-                    text = f.read()
-            except (OSError, UnicodeDecodeError, StoreError):
+            if wanted is not None and wanted not in (self.index.value(e['path'], 'link_keys', link_keys, utf8=True) or ()):
+                continue
+            text = self.index.text(e['path'])
+            if text is None:
                 continue
             hits = [(n, line) for n, line in enumerate(text.splitlines(), 1) if link.search(line)]
             if hits:
@@ -3560,63 +3762,82 @@ class Store:
         atomic_write(path, fm.build({'type': 'board', 'lists': clean, 'updated_at': now_stamp()}, body))
         return {'lists': clean}
 
-    # ── today board: user columns in <root>/.task-manager/today.md ───────────
-    def _today_path(self):
-        return os.path.join(self.root, META_DIR, 'today.md')
+    # ── custom boards: columns of the user's own, one file each in .task-manager/boards/ (tm/boards.py) ─────────
+    # Today's board, the week's and the month's Custom grouping, a list's: where a card sits is kept there, never in the
+    # item's file. Today's and the week's were today.md / week.md and each item's today_list / week_list / week_order:
+    # read into the board until its first write keeps it (those keys are never written again).
+    def _custom_board_file(self, name):
+        if not isinstance(name, str) or not boards.NAME_RE.match(name):
+            raise StoreError(400, f'not a board name: {name!r}')
+        return os.path.join(self.root, META_DIR, boards.DIR, f'{name}.json')
 
-    def today_lists(self):
-        path = self._today_path()
+    def _legacy_custom_board(self, name):
+        if name not in boards.LEGACY:
+            return None
+        path = os.path.join(self.root, META_DIR, boards.LEGACY[name][0])
+        lists = None
         if os.path.exists(path):
             fields, _ = self._read(path)
             if isinstance(fields.get('lists'), list) and fields['lists']:
-                return {'lists': fields['lists']}
-        return {'lists': DEFAULT_TODAY_LISTS}
+                lists = fields['lists']
+        return boards.migrate(name, lists, [(it['id'], it['fields']) for it in self.items() if it.get('id') is not None])
+
+    def custom_board(self, name):
+        """{name, columns: [{id, name}], cards: {id: [column, order]}} of a custom board (one never saved: Uncategorized
+        alone, or what it was before boards had files). A file that cannot be read is a 409 that names it."""
+        path = self._custom_board_file(name)
+        try:
+            with open(path, encoding='utf-8') as f:
+                text = f.read()
+        except FileNotFoundError:
+            b = self._legacy_custom_board(name) or boards.default()
+        else:
+            try:
+                b = boards.parse(text)
+            except boards.BoardError as e:
+                raise StoreError(409, f'{META_DIR}/boards/{name}.json cannot be read ({e}): fix it or delete it')
+        return {'name': name, **b}
 
     @writes
-    def save_today_lists(self, lists):
-        if not isinstance(lists, list):
-            raise StoreError(400, 'lists must be a list')
-        ids = [l.get('id') for l in lists]
-        if len(set(ids)) != len(ids) or not all(ids):
-            raise StoreError(400, 'lists need unique non-empty ids')
-        clean = [{'id': str(l['id']), 'name': str(l.get('name') or l['id'])} for l in lists]
-        if not any(l['id'] == TODAY_DEFAULT for l in clean):  # never deletable
-            clean.insert(0, dict(DEFAULT_TODAY_LISTS[0]))
-        path = self._today_path()
+    def save_custom_board(self, name, columns=None, place=None):
+        """A custom board's columns (`columns`: all of them, in order) and cards placed (`place`: {id: [column, order],
+        or null to take one out). A deleted column's cards go back to Uncategorized. → the board as kept."""
+        current = self.custom_board(name)
+        try:
+            b = boards.apply(current, columns, place)
+        except boards.BoardError as e:
+            raise StoreError(400, str(e))
+        path = self._custom_board_file(name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        body = '# Today board\n\nColumns of the Today board, in order. Edited from the app.\n\n' + \
-            '\n'.join(f"- **{l['name']}** (`{l['id']}`)" for l in clean) + '\n'
-        atomic_write(path, fm.build({'type': 'today', 'lists': clean, 'updated_at': now_stamp()}, body))
-        return {'lists': clean}
+        atomic_write(path, boards.dump(b))
+        return {'name': name, **b}
 
-    # ── week free board: user columns in <root>/.task-manager/week.md, shared by Week and Next week ──
-    def _week_path(self):
-        return os.path.join(self.root, META_DIR, 'week.md')
+    def _unplace(self, name, item_id):
+        """Takes an item off a board (Today's, when its day changes): its file, or the board of before written as one
+        then. Nothing when the item is on no column. Caller holds the write lock."""
+        if item_id is None:
+            return
+        try:
+            b = self.custom_board(name)
+        except StoreError:
+            return  # a file that cannot be read is left as it is
+        if str(item_id) in b['cards']:
+            path = self._custom_board_file(name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            atomic_write(path, boards.dump(boards.apply(b, place={str(item_id): None})))
+
+    # The routes of before (GET/POST /api/today, /api/week-board): the columns alone, kept for one release.
+    def today_lists(self):
+        return {'lists': self.custom_board('today')['columns']}
+
+    def save_today_lists(self, lists):
+        return {'lists': self.save_custom_board('today', columns=lists)['columns']}
 
     def week_lists(self):
-        path = self._week_path()
-        if os.path.exists(path):
-            fields, _ = self._read(path)
-            if isinstance(fields.get('lists'), list) and fields['lists']:
-                return {'lists': fields['lists']}
-        return {'lists': DEFAULT_WEEK_LISTS}
+        return {'lists': self.custom_board('week')['columns']}
 
-    @writes
     def save_week_lists(self, lists):
-        if not isinstance(lists, list):
-            raise StoreError(400, 'lists must be a list')
-        ids = [l.get('id') for l in lists]
-        if len(set(ids)) != len(ids) or not all(ids):
-            raise StoreError(400, 'lists need unique non-empty ids')
-        clean = [{'id': str(l['id']), 'name': str(l.get('name') or l['id'])} for l in lists]
-        if not any(l['id'] == TODAY_DEFAULT for l in clean):  # never deletable
-            clean.insert(0, dict(DEFAULT_WEEK_LISTS[0]))
-        path = self._week_path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        body = '# Week free board\n\nColumns of the Free board of Week and Next week, in order. Edited from the app.\n\n' + \
-            '\n'.join(f"- **{l['name']}** (`{l['id']}`)" for l in clean) + '\n'
-        atomic_write(path, fm.build({'type': 'week', 'lists': clean, 'updated_at': now_stamp()}, body))
-        return {'lists': clean}
+        return {'lists': self.save_custom_board('week', columns=lists)['columns']}
 
     # ── pins: the ordered list of items shown in the top bar ─────────────────
     # ── labels and people: tags that live on items, plus a history of their own ─────────
@@ -3829,6 +4050,294 @@ class Store:
                     self._patch_fields(it, {'labels': [l for l in have if l != name]})
             self._save_registry('labels', [n for n in self._registry('labels') if n != name])
         return self.labels()
+
+    # ── Properties: the vault's frontmatter keys, as Obsidian's Properties view lists them ──────────────────────────
+    # A key the app keeps in a file is left alone here: every key of an item's file is the item's (its card edits it;
+    # the structure reads more keys than it declares), a doc's own fields are its (Docs), and in any other note
+    # `fileClass`, `type` and `id` say what it is and `tags` are Labels'.
+    PROP_KEPT = frozenset({'fileClass', 'type', 'id', 'tags'})
+    DOC_PROP_KEYS = frozenset({'fileClass', 'project', 'doc_status', 'owner', 'tags', 'creation_date', 'updated_date'})
+    PROP_VALUES_MAX = 200  # distinct values listed per key
+
+    def _prop_files(self):
+        """Every Markdown note with a frontmatter, Docs too: [(rel, its keys and values, the keys the app keeps in it)].
+        Read through the index (tm/index.py): parsed again only when the file changed."""
+        items = {it['path'].replace(os.sep, '/') for it in self.items()}
+        out = []
+        for path, _ in self._md_entries(docs=True):
+            rel = self.rel(path).replace(os.sep, '/')
+            fields = self.index.value(rel, 'frontmatter', _frontmatter_of)
+            if not fields:
+                continue
+            if rel in items or str(fields.get('type') or '') in self.structure.other_types:
+                kept = frozenset(fields)  # an item's, or a work-log day's: the app's file, every key of it
+            elif str(fields.get('fileClass') or '').strip() == 'Doc':
+                kept = self.DOC_PROP_KEYS
+            else:
+                kept = self.PROP_KEPT
+            out.append((rel, fields, kept))
+        return out
+
+    def properties(self):
+        """Every frontmatter key of the vault's notes, most used first: {properties: [{key, count, kept, sample, values,
+        more}], notes} — `count` the notes that have it, `kept` how many of those the app keeps it in (left alone by a
+        rename or a delete here), `sample` its first value that says something (the page infers its type from it, as
+        Obsidian does: props.js), `values` its distinct values ({value, count}; a list's items one by one, as text) in the
+        notes that do not keep it — in all of them for a key the app keeps everywhere —, at most PROP_VALUES_MAX, `more`
+        how many were left out."""
+        files = self._prop_files()
+        keys = {}
+        for _, fields, kept in files:
+            for k, v in fields.items():
+                e = keys.setdefault(k, {'key': k, 'count': 0, 'kept': 0, 'sample': None, 'values': {}, 'kept_values': {}})
+                e['count'] += 1
+                e['kept'] += k in kept
+                counted = e['kept_values'] if k in kept else e['values']
+                if e['sample'] is None and any(map(_prop_text, v if isinstance(v, list) else [v])):
+                    e['sample'] = v
+                elif e['sample'] is None and v not in (None, '') and e.get('shape') is None:
+                    e['shape'] = v  # no value of it says anything yet (a list of maps, an empty list): its shape
+                for x in (v if isinstance(v, list) else [v]):
+                    t = _prop_text(x)
+                    if t:
+                        counted[t] = counted.get(t, 0) + 1
+        out = []
+        for e in keys.values():
+            shape, kept_values = e.pop('shape', None), e.pop('kept_values')
+            if e['sample'] is None:
+                e['sample'] = shape
+            values = sorted((kept_values if e['kept'] == e['count'] else e['values']).items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            out.append({**e, 'values': [{'value': v, 'count': n} for v, n in values[:self.PROP_VALUES_MAX]],
+                        'more': max(0, len(values) - self.PROP_VALUES_MAX)})
+        out.sort(key=lambda e: (-e['count'], e['key'].lower()))
+        return {'properties': out, 'notes': len(files)}
+
+    @staticmethod
+    def _prop_key(key, what='a property'):
+        key = str(key or '').strip()
+        if not fm.KEY_RE.match(f'{key}:'):
+            raise StoreError(400, f'{what} is a name of letters, digits, _ and -, starting with a letter or _')
+        return key
+
+    def _prop_rewrite(self, key, change):
+        """`change(text, value, kept)` → the new text (or None to leave it) in every note that has `key` and does not keep
+        it for the app (`kept`: the keys that note keeps). → {changed, kept}: how many notes were rewritten, how many have it as the app's."""
+        changed = kept = 0
+        found = False
+        for rel, fields, keep in self._prop_files():
+            if key not in fields:
+                continue
+            found = True
+            if key in keep:
+                kept += 1
+                continue
+            path = self.abs(rel)
+            with open(path, encoding='utf-8') as f:
+                text = f.read()
+            out = change(text, fields[key], keep)
+            if out is not None and out != text:
+                atomic_write(path, out)
+                changed += 1
+        if not found:
+            raise StoreError(404, f'no note has the property {key}')
+        return {'changed': changed, 'kept': kept}
+
+    @writes
+    def rename_property(self, key, new):
+        """Rename the key `key` to `new` in every note that has it, in place (same line, same value): a note that already
+        has `new`, or keeps either for the app, is left as it is. → properties() and {changed, kept, clashed}."""
+        key, new = self._prop_key(key), self._prop_key(new, 'A new name')
+        if new == key:
+            raise StoreError(400, 'the new name is the same')
+        clashed = []
+
+        def change(text, _value, kept):
+            if new in kept:  # it would become what the app reads there: an item's field, what the note is, its tags
+                clashed.append(1)
+                return None
+            out, done = fm.rename_keys(text, {key: new})
+            if not done:  # the note has `new` already: never two of one key
+                clashed.append(1)
+                return None
+            return out
+        with self._lock:
+            out = self._prop_rewrite(key, change)
+            return {**self.properties(), **out, 'clashed': len(clashed)}
+
+    @writes
+    def rename_property_value(self, key, old, new):
+        """`old` → `new` wherever `key` holds it: the value itself, or that item of a list — onto a value the list has
+        already, the two merge. A value that was a number or true/false is written as one again when `new` reads as one.
+        Only that key's line changes (frontmatter.patch). → properties() and {changed, kept}."""
+        key = self._prop_key(key)
+        old, new = str(old if old is not None else '').strip(), str(new if new is not None else '').strip()
+        if not old or not new:
+            raise StoreError(400, 'a value needs some text')
+        if old == new:
+            raise StoreError(400, 'the new value is the same')
+
+        def typed(x):
+            return new if isinstance(x, str) or x is None else fm.parse_value(new)
+
+        def change(text, value, _kept):
+            if isinstance(value, list):
+                if not any(_prop_text(x) == old for x in value):
+                    return None
+                out = []
+                for x in value:
+                    y = typed(x) if _prop_text(x) == old else x
+                    if _prop_text(y) not in {_prop_text(z) for z in out}:
+                        out.append(y)
+                return fm.patch(text, {key: out})
+            return fm.patch(text, {key: typed(value)}) if _prop_text(value) == old else None
+        with self._lock:
+            out = self._prop_rewrite(key, change)
+            return {**self.properties(), **out}
+
+    @writes
+    def delete_property(self, key):
+        """Remove `key` (and its value) from every note that has it and does not keep it for the app, the rest of each
+        file byte for byte. → properties() and {changed, kept}."""
+        key = self._prop_key(key)
+        with self._lock:
+            out = self._prop_rewrite(key, lambda text, _value, _kept: fm.drop(text, [key]))
+            return {**self.properties(), **out}
+
+    # ── Bases: Obsidian's .base files, their views worked out over the index (tm/bases.py) ─────────────────────────
+    def _kept_keys(self, rel, fields, items=None):
+        """The frontmatter keys the app keeps in a note (see PROP_KEPT): all of an item's, a doc's own, else PROP_KEPT."""
+        items = items if items is not None else {it['path'].replace(os.sep, '/') for it in self.items()}
+        if rel in items or str(fields.get('type') or '') in self.structure.other_types:
+            return None  # every key: an item's file is its card's (a key it does not declare is dropped on its next save)
+        if str(fields.get('fileClass') or '').strip() == 'Doc':
+            return self.DOC_PROP_KEYS
+        return self.PROP_KEPT
+
+    def _base_source(self):
+        """What a base reads of the vault: its files (no hidden one), what each note's frontmatter and text say (once per
+        version of the file, through the index) and how a [[link]] resolves."""
+        store, entries = self, self._entries()
+        files = [rel for rel, e in entries.items() if e.kind == 'file' and self._listable(rel)]
+        resolve = bases.resolver(files)
+
+        class Source:
+            def files(self):
+                return files
+
+            def stat(self, rel):
+                e = entries.get(rel)
+                if e is None:
+                    return (None, None, None)
+                try:
+                    st = os.stat(os.path.join(store.root, rel))
+                    born = getattr(st, 'st_birthtime', None) or st.st_ctime
+                except OSError:
+                    born = None
+                return (e.size, e.mtime, born)
+
+            def props(self, rel):
+                if not rel.lower().endswith('.md'):
+                    return {}
+                return store.index.value(rel, 'frontmatter', _frontmatter_of) or {}
+
+            def _facts(self, rel):
+                if not rel.lower().endswith('.md'):
+                    return {'tags': [], 'links': [], 'embeds': []}
+                return store.index.value(rel, 'base_facts', bases.text_facts, utf8=True) or {'tags': [], 'links': [], 'embeds': []}
+
+            def tags(self, rel):
+                return self._facts(rel)['tags']
+
+            def links(self, rel):
+                return self._facts(rel)['links']
+
+            def embeds(self, rel):
+                return self._facts(rel)['embeds']
+
+            def resolve(self, target, from_rel=''):
+                return resolve(target, from_rel)
+
+            def backlinks(self, rel):
+                return [f for f in files if f != rel and f.lower().endswith('.md')
+                        and any(resolve(t, f) == rel for t in self.links(f))]
+        return Source()
+
+    def base(self, path, view=None, this=None):
+        """One view of a .base file: {path, views: [{name, type}], view, type, columns: [{id, label, kind, editable}],
+        rows: [{path, cells, locked?, image?}], groups, group_by, summaries, total, limit, unsupported, errors}.
+        `view` its name (the first when none), `this` the note that embeds it (else the base itself). A cell of a
+        note's property can be edited (set_note_property) unless the app keeps that key in that note (`locked`: the
+        indexes of those cells)."""
+        rel = self._rel_path(path)
+        if not rel.lower().endswith('.base'):
+            raise StoreError(400, f'not a base: {path}')
+        self._entries()
+        text = self.index.text(rel)
+        if text is None:
+            raise StoreError(404, f'no such base: {path}')
+        try:
+            base = bases.Base(bases.parse_yaml(text), self._base_source())
+        except bases.BaseError as e:
+            return {'path': rel, 'views': [], 'view': None, 'error': f'This base cannot be read: {e}'}
+        names = base.view_names()
+        index = base.pick(view)
+        if index is None:
+            raise StoreError(404, f'no view named {view} in {rel}')
+        this_rel = rel
+        if this:
+            try:
+                this_rel = self._rel_path(this)
+            except StoreError:
+                this_rel = rel
+        out = base.run(index, this_rel)
+        items = {it['path'].replace(os.sep, '/') for it in self.items()}
+        for c in out['columns']:
+            c['editable'] = c['kind'] == 'note'
+        for row in out['rows']:
+            if not row['path'].lower().endswith('.md'):
+                locked = [i for i, c in enumerate(out['columns']) if c['editable']]
+            else:
+                fields = self.index.value(row['path'], 'frontmatter', _frontmatter_of) or {}
+                kept = self._kept_keys(row['path'], fields, items)
+                locked = [i for i, c in enumerate(out['columns']) if c['editable'] and (kept is None or c['id'][5:] in kept)]
+            if locked:
+                row['locked'] = locked
+        return {'path': rel, 'views': names, **out}
+
+    @writes
+    def set_note_property(self, path, key, value):
+        """Set one frontmatter key of a note, as a base's cell (or Obsidian's Properties) does: only that key's line
+        changes (frontmatter.patch); an empty value (None, '', []) removes the key. A key the app keeps in that note is
+        refused (an item's fields are its card's, a doc's own fields Docs', tags are Labels'). → {path, key, value}."""
+        rel = self._rel_path(path)
+        key = self._prop_key(key)
+        if not rel.lower().endswith('.md'):
+            raise StoreError(400, 'only a Markdown note has properties')
+        if isinstance(value, (dict,)):
+            raise StoreError(400, 'a property is a text, a number, true/false, a date or a list')
+        if isinstance(value, list):
+            value = [v for v in value if v not in (None, '')]
+            if any(isinstance(v, (dict, list)) for v in value):
+                raise StoreError(400, 'a list holds texts, numbers or dates')
+        full = self.abs(rel)
+        with self._lock:
+            if not os.path.isfile(full):
+                raise StoreError(404, f'no such note: {path}')
+            with open(full, encoding='utf-8') as f:
+                text = f.read()
+            head = fm.split(text)[0]
+            fields = fm.parse(head) if head is not None else {}
+            kept = self._kept_keys(rel, fields)
+            if kept is None or key in kept:
+                raise StoreError(409, f'{key} is kept by the app in this note: change it on its card or in Docs')
+            empty = value is None or value == '' or value == []
+            if empty:
+                out = fm.drop(text, [key]) if key in fields else text
+            else:
+                out = fm.patch(text, {key: value})
+            if out != text:
+                atomic_write(full, out)
+        return {'path': rel, 'key': key, 'value': None if empty else value}
 
     def people(self):
         """The people history, most used first: the saved history plus whoever the items name today as sender or

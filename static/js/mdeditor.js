@@ -2,7 +2,8 @@
 // as you write it, as in Obsidian's Live Preview (livemd.js, on CodeMirror); Source is the Markdown in a textarea,
 // coloured as typed, with Both (a preview beside it) and View on demand. The text is saved byte for byte: buttons only wrap or
 // prefix the selection, so a file edited here and in Obsidian never gets rewritten behind your back.
-import { renderDiagrams } from './diagrams.js';
+import { attachText, carriesFiles, keptName, placed } from './attachtext.js';
+import { drawRendered } from './mdview.js';
 import { dictation } from './dictation.js';
 import { splitFrontmatter } from './filetree.js';
 import { highlight as colour } from './highlight.js';
@@ -77,13 +78,16 @@ function scrollers(el) {
  * alike. `markdown: false` (a code file) drops Live, the formatting bar and the Markdown keys; `wrap: false` keeps long
  * lines on one line, scrolled sideways. The bar ends with a dictation mic where the browser can transcribe speech
  * (dictation.js), then `trailing` (a node of the caller's). `completions`: CodeMirror completion sources for Live
- * (default: vaultlinks.js, the / menu, [[ and @; [] for none).
+ * (default: vaultlinks.js, the / menu, [[ and @; [] for none). `attach(file)` (a doc's editor: views/files.js) copies a
+ * file into the vault and answers its vault path (null when it could not: it says why itself); with it the bar has a
+ * paperclip (a picture or file shown in the text, or a file as a link), and a file pasted or dropped on the text is
+ * copied too, then embedded (a picture, `![[name.png|300]]`) or linked (`[[name.pdf]]`) where the caret is (attachtext.js).
  * Positions (`select`, `rectAt`) count a line break as one character (livemd.js lfOffset turns an offset in the saved
  * text into one). `on('blur' | 'keydown' | …, fn)` listens to whichever surface is in use; blur is the text losing
  * the focus to something outside the editor.
  */
 export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', preview = true, placeholder = 'Markdown… use "- [ ] step" for checklists', label = 'Description', fk = 'body', onEscape = null,
-  highlight = null, markdown = true, wrap = true, trailing = null, completions = null } = {}) {
+  highlight = null, markdown = true, wrap = true, trailing = null, completions = null, attach = null } = {}) {
   const ta = h('textarea', { class: 'mde-text', spellcheck: 'false', placeholder, 'aria-label': label, wrap: wrap ? null : 'off' });
   ta.value = value;
   ta.style.minHeight = minHeight;
@@ -138,7 +142,7 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     el.innerHTML = renderMarkdown(linkVault(md)); // sanitized (DOMPurify)
     linkPaths(el);
     linkRefs(el);
-    renderDiagrams(el);
+    drawRendered(el);
   };
   let live = null;
   /** The Live surface, made the first time (null: CodeMirror not loaded, or a text Live would not keep as it is). */
@@ -169,7 +173,7 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     prev.innerHTML = body.trim() ? renderMarkdown(linkVault(body)) : '<p class="muted">Preview</p>';
     linkPaths(prev);
     linkRefs(prev);
-    renderDiagrams(prev);
+    drawRendered(prev);
     prev.querySelectorAll('input[type=checkbox]').forEach((b) => { b.disabled = true; });
   };
   function changed() {
@@ -237,6 +241,22 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
       const sel = S.value().slice(s, e);
       if (sel.includes('\n')) S.replace(s, e, `\`\`\`\n${sel}\n\`\`\``, s + 4, s + 4 + sel.length);
       else api.wrap('`', 'code');
+    },
+    /** `files` copied into the vault (`attach`), one after the other, and their text put where the caret is, one a line;
+     *  `embed` null: pictures embedded, other files linked. Nothing changes for a file that did not make it. */
+    async attachFiles(files, embed = null) {
+      if (!attach) return;
+      const [s, e] = S.sel();
+      const parts = [];
+      for (const f of files) {
+        const name = keptName(f.name, f.type);
+        const path = await attach(name === f.name ? f : new File([f], name, { type: f.type }));
+        if (path) parts.push(attachText(path, { embed }));
+      }
+      if (!parts.length) return;
+      const v = S.value();
+      const t = placed(v, s, e, parts.join(parts.length > 1 ? '\n' : ''), parts.length > 1 || parts[0].startsWith('!'));
+      S.replace(s, e, t, s + t.length);
     },
     /** The selection in a colour (mdcolour.js), or with it taken off (`colour` null). Only the part that changes is replaced. */
     colour(kind, c) {
@@ -366,12 +386,28 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     if (m === 'split' || m === 'preview') refresh();
   };
 
+  // The paperclip: a picture or file from the computer, shown in the text or linked (a doc's editor only)
+  const pick = (embed) => {
+    const input = h('input', { type: 'file', multiple: true, hidden: true });
+    input.addEventListener('change', () => { if (input.files.length) api.attachFiles([...input.files], embed); input.remove(); });
+    document.body.append(input);
+    input.click();
+  };
+  const clip = !attach || !markdown ? null : h('button', {
+    type: 'button', class: 'btn icon mde-attach', title: 'Add a picture or file (or paste or drop it on the text)', 'aria-haspopup': 'menu',
+    onmousedown: (e) => e.preventDefault(),
+    onclick: (e) => dropdown(e.currentTarget, [
+      { label: 'Picture or file, shown in the text…', icon: 'image', onSelect: () => pick(true) },
+      { label: 'File, as a link…', icon: 'paperclip', onSelect: () => pick(false) },
+    ]),
+  }, icon('paperclip', 16));
   const bar = !markdown ? null : h('div', { class: 'mde-bar', role: 'toolbar', 'aria-label': `${label} formatting` },
     ACTIONS.map((a) => (a === '-' ? h('span', { class: 'mde-sep' }) : h('button', {
       type: 'button', class: 'btn icon', title: a.kbd ? `${a.label} (${a.kbd})` : a.label,
       onmousedown: (e) => e.preventDefault(), // keep the text's selection
       onclick: (e) => a.run(api, e.currentTarget),
     }, icon(a.icon, 16)))),
+    clip,
     mic ? [h('span', { class: 'mde-sep' }), mic.el] : null,
     modes.length > 1 ? seg(modes.map(([m, t, tip]) => [m, t, { attrs: { 'data-mode': m, title: tip, onmousedown: (e) => e.preventDefault() } }]), mode,
       (m) => setMode(m, { remember: true }), { aria: 'Layout', cls: 'mde-modes' }) : null,
@@ -398,5 +434,33 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
   // …or at once, for whoever just put it on the page and restores a scroll next (a card re-rendered after a save): a
   // scroll restored over the editor's minimum height is clipped, and the caret's line lands at the bottom (TSK-055).
   api.el.addEventListener('mde:fit', grow);
+  // Files from the computer pasted or dropped on the text: copied into the vault and shown or linked there (before
+  // the surface takes them as text). The caret goes where they are dropped first.
+  if (attach && markdown) {
+    const panes = api.el.querySelector('.mde-panes');
+    panes.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files || [])];
+      if (!files.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      api.attachFiles(files);
+    }, true);
+    panes.addEventListener('dragover', (e) => {
+      if (!carriesFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      api.el.classList.add('mde-drop');
+    }, true);
+    panes.addEventListener('dragleave', (e) => { if (!panes.contains(e.relatedTarget)) api.el.classList.remove('mde-drop'); });
+    panes.addEventListener('drop', (e) => {
+      api.el.classList.remove('mde-drop');
+      if (!carriesFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const at = S.kind === 'text' ? null : S.posAt?.(e.clientX, e.clientY);
+      if (at !== null && at !== undefined) S.select(at, at, { scroll: false });
+      api.attachFiles([...e.dataTransfer.files]);
+    }, true);
+  }
   return api;
 }

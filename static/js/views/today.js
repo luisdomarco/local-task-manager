@@ -5,19 +5,19 @@
 // Today (what is planned, a line to add one), and "2 done today · Show": the closed ones wait behind it (Display →
 // Show closed). Rows drag: one dropped in Today is planned for today, at that place.
 // Board: columns you make yourself — Uncategorized by default, then "Morning", "Waiting"… — which organise the day and
-// never change a status, and a fixed Meetings column (first, or folded last on a day without any). Cards keep the
-// order they are dropped in (`plan_order`, shared with the Week's day), those never placed following, carried over
-// first and then by priority.
+// never change a status, and a fixed Meetings column (first, or folded last on a day without any). They are the day's
+// Custom board (.task-manager/boards/today.json, customboard.js): a card keeps the column and the place it is dropped
+// in there, never in its file; those never placed follow their order of the day (`plan_order`), carried over first
+// and then by priority. A card planned for another day leaves its column (the server takes it off the board).
 import { thisWeek, today } from '../dates.js';
-import { addListColumn, listHeader, moveEntries, moveList, startRename } from '../kanban.js';
 import { openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
 import { PLANNABLE, byManualOrder, carriedOverDay, isDone, isEnabled, isPlannedToday } from '../rules.js';
-import { TODAY_DEFAULT, placeInPlan, planDay, saveTodayLists, slugId, state, todayListOf, updateMany } from '../state.js';
-import { byPriority, dropdown, dropZone, h, icon, linkButton } from '../ui.js';
+import { placeInPlan, planDay, state, updateMany } from '../state.js';
+import { byPriority, dropZone, h, icon, linkButton } from '../ui.js';
 import { daySummary } from '../dayline.js';
 import { isTentative, toMinutes } from '../worktime.js';
-import { boardOf } from '../boardview.js';
+import { boardOf, customColumns } from '../boardview.js';
 import { viewBar } from '../viewbar.js';
 import { filterFields, matches } from '../viewmodel.js';
 import { vaultCtx } from './list.js';
@@ -36,31 +36,11 @@ const CLOSED = [['none', 'None'], ['all', 'All']];
 const toToday = (item) => moveNow(item, 'today', (i) => planDay(i, today()));
 
 // ── board ────────────────────────────────────────────────────────────────────
-function editLists(fn) {
-  const next = state.today.lists.map((l) => ({ ...l }));
-  fn(next);
-  return saveTodayLists(next).catch(() => {});
-}
-
-function todayListMenu(anchor, list, idx, nameEl) {
-  const last = state.today.lists.length - 1;
-  dropdown(anchor, [
-    { heading: list.name },
-    { label: 'Rename', icon: 'pencil', onSelect: () => startRename(nameEl, list.name, (v) => editLists((ls) => { ls[idx].name = v; })) },
-    ...moveEntries(idx, last, (from, to) => editLists((ls) => moveList(ls, from, to))),
-    '-',
-    list.id === TODAY_DEFAULT
-      ? { label: 'Default column — cannot be deleted', icon: 'inbox', onSelect: () => {} }
-      : { label: 'Delete column (its cards go to Uncategorized)', icon: 'trash', danger: true, onSelect: () => editLists((ls) => ls.splice(idx, 1)) },
-  ], { width: 280 });
-}
-
-/** The board: the Meetings column, then the day's own columns (each a drop target) and "Add a column". */
-function paintBoard(box, items, view, change) {
+/** The board: the Meetings column, then the day's own columns (its Custom board, boardview.js customColumns) and "Add a
+ *  column". `sort` orders the cards never placed on it. */
+function paintBoard(box, items, view, change, sort) {
   const fold = view.boardFold || {};
   const empties = view.emptyCols || 'fold';
-  const placed = new Map(state.today.lists.map((l) => [l.id, []]));
-  for (const it of items) placed.get(todayListOf(it)?.id ?? TODAY_DEFAULT)?.push(it);
   const meetings = meetingsOn(today());
   const meetingCol = isEnabled('meeting') && !(empties === 'hide' && !meetings.length && fold.meetings === undefined) ? {
     key: 'meetings', label: 'Meetings', cls: 'meetings-col', items: meetings, empty: 'No meetings today',
@@ -68,39 +48,17 @@ function paintBoard(box, items, view, change) {
     card: (m) => planCard(m, { onOpen: openItem, draggable: false }),
     folded: fold.meetings ?? (!meetings.length && empties === 'fold'),
   } : null;
-  const cols = state.today.lists.map((list, idx) => {
-    const its = placed.get(list.id) || [];
-    const open = its.filter((i) => !isDone(i)).length;
-    return {
-      key: list.id, label: list.name, items: its, attrs: { 'data-list': list.id }, cls: `today-col ${list.id === TODAY_DEFAULT ? 'default' : ''}`,
-      face: [h('span', { class: 'group-name' }, list.name)],
-      head: listHeader({
-        list, idx, count: open || '', countTitle: `${open} open`,
-        menu: (anchor, nameEl) => todayListMenu(anchor, list, idx, nameEl),
-        onRename: (v) => editLists((ls) => { ls[idx].name = v; }),
-      }),
-      card: (i) => planCard(i, { onOpen: openItem, plan: carriedOverDay(i), action: carriedOverDay(i) ? toToday(i) : null }),
-      drop: (key, index) => {
-        const item = state.items.find((i) => i.key === key);
-        if (!item) return;
-        const move = todayListOf(item)?.id !== list.id ? { today_list: list.id === TODAY_DEFAULT ? null : list.id } : {};
-        placeInPlan(item, move, its, index);
-      },
-      quick: { type: 'task', values: { plan_day: today(), plan_week: thisWeek(), ...(list.id === TODAY_DEFAULT ? {} : { today_list: list.id }) } },
-      folded: fold[list.id] ?? false,
-    };
+  const custom = customColumns('today', items, {
+    sort, fold, cls: 'today-col', placeholder: 'Column name… (Morning, Waiting, Deep work)',
+    card: (i) => planCard(i, { onOpen: openItem, plan: carriedOverDay(i), action: carriedOverDay(i) ? toToday(i) : null }),
+    quick: () => ({ type: 'task', values: { plan_day: today(), plan_week: thisWeek() } }),
   });
   const lead = meetingCol && meetings.length ? [meetingCol] : [];
   const trail = meetingCol && !meetings.length ? [meetingCol] : [];
   const board = boardOf({
-    columns: [...lead, ...cols, ...trail],
+    columns: [...lead, ...custom.columns, ...trail],
     onFold: (k, f) => change({ boardFold: { ...fold, [k]: f } }),
-    onOpen: openItem,
-    after: addListColumn({
-      label: 'Add a column', placeholder: 'Column name… (Morning, Waiting, Deep work)',
-      onAdd: (name) => editLists((ls) => ls.push({ id: slugId(name, ls.map((l) => l.id)), name })),
-    }),
-    onReorder: (from, to) => editLists((ls) => moveList(ls, from, to)),
+    onOpen: openItem, after: custom.after, onReorder: custom.onReorder,
   });
   board.classList.add('plan-board', 'today-board');
   box.replaceChildren(board);
@@ -180,7 +138,7 @@ export function mount(root) {
       const sort = byManualOrder((a, b) => carriedOverDay(b) - carriedOverDay(a) || byPriority(a, b));
       root.classList.toggle('board-layout', view.layout === 'board');
       body.classList.toggle('list-main', view.layout === 'board'); // the board takes the height left (app.css)
-      if (view.layout === 'board') { paintBoard(body, shown.filter(open).sort(sort), view, change); return; }
+      if (view.layout === 'board') { paintBoard(body, shown.filter(open), view, change, sort); return; }
       paintList(body, {
         carried: shown.filter(carriedOverDay).sort(byManualOrder(byPriority)),
         planned: shown.filter((i) => isPlannedToday(i) && open(i)).sort(byManualOrder(byPriority)),

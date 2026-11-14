@@ -267,20 +267,21 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.s.today_lists()['lists'], out['lists'])
         with self.assertRaises(StoreError):
             self.s.save_today_lists([{'id': 'a'}, {'id': 'a'}])
-        self.s.create('task', 'T', {'plan_day': '2026-10-14', 'plan_week': '2026-W42'})
-        it = self.s.update('TSK-0001', {'today_list': 'morning'})
-        self.assertEqual(it['fields']['today_list'], 'morning')
-        it = self.s.update('TSK-0001', {'priority': 'High'})  # unrelated edit keeps the column
-        self.assertEqual(it['fields']['today_list'], 'morning')
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.task-manager', 'boards', 'today.json')))
+        it = self.s.create('task', 'T', {'plan_day': '2026-10-14', 'plan_week': '2026-W42'})
+        self.s.save_custom_board('today', place={it['id']: ['morning', None]})  # where a card sits: the board's, not the item's
+        self.s.update('TSK-0001', {'priority': 'High'})  # unrelated edit keeps the column
+        self.assertEqual(self.s.custom_board('today')['cards'], {it['id']: ['morning', None]})
         it = self.s.update('TSK-0001', {'plan_day': '2026-10-15'})  # a new day starts in Uncategorized
-        self.assertIsNone(it['fields']['today_list'])
+        self.assertEqual(self.s.custom_board('today')['cards'], {})
+        self.assertIsNone(it['fields'].get('today_list'))  # never written: the board keeps it
 
     def test_week_board(self):
         self.assertEqual(self.s.week_lists()['lists'], [{'id': 'uncategorized', 'name': 'Uncategorized'}])
         out = self.s.save_week_lists([{'id': 'waiting', 'name': 'Waiting'}, {'id': 'deep', 'name': 'Deep work'}])
         self.assertEqual([l['id'] for l in out['lists']], ['uncategorized', 'waiting', 'deep'])  # the default comes back
         self.assertEqual(self.s.week_lists(), out)
-        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.task-manager', 'week.md')))
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, '.task-manager', 'boards', 'week.json')))
         for bad in ([{'id': 'a'}, {'id': 'a'}], [{'name': 'No id'}], 'now'):
             with self.assertRaises(StoreError):
                 self.s.save_week_lists(bad)

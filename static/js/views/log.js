@@ -17,6 +17,7 @@ import { loadDismissed, saveDismissed, suggestLog } from '../suggestions.js';
 import { countOf, foldHead, h, icon, linkButton, pageCount, pageEmpty, pageHead, rowAction, seg } from '../ui.js';
 import { closePopover, popover, viewBar } from '../viewbar.js';
 import { columnOn, fresh, matches } from '../viewmodel.js';
+import { directed } from '../grouping.js';
 import { LOG_GROUPS, LOG_PROPS, groupName, groupSummary, logFields, logGroupLabel, logGroups } from '../worklogview.js';
 import { isTentative, sumTime } from '../worktime.js';
 import { refOf } from '../shownid.js';
@@ -227,7 +228,7 @@ export function mount(root) {
         : c === 'kind' ? view.groupBy !== 'kind' && columnOn(view.props, 'kind')
           : c === 'note' ? columnOn(view.props, 'note') : true));
       const fixed = fixedColumns(cols.map((key) => ({ key })));
-      const groups = logGroups(shown, view.groupBy, { kinds: state.config.work_kinds });
+      const groups = directed(logGroups(shown, view.groupBy, { kinds: state.config.work_kinds }), view.groupBy && view.groupDesc, (g) => g[0]);
       const body = view.groupBy
         ? groups.flatMap(([key, rows]) => [groupHead(key, rows), ...(view.folded.includes(key) ? [] : rows.map(rowOf))])
         : groups[0][1].map(rowOf);

@@ -4,6 +4,53 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A list's row on a phone shows its priority and when it is planned.** Under the title, after the id: the priority
+  (when it has one), Planned (else Due, else Date; red when late) and where it belongs, cut with … when it does not
+  fit. The title has the first line to itself.
+- **An initiative's Kind comes first.** It is the first row of its Properties, a line above the priority, on its card,
+  its page and the create form. In the create form the starting text now follows the kind picked (a Simple
+  initiative's own text, not the type's), as the fields already did.
+- **Capture a link or a picture, and share to the Inbox.** The Inbox's capture box takes a picture or file pasted,
+  dropped or picked with its paperclip (a photo on a phone), attached to the item it creates; a link typed in it is
+  the item's address, as before. What another app shares opens the Inbox with the box filled in: through the installed
+  app's share sheet on Android and ChromeOS, and through a Shortcut on the iPhone and the Mac (README, *Share to Task
+  Manager*).
+- **Pictures and files in a doc.** A doc's editor has a paperclip to add a picture or file, and takes one pasted or
+  dropped on the text: it is copied beside the doc and embedded (`![[Pasted image ….png|300]]`) or linked
+  (`[[spec.pdf]]`) where the caret is, as Obsidian does. An embed alone on its line (a picture, a note, a base) no
+  longer leaves the next line unformatted when no blank line separates them.
+- **Settings uses the whole width.** Each section fills the page beside its column, instead of stopping at a reading
+  width.
+- **Coming back shows what changed meanwhile.** After the Mac slept, the server no longer trusts what it read
+  before sleeping (its clock for "how long ago" stopped while asleep); the page asks what changed as soon as it is
+  focused, shown again or restored, and after a minute or more away loads everything again. Two loads of the page no
+  longer overlap, so an older answer cannot land over a newer one.
+- **Settings has a column of its own.** Its sections are listed on the left, grouped by theme (Workspace,
+  Appearance, Claude & agents, The app), instead of a row of tabs; the addresses (`#/settings/<section>`) are the same.
+  On a phone, Settings is that list, and each section opens with *‹ Settings* to go back.
+- **Discard from the Inbox list.** Each captured row has a trash at its end, shown on hover: it moves the item to the
+  trash, with Undo in the toast.
+- **Esc in a description saves what is on screen, at once.** It saves the editor's text itself (not only what its
+  input events had reported), waits only for the file to be written instead of a full reload of the vault, and never
+  closes the card while you are in the editor (an Esc that closed the link menu used to close the card too); in full
+  screen with Live, the first Esc leaves the editor, as with Source.
+- **More of Obsidian's Markdown.** `![[Note]]`, `![[Note#Heading]]` and `![[Note#^id]]` embed that note (or that
+  part) in a box, its name a link; footnotes (`[^1]`, inline `^[…]`) are listed under the text, a click on the mark
+  going to its note and back; `%%comments%%` and block ids are not shown; a code block has a Copy button; and a link to
+  a note shows it in a card when the mouse rests on it.
+- **draw.io diagrams.** A `.drawio` file opens in Docs and the Explorer as its diagram (pages, layers, zoom), drawn by
+  draw.io's own viewer, vendored and offline; `![[x.drawio]]` embeds it in a doc or a description. The viewer runs in a
+  sandboxed frame with no network.
+- **The vault's guide for agents teaches its formats.** AGENTS.md now names each index (`.base`) with what a note needs
+  to be in it and the properties it shows, so an agent adds a note to an index by its properties instead of editing a
+  list; the words architectures and entities are written in (schemes, harnesses, architectures, entity types and
+  levels); and the custom boards with their columns. `tools/vault.py` gets `base` (an index's rows) and `board`
+  (read a board, place a card).
+- **Obsidian Bases.** A `.base` file opens in Docs and the Explorer as its views — a table, cards or a list, tabs to
+  switch them — worked out from the notes' properties as Obsidian does: its filters, formulas, sort, groups, limit and
+  summaries. A click on a column sorts it; a click on a note's property edits it in that note. `![[x.base]]` (or
+  `![[x.base#View]]`) embeds it in a doc or a description. What Obsidian has and the app does not is named, never
+  guessed. `tools/bookmarks_to_base.py` turns a hand-written bookmarks index into one.
 - **Write a description as it reads: Live, as in Obsidian.** The editor opens in **Live**: headings big, bold bold, a
   checklist with real boxes (a click ticks it), a link its text. The Markdown shows only on the line you are on, and
   the file is saved byte for byte as before. **Source** (the Markdown, as the *Markdown* mode was), **Both** and

@@ -130,7 +130,7 @@ class LayoutTest(unittest.TestCase):
 
     def test_ticketing_has_pages_for_its_projects_initiatives_prds_and_goals(self):
         types = self.types(get('ticketing'))
-        self.assertEqual(sorted(n for n, t in types.items() if t.get('page')), ['goal', 'initiative', 'prd', 'project'])
+        self.assertEqual(sorted(n for n, t in types.items() if t.get('page')), ['agent', 'goal', 'initiative', 'prd', 'project'])
         # A goal holds what names it, across projects, then its notes; it hangs from nothing and lives in no project.
         self.assertEqual(types['goal']['children'], ['project', 'initiative', 'story', 'task', 'note'])
         self.assertNotIn('parent_label', types['goal'])
@@ -144,11 +144,11 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(types['project']['children'][-2:], ['note', 'meeting'])  # its Overview: Tasks · Notes · Meetings
         self.assertEqual((types['story']['parent_label'], types['prd']['parent_label']), ('Initiative', 'Initiative'))
         self.assertEqual((types['hotfix']['parent_label'], types['error']['parent_label']), ('Support', 'Parent'))
-        # What always hangs from another item (a plan) is not listed nor added on a project's page: it is its item's. The
+        # What always hangs from another item (a plan, an architecture's entity) is not listed nor added on a project's page: it is its item's. The
         # rest is, whatever it hangs from (a story under an initiative, or under none).
         public = get('ticketing').public()
         needs = public['needs_parent']
-        self.assertEqual(needs, ['plan'])
+        self.assertEqual(needs, ['plan', 'entity'])
         self.assertEqual([c for c in types['project']['children'] if c in needs], [])
         self.assertTrue({'story', 'hotfix', 'prd'} <= set(types['project']['children']))
         # The tickets that may be in no project: all of a project's folders but its sub-documents.
@@ -161,14 +161,15 @@ class LayoutTest(unittest.TestCase):
         types = self.types(get('ticketing'))
         sections = {s['key']: s['types'] for s in public['sections']}
         self.assertEqual(sections, {'meetings': ['meeting', 'transcription'], 'brief': ['analysis', 'spec', 'prd', 'plan'],
-                                    'issues': ['story', 'support', 'hotfix'], 'records': ['learning', 'error']})
+                                    'issues': ['story', 'support', 'hotfix'], 'records': ['learning', 'error'],
+                                    'agents': ['agent', 'entity']})
         in_section = [n for ts in sections.values() for n in ts]
         self.assertEqual(len(in_section), len(set(in_section)), 'a type is a tab of one section only')
         for name in in_section:
             self.assertTrue(types[name].get('list'), f'{name} is a tab, so it has a list')
         linked = sorted((t['nav']['order'], n) for n, t in types.items()
                         if t.get('list') and t.get('nav', {}).get('group') == 'types' and n not in in_section)
-        self.assertEqual([n for _, n in linked], ['project', 'initiative', 'task', 'note'])
+        self.assertEqual([n for _, n in linked], ['goal', 'project', 'initiative', 'task', 'note'])
         for name, t in types.items():  # every list is somewhere: a link of its own or a tab
             if t.get('list'):
                 self.assertTrue(t.get('nav') or name in in_section, f'{name} has a list and no place in the sidebar')
@@ -196,6 +197,10 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(tab['goal'], 'relations')  # the goal it is part of; its place there is the Goals view's
         # Its kind, a property (area and objective: the app's; size: in Readiness).
         self.assertEqual([k for k, v in tab.items() if v == 'main'], ['initiative_kind'])
+        # It leads its Properties, above the separator (itemform.js: slot 'lead'); the priority has its own slot.
+        slots = {(name, p['key']): p['slot'] for name, t in types.items() for p in t.get('props', []) if p.get('slot')}
+        self.assertEqual({k: v for k, v in slots.items() if v == 'lead'}, {('initiative', 'initiative_kind'): 'lead'})
+        self.assertLessEqual(set(slots.values()), {'lead', 'priority'})
         self.assertEqual(tab['size'], 'delivery')
         self.assertNotIn('branch', tab)  # delivered by its stories
         story = [(p['group'], p['key']) for p in types['story']['props'] if p['tab'] == 'delivery']

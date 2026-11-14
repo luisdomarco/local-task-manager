@@ -66,6 +66,76 @@ class RenderTest(GuideBase):
         self.assertIn("python3 '/Apps/Task Manager/tools/vault.py' check", agentsmd.render(self.s.agents_info(), '/Apps/Task Manager'))
 
 
+class FormatsTest(GuideBase):
+    """The guide teaches the vault's formats from what the vault has: its bases, its architectures, its boards."""
+
+    def test_each_base_says_what_a_note_needs_to_be_in_it(self):
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('## Indexes (Obsidian Bases)', text)
+        self.assertIn('| `Docs/Library/Library.base` | By topic, Cards, Repos | in `Docs/Library` · `topic` | `topic` | '
+                      '`score`, `website`, `blurb`, `tool` |', text)
+        self.assertIn('never edit a base, or a hand-written list in a note, to add a note to it', text)
+
+    def test_a_base_by_file_class_names_the_value_and_one_that_cannot_be_read_says_so(self):
+        os.makedirs(self.path('Docs/Links'))
+        self.write('Docs/Links/Links.base', 'filters:\n  and:\n    - \'fileClass == "Bookmarks"\'\n    - file.hasTag("ai")\n'
+                   'views:\n  - type: table\n    name: All\n    groupBy:\n      property: category\n'
+                   '    order: [file.name, category, url, related_tool]\n')
+        self.write('Docs/Links/Broken.base', 'views: [\n')
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('| `Docs/Links/Links.base` | All | `#ai` · `fileClass: Bookmarks` | `category` | `category`, `url`, '
+                      '`related_tool` |', text)
+        self.assertRegex(text, r'\| `Docs/Links/Broken.base` \| — \| \(cannot be read: .+\) \| — \| — \|')
+
+    def test_architectures_and_entities_come_from_the_structure(self):
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('## Agentic systems: architectures and entities', text)
+        self.assertIn('| `skill` | N2 | yes | `ski-` |', text)
+        self.assertIn('| `gate` | N5 | proposed | — |', text)
+        self.assertIn('`AP-1` is an anti-pattern', text)
+        self.assertIn("never set it", text)
+
+    def test_boards_are_listed_with_their_columns(self):
+        self.s.save_custom_board('week', columns=[{'id': 'uncategorized', 'name': 'Uncategorized'}, {'id': 'w', 'name': 'Waiting'}])
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('| `week` | Uncategorized, Waiting |', text)
+        self.assertIn('never in the item\'s file', text)
+
+    def test_a_legacy_vault_has_no_architecture_section(self):
+        self.assertIsNone(Store(copy_sample(LEGACY, os.path.join(self.tmp, 'legacy')), None, 'folders').agents_info()['agentic'])
+
+
+class FormatsCliTest(GuideBase):
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        code = vault.main(['-C', self.root, *argv], out=out, err=err)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_base_prints_a_views_rows_grouped(self):
+        code, out, _ = self.run_cli('base', 'Docs/Library/Library.base')
+        self.assertEqual(code, 0)
+        self.assertIn('4 results · views: By topic, Cards, Repos', out)
+        self.assertIn('| **Books** (2) |', out)
+        code, out, _ = self.run_cli('base', 'Docs/Library/Library.base', '--view', 'Repos')
+        self.assertIn('1 results', out)
+        self.assertEqual(self.run_cli('base', 'Docs/Library/Library.base', '--view', 'Nope')[0], 1)
+
+    def test_board_places_a_card_by_column_name_and_takes_it_off(self):
+        self.s.save_custom_board('week', columns=[{'id': 'uncategorized', 'name': 'Uncategorized'}, {'id': 'w', 'name': 'Waiting'}])
+        it = next(i for i in self.s.items() if i['type'] == 'story')
+        before = self.read(it['path'])
+        code, out, _ = self.run_cli('board', 'week', '--place', f"{it['ref']}=waiting")
+        self.assertEqual(code, 0)
+        self.assertIn(f"- Waiting (`w`): {it['ref']}", out)
+        self.assertEqual(self.read(it['path']), before, 'a card placed never writes the item')
+        code, out, _ = self.run_cli('board', 'week', '--place', f"{it['ref']}=")
+        self.assertIn('- Waiting (`w`): —', out)
+        code, _, err = self.run_cli('board', 'week', '--place', f"{it['ref']}=Nowhere")
+        self.assertEqual(code, 1)
+        self.assertIn('has no column', err)
+        self.assertIn('week: Uncategorized, Waiting', self.run_cli('board')[1])
+
+
 class MergeTest(unittest.TestCase):
     BLOCK = f'{agentsmd.START}\n# Generated\n{agentsmd.END}\n'
 

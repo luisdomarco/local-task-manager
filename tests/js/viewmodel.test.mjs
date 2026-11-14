@@ -107,6 +107,15 @@ describe('viewmodel', () => {
       assert.equal(groupItems(items, 'status', ctx).some((g) => g.key === 'ToDo'), false);
     });
 
+    it('goes the way picked and by the list\'s types: Projects from Backlog, or reversed', () => {
+      const proj = (id, status) => ({ id, key: id, type: 'project', title: id, fields: { status } });
+      const ps = [proj(1, 'ToDo'), proj(2, 'InProgress'), proj(3, 'Backlog')];
+      assert.deepEqual(groupItems(ps, 'status', { types: ['project'] }).map((g) => g.key), ['Backlog', 'ToDo', 'InProgress']);
+      assert.deepEqual(groupItems(ps, 'status', { types: ['project'], desc: true }).map((g) => g.key), ['InProgress', 'ToDo', 'Backlog']);
+      const status = filterFields(['project'], ctx).find((f) => f.key === 'status');
+      assert.deepEqual(status.values(ctx, ps).map((v) => v.value).slice(0, 2), ['Backlog', 'ToDo']);
+    });
+
     it('keeps Planned\'s empty groups by its buckets, not by the filter\'s values', () => {
       const keys = emptyKeys('plan', filterFields(['task'], ctx), ctx, items);
       assert.deepEqual(keys.slice(0, 3), ['overdue', 'today', 'week']);

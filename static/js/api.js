@@ -1,5 +1,8 @@
 import { vaultId } from './vault.js';
 
+/** This tab, for the server: its writes are not reported back to it as changes in the vault (vaultwatch.js). */
+export const TAB = Math.random().toString(36).slice(2, 10);
+
 async function call(method, url, body, file = null, other = null) {
   // Every request names the vault this page shows (vault.js): the server never guesses it. `other` is another vault's id
   // (Settings → Vaults edits any of them).
@@ -17,7 +20,7 @@ async function call(method, url, body, file = null, other = null) {
     res = await fetch(url, {
       method,
       // X-TM-Actor: what the page does is yours, in the activity journal (tm/journal.py); a script says who it is.
-      headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', ...vault } : vault,
+      headers: method === 'POST' ? { ...type, 'X-Task-Manager': '1', 'X-TM-Actor': 'app', 'X-TM-Tab': TAB, ...vault } : vault,
       body: bytes || (body ? JSON.stringify(body) : undefined),
     });
   } catch {
@@ -45,6 +48,9 @@ export const api = {
   saveConfig: (cfg) => post('/api/config', cfg),
   // The vault this page shows and whether its folder matches its structure; the fix the app may offer.
   vaultStatus: () => get('/api/vault/status'),
+  // What changed in the vault since `since` (of the server's `epoch`), but this tab's own writes (vaultwatch.js)
+  vaultChanges: (since, epoch) => get(`/api/vault/changes?tab=${TAB}${since === null ? '' : `&since=${since}&epoch=${encodeURIComponent(epoch)}`}`),
+  reloadVault: (vault = null) => call('POST', '/api/vault/reload', {}, null, vault), // Reload from disk
   createVaultFolders: () => post('/api/vault/create-folders'),
   vaultAgents: (on, vault = null) => call('POST', '/api/vault/agents', { on }, null, vault),
   // What a vault keeps about itself, in its own folder (tm/vaultsettings.py): its item types turned off.
@@ -53,7 +59,7 @@ export const api = {
   vaultStatusOf: (vault) => call('GET', '/api/vault/status', null, null, vault),
   // The body each type starts with in a vault (Projects; `editable` false elsewhere): { texts, editable, placeholders }
   defaultTexts: (vault = null) => call('GET', '/api/vault/default-texts', null, null, vault),
-  setDefaultText: (type, text, vault = null) => call('POST', '/api/vault/default-text', { type, text }, null, vault),
+  setDefaultText: (type, text, vault = null, kind = '') => call('POST', '/api/vault/default-text', { type, text, ...(kind ? { kind } : {}) }, null, vault),
   // Its structure: the types, statuses, priorities and lists the page builds itself from (rules.js setStructure).
   structure: () => get('/api/structure'),
   // Each type's statuses in the three groups, with colours (Settings → Statuses); `remap` {type: {old: new}}
@@ -90,6 +96,12 @@ export const api = {
   backlinks: (path) => get(`/api/files/backlinks?path=${encodeURIComponent(path)}`),
   // What changed on an item's followed fields (tm/history.py). → { entries: [{ at, by, field, from, to }] }, oldest first
   itemHistory: (key) => get(`/api/item/history?key=${encodeURIComponent(key)}`),
+  // A definition's versions (tm/versions.py): → { version, edited, versions: [{ version, at, by, note, title, entities? }] },
+  // newest first; one of them with its file then and a diff to now; cut the next one; restore one (a new version too).
+  itemVersions: (key) => get(`/api/item/versions?key=${encodeURIComponent(key)}`),
+  itemVersion: (key, version) => get(`/api/item/version?key=${encodeURIComponent(key)}&version=${encodeURIComponent(version)}`),
+  cutVersion: (key, major, note) => post('/api/item/versions/cut', { key, major, note }),
+  restoreVersion: (key, version, baseRev) => post('/api/item/versions/restore', { key, version, base_rev: baseRev }),
   // A vault file or folder handed to the editor of Settings (Cursor by default) to edit there.
   openInEditor: (path) => post('/api/files/open-in-editor', { path }),
   // macOS's folder dialog, opened by the server, starting at `start`. → { path } or { cancelled: true } (folderpick.js)
@@ -197,10 +209,9 @@ export const api = {
   assignIds: () => post('/api/assign-ids'),
   board: () => get('/api/board'),
   saveBoard: (lists) => post('/api/board', { lists }),
-  today: () => get('/api/today'),
-  saveToday: (lists) => post('/api/today', { lists }),
-  weekBoard: () => get('/api/week-board'), // the Free board columns of Week and Next week
-  saveWeekBoard: (lists) => post('/api/week-board', { lists }),
+  // A Custom board (Today's, the Week's, a list's…: customboard.js): its columns and where each card sits.
+  customBoard: (name) => get(`/api/boards?name=${encodeURIComponent(name)}`),
+  saveCustomBoard: (name, { columns, place } = {}) => post('/api/boards', { name, columns, place }),
   pins: () => get('/api/pins'),
   people: () => get('/api/people'),
   addPerson: (name, values) => post('/api/people', { name, values }), // values: as updatePerson takes them, for a new person
@@ -219,6 +230,14 @@ export const api = {
   addLabel: (name) => post('/api/labels', { name }),
   renameLabel: (old, name) => post('/api/labels/rename', { old, new: name }),
   deleteLabel: (name) => post('/api/labels/delete', { name }),
+  // Bases: a .base file's view worked out (views/files.js, baseview.js; Store.base), a cell written back
+  base: (path, view = null, self = null) => get(`/api/bases?path=${encodeURIComponent(path)}${view ? `&view=${encodeURIComponent(view)}` : ''}${self ? `&this=${encodeURIComponent(self)}` : ''}`),
+  baseCell: (path, key, value) => post('/api/bases/cell', { path, key, value }),
+  // Properties: every frontmatter key of the vault's notes (views/properties.js, Store.properties)
+  properties: () => get('/api/properties'),
+  renameProperty: (key, name) => post('/api/properties/rename', { key, new: name }),
+  renamePropertyValue: (key, old, value) => post('/api/properties/value', { key, old, new: value }),
+  deleteProperty: (key) => post('/api/properties/delete', { key }),
   savePins: (items) => post('/api/pins', { items }),
   sidebar: () => get('/api/sidebar'),
   saveSidebar: (items) => post('/api/sidebar', { items }),

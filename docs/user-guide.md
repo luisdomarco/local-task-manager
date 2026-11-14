@@ -22,7 +22,7 @@ A **vault** is a folder of Markdown files. Each vault has a **structure** that s
 
 Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, initiatives of each kind): the quickest way to see every screen with something in it.
 
-**What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → **Default texts**; it is kept in the vault, so the iPhone and your agents use the same.
+**What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → **Default texts**; it is kept in the vault, so the iPhone and your agents use the same. An initiative can have a different text for each kind (Product, Agentic system, Simple), and so can its stories, PRDs and plans: pick the kind in the second list.
 
 **Features** (a vault's dialog, third tab) turns off what a vault does without — AI Agents, Canvas, Inbox, Activity, Goals, Graph, Meetings & transcription, Work log, Contacts — with the item types that go with each. Nothing is deleted: turn it on again and everything is back. It is kept in the vault too, so the iPhone shows the same.
 

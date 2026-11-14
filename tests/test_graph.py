@@ -72,7 +72,7 @@ class GraphTest(TicketingBase):
         os.remove(os.path.join(self.root, 'Docs/Guide.md'))
         g = self.s.graph()
         self.assertNotIn('Docs/Guide.md', {n['id'] for n in g['nodes']})
-        self.assertFalse(any('Guide.md' in p for p in self.s._links_cache))
+        self.assertNotIn('Docs/Guide.md', self.s.index._said)  # what the index knew of it is gone too
 
     def test_the_graph_reads_and_never_writes(self):
         before = {p: read(self.root, p) for p in (self.note['path'], self.sup['path'], 'Docs/Guide.md')}

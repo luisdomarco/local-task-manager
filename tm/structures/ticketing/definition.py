@@ -92,6 +92,10 @@ SPEC = {
        for t, folder in ROOT_FOLDERS.items()},
     'agent': dict(file_class='Ticket Agent', scope='root', folder=OPTIONAL_ROOT_FOLDERS['agent'], code='AGT', title='id',
                   status_key='status_agent', parent='related_to'),
+    # A piece of an architecture (agents.py): in a folder of its architecture's ref, next to it (`Agents/AGT-3/ENT-12
+    # ski-dedupe.md`: a ref, so a renamed architecture keeps its entities' folder). Read wherever it is (fileClass).
+    'entity': dict(file_class='Ticket Entity', scope='root', folder=OPTIONAL_ROOT_FOLDERS['agent'], code='ENT', title='id',
+                   status_key='status_agent', parent='related_to', under_parent=True),
     # A reusable prompt (its body is the prompt): no status, no parent, no project; active until archived.
     'prompt': dict(file_class='Ticket Prompt', scope='root', folder=OPTIONAL_ROOT_FOLDERS['prompt'], code='PRM', title='id'),
     # A meeting's text: its body is the transcript, its parent the meeting.
@@ -108,6 +112,7 @@ for _spec in SPEC.values():
     _spec.setdefault('links', ())
     _spec.setdefault('multi_links', ())
     _spec.setdefault('legacy_title', None)
+    _spec.setdefault('under_parent', False)
 BY_FILE_CLASS = {s['file_class']: t for t, s in SPEC.items()}
 # A parent written under its old name, still read (never written): a PRD's `umbrella:`, from before stories.
 LEGACY_PARENT = {'prd': 'umbrella'}
@@ -139,9 +144,9 @@ PROPS = {
                 P(key='repo', label='Repo', kind='text', placeholder='~/github/…'),
                 P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'), *IN_GOAL),
     # What it is (tm/structures/kinds.py): chosen on creation (Simple unless it says), and then only widened (`widens`:
-    # the kinds each may become).
+    # the kinds each may become). The first row of its Properties, a line under it (`slot: 'lead'`).
     'initiative': (P(key=KIND_KEY, label='Kind', kind='select', options=[[k.id, k.label] for k in KINDS.values()],
-                     default=NEW_KIND, widens={k: list(v) for k, v in WIDENS.items()}),
+                     default=NEW_KIND, widens={k: list(v) for k, v in WIDENS.items()}, slot='lead'),
                    P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
                    P(key='regime', label='Regime', kind='select', options=_opts('standard', 'critical')),
                    P(key='premise', label='Premise', kind='select', options=_opts('unverified', 'verified', 'reframed', 'refuted')),
@@ -216,6 +221,7 @@ PROPS = {
                  P(key='applies_to', label='Applies to', kind='select', options=_opts('project', 'all-projects')),
                  P(key='area', label='Area', kind='text')),
     'agent': agents.PROPS,
+    'entity': agents.ENTITY_PROPS,
 }
 
 # Where an item shows each of its own fields besides its properties (TypeDef.props `tab`): 'delivery', how it is
@@ -279,7 +285,7 @@ PROPS = {name: tuple({**p, 'later': True} if p['key'] in LATER else p for p in p
 
 # The types that always hang from another item, never from their project alone: a plan, from what it executes. It is
 # created under it (its Parent is required), listed there, not on its project's page, and moved, never let go.
-NEEDS_PARENT = ('plan',)
+NEEDS_PARENT = ('plan', 'entity')
 # The sub-documents of an item (its plan, analyses, errors, learnings): they never choose nor drop their project on
 # their own. Their project is their item's, and when their item moves (to another project, or to none) they go with it.
 SUB_DOCUMENTS = ('plan', 'analysis', 'error', 'learning')
@@ -302,6 +308,8 @@ PAGES = {
     'prd': ('task', 'analysis', 'note', 'meeting'),
     # What it is made of (each names it in `goal:`), then its notes.
     'goal': ('project', 'initiative', 'story', 'task', 'note'),
+    # An architecture: its entities (drawn by level, panel.js), then its notes.
+    'agent': ('entity', 'note'),
 }
 # The app's own fields of each type (planning, ticket, watchers, comments, Claude sessions…) come from its traits
 # (tm/structures/traits.py), the same in every structure; a type adds its props. A type whose props take priority's
@@ -315,10 +323,11 @@ PARENTS = {
     'plan': ('initiative', 'story', 'support'), 'analysis': ('initiative', 'story', 'support', 'hotfix', 'prd'),
     'error': ('initiative', 'story', 'support', 'hotfix'), 'learning': ('initiative', 'story', 'support', 'hotfix'),
     'task': ('initiative', 'story', 'support', 'hotfix', 'prd'),
-    'note': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'goal'),
+    'note': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'goal', 'agent'),
     'meeting': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task'),
     'activity': ('initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'),
     'agent': ('initiative',),
+    'entity': ('agent',),
     'prompt': (),
     'transcription': ('meeting',),
     'goal': (),
@@ -376,8 +385,12 @@ LISTS = {
     'activity': {'sort': {'col': 'created_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task', 'note', 'meeting'],
                  'scopes': 'resolution', 'columns': ['id', 'subject', 'source', 'from', 'priority', 'labels', 'date', 'time', 'related:About', 'project', 'initiative', 'resolved', 'updated', 'created'], 'group_by': ['initiative', 'project']},
     'agent': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
-              'columns': [*LIST_COLS, 'priority', 'prop:platform:Platform', 'prop:trigger:Trigger', 'labels', 'project', 'initiative', 'updated'],
+              'columns': [*LIST_COLS, 'prop:architecture:Architecture', 'prop:harness:Harness', 'prop:version:Version', 'prop:platform:Platform',
+                          'labels', 'project', 'initiative', 'updated'],
               'group_by': ['initiative', 'project', 'status', 'priority']},
+    'entity': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['agent'], 'scopes': 'status', 'relation_label': 'Architecture',
+               'columns': [*LIST_COLS, 'prop:entity_type:Type', 'prop:version:Version', 'prop:path:Path', 'related:Architecture', 'updated'],
+               'group_by': ['status']},
     'transcription': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['meeting'], 'scopes': None, 'relation_any': 'Any meeting',
                       'columns': ['id', 'subject', 'labels', 'meetingOf', 'project', 'created', 'updated'], 'group_by': ['initiative', 'project']},
     'goal': {'sort': {'col': 'priority', 'dir': 1}, 'relation': None, 'scopes': 'status',
@@ -408,13 +421,16 @@ SHOWN = {
     'transcription': ['Transcription', 'Transcriptions', 'mic', 'transcriptions', {'group': 'types', 'order': 12, 'section': 5}, '', '',
                       ['/transcription', '/trn']],
     'note': ['Note', 'Notes', 'note', 'notes', {'group': 'types', 'order': 13, 'section': 2}, '', 'o', ['/note']],
-    'agent': [agents.LABEL, agents.PLURAL, agents.ICON, agents.ROUTE, {'group': 'tools', 'order': 0}, '', '', list(agents.TOKENS)],
+    # Architectures and their entities: the tabs of the sidebar's AI Agents, after its other sections (NAV_SECTIONS)
+    'agent': [agents.LABEL, agents.PLURAL, agents.ICON, agents.ROUTE, {'group': 'types', 'order': 16, 'section': 7}, '', '', list(agents.TOKENS)],
+    'entity': [agents.ENTITY_LABEL, agents.ENTITY_PLURAL, agents.ENTITY_ICON, agents.ENTITY_ROUTE, {'group': 'types', 'order': 17, 'section': 7},
+               '', '', list(agents.ENTITY_TOKENS)],
     'activity': ['Activity', 'Activity', 'mail', 'activity', {'group': 'capture', 'order': 2, 'always': True}, 'open', 'c', ['/activity', '/act']],
     'inbox': ['Inbox', 'Inbox', 'inbox', 'inbox', {'group': 'capture', 'order': 1, 'always': True}, 'all', 'i', ['/inbox']],
     'prompt': ['Prompt', 'Prompts', 'sparkles', 'prompts', {'group': 'tools', 'order': 1}, 'all', '', []],
     'project': ['Project', 'Projects', 'folder', 'projects', {'group': 'types', 'order': 1, 'section': 1}, '', 'j', []],
-    # Goals sit with the views, right under Planning (index.html's "views" box): prioritising, beside planning.
-    'goal': ['Goal', 'Goals', 'goal', 'goals', {'group': 'views', 'order': 1}, '', 'r', ['/goal']],
+    # Goals open the types, over Projects: what the projects are for.
+    'goal': ['Goal', 'Goals', 'goal', 'goals', {'group': 'types', 'order': 0, 'section': 1}, '', 'r', ['/goal']],
 }
 # The sidebar's sections: one link each, after the types, that opens a page with a tab per type, in this order (static/js/
 # sections.js); each tab is the type's list, at its own address (#/prds). Only the types the vault has are tabs.
@@ -423,13 +439,14 @@ NAV_SECTIONS = (
     {'key': 'brief', 'label': 'Brief', 'icon': 'book', 'types': ['analysis', 'spec', 'prd', 'plan']},
     {'key': 'issues', 'label': 'Issues', 'icon': 'flag', 'types': ['story', 'support', 'hotfix']},
     {'key': 'records', 'label': 'Records', 'icon': 'lightbulb', 'types': ['learning', 'error']},
+    {'key': 'agents', 'label': agents.NAV_LABEL, 'icon': agents.ICON, 'types': ['agent', 'entity']},
 )
 # The types whose detail has a Canvas tab (panel.js canvasTab): whiteboards of their own, kept by their ref.
 CANVAS_TYPES = ('project', 'initiative', 'story', 'task', 'meeting')
 PLANNABLE = {name for name in SPEC if plannable(name)}  # initiative, story, support, hotfix, prd, task: `work`
 # The types with statuses of their own, not the tickets' "1. Backlog" … "7. Discarded": written to disk as they are.
-OWN_STATUSES = {'error': ERROR_STATUSES, 'agent': agents.STATUSES, 'spec': SPEC_STATUSES, 'project': PROJECT_STATUSES, 'goal': GOAL_STATUSES}
-OWN_CLOSED = {'error': frozenset({'resolved'}), 'agent': agents.CLOSED, 'spec': frozenset({'retired'}), 'project': PROJECT_CLOSED,
+OWN_STATUSES = {'error': ERROR_STATUSES, 'agent': agents.STATUSES, 'entity': agents.STATUSES, 'spec': SPEC_STATUSES, 'project': PROJECT_STATUSES, 'goal': GOAL_STATUSES}
+OWN_CLOSED = {'error': frozenset({'resolved'}), 'agent': agents.CLOSED, 'entity': agents.CLOSED, 'spec': frozenset({'retired'}), 'project': PROJECT_CLOSED,
               'goal': CLOSED}
 
 
@@ -458,7 +475,7 @@ def _type(name):
         plannable=name in PLANNABLE, counted=counted, go_key=go_key, tokens=tuple(tokens), props=props,
         extra_fields=tuple(p['key'] for p in props if p['kind'] == 'readonly'),
         page=name in PAGES, children=PAGES.get(name, ()), parent_label=parent_label(parents, LABELS),
-        folder_optional=name in OPTIONAL_ROOT_FOLDERS, canvas=name in CANVAS_TYPES,
+        folder_optional=name in OPTIONAL_ROOT_FOLDERS or name == 'entity', canvas=name in CANVAS_TYPES,
     )
 
 
@@ -496,5 +513,8 @@ def build(codec, checker):
                                  ['records', 'Records', ['error', 'learning']]],
                 # The same relation kinds as every structure; "Blocked by" is kept in `depends_on` where a type has it
                 # (an initiative, a story: its templates and devflow read it), in `relation_kinds` elsewhere.
-                'relation_kinds': relation_kinds(types, {'blocked': 'depends_on'})},
+                'relation_kinds': relation_kinds(types, {'blocked': 'depends_on'}),
+                # An architecture's entities as its page draws them: their levels, each type's level, canon and prefix,
+                # and which architecture each harness usually comes out as (tm/structures/agents.py public).
+                'agents': agents.public()},
     )

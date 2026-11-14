@@ -96,8 +96,8 @@ LISTS = {
 }
 
 # How the app shows each type: [label, plural, icon, route, nav, counted, go key, quick-add tokens], in the
-# order the create form offers them. Nav groups: 'capture' (above Today), 'types' (the type lists, without a count), 'tools'
-# (with the work log, labels and people). In a group, `section` splits its links with a line where it changes.
+# order the create form offers them. Nav groups: 'capture' (above Today), 'types' (the type lists, without a count), 'after'
+# (after the types' sections), 'tools' (with the work log, labels and people). In a group, `section` splits its links with a line where it changes.
 SHOWN = {
     'task': ['Task', 'Tasks', 'task', 'tasks', {'group': 'types', 'order': 3, 'section': 1}, '', 'k', ['/task']],
     'initiative': ['Initiative', 'Initiatives', 'target', 'initiatives', {'group': 'types', 'order': 1, 'section': 1}, '', 'n', ['/initiative', '/ini']],

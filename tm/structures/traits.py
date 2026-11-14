@@ -51,6 +51,7 @@ KINDS = {
     'project': ('base', 'discussed', 'related', 'container', 'work', 'tracked', 'aimed', 'spanned'),
     'goal': ('base', 'discussed', 'related', 'work', 'spanned'),  # across projects: no parent, no project
     'agent': ('base', 'discussed', 'child', 'related', 'stateful', 'prioritized', 'tracked'),
+    'entity': ('base', 'discussed', 'child', 'related', 'stateful'),
     'spec': ('base', 'discussed', 'child', 'related', 'stateful'),
     'error': ('base', 'discussed', 'child', 'related', 'stateful'),
     'activity': ('base', 'discussed', 'child', 'related', 'prioritized'),
