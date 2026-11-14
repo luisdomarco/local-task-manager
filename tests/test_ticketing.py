@@ -70,10 +70,8 @@ class LayoutTest(TicketingBase):
     def test_a_project_is_its_folder_note_and_type_folders(self):
         self.assertEqual(self.hb['path'], 'Internal Tools/00 Internal Tools.md')
         self.assertEqual((self.hb['type'], self.hb['fields']['project']), ('project', 'HB'))
-        for sub in ('Initiatives', 'Support', 'Plans', 'Analyses', 'Records/Errors', 'Records/Learnings'):
-            self.assertTrue(os.path.isdir(os.path.join(self.root, 'Internal Tools', sub)), sub)
-        self.assertFalse(os.path.exists(os.path.join(self.root, 'Internal Tools', 'Hotfixes')))  # a system project
-        self.assertTrue(os.path.isdir(os.path.join(self.root, 'Acme Web', 'Hotfixes')))  # a product one
+        # Its type folders come each with its first file (what it holds follows from its initiatives' kinds).
+        self.assertEqual(os.listdir(os.path.join(self.root, 'Acme Web')), ['00 Acme Web.md'])
         self.assertTrue(self.s.check()['ok'], self.s.check())
         with self.assertRaises(StoreError):  # a key is unique
             self.s.create('project', 'Other', {'project_key': 'HB'})
@@ -277,9 +275,9 @@ class RoundTripTest(TicketingBase):
         write(self.root, '00 Index Tickets.md', '# index\n')
         write(self.root, '00 Tickets.base', 'views: []\n')
         self.assertTrue(self.s.check()['ok'])
-        os.rmdir(os.path.join(self.root, 'Internal Tools', 'Plans'))
+        os.rmdir(os.path.join(self.root, 'Notes'))
         r = self.s.check()
-        self.assertEqual((r['missing_folders'], r['can_create_folders']), (['Internal Tools/Plans'], True))
+        self.assertEqual((r['missing_folders'], r['can_create_folders']), (['Notes'], True))
         with self.assertRaises(StoreError):  # read-only until it matches
             self.s.create('task', 'No', {})
 
@@ -389,25 +387,22 @@ class RulesTest(TicketingBase):
                                            'support_due_days': {'C1': '1', 'C2': 3, 'C3': ''}})['fields']
         self.assertEqual((f['execution_mode'], f['repo'], f['managed_by']), ('serial', '~/github/hb', '~/github/hb/.claude'))
         self.assertEqual(f['support_due_days'], {'C1': 1, 'C2': 3, 'C3': 30})  # numbers; a blank one is its default
-        for bad in ({'execution_mode': 'fast'}, {'enabled_types': ['task']}, {'support_due_days': {'C2': 'soon'}},
+        for bad in ({'execution_mode': 'fast'}, {'support_due_days': {'C2': 'soon'}},
                     {'support_due_days': {'C2': -1}}, {'support_due_days': {'C9': 1}}):
             with self.subTest(bad), self.assertRaises(StoreError):
                 self.s.update(self.hb['key'], bad)
 
     def test_a_new_project_keeps_what_the_create_form_filled_in(self):
         p = self.s.create('project', 'Ops', {
-            'project_key': 'OPS', 'project_kind': 'product', 'execution_mode': 'serial', 'enabled_types': ['prd'],
+            'project_key': 'OPS', 'project_kind': 'product', 'execution_mode': 'serial',
             'support_due_days': {'C1': '1', 'C2': '', 'C3': 10}, 'repo': ' ~/github/ops ', 'managed_by': '~/github/ops/.claude',
             'session_name': 'ops-main', 'labels': ['infra'], 'url': 'ops.example.com', 'url_label': 'Wiki'})
         f = p['fields']
         self.assertEqual((f['project_key'], f['project_kind'], f['execution_mode'], f['repo'], f['managed_by']),
                          ('OPS', 'product', 'serial', '~/github/ops', '~/github/ops/.claude'))
         self.assertEqual(f['support_due_days'], {'C1': 1, 'C2': 7, 'C3': 10})  # a blank one is its default
-        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec', 'prd'])  # the ones it names, not its kind's
         self.assertEqual((f['session_name'], f['labels']), ('ops-main', ['infra']))
         self.assertEqual((f['url'], f['url_label']), ('https://ops.example.com', 'Wiki'))
-        self.assertTrue(os.path.isdir(os.path.join(self.root, 'Ops', 'PRDs')))  # its folders follow its types
-        self.assertFalse(os.path.exists(os.path.join(self.root, 'Ops', 'Hotfixes')))
         self.assertTrue(self.s.check()['ok'], self.s.check())
         with self.assertRaises(StoreError):  # checked as an edit of its settings is
             self.s.create('project', 'Bad', {'project_key': 'BAD', 'execution_mode': 'fast'})
@@ -426,22 +421,13 @@ class RulesTest(TicketingBase):
         self.assertEqual(self.s.claude_cwd(loose['key'])['source'], 'home')  # no project: nothing to inherit
         self.assertEqual(self.s.claude_cwd(self.s.create('support', 'Otro', {'project': 'ECD'})['key'])['source'], 'home')
 
-    def test_turning_a_type_on_gives_the_project_its_folder(self):
-        p = self.s.create('project', 'Lean Shop', {'project_key': 'LS', 'project_kind': 'product', 'enabled_types': []})
-        hotfixes = os.path.join(self.root, 'Lean Shop', 'Hotfixes')
-        self.assertFalse(os.path.exists(hotfixes))  # a product made with its optional types off
-        with self.assertRaises(StoreError):  # off: none of its tickets
-            self.s.create('hotfix', 'Caída', {'project': 'LS'})
-        f = self.s.update(p['key'], {'enabled_types': ['hotfix']})['fields']
-        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec', 'hotfix'])  # the core ones stay, in order
+    def test_a_type_s_folder_comes_with_its_first_ticket(self):
+        hotfixes = os.path.join(self.root, 'Acme Web', 'Hotfixes')
+        self.assertFalse(os.path.exists(hotfixes))
+        sup = self.s.create('support', 'Rota', {'project': 'ECD'})
+        self.s.create('hotfix', 'Caída', {'project': 'ECD', 'related_to': sup['id']})
         self.assertTrue(os.path.isdir(hotfixes))
         self.assertTrue(self.s.check()['ok'], self.s.check())
-        sup = self.s.create('support', 'Rota', {'project': 'LS'})
-        self.s.create('hotfix', 'Caída', {'project': 'LS', 'related_to': sup['id']})  # its tickets can be made now
-        f = self.s.update(p['key'], {'enabled_types': []})['fields']  # turned off: the folder and its tickets stay
-        self.assertEqual(f['enabled_types'], ['initiative', 'story', 'support', 'spec'])
-        self.assertTrue(os.path.isdir(hotfixes))
-        self.assertEqual(len([i for i in self.s.items() if i['type'] == 'hotfix' and i['fields'].get('project') == 'LS']), 1)
 
 
 class StoryTest(TicketingBase):
@@ -486,7 +472,7 @@ class StoryTest(TicketingBase):
         self.assertTrue(story['path'].startswith('Acme Web/Stories/ECD-STY-001 '), story['path'])
         self.assertIn('initiative: "[[ECD-INI-001 Checkout]]"', text)
         self.assertIn('## Acceptance criteria', text)
-        self.assertNotIn('kind:', read(self.root, ini['path']))  # no more umbrella / slice
+        self.assertNotRegex(read(self.root, ini['path']), r'(?m)^kind:')  # no more umbrella / slice (its initiative_kind is another key)
 
     def test_a_story_is_ready_with_its_initiative_approved_a_scenario_and_its_spec_impact(self):
         ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
@@ -546,8 +532,7 @@ class StoryTest(TicketingBase):
 
     def test_a_project_without_a_stories_folder_still_checks(self):
         stories = os.path.join(self.root, 'Acme Web', 'Stories')
-        self.assertTrue(os.path.isdir(stories))  # a new project has it
-        os.rmdir(stories)  # one from before stories does not
+        self.assertFalse(os.path.isdir(stories))  # a new project has none
         self.assertTrue(self.s.check()['ok'], self.s.check())
         self.ready_initiative()  # its first story makes it
         self.assertTrue(os.path.isdir(stories))
@@ -602,7 +587,7 @@ class SpecTest(TicketingBase):
         self.assertIn('stories: ["[[ECD-STY-001 Pay]]"]', read(self.root, spec['path']))
 
     def test_a_project_without_a_specs_folder_still_checks(self):
-        os.rmdir(os.path.join(self.root, 'Acme Web', 'Specs'))
+        self.assertFalse(os.path.isdir(os.path.join(self.root, 'Acme Web', 'Specs')))
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
 

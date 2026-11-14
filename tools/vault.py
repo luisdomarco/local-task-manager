@@ -58,7 +58,8 @@ LINK_KINDS = ('link', 'links')
 SHOW_SKIP = {'id', 'type', 'subject', 'name', 'comments', 'status_log', 'claude_sessions', 'relations', 'relation_kinds',
              'plan_order', 'week_order', 'today_list', 'week_list'}
 RECENT = 10
-# Keys a new item is made from but never keeps as fields (a Projects project: its key and kind, fixed once made).
+# Keys a new item is made from but never keeps as fields (a Projects project: its key, fixed once made, and the
+# `project_kind` a project from before initiative kinds said, read as its initiatives' kind).
 CREATE_ONLY = {'project_key', 'project_kind'}
 
 

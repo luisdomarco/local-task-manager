@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, pathOfParam, splitFrontmatter,
+  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -140,9 +140,77 @@ describe('filetree', () => {
   it('turns the wikilinks that name a file into links to it', () => {
     const pathOf = (stem) => ({ 'TSK-1 Primera': 'Tasks/TSK-1 Primera.md' })[stem] || null;
     assert.equal(linkWikilinks('ver [[TSK-1 Primera]] y [[TSK-1 Primera#Notas|la tarea]] o [[Nada]]', pathOf),
-      'ver [TSK-1 Primera](#/files/Tasks/TSK-1%20Primera.md) y [la tarea](#/files/Tasks/TSK-1%20Primera.md?heading=Notas) o [[Nada]]');
+      'ver [TSK-1 Primera](#/files/Tasks/TSK-1%20Primera.md) y [la tarea](#/files/Tasks/TSK-1%20Primera.md?heading=Notas) o <span class="md-missing" title="Not found: Nada">Nada</span>');
     // No alias: shown as Obsidian shows it, the note and its heading
     assert.equal(linkWikilinks('[[TSK-1 Primera#Notas]]', pathOf), '[TSK-1 Primera > Notas](#/files/Tasks/TSK-1%20Primera.md?heading=Notas)');
+  });
+
+  it('links a heading of the same note, an alias after an escaped bar, and leaves code alone', () => {
+    const pathOf = (t) => ({ Note: 'Docs/Note.md' })[t] || null;
+    const self = 'Docs/Here.md';
+    assert.equal(linkWikilinks('[[#AR-1 · Bucle|Bucle]]', pathOf, { self }), '[Bucle](#/files/Docs/Here.md?heading=AR-1%20%C2%B7%20Bucle)');
+    assert.equal(linkWikilinks('| [[Note\\|Alias]] |', pathOf), '| [Alias](#/files/Docs/Note.md) |');
+    assert.equal(linkWikilinks('`[[Note]]` and\n```\n[[Note]]\n```', pathOf), '`[[Note]]` and\n```\n[[Note]]\n```');
+    assert.equal(linkWikilinks('[[Nope|<b>x</b>]]', pathOf), '<span class="md-missing" title="Not found: Nope">&lt;b&gt;x&lt;/b&gt;</span>');
+    const href = (p, h) => `#/docs/${p}${h ? `@${h}` : ''}`; // a view's own links (Docs)
+    assert.equal(linkWikilinks('[[Note]]', pathOf, { href }), '[Note](#/docs/Docs/Note.md)');
+  });
+
+  it('takes the heading of [[#Part\\|alias]] (a table cell) without the escape of its bar', () => {
+    const self = 'Docs/Here.md';
+    assert.equal(linkWikilinks('| [[#AR-1 · Bucle\\|Bucle]] |', () => null, { self }), '| [Bucle](#/files/Docs/Here.md?heading=AR-1%20%C2%B7%20Bucle) |');
+    assert.equal(linkWikilinks('| [[Note#Part\\|p]] |', (t) => (t === 'Note' ? 'Note.md' : null)), '| [p](#/files/Note.md?heading=Part) |');
+  });
+
+  it('draws ![[picture]] from the vault, at the width asked; a note embedded reads as a link', () => {
+    const pathOf = (t) => ({ 'orbit.png': 'Docs/img/orbit.png', Note: 'Docs/Note.md' })[t] || null;
+    const src = (p) => `/api/files/raw?path=${encodeURIComponent(p)}`;
+    assert.equal(linkWikilinks('![[orbit.png]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="orbit.png">');
+    assert.equal(linkWikilinks('![[orbit.png|300]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="orbit.png" width="300">');
+    assert.equal(linkWikilinks('![[orbit.png|300x200]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="orbit.png" width="300" height="200">');
+    assert.equal(linkWikilinks('![[orbit.png|The orbit]]', pathOf, { src }), '<img class="md-embed" src="/api/files/raw?path=Docs%2Fimg%2Forbit.png" alt="The orbit">');
+    assert.equal(linkWikilinks('![[gone.png]]', pathOf, { src }), '<span class="md-missing" title="Not found: gone.png">gone.png</span>');
+    assert.equal(linkWikilinks('![[Note]]', pathOf, { src }), '![Note](#/files/Docs/Note.md)'.slice(1)); // the "!" stays out: a link
+    assert.equal(linkWikilinks('![[orbit.png]]', pathOf), '![orbit.png](#/files/Docs/img/orbit.png)'.slice(1), 'no src: a link to it');
+  });
+
+  it('resolves a Markdown link from the note it is in', () => {
+    assert.deepEqual(resolveRelative('Docs/Guides/Start.md', 'Setup.md'), { path: 'Docs/Guides/Setup.md', heading: null });
+    assert.deepEqual(resolveRelative('Docs/Guides/Start.md', '../img/a%20b.png'), { path: 'Docs/img/a b.png', heading: null });
+    assert.deepEqual(resolveRelative('Docs/Guides/Start.md', './Setup.md#Install%20it'), { path: 'Docs/Guides/Setup.md', heading: 'Install it' });
+    assert.deepEqual(resolveRelative('Docs/Guides/Start.md', '/Readme.md'), { path: 'Readme.md', heading: null }, '/: the vault\'s top');
+    assert.deepEqual(resolveRelative(null, 'Docs/x.md'), { path: 'Docs/x.md', heading: null });
+    for (const away of ['https://x.org/a.md', 'mailto:a@b.c', '#Part', '//cdn/x.png', '../../../out.md', '', null]) {
+      assert.equal(resolveRelative('Docs/Guides/Start.md', away), null, String(away));
+    }
+  });
+
+  it('finds what a Markdown link names: from the note\'s folder, then the top, with .md or without, then by name', () => {
+    const tree = buildTree([
+      { path: 'Docs', kind: 'dir' }, { path: 'Docs/Guides', kind: 'dir' }, { path: 'Docs/Guides/Setup.md', kind: 'file' },
+      { path: 'Docs/Guides/Start.md', kind: 'file' }, { path: 'Readme.md', kind: 'file' }, { path: 'Docs/img', kind: 'dir' }, { path: 'Docs/img/a.png', kind: 'file' },
+    ]);
+    const from = 'Docs/Guides/Start.md';
+    assert.deepEqual(relativeTarget(tree, from, 'Setup.md'), { path: 'Docs/Guides/Setup.md', heading: null });
+    assert.deepEqual(relativeTarget(tree, from, 'Setup#Two'), { path: 'Docs/Guides/Setup.md', heading: 'Two' }, 'no .md');
+    assert.deepEqual(relativeTarget(tree, from, 'Readme.md'), { path: 'Readme.md', heading: null }, 'from the top');
+    assert.deepEqual(relativeTarget(tree, from, '../img/a.png'), { path: 'Docs/img/a.png', heading: null });
+    assert.deepEqual(relativeTarget(tree, from, 'elsewhere/Setup.md'), { path: 'Docs/Guides/Setup.md', heading: null }, 'by its name');
+    assert.equal(relativeTarget(tree, from, 'Nothing.md'), null);
+    assert.equal(relativeTarget(tree, from, 'https://x.org'), null);
+  });
+
+  it('finds what a [[link]] names: a note by path or name, then a folder', () => {
+    const tree = buildTree([
+      { path: 'Docs', kind: 'dir' }, { path: 'Docs/Knowledge base', kind: 'dir' }, { path: 'Docs/Knowledge base/Agents', kind: 'dir' },
+      { path: 'Docs/Knowledge base/Agents/Architect.md', kind: 'file' }, { path: 'Docs/Readme.md', kind: 'file' }, { path: 'Readme.md', kind: 'file' },
+    ]);
+    assert.equal(wikiTarget(tree, 'Docs/Knowledge base/Agents/Architect'), 'Docs/Knowledge base/Agents/Architect.md');
+    assert.equal(wikiTarget(tree, 'architect'), 'Docs/Knowledge base/Agents/Architect.md'); // by name, any case
+    assert.equal(wikiTarget(tree, 'Readme'), 'Readme.md'); // two of a name: the shortest path
+    assert.equal(wikiTarget(tree, 'Docs/Knowledge base/Agents'), 'Docs/Knowledge base/Agents'); // a folder
+    assert.equal(wikiTarget(tree, 'Agents/'), 'Docs/Knowledge base/Agents');
+    assert.equal(wikiTarget(tree, 'Nothing'), null);
   });
 });
 

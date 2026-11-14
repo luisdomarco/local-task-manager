@@ -2,13 +2,15 @@
 // as you write it, as in Obsidian's Live Preview (livemd.js, on CodeMirror); Source is the Markdown in a textarea,
 // coloured as typed, with Both (a preview beside it) and View on demand. The text is saved byte for byte: buttons only wrap or
 // prefix the selection, so a file edited here and in Obsidian never gets rewritten behind your back.
+import { renderDiagrams } from './diagrams.js';
 import { dictation } from './dictation.js';
+import { splitFrontmatter } from './filetree.js';
 import { highlight as colour } from './highlight.js';
 import { liveLoaded, liveSurface, loadLive } from './livemd.js';
 import { HIGHLIGHTS, TEXT_COLOURS, colourRange } from './mdcolour.js';
 import { pref, setPref } from './prefs.js';
 import { closeMenu, dropdown, h, icon, renderMarkdown, seg } from './ui.js';
-import { isRef, linkRefs, linkVault, liveSources, openLink } from './vaultlinks.js';
+import { isRef, linkPaths, linkRefs, linkVault, liveSources, openLink } from './vaultlinks.js';
 
 const ACTIONS = [
   { key: 'heading', label: 'Heading', icon: 'heading', run: (ed) => ed.prefixLines('## ') },
@@ -131,6 +133,13 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     rectAt: (pos) => caretRect(hl, pos),
   };
   const livePane = markdown ? h('div', { class: 'mde-live-pane' }) : null;
+  /** A table, callout or diagram of the Live surface, drawn as the preview draws it. */
+  const drawBlock = (md, el) => {
+    el.innerHTML = renderMarkdown(linkVault(md)); // sanitized (DOMPurify)
+    linkPaths(el);
+    linkRefs(el);
+    renderDiagrams(el);
+  };
   let live = null;
   /** The Live surface, made the first time (null: CodeMirror not loaded, or a text Live would not keep as it is). */
   const ensureLive = (from = S ? S.saved() : value) => {
@@ -141,6 +150,7 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     live = liveSurface({
       value: from, minHeight, placeholder: placeholder || '', label,
       onChange: () => changed(), onKey: (e) => handleKey(e), completions: completions ?? liveSources(), isRef, onOpen: openLink,
+      renderBlock: drawBlock,
     });
     if (live) livePane.replaceChildren(live.el);
     return live;
@@ -155,8 +165,11 @@ export function mdEditor({ value = '', onInput = () => {}, minHeight = '320px', 
     if (!prev) return;
     const v = S ? S.saved() : value;
     // renderMarkdown() sanitizes with DOMPurify (fails closed without it).
-    prev.innerHTML = v.trim() ? renderMarkdown(linkVault(v)) : '<p class="muted">Preview</p>';
+    const body = splitFrontmatter(v).body; // a note's frontmatter is its properties, not text to read
+    prev.innerHTML = body.trim() ? renderMarkdown(linkVault(body)) : '<p class="muted">Preview</p>';
+    linkPaths(prev);
     linkRefs(prev);
+    renderDiagrams(prev);
     prev.querySelectorAll('input[type=checkbox]').forEach((b) => { b.disabled = true; });
   };
   function changed() {

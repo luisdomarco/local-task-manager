@@ -26,7 +26,7 @@ import { groupLinks, linkIcon, shortUrl } from './linkgroups.js';
 import { quickAddBar } from './quickadd.js';
 import { isPhone, isTouch, swipeDown } from './phone.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, isDone, isEnabled, isShortId, kindFor, leavesProject, matchesWhere, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectFree, projectHas, projectOf, propsIn, statusesOf,
+  EXTERNAL_REF, PARENT_TYPES, RELATABLE, STRUCTURE, TYPE_DEFS, hasExternalRef, hasField, hasPage, initiativeHas, isDone, isEnabled, isShortId, kindFor, leavesProject, matchesWhere, needsParent, pageRef, parentChoices, parentLabel, parentPick, projectFree, projectHas, projectOf, propsIn, statusesOf,
 } from './rules.js';
 import { peopleOf } from './people.js';
 import { logForm } from './logform.js';
@@ -481,7 +481,7 @@ function relationsSection(item, rerender) {
     const longId = !free && leavesProject(item.type);
     const movable = !free && !longId && project && !ups.length && isShortId(item.id);
     const others = movable ? state.items.filter((p) => p.type === 'project' && p.fields.project_key && p.fields.project_key !== f.project
-      && !isDone(p) && projectHas(p, item.type)) : [];
+      && !isDone(p) && projectHas(p, item.type, state.all)) : [];
     const carried = `Its id (${what}) carries its project: it moves once its vault has short ids (docs/migrate-short-ids.md).`;
     const toProject = changer('Move to another project', others, (p) => {
       const key = p.fields.project_key;
@@ -1111,9 +1111,10 @@ function relatedSections(item, rerender) {
   // Every type that can hang from it and is turned on (a Ticketing support: its hotfixes, plans, analyses…): the
   // app's own first, in this order, then the structure's in its order; activities only once there are some.
   const FIRST = ['task', 'story', 'note', 'transcription', 'meeting'];
-  // Of a project's own types, only those its kind holds (a system's support has no hotfixes), or that it already has.
+  // Of a project's own types, only those it holds (support and hotfixes with a delivering initiative), and from an
+  // initiative only what its kind gives it (a simple one: no stories); or that it already has.
   const home = projectOf(item, state.all);
-  const holds = (t) => !home || projectHas(home, t);
+  const holds = (t) => (!home || projectHas(home, t, state.all)) && initiativeHas(t, item, state.all);
   const kinds = Object.keys(PARENT_TYPES).filter((t) => isEnabled(t) && (PARENT_TYPES[t] || []).includes(item.type) && (t !== 'activity' || has(t))
     && (holds(t) || has(t)));
   return [...FIRST.filter((t) => kinds.includes(t)), ...kinds.filter((t) => !FIRST.includes(t) && t !== 'activity'), ...kinds.filter((t) => t === 'activity')]
@@ -1154,8 +1155,9 @@ function kindTable(item, rerender, t, some = {}, { addable = true } = {}) {
  *  A table of only some of a type (child_tables: an initiative's Epics) shows once it holds one, archived or not. */
 function pageTables(item, rerender) {
   const project = item.type === 'project' || item.type === 'goal'; // what lives in it, whatever it hangs from
-  const home = projectOf(item, state.all); // its project (Ticketing): only the types its kind holds, or it already has
-  const holds = (t) => !home || projectHas(home, t);
+  // Its project (Ticketing): only the types it holds, and from an initiative only what its kind gives it; or it already has.
+  const home = projectOf(item, state.all);
+  const holds = (t) => (!home || projectHas(home, t, state.all)) && initiativeHas(t, item, state.all);
   const held = (t) => state.all.some((k) => k.type === t && heldBy(item)(k));
   const some = TYPE_DEFS[item.type]?.child_tables || {};
   const kinds = TYPE_DEFS[item.type]?.children || [];
@@ -1646,7 +1648,7 @@ function ticketActions(item) {
   return [
     isEnabled('initiative') ? h('button', { class: 'btn small', title: 'Create an initiative from it (origin: this ticket); this one waits on hold until it is done',
       onclick: () => run('promote') }, icon('target', 13), 'Promote') : null,
-    isEnabled('hotfix') && !!project && projectHas(project, 'hotfix')
+    isEnabled('hotfix') && !!project && projectHas(project, 'hotfix', state.all)
       ? h('button', { class: 'btn small', title: 'Create a hotfix from it (born in ToDo); this one waits on hold until it is done',
         onclick: () => run('escalate') }, icon('flame', 13), 'Escalate') : null,
   ];

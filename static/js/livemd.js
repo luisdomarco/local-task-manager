@@ -3,7 +3,7 @@
 // edits plain text and keeps the file's line breaks (livemarks.js lineSepOf). What makes it read formatted is drawing
 // only: livemarks.js says which marks to hide and which widgets to draw, and this module turns that into decorations.
 // mdeditor.js uses it as one of its two surfaces (the other is the Markdown textarea).
-import { lineSepOf, liveMarks } from './livemarks.js';
+import { lineSepOf, liveBlocks, liveMarks } from './livemarks.js';
 
 const BASE = new URL('../vendor/codemirror/', import.meta.url).href;
 let CM = null;
@@ -85,6 +85,66 @@ function widgetKinds(cm) {
   return { check: (w) => new Check(w.checked, w.box), bullet: () => bullet, rule: () => rule };
 }
 
+/**
+ * Tables, callouts and diagrams drawn whole, as the preview draws them (livemarks.js liveBlocks), when the selection is
+ * not on them. CodeMirror takes block widgets only from a StateField, so they live here and not in the ViewPlugin
+ * above. `renderBlock(text, el)` (mdeditor.js) fills a block's element; a click on it puts the caret at the block's
+ * start, which shows its Markdown to edit. `isFocused()` is the surface's settled focus, and `refresh` an effect that
+ * says it changed.
+ */
+function blockField(cm, renderBlock, isFocused, refresh) {
+  class Block extends cm.WidgetType {
+    constructor(text, kind) { super(); this.text = text; this.kind = kind; }
+    eq(o) { return o.text === this.text && o.kind === this.kind; }
+    toDOM(view) {
+      const el = document.createElement('div');
+      el.className = `cm-block-widget md cm-block-${this.kind}`;
+      renderBlock(this.text, el);
+      el.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if ((e.metaKey || e.ctrlKey) && e.target.closest?.('a[href]')) return; // ⌘-click opens the link
+        e.preventDefault();
+        const at = view.posAtDOM(el);
+        view.dispatch({ selection: { anchor: at }, effects: refresh.of(true) });
+        view.focus();
+      });
+      // A plain click on a link inside only edits, as on the text: the link opens with ⌘-click.
+      el.addEventListener('click', (e) => { if (!(e.metaKey || e.ctrlKey)) e.preventDefault(); });
+      return el;
+    }
+    ignoreEvent() { return true; }
+  }
+  const build = (state, focused) => {
+    const blocks = liveBlocks(cm.syntaxTree(state), state.doc, { ranges: state.selection.ranges, focused });
+    return cm.Decoration.set(blocks.map((b) => cm.Decoration.replace({ widget: new Block(state.sliceDoc(b.from, b.to), b.kind), block: true }).range(b.from, b.to)));
+  };
+  const field = cm.StateField.define({
+    create: (state) => build(state, isFocused()),
+    update(deco, tr) {
+      const own = tr.effects.find((e) => e.is(refresh));
+      if (!tr.docChanged && !tr.selection && !own && cm.syntaxTree(tr.state) === cm.syntaxTree(tr.startState)) return deco;
+      return build(tr.state, own ? own.value : isFocused());
+    },
+    provide: (f) => cm.EditorView.decorations.from(f),
+  });
+  // ↓ and ↑ step into a drawn block (its first line going down, its last going up), which then shows its Markdown.
+  // CodeMirror would move past it, as one piece.
+  const stepInto = (down) => (view) => {
+    const sel = view.state.selection.main;
+    if (!sel.empty) return false;
+    const next = view.moveVertically(sel, down).head;
+    let hit = null;
+    view.state.field(field).between(Math.min(sel.head, next), Math.max(sel.head, next), (from, to) => {
+      if (down ? from < sel.head : to > sel.head) return;
+      if (!hit || (down ? from < hit.from : from > hit.from)) hit = { from, to };
+    });
+    if (!hit) return false;
+    view.dispatch({ selection: { anchor: down ? hit.from : view.state.doc.lineAt(hit.to).from }, scrollIntoView: true, userEvent: 'select' });
+    return true;
+  };
+  return [field, cm.Prec.high(cm.keymap.of([{ key: 'ArrowDown', run: stepInto(true) }, { key: 'ArrowUp', run: stepInto(false) }]))];
+}
+
 // CodeMirror's own parts, in the app's tokens. Here and not in app.css: CodeMirror adds its styles at run time,
 // outside the page's cascade layers (css/main.css), so they beat any rule of app.css; a theme of its own comes after
 // its base theme and wins. What it draws for the app (.cm-h1, .cm-link…: livemarks.js) is styled in app.css.
@@ -113,7 +173,7 @@ const DROPPED_KEYS = new Set(['Mod-Enter', 'Mod-i', 'Mod-[', 'Mod-]', 'Mod-Alt-\
 export const lfOffset = (raw, offset) => offset - (String(raw).slice(0, offset).match(/\r(?=\n)/g) || []).length;
 
 /**
- * liveSurface({ value, minHeight, placeholder, label, onChange, onKey, completions, isRef, onOpen }) → a surface, or null when
+ * liveSurface({ value, minHeight, placeholder, label, onChange, onKey, completions, isRef, onOpen, renderBlock }) → a surface, or null when
  * CodeMirror is not loaded or the text mixes line breaks (lineSepOf). A surface (mdeditor.js) is
  *   { kind, el, input, value(), saved(), sel() → [from, to], select(from, to, { scroll }), replace(from, to, text, [selFrom, selTo]),
  *     focus(), hasFocus(), rectAt(pos), setValue(text), destroy() }
@@ -123,10 +183,11 @@ export const lfOffset = (raw, offset) => offset - (String(raw).slice(0, offset).
  * `onKey(e)` sees every key first and returns true when it took it (mdeditor.js: ⌘B, lists, Esc…), unless the
  * completion menu is open, whose keys come first. `completions`: CodeMirror completion sources (vaultlinks.js: the /,
  * [[ and @ menus). `isRef(ref)`: whether a ref (STY-482) is an item's, drawn as a link; ⌘-click on a link, a [[doc]]
- * (at its heading, when it names one) or a ref calls `onOpen({ href, target, heading, ref })`.
+ * (at its heading, when it names one) or a ref calls `onOpen({ href, target, heading, ref })`. With `renderBlock(text, el)`,
+ * tables, callouts and diagrams the caret is not on are drawn whole (blockField).
  */
 export function liveSurface({ value = '', minHeight = '320px', placeholder = '', label = 'Text', onChange = () => {}, onKey = () => false, completions = [],
-  isRef = () => false, onOpen = () => {} } = {}) {
+  isRef = () => false, onOpen = () => {}, renderBlock = null } = {}) {
   const cm = CM;
   const sep = lineSepOf(value);
   if (!cm || !sep) return null;
@@ -136,15 +197,20 @@ export function liveSurface({ value = '', minHeight = '320px', placeholder = '',
   // would flash formatted and back, and an open menu would close, after every save.
   const settled = cm.StateEffect.define();
   let focused = false; // as drawn: the active line shows its Markdown
+  const refresh = cm.StateEffect.define(); // the blocks' field learns the settled focus: value true or false
+  const blocks = renderBlock ? blockField(cm, renderBlock, () => focused, refresh) : [];
   const deco = cm.ViewPlugin.fromClass(class {
     constructor(view) { this.decorations = decorations(cm, view, widgets, isRef, focused); }
     update(u) {
       let redraw = u.docChanged || u.viewportChanged || u.selectionSet || cm.syntaxTree(u.state) !== cm.syntaxTree(u.startState);
-      if (u.focusChanged && u.view.hasFocus && !focused) { focused = true; redraw = true; }
+      if (u.focusChanged && u.view.hasFocus && !focused) {
+        focused = true; redraw = true;
+        if (renderBlock) queueMicrotask(() => { if (u.view.dom.isConnected) u.view.dispatch({ effects: refresh.of(true) }); });
+      }
       if (u.focusChanged && !u.view.hasFocus) {
         setTimeout(() => {
           if (u.view.hasFocus || !focused || !u.view.dom.isConnected) return; // back already, or gone with its card
-          u.view.dispatch({ effects: settled.of(null) });
+          u.view.dispatch({ effects: renderBlock ? [settled.of(null), refresh.of(false)] : settled.of(null) });
         }, 150);
       }
       if (u.transactions.some((tr) => tr.effects.some((e) => e.is(settled)))) {
@@ -185,6 +251,7 @@ export function liveSurface({ value = '', minHeight = '320px', placeholder = '',
         cm.EditorView.theme({ ...THEME, '.cm-content': { ...THEME['.cm-content'], minHeight } }),
         completions.length ? cm.autocompletion({ override: completions, icons: false, closeOnBlur: false, maxRenderedOptions: 12 }) : [], // closed by `settled`
         deco,
+        blocks,
         cm.EditorView.updateListener.of((u) => { if (u.docChanged) onChange(u.state.sliceDoc()); }),
       ],
     }),

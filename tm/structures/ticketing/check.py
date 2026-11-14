@@ -4,10 +4,10 @@ what blocking and warnings mean, and the shape of the answer).
 Blocking: a root type folder missing (Tasks, Notes, Meetings, Inbox, Activities, Work log — Agents, Prompts and
 Transcriptions may be missing: each is made with its first item); a top folder that is
 neither one of those nor a project (a folder with exactly one `00 <Folder>.md` of fileClass Ticket Project and a
-valid, unique project_key); a type folder a project needs missing, or one it does not know; a ticket in the
-folder of another type; an id that is missing, malformed, of another project or type, or used twice; a ticket
-file not named `<ID> <Title>.md`; an iCloud placeholder. Only missing folders can be created by the app. A
-project's Stories/ and Specs/ may be missing: each is made with the project's first story or spec.
+valid, unique project_key); a type folder a project does not know; a ticket in the folder of another type; an id
+that is missing, malformed, of another project or type, or used twice; a ticket file not named `<ID> <Title>.md`; an
+iCloud placeholder. Only missing folders can be created by the app. A project's type folders may all be missing: each
+is made with its first file.
 
 A ticket in no project lives in its type's folder at the top of the vault (`Initiatives/`, `Records/Errors/`…:
 definition.PROJECT_ROOT_FOLDERS), each optional, made with its first file; its id is a number, or from before short
@@ -23,7 +23,7 @@ import re
 from ...attachments import DIR as ATTACHMENTS_DIR
 from ...fsutil import read_error
 from ..check import IGNORED_FILES, PLACEHOLDER_RE, ROOT_GUIDES, _finding, _result, _read_fields
-from ..kinds import DEFAULT_KIND, KINDS, PROJECT_FOLDER_TYPES, kind_of
+from ..kinds import PROJECT_FOLDER_TYPES
 from .. import NUMBER_RE
 from .definition import (DOCS_FOLDER, ID_RE, INDEX_NOTE, OPTIONAL_ROOT_FOLDERS, PROJECT_KEY_RE, PROJECT_ROOT_TOPS, ROOT_FOLDERS, SPEC,
                          WORKLOG_FOLDER, BY_FILE_CLASS)
@@ -31,40 +31,9 @@ from .definition import (DOCS_FOLDER, ID_RE, INDEX_NOTE, OPTIONAL_ROOT_FOLDERS, 
 SKIP_DIRS = {'node_modules', '__pycache__', ATTACHMENTS_DIR}  # Attachments/: files, never items (tm/attachments.py)
 
 
-# Folders a project may lack: made with its first item (a project from before stories and specs has neither).
-MAY_LACK = (SPEC['story']['folder'], SPEC['spec']['folder'])
-
-
-def _project_folders(kind, enabled):
-    """The type folders a project must have: those of the types its kind gives it (tm/structures/kinds.py), its
-    optional ones only as its enabled_types names them — none when it names none — less those it may lack."""
-    return [f for f in (SPEC[t]['folder'] for t in kind_of(kind).project_types(enabled or ())) if f not in MAY_LACK]
-
-
-# Every folder a project of any kind may have: a project folder holding another is not one of this structure's.
-KNOWN_PROJECT_FOLDERS = frozenset(SPEC[t]['folder'] for k in KINDS.values() for t in k.types)
-
-
-def _check_kind(full, name, key, fields, warnings):
-    """Warnings about a project's kind: one its note does not name (or names wrong), which is read as the default; and
-    the files of a type its kind has no folder for (a system project's hotfixes, from before kinds decided it), which
-    are read but to which nothing new can be added."""
-    note = f'{name}/00 {name}.md'
-    said = str(fields.get('project_kind') or '').strip()
-    if said not in KINDS:
-        what = f'project_kind "{said}" is not a kind' if said else 'No project_kind'
-        warnings.append(_finding('unknown_kind', note, f'{what} ({", ".join(KINDS)}): read as {DEFAULT_KIND}. '
-                                 'Write the one it is in its note; once it names one it is fixed.'))
-    kind = kind_of(said)
-    for t in PROJECT_FOLDER_TYPES:
-        folder = SPEC[t]['folder']
-        sub = os.path.join(full, folder)
-        if t in kind.types or not os.path.isdir(sub):
-            continue
-        n = sum(1 for f in os.listdir(sub) if f.endswith('.md'))
-        if n:
-            warnings.append(_finding('kind_lacks_type', f'{name}/{folder}', f'Project {key} is of kind {kind.id}, which has '
-                                     f'no {folder}: its {n} file(s) are read, but no new one can be added.'))
+# Every folder a project may have, each made with its first file (what it holds follows from its initiatives' kinds,
+# tm/structures/kinds.py): a project folder holding another is not one of this structure's.
+KNOWN_PROJECT_FOLDERS = frozenset(SPEC[t]['folder'] for t in PROJECT_FOLDER_TYPES)
 
 
 def _check_docs(dirpath, rel_dir, filenames, load, warnings):
@@ -134,14 +103,6 @@ def check(root, load=None):
             continue
         keys[key] = name
         projects[name] = key
-        enabled = fields.get('enabled_types') if isinstance(fields.get('enabled_types'), list) else None
-        wanted = _project_folders(fields.get('project_kind'), enabled)
-        for folder in wanted:
-            if not os.path.isdir(os.path.join(full, folder)):
-                rel = f'{name}/{folder}'
-                missing.append(rel)
-                blocking.append(_finding('missing_folder', rel, f'Missing the "{folder}" folder of project {key}.'))
-        _check_kind(full, name, key, fields, warnings)
         known_top = {f.split('/')[0] for f in KNOWN_PROJECT_FOLDERS} | {DOCS_FOLDER}
         for sub in sorted(os.listdir(full)):
             if sub.startswith('.') or not os.path.isdir(os.path.join(full, sub)):

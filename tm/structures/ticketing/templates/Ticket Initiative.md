@@ -3,6 +3,7 @@ fileClass: Ticket Initiative
 id: "{{id}}"                           # its number, drawn INI-<n>, assigned by the capability
 aliases: []                            # its ids from before short ids: [ACME-INI-001]
 name: "{{slug}}"
+initiative_kind: simple                # product · system · simple — only widens (tm/structures/kinds.py)
 project: "[[00 {{project}}]]"
 status_ticket: "1. Backlog"            # only via tickets_move
 status_log: []                         # [{date, from, to, by}] — written by the capability

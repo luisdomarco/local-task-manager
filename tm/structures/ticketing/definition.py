@@ -7,11 +7,10 @@
     ├── Initiatives/ Stories/ Specs/ Support/ Hotfixes/ PRDs/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
     │                                  ← tickets in no project, each in its type's folder (optional: made with the first)
     └── <Project>/
-        ├── 00 <Project>.md            ← fileClass: Ticket Project (project_key, enabled_types, support_due_days…)
-        ├── Initiatives/ Support/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
-        ├── Stories/                   ← an initiative's deliveries (made with the first story)
-        ├── Specs/                     ← what the project's system does today (made with the first spec)
-        ├── Hotfixes/ PRDs/            ← when the project enables them (product projects)
+        ├── 00 <Project>.md            ← fileClass: Ticket Project (project_key, support_due_days…)
+        ├── Initiatives/ Stories/ Specs/ Support/ Hotfixes/ PRDs/ Plans/ Analyses/ Records/Errors/ Records/Learnings/
+        │                              ← each made with its first file (tm/structures/kinds.py: what an initiative's
+        │                                kind gives it and its project)
         └── Docs/                      ← the project's documents (optional)
 
 A ticket is `<REF> <Title>.md`, its type is its `fileClass`, its id a number from the vault's one counter, drawn
@@ -25,7 +24,8 @@ import re
 
 from ...attachments import DIR as ATTACHMENTS_DIR
 from .. import Structure, TypeDef, agents
-from ..kinds import ENABLEABLE, KINDS, LISTED
+from ..kinds import (DELIVERY_SETTINGS, INITIATIVE_DELIVERY_TYPES, KIND_KEY, KINDS, LEGACY_DEFAULT, LEGACY_KIND_KEY, NEW_KIND,
+                     PROJECT_DELIVERY_TYPES, WIDENS)
 from ..relations import relation_kinds
 from ..traits import PROJECT_CLOSED, PROJECT_STATUSES, fields_for, parent_label, plannable, with_parent_heading
 
@@ -38,10 +38,6 @@ GOAL_STATUSES = ('ToDo', 'InProgress', 'Done', 'Discarded')
 PRIORITIES = ('P0', 'P1', 'P2', 'P3')
 LEVELS = ('C1', 'C2', 'C3')
 EXECUTION_MODES = ('parallel', 'serial')  # serial: one InProgress at a time in the project, all types
-# The types a project's enabled_types names: the core ones every project has, then those it may leave out. Which a
-# project has comes from its kind (tm/structures/kinds.py).
-CORE_PROJECT_TYPES = LISTED
-PROJECT_TYPES = ENABLEABLE
 # A long id from before short ids: KEY-TYPE-NNN (a project's ticket) or TYPE-NNN (a root type): group 1 is the prefix,
 # group 2 the number. A short id is a bare number (tm/structures NUMBER_RE).
 ID_RE = re.compile(r'^((?:[A-Z]{2,4}-)?[A-Z]{3,4})-(\d{3,})$')
@@ -61,7 +57,6 @@ INDEX_NOTE = '00 Index Tickets.md'
 # legacy_title: how a file of that type from before it had ids is named, read when it has none ('plan': "<REF of its
 # item> Plan", 'date': "<date> <Title>"). parent: the field that is its `related_to`.
 # links / multi_links: fields that hold one wikilink / a list of them (shown to the app as item keys).
-# optional: a type the project may leave out (enabled_types).
 SPEC = {
     # A project's status is the app's (traits.PROJECT_STATUSES, as a Tasks project's), kept as it is in `status_project`.
     'project': dict(file_class='Ticket Project', scope='note', folder='', code='', title='note', status_key='status_project'),
@@ -79,9 +74,9 @@ SPEC = {
     'support': dict(file_class='Ticket Support', scope='project', folder='Support', code='SUP', title='id', status_key='status_ticket',
                     links=('promoted_to', 'escalated_to'), multi_links=('caused_by', 'caused_by_candidates', 'depends_on')),
     'hotfix': dict(file_class='Ticket Hotfix', scope='project', folder='Hotfixes', code='HFX', title='id', status_key='status_ticket',
-                   parent='origin', links=('postmortem',), optional=True),
+                   parent='origin', links=('postmortem',)),
     'prd': dict(file_class='Ticket PRD', scope='project', folder='PRDs', code='PRD', title='id', status_key='status_ticket',
-                parent='initiative', links=('supersedes', 'superseded_by'), optional=True),
+                parent='initiative', links=('supersedes', 'superseded_by')),
     # A plan and an analysis are named by their id as every ticket is (`PLN-482 <Title>.md`). One from before they had
     # ids has none and keeps its old name (`legacy_title`): a plan after its item (`STY-12 Plan.md`), an analysis after
     # its date (`2026-10-12 <Title>.md`); tools/migrate_short_ids.py numbers them with the rest.
@@ -112,7 +107,6 @@ for _spec in SPEC.values():
     _spec.setdefault('parent', None)
     _spec.setdefault('links', ())
     _spec.setdefault('multi_links', ())
-    _spec.setdefault('optional', False)
     _spec.setdefault('legacy_title', None)
 BY_FILE_CLASS = {s['file_class']: t for t, s in SPEC.items()}
 # A parent written under its old name, still read (never written): a PRD's `umbrella:`, from before stories.
@@ -135,16 +129,20 @@ IN_GOAL = (P(key='goal', label='Goal', kind='link', types=['goal']),
 ON_HOLD = P(key='on_hold', label='On hold', kind='map', keys=['by', 'why', 'resume_when'],
             key_labels={'by': 'On hold by', 'why': 'Why on hold', 'resume_when': 'Resume when'})
 PROPS = {
-    # Its kind is chosen once, on creation (`once`: the create form offers `options`; read-only after).
+    # A project from before kinds moved to initiatives says one (`project_kind`): its initiatives that say none read
+    # it. Never asked, never edited; shown while the note has it.
     'project': (P(key='project_key', label='Key', kind='readonly'),
-                P(key='project_kind', label='Kind', kind='readonly', once=True,
+                P(key=LEGACY_KIND_KEY, label='Kind of its initiatives', kind='readonly',
                   options=[[k.id, k.label] for k in KINDS.values()]),
                 P(key='execution_mode', label='Execution', kind='select', options=_opts(*EXECUTION_MODES)),
-                P(key='enabled_types', label='Types', kind='checks', options=_opts(*PROJECT_TYPES), fixed=list(CORE_PROJECT_TYPES)),
                 P(key='support_due_days', label='Support due days', kind='map', keys=list(LEVELS), number=True),
                 P(key='repo', label='Repo', kind='text', placeholder='~/github/…'),
                 P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'), *IN_GOAL),
-    'initiative': (P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
+    # What it is (tm/structures/kinds.py): chosen on creation (Simple unless it says), and then only widened (`widens`:
+    # the kinds each may become).
+    'initiative': (P(key=KIND_KEY, label='Kind', kind='select', options=[[k.id, k.label] for k in KINDS.values()],
+                     default=NEW_KIND, widens={k: list(v) for k, v in WIDENS.items()}),
+                   P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
                    P(key='regime', label='Regime', kind='select', options=_opts('standard', 'critical')),
                    P(key='premise', label='Premise', kind='select', options=_opts('unverified', 'verified', 'reframed', 'refuted')),
                    P(key='premise_verified', label='Premise verified', kind='text', placeholder='<date> @ <sha>; …'),
@@ -153,7 +151,10 @@ PROPS = {
                    P(key='plan', label='Plan', kind='link', types=['plan']),
                    P(key='depends_on', label='Depends on', kind='links', types=['initiative', 'support', 'hotfix']),
                    ON_HOLD,
-                   P(key='discard_reason', label='Discard reason', kind='text', placeholder='Why it was dropped'), *IN_GOAL),
+                   P(key='discard_reason', label='Discard reason', kind='text', placeholder='Why it was dropped'),
+                   # Where its code lives and who works it: its project's when it says none.
+                   P(key='repo', label='Repo', kind='text', placeholder='~/github/…'),
+                   P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'), *IN_GOAL),
     'story': (P(key='size', label='Size', kind='select', options=_opts('S', 'M', 'L')),
               P(key='spec_impact', label='Spec impact', kind='text', placeholder='the specs it changes, or "none: <why>"'),
               P(key='origin', label='Origin', kind='link', types=['support', 'task']),
@@ -221,11 +222,12 @@ PROPS = {
 # carried out (execution and git), drawn in its Settings tab after its own; 'settings', a project's settings (a section of the page's own, above its area and
 # objective, its kind, types, execution, support due days and where its code lives). Links go to Relations on their own.
 TABS = {
-    'project': {'settings': ('project_kind', 'execution_mode', 'enabled_types', 'support_due_days', 'repo', 'managed_by'),
+    'project': {'settings': (LEGACY_KIND_KEY, 'execution_mode', 'support_due_days', 'repo', 'managed_by'),
                 'hidden': ('project_key',)},  # its key heads its page
     # Its PRD and plan are in their own tabs of its page (what hangs from it), not again in Relations; what it depends
     # on is the "Blocked by" kind of its relations (relations.py).
-    'initiative': {'delivery': ('size', 'regime', 'premise', 'premise_verified', 'on_hold', 'discard_reason'), 'hidden': ('prd', 'plan', 'depends_on')},
+    'initiative': {'delivery': ('size', 'regime', 'premise', 'premise_verified', 'repo', 'managed_by', 'on_hold', 'discard_reason'),
+                   'hidden': ('prd', 'plan', 'depends_on')},
     'spec': {'delivery': ('synced_sha', 'synced_date')},
     'story': {'delivery': ('size', 'spec_impact', 'executor', 'branch', 'baseline', 'changelog_ref', 'on_hold', 'discard_reason'), 'hidden': ('plan', 'depends_on')},
     'support': {'delivery': ('executor', 'branch', 'subject_sha', 'signature', 'should_have_caught', 'on_hold', 'discard_reason')},
@@ -238,14 +240,15 @@ TABS = {
 DELIVERY_GROUPS = (
     ('Readiness', 'check', ('regime', 'size', 'premise', 'premise_verified')),
     ('Execution', 'terminal', ('executor', 'base', 'base_branch', 'branch', 'baseline', 'worktree', 'verifier', 'subject_sha')),
+    ('Code', 'code', ('repo', 'managed_by')),
     ('Spec and release', 'tag', ('spec_impact', 'synced_sha', 'synced_date', 'observation_window', 'owner_review', 'changelog_ref')),
     ('Triage', 'search', ('signature', 'should_have_caught')),
     ('Paused or discarded', 'ban', ('on_hold', 'discard_reason')),
 )
-# A project's Settings, the same way: Global (its kind, types and execution), where its code lives and who works it, then
-# its support due days.
+# A project's Settings, the same way: Global (its execution, and the kind its initiatives read when they say none),
+# where its code lives and who works it, then its support due days.
 SETTINGS_GROUPS = (
-    ('Global', 'settings', ('project_kind', 'enabled_types', 'execution_mode')),
+    ('Global', 'settings', (LEGACY_KIND_KEY, 'execution_mode')),
     ('Code', 'code', ('repo', 'managed_by')),
     ('Support due days', 'clock', ('support_due_days',)),
 )
@@ -268,7 +271,7 @@ for _name, _tabs in TABS.items():
 # show it as before): how it is carried out, released and triaged, a pause, and its outcome. A new file takes the
 # template's value for each (disposition: pending, premise: unverified…). And its goal: an item joins one from the
 # Goals view (whose "+" still sets it) or its card's Relations, not in the create form, which asks for its Parent.
-LATER_GROUPS = ('Execution', 'Spec and release', 'Triage', 'Paused or discarded')
+LATER_GROUPS = ('Execution', 'Code', 'Spec and release', 'Triage', 'Paused or discarded')
 LATER = frozenset({key for title, _, keys in DELIVERY_GROUPS if title in LATER_GROUPS for key in keys}
                   | {'premise', 'premise_verified', 'disposition', 'resolution', 'fixed_by', 'postmortem', 'superseded_by',
                      'goal'})
@@ -335,11 +338,11 @@ LIST_COLS = ['id', 'subject', 'status']
 LISTS = {
     # A project's id is its key (ACME): the ID column draws it.
     'project': {'sort': {'col': 'subject', 'dir': 1}, 'relation': None, 'scopes': 'status',
-                'columns': [*LIST_COLS, 'priority', 'plan', 'start', 'due', 'labels', 'prop:project_kind:Kind',
-                            'prop:execution_mode:Execution', 'goal', 'updated'],
+                'columns': [*LIST_COLS, 'priority', 'plan', 'start', 'due', 'labels', 'prop:execution_mode:Execution', 'goal', 'updated'],
                 'group_by': ['status', 'priority', 'plan', 'goal']},
     'initiative': {'sort': {'col': 'priority', 'dir': 1}, 'relation': None, 'scopes': 'status',
-                   'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'extref', 'labels', 'progress', 'project', 'goal', 'updated'],
+                   'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:initiative_kind:Kind', 'prop:size:Size', 'extref', 'labels', 'progress',
+                               'project', 'goal', 'updated'],
                    'group_by': ['project', 'status', 'priority', 'plan', 'goal']},
     'story': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
               'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'labels', 'progress', 'project', 'parent:Initiative', 'goal', 'updated'],
@@ -469,7 +472,7 @@ def build(codec, checker):
         statuses=STATUSES, closed=CLOSED, worklog_folder=WORKLOG_FOLDER,
         defaults={'status': 'Backlog', 'priority': 'P2'},
         codec=codec, checker=checker, required=('project',), statuses_locked=True,
-        kinds=dict(KINDS), kind_key='project_kind',
+        kinds=dict(KINDS), kind_key=KIND_KEY,
         docs_folder=DOCS_FOLDER, docs_in_projects=True,
         docs_not_projects=frozenset({*ROOT_FOLDERS.values(), *OPTIONAL_ROOT_FOLDERS.values(), *PROJECT_ROOT_TOPS, WORKLOG_FOLDER,
                                      ATTACHMENTS_DIR}),
@@ -479,10 +482,12 @@ def build(codec, checker):
                 # project's folders (the sub-documents) follow their item's.
                 'leaves_project': list(LEAVES_PROJECT),
                 'sections': [dict(sec, types=list(sec['types'])) for sec in NAV_SECTIONS],
-                # The types a project may leave out (its note's enabled_types): a system project has no hotfixes nor PRDs.
-                'optional_types': [t for t, s in SPEC.items() if s['optional']],
-                # The project's field that turns its kind's optional types on and off (the page narrows it by kind).
-                'types_key': 'enabled_types',
+                # What the page needs of tm/structures/kinds.py beyond the kinds: the kind a project said before kinds
+                # moved to initiatives (read by its initiatives that say none, else LEGACY_DEFAULT), the types that
+                # hang from a delivering initiative only, those a project has while it delivers, and its settings then.
+                'legacy_kind_key': LEGACY_KIND_KEY, 'legacy_kind_default': LEGACY_DEFAULT,
+                'initiative_delivery_types': list(INITIATIVE_DELIVERY_TYPES), 'project_delivery_types': list(PROJECT_DELIVERY_TYPES),
+                'delivery_settings': list(DELIVERY_SETTINGS),
                 # How a project's and an initiative's page sorts what hangs from it, beside its work (tasks, notes,
                 # meetings): a tab per group, of its types' tables (one table: no bar of its own).
                 'child_groups': [['initiatives', 'Initiatives', ['initiative']],

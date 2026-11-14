@@ -18,7 +18,6 @@ import unicodedata
 
 from ... import frontmatter as fm
 from .. import NUMBER_RE
-from ..kinds import kind_of
 from . import rules, wikilinks
 from .definition import (CLOSED, INDEX_NOTE, LEGACY_PARENT, OWN_CLOSED, OWN_STATUSES, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC, STATUSES, BY_FILE_CLASS,
                          PROPS)
@@ -394,17 +393,6 @@ class TicketingCodec:
         return os.path.join(os.path.dirname(it['path']), name)
 
     # ── projects ─────────────────────────────────────────────────────────────
-    @staticmethod
-    def project_folders(kind, enabled=None):
-        """The type folders a project has: those of the types its kind gives it (tm/structures/kinds.py) — its
-        optional ones as its enabled_types names them, or a new project's when None."""
-        return [SPEC[t]['folder'] for t in kind_of(kind).project_types(enabled)]
-
-    @staticmethod
-    def enabled_types(kind):
-        """A new project's enabled_types, from its kind."""
-        return kind_of(kind).default_enabled()
-
     @staticmethod
     def is_root_file(name):
         return name == INDEX_NOTE or name.endswith('.base')

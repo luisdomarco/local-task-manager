@@ -259,16 +259,16 @@ class ProjectMoveTest(ShortIdsBase):
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
     def test_never_into_a_project_without_its_type(self):
-        sty = self.s.create('story', 'One page', {'project': 'ACME', 'related_to': self.s.create('initiative', 'Checkout', {'project': 'ACME'})['id']})
+        sup = self.s.create('support', 'Broken', {'project': 'ACME'})
         self.s.create('project', 'Office', {'project_key': 'OFF', 'project_kind': 'simple'})
-        with self.assertRaises(StoreError):  # a simple project has no stories
-            self.s.update(sty['key'], {'project': 'OFF'})
-        self.assertEqual(self.s.read(sty['key'])['path'], sty['path'])
+        with self.assertRaises(StoreError):  # its initiatives are simple: no support tickets
+            self.s.update(sup['key'], {'project': 'OFF'})
+        self.assertEqual(self.s.read(sup['key'])['path'], sup['path'])
 
     def test_a_story_changes_its_initiative_across_projects_or_lets_go_and_keeps_its_own(self):
         ini = self.s.create('initiative', 'Checkout', {'project': 'ACME'})
         other = self.s.create('initiative', 'Deploys', {'project': 'OPS'})
-        loose = self.s.create('initiative', 'Someday', {})
+        loose = self.s.create('initiative', 'Someday', {'initiative_kind': 'product'})
         sty = self.s.create('story', 'One page', {'related_to': ini['id']})
         self.assertEqual(sty['fields']['project'], 'ACME')  # made under its initiative: in its project
         now = self.s.update(sty['key'], {'related_to': other['id'], 'project': 'OPS'})  # as the page sends it
@@ -314,7 +314,7 @@ class ProjectMoveTest(ShortIdsBase):
             with self.assertRaises(StoreError) as cm:
                 s.update(ini['key'], {'project': to})
             self.assertIn('docs/migrate-short-ids.md', str(cm.exception))
-        loose = s.create('initiative', 'Someday', {})
+        loose = s.create('initiative', 'Someday', {'initiative_kind': 'product'})
         sty = s.create('story', 'Later', {'related_to': loose['id']})
         self.assertEqual([(i['id'], i['path']) for i in (loose, sty)],
                          [('INI-001', 'Initiatives/INI-001 Someday.md'), ('STY-001', 'Stories/STY-001 Later.md')])
@@ -329,8 +329,6 @@ class ProjectMoveTest(ShortIdsBase):
 
     def test_a_project_from_before_named_as_a_root_folder_keeps_its_tickets_out_of_it(self):
         write(self.root, 'Support/00 Support.md', '---\nfileClass: Ticket Project\nproject_key: SP\nproject_kind: simple\n---\n')
-        for sub in self.s.structure.codec.project_folders('simple'):
-            os.makedirs(os.path.join(self.root, 'Support', sub), exist_ok=True)
         self.assertTrue(self.s.check()['ok'], self.s.check())
         with self.assertRaises(StoreError) as cm:
             self.s.create('support', 'Loose', {})

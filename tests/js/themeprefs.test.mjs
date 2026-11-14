@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { KEYS, OPTIONS, PRESETS, SKINS, applyTheme, presetOf, presetValues, resolveTheme, shuffled } from '../../static/js/themeprefs.js';
+import { KEYS, OPTIONS, PRESETS, READING, SKINS, applyTheme, presetOf, presetValues, resolveTheme, shuffled } from '../../static/js/themeprefs.js';
 
 /** A stand-in for <html>: its dataset and classList, as applyTheme and index.html's script use them. */
 function fakeRoot() {
@@ -18,8 +18,10 @@ function fakeRoot() {
 }
 const shown = (root) => ({ ...root.dataset, dark: root.classList.contains('dark') });
 
-const none = Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, null]));
-const defaults = Object.fromEntries(Object.entries(OPTIONS).map(([k, list]) => [k, list[0]]));
+const reading = Object.fromEntries(Object.entries(READING).map(([k, list]) => [k, list[0]])); // in every look
+const none = { ...Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, null])), ...reading };
+const look = Object.fromEntries(Object.entries(OPTIONS).map(([k, list]) => [k, list[0]]));
+const defaults = { ...look, ...reading };
 
 test('defaults: Modern and its first options (Comfortable), the system decides light or dark', () => {
   assert.deepEqual(resolveTheme({}, false), { mode: 'system', theme: 'light', skin: 'modern', ...defaults });
@@ -44,7 +46,15 @@ test("Modern's options count only in Modern", () => {
     font: 'serif', heading: 'mono', menu: 'translucent', icons: 'thin' };
   assert.deepEqual(Object.keys(picked).sort(), Object.keys(OPTIONS).sort(), 'one of each option');
   assert.deepEqual(resolveTheme({ skin: 'classic', ...picked }), { mode: 'system', theme: 'light', skin: 'classic', ...none });
-  assert.deepEqual(resolveTheme({ skin: 'modern', ...picked }), { mode: 'system', theme: 'light', skin: 'modern', ...picked });
+  assert.deepEqual(resolveTheme({ skin: 'modern', ...picked }), { mode: 'system', theme: 'light', skin: 'modern', ...picked, ...reading });
+});
+
+test('how Markdown reads counts in every look, Classic too', () => {
+  for (const skin of SKINS) {
+    assert.equal(resolveTheme({ skin, width: 'wide' }).width, 'wide');
+    assert.equal(resolveTheme({ skin, width: 'nonsense' }).width, 'fit');
+  }
+  for (const k of Object.keys(READING)) assert.equal(KEYS[k], `tm-${k}`);
 });
 
 test('every option: its key, its root attribute, its default first', () => {
@@ -59,9 +69,9 @@ test('presets: known values only, one found again from its values, the default o
     for (const [k, v] of Object.entries(preset)) assert.ok(OPTIONS[k]?.includes(v) && k !== 'density', `${name}: ${k}=${v}`);
     assert.equal(presetOf({ ...presetValues(name), density: 'compact' }), name, 'the density is not part of a preset');
   }
-  const { density, ...look } = defaults;
-  assert.deepEqual(presetValues('modern'), look);
-  assert.equal(presetOf({ ...look, accent: 'teal' }), null, 'a choice of one\'s own');
+  const { density, ...looks } = look;
+  assert.deepEqual(presetValues('modern'), looks);
+  assert.equal(presetOf({ ...looks, accent: 'teal' }), null, 'a choice of one\'s own');
   assert.equal(new Set(Object.values(PRESETS).map((p) => JSON.stringify(presetValues(Object.keys(PRESETS).find((n) => PRESETS[n] === p))))).size,
     Object.keys(PRESETS).length, 'no two presets alike');
 });
@@ -81,7 +91,7 @@ test('applyTheme sets the attributes and the .dark class, and says when somethin
   assert.deepEqual(shown(root), { theme: 'dark', skin: 'modern', ...defaults, accent: 'blue', dark: true });
   assert.equal(applyTheme(root, resolveTheme({ skin: 'modern', mode: 'dark', accent: 'blue' })), false);
   applyTheme(root, resolveTheme({ skin: 'classic', mode: 'light' }));
-  assert.deepEqual(shown(root), { theme: 'light', skin: 'classic', dark: false });
+  assert.deepEqual(shown(root), { theme: 'light', skin: 'classic', ...reading, dark: false });
 });
 
 // index.html applies the same choices before the first paint, in a few lines of its own: run them against the module.
@@ -117,6 +127,8 @@ test("index.html's first script shows what theme.js would, for every choice", ()
         check({ mode, skin }, systemDark);
         // each of Modern's options, one at a time, every value
         for (const [k, list] of Object.entries(OPTIONS)) for (const v of values(list)) check({ mode, skin, [k]: v }, systemDark);
+        // and how Markdown reads, in both looks
+        for (const [k, list] of Object.entries(READING)) for (const v of values(list)) check({ mode, skin, [k]: v }, systemDark);
       }
     }
   }

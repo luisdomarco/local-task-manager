@@ -400,13 +400,19 @@
   .vb-switch::after { content: ''; position: absolute; inset: -13px -8px; }
   /* A page (an initiative's, a project's): its crumbs' and tabs' targets */
   .crumbs > a { display: inline-flex; align-items: center; min-height: var(--tap); }
-  /* Docs: with a doc open its trees fold under "Browse docs" (views/docs.js); the doc's buttons and outline a finger's */
+  /* Docs: the trees or the doc (app.css ≤760); "‹ Docs", the doc's buttons and outline a finger's */
   .docs-panel-title { min-height: var(--tap); }
-  .docs-fold { margin-left: auto; min-height: var(--tap); font-size: var(--fs-sm); font-weight: 500; }
-  .docs-fold[aria-expanded=true] > .icon:last-child { transform: rotate(180deg); }
-  .docs-page.tree-folded .docs-tree { display: none; }
-  .docs-page.tree-folded .docs-panel { padding-bottom: 4px; }
+  .docs-back { min-height: var(--tap); margin-bottom: 4px; font-size: var(--fs-base); }
   .files-head .btn, .zoom-bar .btn { min-height: var(--tap); }
+  .zoom-bar .btn.icon { width: var(--tap); }
+  .files-head .files-more { width: var(--tap); padding: 0; justify-content: center; }
+  /* A diagram or a picture expanded: the whole screen, its stage all of it under the bar */
+  #modal-backdrop:has(> #modal.expand-modal.attach-modal) { --modal-gap: 0px; padding: 0; } /* beats the padding rule above (2 ids, 2 classes) */
+  #modal.expand-modal { width: 100%; height: var(--vvh, 100dvh); max-height: none; border-radius: 0; box-shadow: none;
+    padding-top: max(18px, env(safe-area-inset-top)); overflow: hidden; }
+  #modal.expand-modal { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .md .md-expand { width: var(--tap); height: var(--tap); }
+  .files-head > .seg > .btn { height: calc(var(--tap) - 6px); min-height: 0; } /* the modes as tall as the buttons beside them */
   .files-outline > summary { display: flex; align-items: center; min-height: var(--tap); }
   .files-outline .link { min-height: 36px; }
   /* A doc being edited: Done stays at the bottom of the screen however long the doc is */

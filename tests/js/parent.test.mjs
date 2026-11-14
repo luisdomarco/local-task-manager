@@ -73,16 +73,17 @@ describe('parent field', () => {
     { type: 'initiative', id: '3', title: 'Someday', fields: { project: null, status: 'Backlog' } },
     { type: 'story', id: '4', title: 'One page', fields: { project: 'ACME', related_to: '1', status: 'Backlog' } },
     { type: 'plan', id: '5', title: 'Steps', fields: { project: 'ACME', related_to: '4' } },
-    { type: 'project', title: 'Office', fields: { project_key: 'OFF', project_kind: 'simple' } }, // holds no stories
+    { type: 'project', title: 'Office', fields: { project_key: 'OFF', project_kind: 'simple' } }, // its initiatives read simple
     { type: 'initiative', id: '6', title: 'Desks', fields: { project: 'OFF', status: 'Backlog' } },
   ];
   const shortValues = (type, opts) => parentChoices(type, opts, short).map((c) => c.value);
 
   it('offers a ticket with a short id the projects and what it may hang from in any project or none', () => {
     setStructure(PROJECTS);
-    assert.deepEqual(shortValues('story', { project: 'ACME', id: '4', current: '1' }), ['project:ACME', 'project:MOVE', '1', '2', '3']);
+    assert.deepEqual(shortValues('story', { project: 'ACME', id: '4', current: '1' }), ['project:ACME', 'project:MOVE', 'project:OFF', '1', '2', '3']);
     assert.deepEqual(shortValues('initiative', { project: 'ACME', id: '1' }), ['project:ACME', 'project:MOVE', 'project:OFF']);
-    assert.ok(!shortValues('story', { id: '4' }).some((v) => v === 'project:OFF' || v === '6')); // nor where its type has no place
+    assert.ok(!shortValues('story', { id: '4' }).includes('6')); // never from a simple initiative
+    assert.ok(!shortValues('support', { id: '7' }).includes('project:OFF')); // nor to a project that has no support tickets
     // A long id: only what is in its own project, and no project to pick.
     assert.deepEqual(values('story', { project: 'ACME', id: 'ACME-STY-001' }), ['ACME-INI-001']);
     // A sub-document: only what is in its item's project (none included), never a project.

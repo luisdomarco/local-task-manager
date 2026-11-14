@@ -194,7 +194,8 @@ class LayoutTest(unittest.TestCase):
         tab = {p['key']: p['tab'] for p in types['initiative']['props']}
         self.assertEqual([k for k, v in tab.items() if v == 'hidden'], ['prd', 'plan', 'depends_on', 'goal_order'])
         self.assertEqual(tab['goal'], 'relations')  # the goal it is part of; its place there is the Goals view's
-        self.assertEqual([k for k, v in tab.items() if v == 'main'], [])  # area and objective: the app's; size: in Readiness
+        # Its kind, a property (area and objective: the app's; size: in Readiness).
+        self.assertEqual([k for k, v in tab.items() if v == 'main'], ['initiative_kind'])
         self.assertEqual(tab['size'], 'delivery')
         self.assertNotIn('branch', tab)  # delivered by its stories
         story = [(p['group'], p['key']) for p in types['story']['props'] if p['tab'] == 'delivery']
@@ -212,7 +213,7 @@ class LayoutTest(unittest.TestCase):
             self.assertEqual(groups, sorted(groups, key=groups.index), name)
         self.assertEqual({p['tab'] for p in types['project']['props']}, {'settings', 'hidden', 'relations'})  # relations: its goal
         settings = [(p['group'], p['key']) for p in types['project']['props'] if p['tab'] == 'settings']
-        self.assertEqual(settings, [('Global', 'project_kind'), ('Global', 'enabled_types'), ('Global', 'execution_mode'),
+        self.assertEqual(settings, [('Global', 'project_kind'), ('Global', 'execution_mode'),
                                     ('Code', 'repo'), ('Code', 'managed_by'), ('Support due days', 'support_due_days')])
 
     def test_what_a_later_step_writes_is_not_asked_on_create(self):
@@ -231,13 +232,12 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(initiative, ['regime', 'size'])  # Readiness, less the premise: verified later
         self.assertFalse(any(p.get('later') for t in self.types(get('folders')).values() for p in t.get('props', [])))
 
-    def test_a_type_turned_off_leaves_the_pages_tables_and_the_optional_types(self):
+    def test_a_type_turned_off_leaves_the_pages_tables(self):
         s = get('ticketing').without(['plan', 'hotfix'])
         types = self.types(s)
         self.assertNotIn('plan', types['initiative']['children'])
         self.assertNotIn('plan', types['project']['children'])
-        self.assertEqual(s.public()['optional_types'], ['prd'])
-        self.assertEqual(get('ticketing').public()['optional_types'], ['hotfix', 'prd'])
+        self.assertNotIn('hotfix', s.public()['project_scoped'])
 
 
 class RegistryTest(unittest.TestCase):

@@ -9,7 +9,7 @@ import {
   aimFields, blocksOf, breakBlocks, itemFields, kindOfBinding, modalFrame, modalTitle, parentControl, planValues, propField, quietBlanks, settingsBody, statusSelect,
 } from './itemform.js';
 import {
-  EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, kindDefaultTypes, leavesProject, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
+  EXTERNAL_REF, PARENT_TYPES, PLANNABLE, STRUCTURE, TYPE_DEFS, askedOnCreate, defaultOf, hasExternalRef, hasField, addMenuGroups, inSomeProject, leavesProject, missingOnCreate, parentLabel, onStructure, projectHas, projectOf, propsIn, propsOf, statusesOf,
 } from './rules.js';
 import { api } from './api.js';
 import { has } from './features.js';
@@ -57,7 +57,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   let closeModal = () => {};
   const modal = document.getElementById('modal');
   const form = { type, subject: '', status: values.status || defaultOf('status', 'ToDo'), priority: values.priority || defaultOf('priority', 'Normal'), priority_reason: '',
-    project: values.project || null, project_key: '', project_kind: 'simple', // a new project starts simple: initiatives and tasks
+    project: values.project || null, project_key: '',
     related_to: values.related_to || null, planned: values.plan || null, start: '', due: '', area: '', objective: '', date: today(), time: '', duration: '', attendees: [], labels: [...(values.labels || [])], body: '',
     source: values.source || 'Email', from: [], session_name: values.session_name || '',
     [EXTERNAL_REF.id_key]: '', [EXTERNAL_REF.url_key]: '', ...(EXTERNAL_REF.tracker_key ? { [EXTERNAL_REF.tracker_key]: '' } : {}), local_path: '' };
@@ -137,10 +137,10 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
     } else if (hasField(form.type, 'status')) {
       v.status = statuses.includes(form.status) ? form.status : statuses[0];
     }
-    // A Ticketing item: its project (a project itself: its key and kind), and the fields of its own type.
+    // A Ticketing item: its project (a project itself: its key), and the fields of its own type (an initiative: its kind).
     if (hasField(form.type, 'project') && form.project) v.project = form.project;
-    if (form.type === 'project') Object.assign(v, { project_key: form.project_key.trim().toUpperCase(), project_kind: form.project_kind });
-    for (const p of propsOf(form.type, kindOfBinding(binding))) { // not those its project's kind hides
+    if (form.type === 'project') v.project_key = form.project_key.trim().toUpperCase();
+    for (const p of propsOf(form.type, kindOfBinding(binding))) { // not those its kind hides
       if (p.kind === 'readonly' || p.readonly) continue;
       const x = form[p.key];
       if (x !== undefined && x !== null && x !== '' && !(Array.isArray(x) && !x.length)) v[p.key] = x;
@@ -178,19 +178,17 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   let binding;
   const render = () => {
     const label = TYPE_LABEL[form.type];
-    // A new project starts with the Types its kind starts with, on screen as it will be saved.
-    if (form.type === 'project' && STRUCTURE.kind_key && !form[STRUCTURE.types_key]) form[STRUCTURE.types_key] = kindDefaultTypes(kindOfBinding({ type: 'project', get: (k) => form[k] }));
-    // The types it can be: those with a place in the vault (a vault of simple projects has no stories), and once a
-    // project is chosen, those its kind holds.
+    // The types it can be: those with a place in the vault (a vault whose initiatives are all simple has no support
+    // tickets), and once a project is chosen, those it holds.
     const project = form.type === 'project' ? null : projectOf({ type: 'task', fields: { project: form.project } }, state.all);
-    const offered = CREATE_TYPES.filter((t) => t === form.type || (inSomeProject(t, state.all) && (!project || projectHas(project, t))));
+    const offered = CREATE_TYPES.filter((t) => t === form.type || (inSomeProject(t, state.all) && (!project || projectHas(project, t, state.all))));
     const bodyLabel = BODY_LABEL[form.type] || 'Description';
     // The type it creates, picked in the head: the one it was opened for, and any other the vault (and the chosen
     // project) holds. A type the chosen project does not hold leaves the project to choose again (it would be refused).
     const typePick = select(offered.map((t) => [t, TYPE_LABEL[t], TYPE_ICON[t]]), form.type, (t) => {
       if (!t || t === form.type) return;
       form.type = t;
-      if (project && !projectHas(project, t)) form.project = null;
+      if (project && !projectHas(project, t, state.all)) form.project = null;
       render();
       modal.querySelector('#cf-subject').focus();
     }, { class: 'type-pick', 'aria-label': 'Type', 'data-fk': 'cf-type', search: !isPhone() }); // a phone: a short list, no keyboard
@@ -208,14 +206,13 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
         if (key === 'related_to') folderEl.textContent = whereText();
         if (key === 'project') {
           folderEl.textContent = whereText();
-          // The types offered follow the project (its kind and its Types): one it does not hold goes back to a task.
+          // The types offered follow the project (its initiatives' kinds): one it does not hold goes back to a task.
           const now = projectOf({ type: 'task', fields: { project: value } }, state.all);
-          if (now && !projectHas(now, form.type)) { form.type = 'task'; render(); return; }
+          if (now && !projectHas(now, form.type, state.all)) { form.type = 'task'; render(); return; }
           if (now !== project) { render(); return; }
         }
         if (kindOfBinding(binding)?.id === before) return;
-        // Another kind keeps other fields (and a new project, other Types): draw the form again for it.
-        if (key === STRUCTURE.kind_key) form[STRUCTURE.types_key] = null;
+        // Another kind keeps other fields (a simple initiative has no readiness): draw the form again for it.
         render();
       } };
     const hasProject = hasField(form.type, 'project') && form.type !== 'project';

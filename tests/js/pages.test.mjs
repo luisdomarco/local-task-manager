@@ -83,7 +83,8 @@ describe('pages', () => {
     for (const type of ['task', 'story', 'initiative', 'prd']) assert.ok(!asked(type, 'relations').includes('goal'), type);
     assert.ok(propsIn('task', 'relations').some((p) => p.key === 'goal')); // its card still shows it
     assert.deepEqual(asked('initiative', 'relations'), ['origin']);
-    assert.ok(asked('project', 'settings').includes('project_kind')); // chosen once, on creation
+    assert.deepEqual(asked('initiative', 'main'), ['initiative_kind']); // what it is: chosen on creation, widened later
+    assert.ok(!asked('project', 'settings').includes('project_kind')); // a project says no kind: its initiatives do
     assert.equal(askedOnCreate({ key: 'level_base', kind: 'readonly' }), false); // set by the app
     assert.equal(askedOnCreate({ key: 'x', kind: 'text' }), true);
     setStructure(WITH_PROJECTS);

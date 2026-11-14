@@ -15,7 +15,7 @@ import re
 from datetime import date, timedelta
 
 from ...frontmatter import split as fm_split
-from ..kinds import KINDS, kind_of
+from ..kinds import KIND_KEY, KINDS, LEGACY_KIND_KEY, NEW_KIND, initiative_kind_of, project_delivers, widens
 from . import specs
 from .definition import CLOSED, EXECUTION_MODES, LEVELS
 
@@ -53,9 +53,28 @@ def _project(r, key):
     return (r.projects.get(key) or {}).get('fields') or {}
 
 
-def _kind(r, key):
-    """The kind of project `key` (tm/structures/kinds.py): what it has decides which of these rules apply."""
-    return kind_of(_project(r, key).get('project_kind'))
+def _kind(r, f):
+    """The kind of an initiative of fields `f` (tm/structures/kinds.py): its own, else its project's from before."""
+    return initiative_kind_of(f, _project(r, f.get('project')))
+
+
+def delivers(store, r, key, items=None):
+    """Whether project `key` has delivery work (kinds.project_delivers): its settings and its support tickets follow."""
+    inis = [i['fields'] for i in (items if items is not None else store.items())
+            if i['type'] == 'initiative' and i['fields'].get('project') == key]
+    return project_delivers(_project(r, key), inis)
+
+
+def _delivering_kind(store, r, key):
+    """The kind of an initiative a support ticket of project `key` is promoted to: that of its project's latest
+    delivering initiative, else its note's own from before, else the first delivering kind."""
+    inis = [i for i in store.items() if i['type'] == 'initiative' and i['fields'].get('project') == key]
+    for i in sorted(inis, key=lambda i: str(i['fields'].get('created_at') or ''), reverse=True):
+        kind = _kind(r, i['fields'])
+        if kind.delivers:
+            return kind.id
+    legacy = KINDS.get(str(_project(r, key).get(LEGACY_KIND_KEY) or '').strip())
+    return legacy.id if legacy and legacy.delivers else next(k.id for k in KINDS.values() if k.delivers)
 
 
 def due_for(r, project, level, due_from):
@@ -82,9 +101,14 @@ def _err(msg):
 
 # ── create ───────────────────────────────────────────────────────────────────
 def on_create(store, t, values, r, stamp):
-    if t == 'project':  # its settings, as the create form fills them in: checked as an edit of them is, less those
-        kind = kind_of(values.get('project_kind'))  # its kind has no use for (the form fills in every one it shows)
-        return _project_settings({k: v for k, v in values.items() if not kind.hides('project', k)}, kind)
+    if t == 'project':  # its settings, as the create form fills them in: checked as an edit of them is
+        return _project_settings(values)
+    if t == 'initiative':  # what it is: what it says; else what its project said before kinds moved to initiatives
+        legacy = str(_project(r, values.get('project')).get(LEGACY_KIND_KEY) or '').strip()  # (as its others read),
+        kind = str(values.get(KIND_KEY) or (legacy if legacy in KINDS else NEW_KIND)).strip()  # else Simple
+        if kind not in KINDS:
+            raise _err(f"{KIND_KEY} must be {' or '.join(KINDS)}")
+        values[KIND_KEY] = kind
     if t == 'support':
         level = values.get('level') or 'C2'
         if level not in LEVELS:
@@ -146,18 +170,17 @@ def on_update(store, it, values, r, stamp, by='agent'):
     support ticket's resolution) is everyone's."""
     t, f = it['type'], it['fields']
     if t == 'project':
-        old, new = str(f.get('project_kind') or '').strip(), str(values.get('project_kind') or '').strip()
-        # Its kind is fixed once it says one; a note that names none, or one not known (written by hand), may be given one.
-        if 'project_kind' in values and new != old:
-            if old in KINDS:
-                raise _err('a project keeps the kind it was made with: its types and folders follow from it')
-            if new not in KINDS:
-                raise _err(f"project_kind must be {' or '.join(KINDS)}")
-        kind = kind_of(f.get('project_kind'))
-        hidden = [k for k in values if kind.hides('project', k)]
-        if hidden:
-            raise _err(f'a project of kind {kind.id} has no {hidden[0]}')
-        return _project_settings(values, kind)
+        # The kind it said before kinds moved to initiatives is what its initiatives that say none read: kept as it is.
+        if LEGACY_KIND_KEY in values and str(values[LEGACY_KIND_KEY] or '').strip() != str(f.get(LEGACY_KIND_KEY) or '').strip():
+            raise _err(f'{LEGACY_KIND_KEY} is kept as it is: each initiative says its own kind ({KIND_KEY})')
+        return _project_settings(values)
+    if t == 'initiative' and KIND_KEY in values:  # what it is: only widened (simple → product or system)
+        old, new = _kind(r, f).id, str(values[KIND_KEY] or '').strip()
+        if new not in KINDS:
+            raise _err(f"{KIND_KEY} must be {' or '.join(KINDS)}")
+        if not widens(old, new):
+            raise _err(f'an initiative of kind {old} cannot become {new}: a kind only widens (its stories, PRD and readiness would be left)')
+        values[KIND_KEY] = new
     if t == 'support' and 'level' in values and values['level'] != f.get('level'):
         new, old, base = _rank(values['level']), _rank(f.get('level')), _rank(f.get('level_base'))
         if new is None:
@@ -181,17 +204,11 @@ def on_update(store, it, values, r, stamp, by='agent'):
     return values
 
 
-def _project_settings(values, kind):
-    """A project's settings as its card edits them: a known execution mode; enabled types in their order, the core
-    ones always in, only those its `kind` has (kinds.Kind.enabled); a whole number of days (0 or more) per level; the
-    repo and its system as text."""
+def _project_settings(values):
+    """A project's settings as its card edits them: a known execution mode; a whole number of days (0 or more) per
+    level; the repo and its system as text."""
     if 'execution_mode' in values and values['execution_mode'] not in EXECUTION_MODES:
         raise _err(f'execution_mode must be one of {list(EXECUTION_MODES)}')
-    if 'enabled_types' in values:
-        try:
-            values['enabled_types'] = kind.enabled(values['enabled_types'])
-        except ValueError as e:
-            raise _err(str(e)) from None
     if 'support_due_days' in values:
         days = {}
         for level, n in (values['support_due_days'] or {}).items():
@@ -229,9 +246,9 @@ def _check_transition(store, it, new, f, r):
     if t == 'hotfix' and new == 'Done' and not f.get('postmortem'):
         raise _err('a hotfix closes with its post-mortem: link the error record (Post-mortem)')
     if t == 'initiative' and old == 'Backlog' and new == 'ToDo':  # what its kind has of it: a simple one, nothing
-        kind = _kind(r, f.get('project'))
+        kind = _kind(r, f)
         missing = [key for key in ('size', 'regime') if not kind.hides('initiative', key) and not f.get(key)]
-        if 'story' in kind.types and not stories_of(store, it['key']):
+        if kind.delivers and not stories_of(store, it['key']):
             missing.append('at least one story')
         if missing:
             raise _err(f"an initiative is ready (ToDo) only with {', '.join(missing)}")
@@ -246,7 +263,7 @@ def _check_transition(store, it, new, f, r):
         _check_story_ready(f, ini, store.read(it['key'])['body'])  # the body as saved: a status changes on its own
     if new == 'InProgress' and t in SERIAL:
         p = _project(r, f.get('project'))
-        if p.get('execution_mode') == 'serial' and not _kind(r, f.get('project')).hides('project', 'execution_mode'):
+        if p.get('execution_mode') == 'serial' and delivers(store, r, f.get('project')):
             busy = [i for i in store.items() if i['key'] != it['key'] and i['fields'].get('project') == f.get('project')
                     and i['type'] in SERIAL and i['fields'].get('status') == 'InProgress']
             if busy:
@@ -346,6 +363,7 @@ def promote(store, key):
     _turned_on(store, 'initiative')
     f = sup['fields']
     ini = store.create('initiative', sup['title'], {'project': f.get('project'), 'origin': sup['key'],
+                                                    KIND_KEY: _delivering_kind(store, store._resolver(), f.get('project')),
                                                     'priority': LEVEL_PRIORITY.get(f.get('level'), 'P2'), 'labels': f.get('labels') or []})
     store.close_by_rule(sup, 'OnHold', None, {'promoted_to': ini['key'], 'resolution': 'promoted', 'disposition': 'fix',
                                               'on_hold': {'by': 'owner', 'why': f"promoted to {ini['key']}", 'resume_when': f"{ini['key']} is done"}})

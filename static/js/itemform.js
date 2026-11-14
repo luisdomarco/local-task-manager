@@ -26,7 +26,7 @@
 // | 'YYYY-MM-DD' | 'YYYY-Www' | null.
 import { dateInput, pickDate } from './datepicker.js';
 import { isoWeek, monthLabel, relDay, shiftWeek, thisMonth, thisWeek, today } from './dates.js';
-import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, kindFor, needsParent, parentChoices, parentLabel, parentPick, parentValue, projectFree, projectHas, propsIn, askedOnCreate, propsOf, statusesOf, tabOf } from './rules.js';
+import { ACTIVITY_SOURCES, PARENT_TYPES, PLANNABLE, PRIORITIES, STRUCTURE, TYPE_DEFS, defaultOf, hasField, inProject, kindFor, needsParent, parentChoices, parentLabel, parentPick, parentValue, projectFree, projectHas, propsIn, askedOnCreate, propsOf, statusesOf, tabOf, widensTo } from './rules.js';
 import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
@@ -35,9 +35,11 @@ import { allContacts, allLabels, state } from './state.js';
 import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { refOf } from './shownid.js';
 
-/** The kind a binding's item falls under (Ticketing): a project's own, else its project's; none for an item with no
- *  project. What it hides (rules.js propsOf) is not drawn, on the card, the page or the create form. */
-export const kindOfBinding = (b) => kindFor({ type: b.type, fields: { project: b.get('project'), [STRUCTURE.kind_key]: b.get(STRUCTURE.kind_key) } }, state.all);
+/** What hides a binding's item's fields (Ticketing, rules.js kindFor): an initiative's kind (its own, else its project's
+ *  from before), a project's delivery settings while none of its initiatives delivers. What it hides (rules.js
+ *  propsOf) is not drawn, on the card, the page or the create form. */
+export const kindOfBinding = (b) => kindFor({ type: b.type, fields: { project: b.get('project'), project_key: b.get('project_key'),
+  [STRUCTURE.kind_key]: b.get(STRUCTURE.kind_key), [STRUCTURE.legacy_kind_key]: b.get(STRUCTURE.legacy_kind_key) } }, state.all);
 
 // ── the shell ────────────────────────────────────────────────────────────────
 
@@ -423,8 +425,8 @@ export function parentControl(b, { empty = null } = {}) {
  */
 export function projectControl(b) {
   const scoped = (STRUCTURE.project_scoped || []).includes(b.type);
-  // A ticket is offered only the projects whose kind (and Types) hold its type: a story, no simple project.
-  const projects = state.items.filter((i) => i.type === 'project' && i.fields.project_key && (!b.creating || projectHas(i, b.type)));
+  // A ticket is offered only the projects that hold its type: a support ticket, one with a delivering initiative.
+  const projects = state.items.filter((i) => i.type === 'project' && i.fields.project_key && (!b.creating || projectHas(i, b.type, state.all)));
   if (scoped && !b.creating) {
     const p = projects.find((i) => i.fields.project_key === b.get('project'));
     return h('span', { class: 'prop-readonly' }, p ? `${p.fields.project_key} · ${p.title}` : (b.get('project') || '—'));
@@ -480,8 +482,12 @@ export function propField(b, p) {
     // One the create form marks optional (b.optional) starts on none: nothing is written until it is picked, and the
     // new file keeps its template's value.
     const unpicked = b.creating && value === undefined && !!b.optional?.has(p.key);
-    const opts = [...(unpicked && p.options.every(([v]) => v) ? [[null, '—']] : []), ...p.options.map(([v, l]) => [v || null, l || '—'])];
-    const current = unpicked ? null : value ?? p.default ?? opts[0][0];
+    // One that only widens (an initiative's kind, `widens`): once made, its own kind and the wider ones (rules.js
+    // widensTo); one from before that says none shows the kind it reads (its project's).
+    const was = p.widens && !b.creating ? value || kindOfBinding(b)?.id : null;
+    const options = was ? p.options.filter(([v]) => widensTo(was).includes(v)) : p.options;
+    const opts = [...(unpicked && options.every(([v]) => v) ? [[null, '—']] : []), ...options.map(([v, l]) => [v || null, l || '—'])];
+    const current = unpicked ? null : value ?? was ?? p.default ?? opts[0][0];
     // What the form shows is what it creates: a new item gets the value on screen, not the server's own default.
     if (b.creating && value === undefined && current) b.set(p.key, current);
     return propRow(p.label, select(opts, current, (v) => b.set(p.key, v ?? ''), fk));

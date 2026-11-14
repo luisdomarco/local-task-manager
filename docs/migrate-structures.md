@@ -1,7 +1,7 @@
 # Moving a vault to the Projects structure
 
 This guide is for Claude, working with the owner of the vaults. It moves an **Initiatives** (`folders`) or **Tasks**
-(`tasks`) vault to **Projects** (`ticketing`): one vault where each project has a kind (product, agentic system or
+(`tasks`) vault to **Projects** (`ticketing`): one vault where each initiative has a kind (product, agentic system or
 simple, README §5). The tool is `tools/migrate_structures.py`. Its tests (`tests/test_migrate_structures.py`) run it on
 copies of `sample-vault-legacy/` (Initiatives) and of a Tasks vault they build.
 
@@ -16,8 +16,9 @@ copies of `sample-vault-legacy/` (Initiatives) and of a Tasks vault they build.
 
 Read `config.json` (only read it, never edit it by hand) and list each vault with its `structure`:
 
-- **`ticketing`**: nothing to migrate. A project note without `project_kind` is read as `product`. Tell the owner
-  which notes lack it, so they can write the kind they mean.
+- **`ticketing`**: nothing to migrate. An initiative without `initiative_kind` reads as its project's `project_kind`,
+  and one whose project says none either as `product`. The owner widens a simple one from its page when it needs
+  stories.
 - **`folders` or `tasks`**: this guide applies, one vault at a time. Note the vault's `path` and, if it has them, its
   own `folders` (`{"task": "work/tasks"}`). The tool needs both.
 
@@ -67,8 +68,11 @@ The new vault defaults to `<vault>-projects`, next to the source. The plan is wr
 - **Everything else** goes to a project called **General** (`GEN`). This covers initiatives nothing placed and stories
   with no initiative. Each of them gets a question.
 
-**Ask the owner, one project at a time:** its name, its key and its kind (README §5: a product has hotfixes and PRDs,
-an agentic system does not, a simple project has only initiatives and tasks). Then ask each question. Write the
+**Ask the owner, one project at a time:** its name, its key and its kind: the kind every initiative moved into it gets
+(`initiative_kind`; README §5: a product or an agentic system initiative has stories, a PRD and readiness, and gives
+its project support tickets and hotfixes; a simple one has only tasks, notes and meetings). The owner widens any of
+them later from its page; it is also written as the project's `project_kind`, which an initiative made there without a
+kind of its own reads. Then ask each question. Write the
 answers into the plan:
 
 - Set `confirmed: true` on each project.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import * as CM from '../../static/vendor/codemirror/codemirror.js';
-import { activeLines, lineSepOf, liveMarks, refsIn, wikilinksIn } from '../../static/js/livemarks.js';
+import { activeLines, lineSepOf, liveBlocks, liveMarks, refsIn, wikilinksIn } from '../../static/js/livemarks.js';
 import { lfOffset } from '../../static/js/livemd.js';
 
 // The parser the Live editor uses (livemd.js markdownLanguage): GFM, no setext headings.
@@ -119,6 +119,13 @@ describe('Live: text helpers (livemarks.js)', () => {
       { from: 2, to: 9, target: 'Doc', heading: null, label: 'Doc' },
       { from: 12, to: 30, target: 'Doc', heading: 'Part', label: 'shown' },
     ]);
+    // This note's heading, and an alias after a bar escaped in a table cell
+    assert.deepEqual(wikilinksIn('[[#Part|p]] | [[Doc\\|Alias]] |').map(({ target, heading, label }) => [target, heading, label]),
+      [['', 'Part', 'p'], ['Doc', null, 'Alias']]);
+    // A heading before an escaped bar keeps no backslash: the link jumps to it
+    assert.deepEqual(wikilinksIn('| [[#AR-1 · Loop\\|Loop]] | [[Doc#Part\\|p]] |').map(({ heading, label }) => [heading, label]),
+      [['AR-1 · Loop', 'Loop'], ['Part', 'p']]);
+    assert.deepEqual(wikilinksIn('[[]] [[#]]'), []);
   });
 
   it('finds refs the vault knows, not inside a word, a path or an anchor', () => {
@@ -162,5 +169,29 @@ describe('Live keeps the text byte for byte (livemarks.js lineSepOf, CodeMirror)
   it('turns an offset in the saved text into one that counts a line break as one character', () => {
     assert.equal(lfOffset('a\r\nb\r\nc', 6), 4); // the "c"
     assert.equal(lfOffset('a\nb', 2), 2);
+  });
+});
+
+describe('Live: blocks drawn whole (livemarks.js liveBlocks)', () => {
+  const TEXT = 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> [!note] Title\n> body\n\n> just a quote\n\n```mermaid\ngraph TD; A-->B\n```\n\n```js\nx\n```';
+  const blocks = (caret) => {
+    const doc = docOf(TEXT);
+    return liveBlocks(parser.parse(TEXT), doc, { ranges: caret === null ? [] : [{ from: caret, to: caret }], focused: caret !== null })
+      .map((b) => [b.kind, doc.sliceString(b.from, b.to)]);
+  };
+
+  it('draws a table, a callout and a mermaid fence whole, on whole lines; not a plain quote or other code', () => {
+    assert.deepEqual(blocks(0), [
+      ['table', '| a | b |\n|---|---|\n| 1 | 2 |'],
+      ['callout', '> [!note] Title\n> body'],
+      ['diagram', '```mermaid\ngraph TD; A-->B\n```'],
+    ]);
+  });
+
+  it('leaves the block the caret is on as Markdown, and draws them all when not focused', () => {
+    assert.deepEqual(blocks(TEXT.indexOf('| 1')).map(([k]) => k), ['callout', 'diagram']);
+    assert.deepEqual(blocks(TEXT.indexOf('body')).map(([k]) => k), ['table', 'diagram']);
+    assert.deepEqual(blocks(TEXT.indexOf('```mermaid') + 12).map(([k]) => k), ['table', 'callout']);
+    assert.deepEqual(blocks(null).map(([k]) => k), ['table', 'callout', 'diagram']);
   });
 });

@@ -3,8 +3,8 @@
 
     python3 tools/seed_sample_vault.py
 
-sample-vault/            the Projects structure, the one a new vault gets: a project of each kind (product, agentic
-                         system, simple) and every type, from support to learnings
+sample-vault/            the Projects structure, the one a new vault gets: initiatives of each kind (product, agentic
+                         system, simple; Acme Web holds both a product and an agentic system one) and every type
 sample-vault-legacy/     the legacy Initiatives structure (folder per type), every type it has: what its tests and
                          tools/migrate_structures.py read until that structure is retired
 
@@ -23,6 +23,8 @@ from tm.structures.ticketing.definition import ROOT_FOLDERS, WORKLOG_FOLDER  # n
 
 FOLDERS_VAULT = os.path.join(APP_DIR, 'sample-vault-legacy')
 TICKETING_VAULT = os.path.join(APP_DIR, 'sample-vault')
+# What each project's initiatives are (tm/structures/kinds.py): Acme Web also gets an agentic system, last.
+KIND_IN = {'ACME': 'product', 'OPS': 'system', 'MOVE': 'simple'}
 
 PEOPLE = {
     'Ana': {'emails': ['ana@example.com'], 'calendar_name': 'Ana García', 'slack': '@ana',
@@ -124,18 +126,19 @@ def seed_ticketing(path=TICKETING_VAULT):
     t = date.today()
     y = t - timedelta(days=1)
     people_and_labels(s, ['checkout', 'billing', 'infra'])
-    s.create('project', 'Acme Web', {'project_key': 'ACME', 'project_kind': 'product'},
+    s.create('project', 'Acme Web', {'project_key': 'ACME'},
              'The customer-facing shop: catalogue, cart and checkout.\n')
-    s.create('project', 'Internal Tools', {'project_key': 'OPS', 'project_kind': 'system'},
+    s.create('project', 'Internal Tools', {'project_key': 'OPS'},
              'The scripts and dashboards the team runs on.\n')
-    s.create('project', 'Office Move', {'project_key': 'MOVE', 'project_kind': 'simple'},
+    s.create('project', 'Office Move', {'project_key': 'MOVE'},
              'Moving the team to the new office: nothing to deliver, just initiatives and their tasks.\n')
-    ini = s.create('initiative', 'Checkout redesign', {'project': 'ACME', 'sidebar': True, 'labels': ['checkout']},
+    ini = s.create('initiative', 'Checkout redesign', {'project': 'ACME', 'initiative_kind': 'product', 'sidebar': True, 'labels': ['checkout']},
                    '## Goal\n\nA one-page checkout that keeps more carts.\n')['id']
     sup = s.create('support', 'Invoice email arrives empty', {'project': 'ACME', 'level': 'C2', 'origin': 'customer', 'labels': ['billing']},
                    'Two customers report an empty invoice email since the last release.\n')['id']
+    # Its support tickets come with its first delivering initiative (tm/structures/kinds.py).
+    ops = s.create('initiative', 'Faster deploys', {'project': 'OPS', 'initiative_kind': 'system', 'labels': ['infra'], 'sidebar': False})['id']
     s.create('support', 'Nightly backup took 3 hours', {'project': 'OPS', 'level': 'C1', 'labels': ['infra']})
-    ops = s.create('initiative', 'Faster deploys', {'project': 'OPS', 'labels': ['infra'], 'sidebar': False})['id']
     s.create('story', 'Address, shipping and payment on one page', {'project': 'ACME', 'related_to': ini, 'size': 'M', 'labels': ['checkout']},
              '## Story\n\nAs a shopper, I want to pay on one page, so that I do not give up halfway.\n\n'
              '## Acceptance criteria\n\n#### Scenario: Paying in one go\n- **WHEN** the cart goes to checkout\n'
@@ -152,7 +155,7 @@ def seed_ticketing(path=TICKETING_VAULT):
                                                         'plan_day': t.isoformat(), 'plan_week': week(t)})
     s.create('task', 'Draft the empty-invoice reply', {'project': 'ACME', 'related_to': sup, 'plan_week': week(t)})
     s.create('task', 'Clean up old feature flags', {})
-    move = s.create('initiative', 'Set up the new office', {'project': 'MOVE', 'labels': ['infra']})['id']
+    move = s.create('initiative', 'Set up the new office', {'project': 'MOVE', 'initiative_kind': 'simple', 'labels': ['infra']})['id']
     s.create('task', 'Order the desks', {'project': 'MOVE', 'related_to': move, 'plan_week': week(t)})
     s.create('hotfix', 'Restore the invoice template', {'project': 'ACME', 'related_to': sup, 'labels': ['billing']})
     s.create('prd', 'One-page checkout', {'project': 'ACME', 'related_to': ini},
@@ -284,6 +287,8 @@ def seed_showcase(s, t):
                 s.update(item_id, {'status': step}, by='owner')  # a person moving it, as the page does
 
     def new(item_type, title, body='', status=None, **values):
+        if item_type == 'initiative':
+            values.setdefault('initiative_kind', KIND_IN.get(values.get('project'), 'simple'))
         item_id = s.create(item_type, title, values, body)['id']
         move(item_id, status)
         return item_id
@@ -311,9 +316,9 @@ def seed_showcase(s, t):
                    'Met when the new checkout is live for everyone and drop-off is under 40%.')
     deploys = new('goal', 'Ship in minutes, not hours', priority='P2', due=day(83),
                   description='A change reaches production in minutes: deploys under 10 minutes and no manual steps.')
-    ini, ops_ini, sup_invoice, sup_backup = ref('INI-1'), ref('INI-4'), ref('SUP-2'), ref('SUP-3')
+    ini, ops_ini, sup_invoice, sup_backup = ref('INI-1'), ref('INI-3'), ref('SUP-2'), ref('SUP-4')
     for item, goal, order in (('INI-1', checkout, 1), ('STY-5', checkout, 2), ('TSK-9', checkout, 3), ('STY-6', checkout, 4),
-                              ('OPS', deploys, 1), ('INI-4', deploys, 2), ('TSK-11', deploys, 3)):
+                              ('OPS', deploys, 1), ('INI-3', deploys, 2), ('TSK-11', deploys, 3)):
         move(ref(item), goal=goal, goal_order=order)
     support = new('goal', 'Answer every customer within a day', status='InProgress', priority='P1', labels=['support'],
                   start=day(-14), due=day(50), plan_week=week(t),
@@ -400,7 +405,7 @@ def seed_showcase(s, t):
     move(ref('TSK-10'), 'Review', priority='P1', plan_day=day(0))
     move(ref('TSK-11'), priority='P3')
 
-    # Internal Tools — faster deploys (INI-4) and the support agents.
+    # Internal Tools — faster deploys (INI-3) and the support agents.
     deploy_stories = [story(*args, project='OPS', labels=['infra'], goal=deploys, as_a='an engineer', **values) for args, values in (
         (('Run the test suites in parallel', ops_ini, ('a pull request is opened', 'the suites run on four workers and finish in under 5 minutes')),
          dict(status='InProgress', priority='P1', size='M')),
@@ -459,11 +464,17 @@ def seed_showcase(s, t):
     new('activity', 'Slack: payment timeouts spiking', 'Seeing a jump in payment timeouts since 10:00, anyone on it?\n',
         source='Slack', related_to=charged, date=day(0), **{'from': 'Pablo'})
 
+    # Acme Web holds an agentic system too: the agents that answer shoppers, beside the shop itself.
+    concierge = new('initiative', 'Shopping assistant agent', '## Goal\n\nAn agent answers questions about products and orders in chat.\n',
+                    project='ACME', initiative_kind='system', priority='P2', size='M', labels=['ai'])
+    story('Ask where my order is', concierge, ('a shopper asks about an order in chat', 'the agent answers with its status and tracking link'),
+          project='ACME', labels=['ai'], priority='P2', size='S')
+
     # A week of logged time.
     for n, item, kind, note, time in ((-4, 'STY-5', 'Development', 'layout', '02:30'), (-4, 'INI-1', 'Meeting', 'kick-off', '00:45'),
                                       (-3, 'STY-8', 'Development', 'cache keys', '01:45'), (-3, 'SUP-2', 'Analysis', 'template diff', '01:00'),
                                       (-2, 'STY-5', 'Development', 'payment form', '03:00'), (-2, 'TSK-10', 'Definition', 'reply draft', '00:40'),
-                                      (-1, 'INI-4', 'Analysis', 'slowest steps', '01:20'), (0, 'TSK-10', 'Testing', '', '00:30')):
+                                      (-1, 'INI-3', 'Analysis', 'slowest steps', '01:20'), (0, 'TSK-10', 'Testing', '', '00:30')):
         s.log_work(ref(item), kind, note, day(n), time=time)
 
 

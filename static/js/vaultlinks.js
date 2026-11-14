@@ -4,7 +4,8 @@
 import { docMatches, docStem, itemMatches, menuAt, slashMatches, slashText } from './completions.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { has } from './features.js';
-import { filesHref, linkWikilinks } from './filetree.js';
+import { fileUrl } from './api.js';
+import { IMAGE_FILE, filesHref, linkWikilinks, relativeTarget, wikiTarget } from './filetree.js';
 import { itemHref } from './links.js';
 import { liveLoaded } from './livemd.js';
 import { refsIn } from './livemarks.js';
@@ -12,6 +13,15 @@ import { matchPeople } from './mentions.js';
 import { TYPE_DEFS, isDone } from './rules.js';
 import { refOf } from './shownid.js';
 import { state } from './state.js';
+
+// Where links open and which note is read: the Explorer (#/files/…) unless a view says otherwise — Docs sets its own
+// (#/docs/…) while it is shown, so a link followed there stays there with its tree. `self`: the note on screen, for
+// [[#heading]] and relative links.
+let context = { href: filesHref, self: null };
+/** Sets where links open (`href(path, heading)`) and the note being read (`self`); null goes back to the Explorer's. */
+export function setLinkContext(c) { context = { href: c?.href || filesHref, self: c?.self || null }; }
+/** The address links open at now: #/files/… or, in Docs, #/docs/…. */
+export const linkHref = () => context.href;
 
 /** The vault's Markdown files that are not items (docs, notes, canvases), from the Explorer's tree: [path]. */
 function docPaths() {
@@ -52,15 +62,17 @@ function refMap() {
 export const isRef = (ref) => refMap().has(ref);
 const itemOf = (ref) => refMap().get(ref) || null;
 
-/** Opens what the Live editor's ⌘-click is on: a web link in a new tab, a [[doc]] in the Explorer (at its heading, for
- *  a [[doc#heading]]), a ref's item. */
+/** Opens what the Live editor's ⌘-click is on: a web link in a new tab, a [[doc]] where links open now (the Explorer,
+ *  or Docs while it is shown; at its heading, for a [[doc#heading]]), a relative [text](path) the same way, a ref's item. */
 export function openLink({ href = null, target = null, heading = null, ref = null }) {
   if (href) {
     if (/^(https?:|mailto:)/i.test(href)) window.open(href, '_blank', 'noopener');
     else if (href.startsWith('#/')) location.hash = href.slice(1);
+    else { const r = relativeTarget(fileTree(), context.self, href); if (r) location.hash = context.href(r.path, r.heading).slice(1); }
     return;
   }
-  if (target) { const p = docPathOf(target); if (p) location.hash = filesHref(p, heading).slice(1); return; }
+  if (!target && heading && context.self) { location.hash = context.href(context.self, heading).slice(1); return; }
+  if (target) { const p = wikiTarget(fileTree(), target) || docPathOf(target); if (p) location.hash = context.href(p, heading).slice(1); return; }
   const it = ref ? itemOf(ref) : null;
   if (it) location.hash = itemHref(it).slice(1);
 }
@@ -118,8 +130,41 @@ export function liveSources() {
   return [source];
 }
 
-/** Markdown with its [[links]] to docs made links to them (the Explorer opens them), for renderMarkdown. */
-export const linkVault = (md) => linkWikilinks(md, docPathOf);
+/** Markdown with its [[links]] made links to what they name (opened where links open now: setLinkContext) and its
+ *  ![[pictures]] drawn, for renderMarkdown. `self`: the note it is (else the one on screen). */
+export function linkVault(md, { self = context.self } = {}) {
+  const tree = fileTree();
+  if (!tree?.children?.length) return md; // the tree is on its way: drawn again once it has come (mdblock.js)
+  return linkWikilinks(md, (t) => wikiTarget(tree, t), { self, href: context.href, src: fileUrl });
+}
+
+/**
+ * In rendered Markdown (`root`), the links and pictures written as paths (`[Setup](Guides/Setup.md)`, `![](img/a.png)`)
+ * pointed into the vault: a link opens the file where links open now (Docs keeps its tree), a picture shows the
+ * vault's file. A link to nothing in the vault reads as its text, dimmed (.md-missing), as a [[link]] to nothing does.
+ * Web addresses, anchors and the app's own #/ links are left as they are. `self`: the note `root` shows.
+ */
+export function linkPaths(root, { self = context.self, href = context.href } = {}) {
+  const tree = fileTree();
+  if (!root || !tree?.children?.length) return;
+  for (const a of root.querySelectorAll('a[href]')) {
+    const raw = a.getAttribute('href');
+    if (/^(#|[a-z][a-z0-9+.-]*:|\/\/)/i.test(raw)) continue;
+    const r = relativeTarget(tree, self, raw);
+    if (r) { a.setAttribute('href', href(r.path, r.heading)); continue; }
+    const miss = document.createElement('span');
+    miss.className = 'md-missing';
+    miss.title = `Not found: ${raw}`;
+    miss.append(...a.childNodes);
+    a.replaceWith(miss);
+  }
+  for (const img of root.querySelectorAll('img[src]')) {
+    const raw = img.getAttribute('src');
+    if (/^([a-z][a-z0-9+.-]*:|\/api\/|#)/i.test(raw)) continue; // the vault's own (/api/…), data: and web pictures
+    const r = relativeTarget(tree, self, raw);
+    if (r && IMAGE_FILE.test(r.path)) img.setAttribute('src', fileUrl(r.path));
+  }
+}
 
 /**
  * In rendered Markdown (`root`), the refs of items in this vault (STY-482) made links to them: in text only, never

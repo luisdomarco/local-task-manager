@@ -31,9 +31,15 @@ export const OPTIONS = {
   icons: ['regular', 'thin', 'bold'], // the icons' stroke
 };
 
-export const KEYS = { mode: 'tm-theme', skin: 'tm-skin', ...Object.fromEntries(Object.keys(OPTIONS).map((k) => [k, `tm-${k}`])) };
+/** How Markdown reads (Docs, descriptions, the editors), in every look, Classic too: the first of each list its
+ *  default. A `data-<key>` on the root (app.css) and a `tm-<key>` in localStorage, as OPTIONS. */
+export const READING = {
+  width: ['fit', 'wide'], // the text in a centred column (--read-max), or the whole width
+};
+
+export const KEYS = { mode: 'tm-theme', skin: 'tm-skin', ...Object.fromEntries([...Object.keys(OPTIONS), ...Object.keys(READING)].map((k) => [k, `tm-${k}`])) };
 /** The root's attributes a theme change touches: what a drawing in the theme's colours watches (MutationObserver). */
-export const THEME_ATTRS = ['data-theme', 'data-skin', ...Object.keys(OPTIONS).map((k) => `data-${k}`)];
+export const THEME_ATTRS = ['data-theme', 'data-skin', ...[...Object.keys(OPTIONS), ...Object.keys(READING)].map((k) => `data-${k}`)];
 
 /** Named sets of Modern's appearance (Settings → Themes → Presets); what a preset leaves out stays its default. */
 export const PRESETS = {
@@ -69,10 +75,11 @@ export function resolveTheme(stored = {}, systemDark = false) {
     theme: mode === 'system' ? (systemDark ? 'dark' : 'light') : mode,
     skin,
     ...Object.fromEntries(Object.entries(OPTIONS).map(([k, list]) => [k, modern ? one(stored[k], list) : null])),
+    ...Object.fromEntries(Object.entries(READING).map(([k, list]) => [k, one(stored[k], list)])),
   };
 }
 
-const shownNow = (root) => [root.dataset.theme, root.dataset.skin, ...Object.keys(OPTIONS).map((k) => root.dataset[k]),
+const shownNow = (root) => [root.dataset.theme, root.dataset.skin, ...[...Object.keys(OPTIONS), ...Object.keys(READING)].map((k) => root.dataset[k]),
   root.classList.contains('dark')].join();
 
 /**
@@ -85,7 +92,7 @@ export function applyTheme(root, t) {
   root.dataset.theme = t.theme;
   root.classList.toggle('dark', t.theme === 'dark');
   root.dataset.skin = t.skin;
-  for (const key of Object.keys(OPTIONS)) {
+  for (const key of [...Object.keys(OPTIONS), ...Object.keys(READING)]) {
     if (t[key]) root.dataset[key] = t[key];
     else delete root.dataset[key];
   }

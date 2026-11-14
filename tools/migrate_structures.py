@@ -399,9 +399,8 @@ def validate(plan):
     for old, k in plan['assign'].items():
         if k not in kind:
             raise PlanError(f'{old} goes to {k}, which is not one of the projects')
-        t = 'story' if old.startswith('US-') else 'initiative'
-        if t not in kind[k].types:
-            raise PlanError(f'{old} is a {t}, and a project of kind {kind[k].id} ({k}) has none')
+        if old.startswith('US-') and not kind[k].delivers:  # its initiatives read the project's kind (tm/structures/kinds.py)
+            raise PlanError(f'{old} is a story, and the initiatives of a project of kind {kind[k].id} ({k}) have none')
 
 
 def validate_items(plan, items, by_id):
@@ -575,12 +574,9 @@ def _apply(plan, store, items, days, by_id, target, rewrite_bodies):
         src = src_projects.get(p.get('from'))
         vals = item_values(src, ids, None, tasks_projects, by_id, smap) if src else {}
         vals.pop('aliases', None)
-        vals['enabled_types'] = kind.default_enabled()
         rel, text = codec.new_file('project', p['name'], vals, text_of(body_of(store, src)) if src else '', r, None, stamp)
-        text = fm.drop(text, kind.hidden.get('project', ()))  # the settings its kind has no use for
+        # The kind its initiatives read (each says none): the project's folders are made with their first file.
         text = fm.patch(text, {'project_key': key, 'project_kind': kind.id, **({'aliases': [src['id']]} if src else {})})
-        for sub in codec.project_folders(kind.id, vals['enabled_types']):
-            os.makedirs(os.path.join(target, r.projects[key]['dir'], sub), exist_ok=True)
         written += _write(target, rel, text)
 
     # Every other item: its template's frontmatter, patched with its fields; its body as it was.
@@ -588,6 +584,8 @@ def _apply(plan, store, items, days, by_id, target, rewrite_bodies):
         t = it['type']
         nid = ids.get(it['id'], it['id'])
         vals = item_values(it, ids, project_of(it), tasks_projects, by_id, smap)
+        if t == 'initiative' and project_of(it) in projects:  # what it is: its project's kind, as the plan says it
+            vals['initiative_kind'] = projects[project_of(it)]['kind']
         rel, text = codec.new_file(t, it['title'], vals, '', r, nid, it['fields'].get('created_at') or stamp)
         body = text_of(body_of(store, it))
         head = text[:len(text) - len(fm.split(text)[1])]

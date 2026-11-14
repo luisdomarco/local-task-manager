@@ -1,4 +1,5 @@
 // Entry point: hash router, sidebar (type links + counts + initiatives), keyboard shortcuts.
+import { api } from './api.js';
 import { addMenu } from './create.js';
 import { closePalette, openPalette, paletteIsOpen } from './palette.js';
 import { closeItem, hasUnsaved, isExpanded, isOpen, openItem, renderPanel } from './panel.js';
@@ -483,6 +484,7 @@ window.addEventListener('focus', () => reload());
 initTheme();
 trackViewport(); // --vvh: the height the keyboard leaves, for what floats over a phone's page (phone.js)
 initTooltips(); // Modern draws the titles' tooltips; Classic leaves them to the browser
+watchForUpdates();
 // ?basecoat=1 loads the whole of Basecoat over every screen (main.css loads only the families the app has adopted,
 // tools/basecoat_css.py): what the next family would change, before its PR (plans/design-system-spike.md).
 if (new URLSearchParams(location.search).has('basecoat')) loadBasecoat(new URLSearchParams(location.search).get('basecoat') === 'mira' ? 'mira' : 'nova');
@@ -498,3 +500,28 @@ initExplorer();
 firstLoad.then(() => { if (has('agents')) initAgents(); }); // the Agents mode's pane: none where agents cannot run
 onChange(renderAll);
 reload().then(route).then(() => { if (has('terminal')) restoreTerms(); }); // terminals the server still runs get their tabs back
+
+/**
+ * An open page learns the app was updated: an update (tools/install_app.py --update) restarts the server, and a page
+ * left open keeps running the code it loaded. When the tab comes back into view (and every 10 minutes while it is),
+ * the server's start time is compared with the one the page loaded with; a new one offers Reload, again each time the
+ * tab comes back until it is taken. Unsaved text is still guarded by the page's own leave check.
+ */
+function watchForUpdates() {
+  let started = null;
+  let updated = false;
+  const offer = () => toast('The app was updated', false, { label: 'Reload', run: () => location.reload() });
+  const check = () => {
+    if (document.hidden) return;
+    if (updated) { offer(); return; }
+    api.serverStatus().then((s) => {
+      const now = s?.started_at ?? null;
+      if (now === null) return;
+      if (started === null) { started = now; return; }
+      if (now !== started) { updated = true; offer(); }
+    }).catch(() => {}); // the server is restarting, or gone: asked again next time
+  };
+  check();
+  document.addEventListener('visibilitychange', check);
+  setInterval(check, 10 * 60 * 1000);
+}

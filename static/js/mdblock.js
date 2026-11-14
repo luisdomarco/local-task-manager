@@ -2,13 +2,14 @@
 // in a bordered box that opens the editor on a click, and back to the text once left. Out of panel.js so the create form
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
+import { renderDiagrams } from './diagrams.js';
 import { lfOffset } from './livemd.js';
 import { mdEditor } from './mdeditor.js';
 import { isPhone, isTouch } from './phone.js';
 import { pref, setPref } from './prefs.js';
 import { toast } from './state.js';
 import { foldHead, h, icon, renderMarkdown } from './ui.js';
-import { docsReady, linkRefs, linkVault } from './vaultlinks.js';
+import { docsReady, linkPaths, linkRefs, linkVault } from './vaultlinks.js';
 
 // Height at which a rendered description gets clipped behind "See more" (keep in sync with .md-wrap.clamped).
 const CLAMP_PX = 240;
@@ -257,7 +258,9 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         content = h('div', { class: 'md' });
         // renderMarkdown() sanitizes with DOMPurify (and fails closed without it). [[docs]] and refs (STY-482) are links.
         content.innerHTML = renderMarkdown(linkVault(text));
+        linkPaths(content);
         linkRefs(content);
+        renderDiagrams(content);
         // The docs' names come with the vault's file tree: a [[link]] drawn before it came is drawn again once it has.
         if (/\[\[/.test(text) && !linkedDocs) {
           linkedDocs = true;

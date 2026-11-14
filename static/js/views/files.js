@@ -7,10 +7,11 @@
 // disk meanwhile asks which text wins). An item's file can be edited too, as Obsidian would; its card stays the
 // place for its fields.
 import { fileUrl, api } from '../api.js';
+import { renderDiagrams } from '../diagrams.js';
 import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
-import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind } from '../filetree.js';
+import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
 import { highlight } from '../highlight.js';
 import { itemHref, pageHref } from '../links.js';
 import { mdEditor } from '../mdeditor.js';
@@ -19,7 +20,9 @@ import { pref, setPref } from '../prefs.js';
 import { TYPE_DEFS, hasPage } from '../rules.js';
 import { allLabels, allPeople, reload, state, toast } from '../state.js';
 import { refOf } from '../shownid.js';
-import { cssKey, emptyLine, h, icon, linkButton, loadingLine, renderMarkdown, rowItem, rowList, seg, select, stackGroup, tagInput, typeIcon } from '../ui.js';
+import { linkPaths, setLinkContext } from '../vaultlinks.js';
+import { setTheme } from '../theme.js';
+import { cssKey, dropdown, emptyLine, h, icon, linkButton, loadingLine, renderMarkdown, rowItem, rowList, seg, select, stackGroup, tagInput, typeIcon } from '../ui.js';
 
 const MAX_TEXT = 2 * 1024 * 1024; // larger text is not read into the page: download it (nor edited: Store.SAVE_MAX)
 const AUTOSAVE_MS = 800;
@@ -32,10 +35,10 @@ export function openFileInEdit(path, href = filesHref) {
   editNext = path;
   location.hash = href(path);
 }
-/** Open `path` in its Source, scrolled to `line` (1-based) and that line lit. */
-export function openFileAtLine(path, line) {
+/** Open `path` in its Source, scrolled to `line` (1-based) and that line lit (`href`: #/docs/… in Docs). */
+export function openFileAtLine(path, line, { href = filesHref } = {}) {
   lineNext = { path, line };
-  location.hash = filesHref(path);
+  location.hash = href(path);
 }
 
 /** Lights line `line` of the text in `code` (coloured or not: it walks the text nodes) and scrolls it into the middle
@@ -62,7 +65,6 @@ function lightLine(code, text, line) {
 
 /** Whether the Explorer's editor holds text not saved yet (main.js asks before the page is left). */
 export const filesUnsaved = () => unsaved();
-const at = (el, prop, url) => { el[prop] = url; return el; }; // the app's own address, set as a property (h() takes outside links only)
 
 const size = (n) => (n == null ? '' : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 const when = (s) => (s ? new Date(s * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
@@ -76,13 +78,30 @@ function crumbs(path, href = filesHref) {
       : h('a', { href: href(parts.slice(0, i + 1).join('/')) }, name)]));
 }
 
-function reveal(path) {
+/** The ⋯ of a file's or folder's head: what is done with it outside the page (Finder, the editor, its own app,
+ *  Download), copying its path or its [[link]], and the reading width. Only what this device can do is listed. */
+function headMenu(node, { url = null } = {}) {
   const root = state.vault?.root;
-  const editor = state.config.editor_app || 'Cursor';
-  return [root && has('reveal') ? h('button', { class: 'btn small', title: 'Show it in Finder',
-    onclick: () => api.openPath(path ? `${root}/${path}` : root).catch((e) => toast(e.message, true)) }, icon('folder', 13), 'Show in Finder') : null,
-  has('open_in') ? h('button', { class: 'btn small', title: `Open it in ${editor} (Settings → General)`,
-    onclick: () => api.openInEditor(path).catch((e) => toast(e.message, true)) }, icon('code', 13), `Open in ${editor}`) : null];
+  const path = node.path;
+  const isDir = node.kind === 'dir';
+  const copy = (text, said) => navigator.clipboard.writeText(text).then(() => toast(said), () => toast('Could not copy', true));
+  const download = () => { const a = h('a', { download: node.name }); a.href = url; document.body.append(a); a.click(); a.remove(); };
+  // Made each time it opens: the width entry says what a click does now (it toggles, here or in Themes)
+  const items = () => { const wide = document.documentElement.dataset.width === 'wide'; return [
+    root && has('reveal') ? { label: 'Show in Finder', icon: 'folder', onSelect: () => api.openPath(path ? `${root}/${path}` : root).catch((e) => toast(e.message, true)) } : null,
+    has('open_in') && path ? { label: `Open in ${state.config.editor_app || 'Cursor'}`, icon: 'code', onSelect: () => api.openInEditor(path).catch((e) => toast(e.message, true)) } : null,
+    !isDir && has('open_in') ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
+    !isDir && url ? { label: 'Download', icon: 'download', onSelect: download } : null,
+    '-',
+    path ? { label: 'Copy path', icon: 'copy', onSelect: () => copy(path, 'Path copied') } : null,
+    !isDir && /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => { const l = `[[${node.name.replace(/\.md$/i, '')}]]`; copy(l, `${l} copied`); } } : null,
+    '-',
+    { label: wide ? 'Fit to a column' : 'Use the full width', icon: wide ? 'restore' : 'maximize', title: 'Themes → Reading',
+      onSelect: () => setTheme('width', wide ? 'fit' : 'wide') },
+  ].filter(Boolean).filter((it, i, all) => it !== '-' || (i > 0 && all[i - 1] !== '-' && i < all.length - 1)); };
+  const button = h('button', { class: 'btn icon small files-more', title: 'More', 'aria-label': 'More', 'aria-haspopup': 'menu',
+    onclick: () => dropdown(button, items(), { align: 'end', width: 220 }) }, icon('more', 16));
+  return button;
 }
 
 /** A file the page cannot show (a spreadsheet, a slide deck, an archive…): opened in the app this Mac opens it with,
@@ -109,7 +128,7 @@ function externalView(node) {
 
 function folderView(node, href = filesHref) {
   if (node.sealed) {
-    return [h('div', { class: 'files-head' }, h('h1', {}, icon('lock', 20), node.name), h('span', { class: 'spacer' }), reveal(node.path)),
+    return [h('div', { class: 'files-head' }, h('h1', {}, icon('lock', 20), node.name), h('span', { class: 'spacer' }), headMenu(node)),
       h('p', { class: 'muted' }, `${node.name} is ${node.name.toLowerCase() === '.git' ? 'git’s' : 'the app’s'} own: it is not opened or changed here.`)];
   }
   // .git and .task-manager (sealed, Show hidden files) are listed, never opened.
@@ -132,9 +151,16 @@ function folderView(node, href = filesHref) {
   dropTarget(zone, node.path);
   return [
     h('div', { class: 'files-head' }, h('h1', {}, icon('folderopen', 20), node.path ? node.name : state.vault?.name || 'Vault'),
-      h('span', { class: 'spacer' }), reveal(node.path)),
+      h('span', { class: 'spacer' }), headMenu(node)),
     zone,
   ];
+}
+
+/** A note's property as it reads: a [list] as its values with commas, a web address as a link. */
+function propValue(v) {
+  const list = /^\[(.*)\]$/s.exec(v);
+  const text = list ? list[1].split(',').map((t) => t.trim().replace(/^(['"])(.*)\1$/, '$2')).filter(Boolean).join(', ') : v;
+  return /^https?:\/\/\S+$/.test(text) ? h('a', { href: text, target: '_blank', rel: 'noopener noreferrer' }, text) : text;
 }
 
 /** The item a file is, as the page knows it (for its card or page). */
@@ -159,14 +185,13 @@ const TABLE_MAX = 1000; // rows shown; Source has them all
 function fileView(node, mode, setMode, body, editable) {
   const kind = fileKind(node.path);
   const url = fileUrl(node.path);
-  const download = at(h('a', { class: 'btn small', download: node.name }, icon('download', 13), 'Download'), 'href', url);
   const modes = tableKind(node.path) ? MODES.table : MODES[kind];
   const shown = kind === 'text' && mode === 'preview' && !tableKind(node.path) ? 'source' : mode;
   const toggle = modes ? seg(modes.map(([m, ico, label]) => [m, label, { ico, disabled: m === 'edit' && !editable,
     tip: m === 'edit' ? (editable ? 'Edit it here (saved as you type)' : 'Not readable as text here') : null }]), shown, (m) => setMode(m), { aria: 'Show as' }) : null;
   return [
     h('div', { class: 'files-head' }, h('h1', { title: node.path }, node.item ? typeIcon(node.item.type, 20) : icon(kind === 'image' ? 'image' : 'file', 20),
-      node.item?.title || node.name), h('span', { class: 'spacer' }), toggle, reveal(node.path), download),
+      node.item?.title || (kind === 'markdown' ? node.name.replace(/\.md$/i, '') : node.name)), h('span', { class: 'spacer' }), toggle, headMenu(node, { url })),
     h('p', { class: 'muted small files-meta' }, `${size(node.size)} · modified ${when(node.mtime)}`),
     itemBar(node),
     body,
@@ -177,6 +202,8 @@ function fileView(node, mode, setMode, body, editable) {
  *  #/docs/… when Docs (views/docs.js) shows it beside its tree. */
 export function mountFiles(root, param, { href = filesHref } = {}) {
   const path = pathOfParam(param);
+  setLinkContext({ href, self: path }); // a link followed from here, ⌘-click in Edit too, opens in this view
+  root.classList.add('files-col'); // the reading width: one centred column (Fit) or the whole width (app.css)
   let mode = pref('files.mdMode', 'preview');
   let back = mode;      // where Done goes back to from Edit (Edit itself is never remembered)
   if (editNext === path) { mode = 'edit'; editNext = null; }
@@ -223,12 +250,6 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     h('p', { class: 'muted small' }, `${Math.min(data.length, TABLE_MAX)} rows${more || data.length > TABLE_MAX ? ` shown — the first ${TABLE_MAX}; Source has them all` : ''}.`)];
   };
 
-  const stemPath = () => {
-    const map = new Map();
-    const walk = (n) => n.children?.forEach((c) => { if (c.kind === 'dir') walk(c); else if (fileKind(c.path) === 'markdown' && !map.has(c.name.replace(/\.md$/i, ''))) map.set(c.name.replace(/\.md$/i, ''), c.path); });
-    walk(fileTree());
-    return (stem) => map.get(stem) || null;
-  };
 
   // The files that link here ([[its name]]), fetched once per version of it read: { sig, links } or null.
   let backlinks = null;
@@ -243,7 +264,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     // Panel kit rows (design.md): the note's name, the line that links here as its grey meta
     return stackGroup(`Linked from · ${links.length}`, rowList(links.map((l) => rowItem({
       ico: icon('file', 14), text: l.path.split('/').pop().replace(/\.md$/i, ''), tip: `${l.path} · line ${l.line}`,
-      meta: l.count > 1 ? `${l.text} · ×${l.count}` : l.text, onClick: () => openFileAtLine(l.path, l.line) }))),
+      meta: l.count > 1 ? `${l.text} · ×${l.count}` : l.text, onClick: () => openFileAtLine(l.path, l.line, { href }) }))),
     { class: 'files-backlinks' });
   };
   // The headings of a long note, to jump to (two or more).
@@ -303,9 +324,13 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     const isDoc = all.some(([k, v]) => k === 'fileClass' && v === 'Doc');
     const props = isDoc ? [] : all.filter(([, v]) => v && v !== '[]' && v !== '{}'); // Source shows the empty ones
     const md = h('div', { class: 'md files-md' });
-    md.innerHTML = body.trim() ? renderMarkdown(linkWikilinks(body, stemPath())) : '<p class="muted">No content.</p>'; // sanitized by renderMarkdown
+    // [[links]] as Obsidian resolves them: a note or a folder by name or path, [[#heading]] in this note (filetree.js)
+    const tree = fileTree();
+    md.innerHTML = body.trim() ? renderMarkdown(linkWikilinks(body, (t) => wikiTarget(tree, t), { self: path, href, src: fileUrl })) : '<p class="muted">No content.</p>'; // sanitized by renderMarkdown
+    linkPaths(md, { self: path, href }); // [text](Guides/Setup.md), ![](img/a.png): into the vault, in this view
+    renderDiagrams(md);
     return [isDoc ? docProps(all) : null, linkedItems(), props.length ? h('table', { class: 'files-props', 'aria-label': 'Properties' },
-      h('tbody', {}, props.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', {}, v))))) : null, outline(md), md, linkedFrom()];
+      h('tbody', {}, props.map(([k, v]) => h('tr', {}, h('th', {}, k), h('td', {}, propValue(v)))))) : null, outline(md), md, linkedFrom()];
   };
 
   const fetchText = () => fetch(fileUrl(path)).then((r) => (r.ok ? r.text().then((t) => [t, r.headers.get('X-TM-Rev')]) : Promise.reject(new Error(`${r.status}`))));
@@ -474,7 +499,7 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     // A reload of the items (and so of the list: explorer.js) redraws through onFiles; this only keeps the item bar
     // current. Not the file itself: an image or a PDF would flicker.
     update() { if (ed) return; const node = fileTree() && findNode(fileTree(), path); if (node?.kind === 'file' && ['markdown', 'text'].includes(fileKind(node.path))) render(); },
-    unmount() { live = false; if (unsaved()) flush(); }, // what was typed is saved on the way out
+    unmount() { live = false; setLinkContext(null); root.classList.remove('files-col'); if (unsaved()) flush(); }, // what was typed is saved on the way out
   };
 }
 

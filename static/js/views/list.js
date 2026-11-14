@@ -140,8 +140,8 @@ export function listView(type, { page = null } = {}) {
   const onlyValue = (k) => { const f = view.filters.find((x) => x.field === k && x.op === 'is'); return f?.values.length === 1 && f.values[0] ? f.values[0] : null; };
   const all = () => (many ? state.all.filter((i) => types.includes(i.type))
     : archivable ? state.all.filter((i) => i.type === type) : byType(type)); // prompts: archived ones too
-  /** A project key that can hold this type (its kind, its Types), else none: the form asks for one. */
-  const holding = (k) => (k && projectHas(state.all.find((i) => i.type === 'project' && i.fields.project_key === k), type) ? k : null);
+  /** A project key that can hold this type (a support ticket: one with a delivering initiative), else none: the form asks for one. */
+  const holding = (k) => (k && projectHas(state.all.find((i) => i.type === 'project' && i.fields.project_key === k), type, state.all) ? k : null);
   /** What a new item starts with: what the list is narrowed to (its project, what it hangs from), and `group`, the
    *  value of the group its "+" was clicked in. */
   const startWith = (group = {}) => {

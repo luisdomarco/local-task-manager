@@ -11,13 +11,17 @@ const LITERAL = new Set(['InlineCode', 'FencedCode', 'CodeBlock', 'HTMLBlock', '
 // mdcolour.js writes these two (as Obsidian's Highlightr plugin does); any other inline HTML is left as it is.
 const COLOUR_OPEN = /^<(span|mark) style="(color|background): ?(#[0-9a-fA-F]{3,8});?">$/;
 
-/** `[[target]]`, `[[target|alias]]` and `[[target#heading]]` in a line: [{ from, to, target, heading, label }] (offsets
- *  in it; `heading` null when it names none). */
+/** `[[target]]`, `[[target|alias]]`, `[[target#heading]]` and `[[#heading]]` (this note's) in a line — the bar escaped
+ *  (`\|`) in a table cell — : [{ from, to, target, heading, label }] (offsets in it; `heading` null when it names none,
+ *  `target` '' for this note). */
 export function wikilinksIn(line) {
   const out = [];
-  const re = /\[\[([^\]|#\n]+)((?:#[^\]|\n]*)?)(?:\|([^\]\n]*))?\]\]/g;
+  const re = /\[\[([^\]|#\n]*?)((?:#[^\]|\n]*)?)(?:\\?\|([^\]\n]*))?\]\]/g;
   for (let m = re.exec(line); m; m = re.exec(line)) {
-    out.push({ from: m.index, to: m.index + m[0].length, target: m[1].trim(), heading: wikiHeading(m[2]), label: (m[3] || m[1]).trim() });
+    const target = m[1].trim().replace(/\\$/, '').trim();
+    const heading = wikiHeading(m[2].replace(/\\$/, '')); // `[[#Part\|alias]]` in a table: the escape is the bar's
+    if (!target && !heading) continue;
+    out.push({ from: m.index, to: m.index + m[0].length, target, heading, label: (m[3] || target || heading).trim() });
   }
   return out;
 }
@@ -186,6 +190,43 @@ export function liveMarks(tree, doc, { ranges = [], focused = true, from = 0, to
     }
   }
   return { lines, marks, hides, widgets };
+}
+
+// A quote that is an Obsidian callout: its first line starts `> [!type]` (mdextras.js draws it).
+const CALLOUT = /^\s{0,3}>\s?\[![A-Za-z][\w-]*\]/;
+// Blocks whose inside holds no table, callout or diagram: not walked into.
+const LEAF_BLOCKS = new Set(['Paragraph', 'CodeBlock', 'FencedCode', 'HTMLBlock', 'HorizontalRule', 'LinkReference',
+  'ATXHeading1', 'ATXHeading2', 'ATXHeading3', 'ATXHeading4', 'ATXHeading5', 'ATXHeading6']);
+
+/**
+ * liveBlocks(tree, doc, { ranges, focused }) → [{ from, to, kind }]: the blocks the Live editor draws whole, as the
+ * preview does, in place of their text — a GFM table ('table'), a callout ('callout') and a ```mermaid fence
+ * ('diagram'). Each covers whole lines (from the first line's start to the last one's end). A block the selection
+ * touches is left out, so its Markdown shows to edit; with `focused` false none is.
+ */
+export function liveBlocks(tree, doc, { ranges = [], focused = true } = {}) {
+  const active = focused ? activeLines(doc, ranges) : new Set();
+  const out = [];
+  tree.iterate({
+    enter(node) {
+      const { name } = node;
+      let kind = null;
+      if (name === 'Table') kind = 'table';
+      else if (name === 'Blockquote' && CALLOUT.test(doc.lineAt(node.from).text)) kind = 'callout';
+      else if (name === 'FencedCode') {
+        const info = node.node.getChild('CodeInfo');
+        if (info && doc.sliceString(info.from, info.to).trim().toLowerCase() === 'mermaid') kind = 'diagram';
+      }
+      if (!kind) return LEAF_BLOCKS.has(name) ? false : undefined;
+      const first = doc.lineAt(node.from);
+      const last = doc.lineAt(Math.max(node.from, node.to - (node.to > node.from && doc.sliceString(node.to - 1, node.to) === '\n' ? 1 : 0)));
+      let touched = false;
+      for (let n = first.number; n <= last.number && !touched; n += 1) touched = active.has(n);
+      if (!touched) out.push({ from: first.from, to: last.to, kind });
+      return false;
+    },
+  });
+  return out;
 }
 
 /**

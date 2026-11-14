@@ -25,7 +25,7 @@ from . import people
 from . import vaultsettings
 from .fsutil import VaultBusy, atomic_write, vault_lock
 from .launch import SESSION_RE
-from .structures import GROUPS, StatusConfigError, relations
+from .structures import GROUPS, StatusConfigError, kinds, relations
 from .structures import get as get_structure
 from .structures.folders import (FOLDER_PER_TYPE, CLOSED, DEFAULT_FOLDERS, ID_RE, ITEM_TYPES, PARENT_TYPES, PRIORITIES,  # noqa: F401
                                 STATUSES, TYPE_FIELDS)
@@ -1096,6 +1096,7 @@ class Store:
             if scoped and not project and not leaves and not parent:
                 known = ', '.join(sorted(r.projects)) or 'none yet: create one first'
                 raise StoreError(400, f'a {tdef.label.lower()} lives in its item\'s project, or in one: choose either ({known})')
+            self._check_initiative_has(item_type, parent, r)
             if scoped and project:
                 self._check_project_has(item_type, project, r)
             elif scoped:
@@ -1132,37 +1133,31 @@ class Store:
         return named[0] if len(named) == 1 else f"{', '.join(named[:-1])} or {named[-1]}"
 
     def _create_project(self, name, given, r, body=None, values=None):
-        """A project: its folder, its note (`00 <Name>.md`, fileClass Ticket Project) and its type folders. What the
-        create form filled in (its settings, sessions, labels, links…: `values`, validated) is written in its note; the
-        types it turns on are those it names, else its kind's, and they decide its folders."""
+        """A project: its folder and its note (`00 <Name>.md`, fileClass Ticket Project). What the create form filled
+        in (its settings, sessions, labels, links…: `values`, validated) is written in its note. Its type folders are
+        made each with its first file: what it holds follows from its initiatives' kinds (tm/structures/kinds.py)."""
         codec = self.structure.codec
         key = str(given.get('project_key') or '').strip().upper()
-        kinds = self.structure.kinds  # what a project may be (tm/structures/kinds.py); the first when it does not say
-        kind = str(given.get('project_kind') or next(iter(kinds))).strip()
         if not re.match(r'^[A-Z]{2,4}$', key):
             raise StoreError(400, 'a project needs a key of 2 to 4 capital letters (project_key)')
         if key in r.projects:
             raise StoreError(409, f'the key {key} is taken by the project {r.projects[key]["name"]}')
-        if kind not in kinds:
-            raise StoreError(400, f"project_kind must be {' or '.join(kinds)}")
+        # The kind its initiatives read when they say none, as a project said it before kinds moved to initiatives:
+        # never asked by the page, kept for a script (tools/vault.py) that still names one.
+        legacy = self.structure.extras.get('legacy_kind_key')
+        said = str(given.get(legacy) or '').strip() if legacy else ''
+        if said and said not in self.structure.kinds:
+            raise StoreError(400, f"{legacy} must be {' or '.join(self.structure.kinds)}")
         stamp = now_stamp()
-        vals = {k: v for k, v in (values or {}).items() if k not in ('project', 'project_key', 'project_kind')}
-        vals.setdefault('enabled_types', codec.enabled_types(kind))
-        # Its rules read its kind (the settings it has); the kind itself is written below, with its key.
-        vals = self._ticket_rules_on_create('project', {**vals, 'project_kind': kind}, r, stamp)
-        vals.pop('project_kind', None)
+        vals = {k: v for k, v in (values or {}).items() if k not in ('project', 'project_key', legacy)}
+        vals = self._ticket_rules_on_create('project', vals, r, stamp)
         self._remember_labels(vals.get('labels'))
         rel, text = codec.new_file('project', name, vals, self._body_or_default('project', body), r, None, stamp)
         top = os.path.dirname(rel)
         self._check_project_folder(top)
         folder = self.abs(top)
-        text = fm.patch(text, {'project_key': key, 'project_kind': kind})
-        # The settings its kind has no use for are not written, not even the template's placeholders: once made, they
-        # could not be edited (a simple project's repo, execution, support due days).
-        text = fm.drop(text, self.structure.kind(kind).hidden.get('project', ()))
+        text = fm.patch(text, {'project_key': key, **({legacy: said} if said else {})})
         os.mkdir(folder)
-        for sub in codec.project_folders(kind, vals['enabled_types']):
-            os.makedirs(os.path.join(folder, sub), exist_ok=True)
         atomic_write(self.abs(rel), text, exclusive=True)
         return self.read(rel)
 
@@ -1229,20 +1224,30 @@ class Store:
                 os.remove(src)
         return new
 
-    def _check_project_has(self, item_type, project, r):
-        """A ticket of a project's own folders is made only in a project that has its type: one its kind gives it
-        (tm/structures/kinds.py) and, when optional, its enabled_types turns on. A 400 that says which."""
-        fields = r.projects[project]['fields']
-        kind = self.structure.kind(fields.get(self.structure.kind_key))
-        # A note without enabled_types (from before it) has its kind's default ones, as the page reads it; the vault
-        # check requires only the folders a note names.
-        enabled = fields.get('enabled_types') if isinstance(fields.get('enabled_types'), list) else None
-        if item_type in kind.project_types(enabled):
+    def _check_project_has(self, item_type, project, r, items=None, bringing=()):
+        """A ticket of a project's own folders is made (or moved in) only where its type has a home
+        (tm/structures/kinds.py): a support ticket or a hotfix in a project with a delivering initiative, counting
+        `bringing` (the fields of initiatives moving in with it). A 400 that says which."""
+        if not self.structure.kinds:
+            return
+        items = items if items is not None else self.items()
+        inis = [i['fields'] for i in items if i['type'] == 'initiative' and i['fields'].get('project') == project]
+        if kinds.project_has(item_type, r.projects[project]['fields'], [*inis, *bringing]):
             return
         plural = self.structure.types[item_type].plural
-        if item_type in kind.optional:
-            raise StoreError(400, f'project {project} has {plural} turned off: turn them on in its settings (Types) first')
-        raise StoreError(400, f'project {project} is of kind {kind.id}, which has no {plural}')
+        raise StoreError(400, f'project {project} takes no new {plural}: they come with a product or agentic system '
+                              f'initiative (Kind of one of its initiatives)')
+
+    def _check_initiative_has(self, item_type, parent, r):
+        """A story, a PRD or a plan hangs from an initiative only if it delivers (its kind: product or agentic system).
+        A 400 that says which."""
+        if not self.structure.kinds or not parent or parent['type'] != 'initiative':
+            return
+        pf = (r.projects.get(parent['fields'].get('project')) or {}).get('fields') or {}
+        if not kinds.initiative_has(item_type, parent['fields'], pf):
+            label = self.structure.types[item_type].label.lower()
+            raise StoreError(400, f"{parent.get('ref') or parent['key']} is a simple initiative: a {label} hangs from a product or agentic "
+                                  f"system one (widen its Kind first)")
 
     def _check_root_home(self, item_type, r):
         """A ticket in no project lives in its type's folder at the vault's top (Initiatives/): never inside a project
@@ -1309,11 +1314,20 @@ class Store:
         r = self._resolver()
         scoped = it['type'] in self.structure.extras.get('project_scoped', ())
         moving = []
+        if values.get('related_to') and values['related_to'] != it['fields'].get('related_to'):
+            self._check_initiative_has(it['type'], self.find(values['related_to']), r)
         if 'project' in values and (values['project'] or None) != (it['fields'].get('project') or None):
             if values['project'] and values['project'] not in r.projects:
                 raise StoreError(400, f"unknown project: {values['project']}")
+            if it['type'] == 'initiative' and self.structure.kinds and not values.get(self.structure.kind_key):
+                # One that says no kind read its old project's: it says it now, so it stays what it was.
+                own = str(it['fields'].get(self.structure.kind_key) or '').strip()
+                if own not in self.structure.kinds:
+                    pf = (r.projects.get(it['fields'].get('project')) or {}).get('fields') or {}
+                    values = {**values, self.structure.kind_key: kinds.initiative_kind_of(it['fields'], pf).id}
             if scoped:  # its folder is its project's: the file moves, and what hangs from it in that project with it
-                moving = self._project_move_plan(it, values['project'], r)
+                moving = self._project_move_plan(it, values['project'], r, bringing=[{**it['fields'], **values}]
+                                                 if it['type'] == 'initiative' else ())
         if it['type'] == 'project':  # its key names every id of the project
             values = {k: v for k, v in values.items() if k not in ('project_key', 'project')}
         values = self._ticket_rules_on_update(it, values, r, stamp, by)
@@ -1324,15 +1338,12 @@ class Store:
         if moving:
             self._move_to_project(moving, values['project'], r, stamp, text)
             it = {**it, 'path': moving[0][1]}
-        if it['type'] == 'project' and 'enabled_types' in values:  # a type it turns on gets its folder (vault check)
-            for sub in self.structure.codec.project_folders(it['fields'].get('project_kind'), values['enabled_types']):
-                os.makedirs(os.path.join(os.path.dirname(path), sub), exist_ok=True)
         if 'subject' in values and values['subject'] != it['title']:
             key = self._rename_coded(it, values['subject'], stamp)
         self._rule('after_update', it, values, stamp)
         return key
 
-    def _project_move_plan(self, it, to, r):
+    def _project_move_plan(self, it, to, r, bringing=()):
         """A ticket going to project `to` (None: to no project): the files that move, [(from, to)] relative to the
         vault, the ticket first, then what hangs from it (`related_to`, all the way down) in its current home — its
         project's own folders, or the vault's top folders of its types when it is in none — : an initiative takes its
@@ -1362,7 +1373,7 @@ class Store:
                 continue
             seen.add(x['key'])
             if to:
-                self._check_project_has(x['type'], to, r)
+                self._check_project_has(x['type'], to, r, items, bringing)
             else:
                 self._check_root_home(x['type'], r)
             dst = f"{self.structure.codec.folder_of(x['type'], to, r)}/{os.path.basename(x['path'])}"

@@ -17,10 +17,10 @@ Your tasks, projects, notes and meetings as **plain Markdown files** in folders 
 
 A **vault** is a folder of Markdown files. Each vault has a **structure** that says what its folders are and which files are items:
 
-- **Projects** — one folder per project, with its initiatives, support tickets, hotfixes, PRDs, plans and records inside, and ids like `ACME-INI-001`; tasks, notes and meetings sit in their own folders and name their project. Each project has a **kind**, chosen when you make it: *Product* (everything, with hotfixes and PRDs), *Agentic system* (the same without them) or *Simple* (initiatives and tasks). Every new vault is a Projects vault.
+- **Projects** — one folder per project, with its initiatives, support tickets, hotfixes, PRDs, plans and records inside, and ids like `ACME-INI-001`; tasks, notes and meetings sit in their own folders and name their project. Each **initiative** has a **kind**: *Simple* (tasks, notes and meetings; every new one starts so), *Product* or *Agentic system* (both add stories, a PRD and readiness, and give their project support tickets and hotfixes). A kind only widens, so one project can hold a platform and its agents side by side. Every new vault is a Projects vault.
 - **Initiatives** and **Tasks** (legacy) — one folder per kind of item (`tasks/`, `notes/`, `initiatives/`…), ids like `TSK-0001`. A vault of theirs keeps working; the line *Legacy · move to Projects* under the vault selector leads to how to move it (Claude does it with you, into a new folder, leaving the old one as it is).
 
-Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, a project of each kind): the quickest way to see every screen with something in it.
+Add as many vaults as you like in **Settings → Vaults** and switch between them with the selector at the foot of the sidebar. The app comes with a sample (`sample-vault/`, initiatives of each kind): the quickest way to see every screen with something in it.
 
 **What a new item starts with** is up to each vault: a story starts with its sections, a task empty. Change any type's text in a vault's dialog in Settings → Vaults → **Default texts**; it is kept in the vault, so the iPhone and your agents use the same.
 

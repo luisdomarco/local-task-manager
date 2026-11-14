@@ -88,7 +88,7 @@ RENAMED_KEYS = {'redmine_id': 'ticket_id', 'redmine_url': 'ticket_url'}
 # type's own props say theirs with `tab`, tm/structures prop_tab).
 SECTIONS = ('Header', 'Properties', 'Settings', 'Settings · Global', 'Settings · Support due days', 'Settings · Code', 'Area and objective', 'Description',
             'Attachments', 'Links', 'Details · Ticket & local', 'Details · Watchers', 'Details · Log work', 'Activity', 'AI',
-            'Delivery · Readiness', 'Delivery · Execution', 'Delivery · Spec and release', 'Delivery · Triage',
+            'Delivery · Readiness', 'Delivery · Execution', 'Delivery · Code', 'Delivery · Spec and release', 'Delivery · Triage',
             'Delivery · Paused or discarded', 'Relations', 'Docs', 'Boards and planning', 'Header menus', 'Footer',
             'Hidden (shown elsewhere)', 'Stored, not shown')
 SECTION_OF = {

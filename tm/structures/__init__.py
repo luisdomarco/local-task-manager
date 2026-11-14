@@ -122,18 +122,10 @@ class Structure:
     docs_folder: str = 'docs'
     docs_in_projects: bool = False
     docs_not_projects: frozenset = frozenset()
-    # Project kinds (tm/structures/kinds.py): {id: Kind}, what a project is and which types of its own folders it may
-    # have, and the project field that names it (`kind_key`). {} and '' for a structure whose projects have no kind.
+    # Initiative kinds (tm/structures/kinds.py): {id: Kind}, what an initiative is and what that gives it and its
+    # project, and the initiative field that names it (`kind_key`). {} and '' for a structure without kinds.
     kinds: dict = field(default_factory=dict)
     kind_key: str = ''
-
-    # ── project kinds ────────────────────────────────────────────────────────
-    def kind(self, value):
-        """The Kind a project's kind field names (the default kind when it names none or an unknown one); None when
-        this structure has no kinds."""
-        if not self.kinds:
-            return None
-        return self.kinds.get(str(value or '').strip()) or next(iter(self.kinds.values()))
 
     # ── docs (TSK-039) ───────────────────────────────────────────────────────
     def docs_container(self, rel):
@@ -167,7 +159,7 @@ class Structure:
                                props=tuple(q for q in map(prop, t.props) if q.get('kind') not in ('link', 'links') or q['types']))
                  for name, t in self.types.items() if name not in off}
         extras = {**self.extras, 'disabled_types': sorted(off)}
-        for key in ('project_scoped', 'optional_types', 'needs_parent', 'leaves_project'):
+        for key in ('project_scoped', 'project_delivery_types', 'initiative_delivery_types', 'needs_parent', 'leaves_project'):
             if key in extras:
                 extras[key] = [t for t in extras[key] if t not in off]
         if 'sections' in extras:  # a type turned off is no tab; a section with none left is no link
@@ -368,9 +360,9 @@ class Structure:
             **({'colors': dict(self.colors)} if self.colors else {}),
             **({'defaults': dict(self.defaults)} if self.defaults else {}),
             **({'required': list(self.required)} if self.required else {}),
-            # What a project may be, its own types and the fields it has not (tm/structures/kinds.py), and the field
-            # that says it: the page offers a project's kinds and, in each project, only what its kind has.
-            **({'kinds': [k.public(self.types) for k in self.kinds.values()], 'kind_key': self.kind_key} if self.kinds else {}),
+            # What an initiative may be, what that gives it and the fields it has not (tm/structures/kinds.py), and the
+            # field that says it: the page offers the kinds, and in each initiative and project only what they give.
+            **({'kinds': [k.public() for k in self.kinds.values()], 'kind_key': self.kind_key} if self.kinds else {}),
             **self.extras,
         }
 

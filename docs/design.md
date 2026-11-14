@@ -101,7 +101,7 @@ A computer never matches either, so the desktop is unchanged by construction (§
 | **Hover** | What hover reveals shows from the start on `(pointer: coarse)` — not a quiet field's frame or a row's select's: those stay quiet, as on a computer, read as values, not a form. A hover background that would stick after a tap is in `@media (hover: hover)` in app.css. |
 | **The shell** | The drawer, the top bar, the view bar, the date picker, ⌘K, dialogs, Settings and the create form are sized in phone.css (`--control-h-sm` is 44 there). What a phone does differently in JS asks `isPhone()` / `isTouch()`: the drawer's focus and close (sidebar.js), long press on a tree row (treepane.js `longPress`), the Pinned button (pinbar.js), ⌘K's Cancel, `touchSearch()` (ui.js) on a search field, Settings' Keyboard tab. |
 | **Collections** | A list's row, an agenda's row (`.plan-row`, a grid of areas *tick · subject · act* over *tick · meta · act*), Labels' and Contacts' rows are two lines: the subject whole on two lines, what it carries under it. A list's row is a list app's, not a card: 60px with a one-line subject, growing with a second, its subject and id one block (no gap between them, the id's line 1.3) centred in it. A box that cannot grow (a list's tick, held at 20px by app.css's `!important`) sits in a 44px `label.pick-hit` that list.js builds only on a phone. A drag has a tap's way too: a board card's ⋯ *Move to…* and a column's ⋯ (boardview.js), Month's day sheet (month.js). A layout that is a screen of columns defaults to its list on a phone (Goals; Today already did). |
-| **Item, pages, Docs, graph** | The card is the whole screen (`#item-modal:not(.is-prompt)`, its height `--vvh`); the status pill under the title is as clear of it as of the tabs under the pill (the title's block pulls the tabs up; `.item-tabs` has no top padding there); panel.js on a phone puts the head's resolve, Promote, Escalate and Convert under the title (`.im-title-acts`). On a touch screen a tap on a description's text opens it (no Edit button) and **Done** (`.body-done`) or a tap outside closes it, saving; the outside close listens to pointer events with a 10px slop (mdblock.js `watchOutside`), never `click`, which WebKit does not fire on a tap on what is not clickable, a comment's Return is a newline (panel.js `commentBox`), and a render waits until a focused field is left (`keepFocus`). `.mde` is `overflow: clip` there, so its toolbar can stick. Docs folds its trees under `.docs-fold` when a doc is open (views/docs.js); graphcanvas.js gives a touch pointer `TOUCH_REACH` and `TOUCH_SLOP`, tap-to-light in place of hover, and *Centre here* while a node is lit. A drag down from the card's head closes it (`phone.js` `swipeDown`, `swipeCloses`; the head is `touch-action: none`). Properties keep the computer's two columns; a row of `row-list` is one line, the title at least 70% (`.work-meta`: the status's dot, the priority's bars and word). A comment's actions are one ⋯ (panel.js `commentActions`). A box too small to grow gets an `::after` hit area (`.vb-switch`). |
+| **Item, pages, Docs, graph** | The card is the whole screen (`#item-modal:not(.is-prompt)`, its height `--vvh`); the status pill under the title is as clear of it as of the tabs under the pill (the title's block pulls the tabs up; `.item-tabs` has no top padding there); panel.js on a phone puts the head's resolve, Promote, Escalate and Convert under the title (`.im-title-acts`). On a touch screen a tap on a description's text opens it (no Edit button) and **Done** (`.body-done`) or a tap outside closes it, saving; the outside close listens to pointer events with a 10px slop (mdblock.js `watchOutside`), never `click`, which WebKit does not fire on a tap on what is not clickable, a comment's Return is a newline (panel.js `commentBox`), and a render waits until a focused field is left (`keepFocus`). `.mde` is `overflow: clip` there, so its toolbar can stick. Docs shows its trees or a doc, never both (`.docs-page.no-doc` / `.has-doc`, app.css ≤760, with `.docs-back` *‹ Docs* over the doc), and a file's head puts its title on a line of its own and the modes (stretched) and *Download* (`.files-download`, its icon) in one row under it; graphcanvas.js gives a touch pointer `TOUCH_REACH` and `TOUCH_SLOP`, tap-to-light in place of hover, and *Centre here* while a node is lit. A drag down from the card's head closes it (`phone.js` `swipeDown`, `swipeCloses`; the head is `touch-action: none`). Properties keep the computer's two columns; a row of `row-list` is one line, the title at least 70% (`.work-meta`: the status's dot, the priority's bars and word). A comment's actions are one ⋯ (panel.js `commentActions`). A box too small to grow gets an `::after` hit area (`.vb-switch`). |
 | **Desktop untouched** | A control only a phone has is **built only when `isPhone()`**, never built and hidden: an extra element changes a computer's DOM (and the §5 gate's hash). `replaceChildren(...)` writes a `null` as the text "null": filter the list first. app.css's ≤640 rules a phone shares are widened with `, (max-width: 760px) and (pointer: coarse)`, which no computer matches. |
 
 ### Modern's options
@@ -119,6 +119,10 @@ what one leaves out is the default.
 **To add an option**: its values in `OPTIONS` (and in `index.html`'s first script, which the test runs against the
 module), its rules in `modern.css` under `:root[data-skin="modern"][data-<option>="<value>"]`, a row in
 `views/themes.js` `ROWS`; if it changes a colour, add it to the loops of `tests/js/contrast.test.mjs`.
+
+**Reading options** (`READING` in `themeprefs.js`: `width`, Fit | Expanded) count in every look, Classic too: a
+`data-<key>` on the root in both, set before the first paint by the same script. A rule reads them as
+`:root[data-width="wide"] …` or `:root:not([data-width="wide"]) …`, never under `[data-skin]`.
 
 **What reads the theme live**: the graph (`graphcanvas.js`) and the canvas (`canvas/whiteboard.js`) watch the root's
 attributes (`THEME_ATTRS`) and redraw on any of them. A terminal in the dock does not: it takes Claude Code's own theme.
@@ -609,6 +613,36 @@ Properties · Activity · AI Agents · Relations · Time, last.
   light and dark side by side (`.tc-preview` with two `.tc-half`, drawn with literal colours so it shows the other
   look, not the current one), its name (`.tc-name`) and a line about it (`.tc-about`). Its other choices are
   `.seg` groups in `prop-rows`; one that does not apply to the current look is `disabled`, with a note saying why.
+
+### Rendered Markdown (`.md`, `ui.js renderMarkdown`, `mdextras.js`)
+
+What marked reads plus Obsidian's own, one look everywhere Markdown is shown (a doc's Preview, a description, a comment):
+- **Callout** (`> [!type] Title`): `.callout .callout-<tone>`, a box tinted with `--c` at 9%, a 3px bar in `--c`, its
+  icon and title (`.callout-title`, `--c` mixed with the text for contrast) over `.callout-body`. The tones take the
+  status dots' colours (the same in both themes); `-`/`+` make it a `<details>`. A new type is a row in `TYPES`.
+- **Table**: always in `.md-table`, which scrolls sideways — never squeeze a table to fit. A cell of prose gets
+  `.md-cell-mid` / `.md-cell-long` (9–28em / 16–28em, `cellClass` by its length); a short one stays on one line.
+- `==mark==` a soft yellow; `#tag` a quiet pill (`.md-tag`).
+- **Blank lines**: each beyond the first is a `.md-gap` one line high (`keepBlankLines`, marked's `preprocess` hook).
+- **Diagram**: a ```` ```mermaid ```` fence becomes `.md-diagram` (`diagrams.js renderDiagrams`, called after the HTML
+  is set; Mermaid loads only then), in Mermaid's `default` or `dark` theme by the page's, scrolling sideways when wider.
+  One Mermaid cannot read keeps its `<pre>` and a `.md-diagram-error` line under it. Its corner `.md-expand` (an
+  icon button over `--card`, shown on hover, always on `hover: none`) opens it in `#modal.expand-modal`
+  (`expand.js openExpanded`): the zoom stage of an image (`zoom.js`), the SVG growing to fill it.
+- **Pictures**: `![[x.png|300]]` is an `img.md-embed` (`filetree.js linkWikilinks`), `![](rel.png)` is pointed at the
+  vault's file (`vaultlinks.js linkPaths`); both cap at the text's width and open expanded with a click
+  (`cursor: zoom-in`), except inside a link or an editor.
+- **Links**: a Markdown link written as a path is rewritten after rendering by `linkPaths` to the view links open in
+  (`setLinkContext`: Docs sets `docsHref` while shown, so nothing followed there leaves it). Call it after every
+  `renderMarkdown` of vault text, next to `linkRefs`.
+- **A `[[link]]` to nothing**: `.md-missing`, its label muted with a dashed underline, `Not found: …` as its title.
+- **In the Live editor** (`livemd.js blockField`, `livemarks.js liveBlocks`): a table, a callout and a diagram the
+  caret is not on are one `.cm-block-widget .md` drawn by `renderMarkdown`, so they look as here; hover outlines it
+  (dashed `--border`), a click shows its Markdown.
+
+**A file's header** (`views/files.js headMenu`): title · modes (`.seg`) · ⋯ (`.files-more`, a `dropdown`) — never
+more buttons beside it; what is done with the file goes in that menu. The reading column is `.files-col`,
+`--read-max` wide and centred unless `data-width="wide"`.
 
 ### Empty, loading, errors
 

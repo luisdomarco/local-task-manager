@@ -132,62 +132,85 @@ export const findByPageRef = (type, ref, items) => items.find((i) => i.type === 
   && (pageRef(i) === ref || i.id === ref || (i.aliases || []).includes(ref))) || null;
 /** Where an item shows one of its type's own fields: 'main' (its properties), or a tab of the side panel. */
 export const tabOf = (p) => p.tab || (p.kind === 'link' || p.kind === 'links' ? 'relations' : 'main');
-/** A type's own fields, as the kind of the item's project keeps them (none: all of them). The ones the kind hides
- *  go; the project's own Types (the structure's `types_key`) offers only the kind's types, the ones it always has
- *  ticked and fixed, and goes too when the kind has none to turn on or off (an agentic system). */
+/** A type's own fields, as `kind` keeps them (none: all of them): the ones it hides go (kindFor: a simple
+ *  initiative's readiness, a project's delivery settings while it has no delivering initiative). */
 export function propsOf(type, kind = null) {
   const props = TYPE_DEFS[type]?.props || [];
-  if (!kind) return props;
-  return props.filter((p) => !hides(kind, type, p.key)).flatMap((p) => {
-    if (type !== 'project' || p.key !== STRUCTURE.types_key) return [p];
-    if (!kind.optional.length) return [];
-    return [{ ...p, options: p.options.filter(([v]) => kind.types.includes(v)),
-      fixed: kind.types.filter((t) => !kind.optional.includes(t) && p.options.some(([v]) => v === t)) }];
-  });
+  return kind ? props.filter((p) => !hides(kind, type, p.key)) : props;
 }
 /** Whether the create form asks for a type's own field. Not the ones the app sets (readonly), nor the ones a later
  *  step writes (`later`: how it is carried out and released, its triage, a pause, its outcome: the template's value
- *  until then); but those chosen once, on creation (`once`: a Ticketing project's kind). */
+ *  until then); but those chosen once, on creation (`once`). */
 export const askedOnCreate = (p) => !p.later && ((p.kind !== 'readonly' && !p.readonly) || !!p.once);
 /** A type's own fields shown in one place (tabOf), as `kind` keeps them. */
 export const propsIn = (type, tab, kind = null) => propsOf(type, kind).filter((p) => tabOf(p) === tab);
-/** A new project's Types: what its kind starts with (its fixed types and those on by default), in the option order. */
-export const kindDefaultTypes = (kind) => {
-  const p = (TYPE_DEFS.project?.props || []).find((x) => x.key === STRUCTURE.types_key);
-  return p && kind ? p.options.map(([v]) => v).filter((t) => kind.types.includes(t) && (!kind.optional.includes(t) || kind.default_on.includes(t))) : [];
-};
 
-/** A project kind by its id: an unknown or missing one is the first (product), as the server reads it. None in a
- *  structure without kinds (folder per type). */
-export const kindById = (id) => (STRUCTURE.kinds?.length ? KINDS[id] || STRUCTURE.kinds[0] : null);
+// ── initiative kinds (tm/structures/kinds.py, mirrored) ─────────────────────
+/** An initiative kind by its id; null for an unknown one, and in a structure without kinds (folder per type). */
+export const kindById = (id) => (STRUCTURE.kinds?.length ? KINDS[String(id ?? '').trim()] || null : null);
+/** An initiative's kind: its own, else its project's from before kinds moved to initiatives (`projectFields`), else
+ *  the kind a project from before kinds had (a product). Null without kinds. */
+export function initiativeKindOf(fields, projectFields = null) {
+  if (!STRUCTURE.kinds?.length) return null;
+  return kindById(fields?.[STRUCTURE.kind_key]) || kindById(projectFields?.[STRUCTURE.legacy_kind_key])
+    || KINDS[STRUCTURE.legacy_kind_default] || STRUCTURE.kinds[0];
+}
 /** The project note an item belongs to, among `items`: itself for a project, else the one its `project` names. */
 export const projectOf = (item, items) => (item?.type === 'project' ? item
   : item?.fields?.project ? items.find((i) => i.type === 'project' && i.fields.project_key === item.fields.project) || null : null);
-/** The kind an item falls under: its project's, or none (a task with no project, a vault without kinds). */
-export const kindFor = (item, items) => {
-  const project = projectOf(item, items);
-  return project ? kindById(project.fields[STRUCTURE.kind_key]) : null;
+/** Whether a project has delivery work: one of its initiatives (`items`), of any status, is of a delivering kind; or
+ *  its note says a delivering kind from before. `fields`: the project's. */
+export function projectDelivers(fields, items = []) {
+  if (!STRUCTURE.kinds?.length) return true;
+  if (kindById(fields?.[STRUCTURE.legacy_kind_key])?.delivers) return true;
+  const key = fields?.project_key;
+  return !!key && items.some((i) => i.type === 'initiative' && i.fields?.project === key && initiativeKindOf(i.fields, fields)?.delivers);
+}
+// What a project hides while it has no delivering initiative: its delivery settings (execution, support due days, code).
+/** What a project does not show: its delivery settings while it has no delivering initiative, and the kind its note
+ *  said before kinds moved to initiatives when it says none (a project made since). */
+const projectHidden = (project, items) => {
+  const hidden = [...(projectDelivers(project.fields, items) ? [] : STRUCTURE.delivery_settings || []),
+    ...(String(project.fields?.[STRUCTURE.legacy_kind_key] || '').trim() ? [] : [STRUCTURE.legacy_kind_key])];
+  return hidden.length ? { id: '', delivers: false, hidden: { project: hidden } } : null;
 };
-/** Whether a kind hides one of a type's fields (a simple project has no execution mode, its initiatives no size). */
+/** What hides an item's fields (propsOf): an initiative's kind; for a project, projectHidden; none else (a task, a
+ *  vault without kinds). */
+export const kindFor = (item, items) => {
+  if (!STRUCTURE.kinds?.length || !item) return null;
+  if (item.type === 'initiative') return initiativeKindOf(item.fields, projectOf(item, items)?.fields);
+  if (item.type === 'project') return projectHidden(item, items);
+  return null;
+};
+/** Whether a kind hides one of a type's fields (a simple initiative has no size). */
 export const hides = (kind, type, key) => !!kind?.hidden?.[type]?.includes(key);
+/** The kinds an initiative of kind `id` may become, itself first: only wider, never back to simple. */
+export const widensTo = (id) => (id ? [id, ...(kindById(id)?.widens || [])] : []);
 const scoped = (type) => (STRUCTURE.project_scoped || []).includes(type);
-/** Whether a project may hold items of a type. One that lives at the root (a task, a note) any project may; one
- *  that lives in the project's folder only if its kind has it and, when the kind lets it be turned off, its note's
- *  enabled_types names it (none: the kind's default). Without kinds, only enabled_types narrows the optional ones. */
-export function projectHas(project, type) {
+/** Whether a project may get a new item of a type (made, or moved in). One that lives at the root (a task, a note) any
+ *  project may; a support ticket or a hotfix, while it delivers (projectDelivers); every other one of its folders
+ *  always (a story's, a PRD's, a plan's own initiative is checked apart: initiativeHas). The ones a project holds when
+ *  it stops delivering stay listed (the page shows a type it has), with nothing to add. */
+export function projectHas(project, type, items = []) {
   if (!scoped(type)) return true;
-  const on = project?.fields?.enabled_types;
-  const kind = kindById(project?.fields?.[STRUCTURE.kind_key]);
-  if (!kind) return !(STRUCTURE.optional_types || []).includes(type) || (on || []).includes(type);
-  if (!kind.types.includes(type)) return false;
-  return !kind.optional.includes(type) || (Array.isArray(on) ? on : kind.default_on).includes(type);
+  if (!STRUCTURE.kinds?.length) return true;
+  if (!(STRUCTURE.project_delivery_types || []).includes(type)) return true;
+  return projectDelivers(project?.fields, items);
+}
+/** Whether an item of a type may hang from `parent`: a story, a PRD or a plan only from an initiative that delivers;
+ *  added on a project's page, only while one of its initiatives does (it goes under one). */
+export function initiativeHas(type, parent, items = []) {
+  if (!(STRUCTURE.initiative_delivery_types || []).includes(type)) return true;
+  if (parent?.type === 'project' && STRUCTURE.kinds?.length) return projectDelivers(parent.fields, items);
+  if (parent?.type !== 'initiative') return true;
+  return !!initiativeKindOf(parent.fields, projectOf(parent, items)?.fields)?.delivers;
 }
 /** Whether a type has a place in this vault: one that lives in a project's folder needs a project that may hold it
- *  (a vault of simple projects has no stories). A vault with no project yet keeps every type. */
+ *  (a vault whose initiatives are all simple has no support tickets). A vault with no project yet keeps every type. */
 export function inSomeProject(type, items) {
   if (!scoped(type)) return true;
   const projects = items.filter((i) => i.type === 'project');
-  return !projects.length || projects.some((p) => projectHas(p, type));
+  return !projects.length || projects.some((p) => projectHas(p, type, items));
 }
 
 /** The sidebar's Add item, under the Inbox capture: the types made most often, by group, in order. Not a fact of a
@@ -260,8 +283,8 @@ export const parentLabel = (type) => {
  */
 export function parentChoices(type, { project = null, exclude = new Set(), current = null, creating = false, id = null } = {}, items) {
   const free = projectFree(type, { id, creating });
-  // A ticket goes only to a project that holds its type (a story, no simple project), or to none.
-  const holds = (p) => !scoped(type) || projectHas(p, type);
+  // A ticket goes only to a project that holds its type (a support ticket, one that delivers), or to none.
+  const holds = (p) => !scoped(type) || projectHas(p, type, items);
   const projects = free && !needsParent(type) ? items.filter((i) => i.type === 'project' && i.fields.project_key && holds(i))
     .map((p) => ({ value: PROJECT_PICK + p.fields.project_key, label: `${p.fields.project_key} · ${p.title}`, type: 'project' })) : [];
   const types = PARENT_TYPES[type] || [];
@@ -269,6 +292,7 @@ export function parentChoices(type, { project = null, exclude = new Set(), curre
   const home = (key) => !key || !scoped(type) || items.some((p) => p.type === 'project' && p.fields.project_key === key && holds(p));
   const parents = items.filter((i) => i.id && types.includes(i.type) && !exclude.has(i.id)
       && (fixed ? (i.fields.project || null) === (project || null) : home(i.fields.project))
+      && (initiativeHas(type, i, items) || i.id === current) // a story, a PRD, a plan: a delivering initiative
       && ((!isDone(i) && i.fields.archived !== true) || i.id === current))
     .map((i) => ({ value: i.id, label: `${refOf(i)} · ${i.title}`, type: i.type }));
   return [...projects, ...parents];

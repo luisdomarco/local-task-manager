@@ -577,11 +577,18 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .docs-main { min-width: 0; padding: 28px 40px 64px; }
 .docs-empty { display: grid; justify-items: center; gap: 12px; margin-top: 12vh; } /* emptyState, and the one button that fills it */
 .docs-empty > .empty { justify-self: stretch; }
+/* "‹ Docs": back to the trees from a doc, on a narrow screen only (on a wide one the trees are beside it) */
+.docs-back { display: none; align-items: center; gap: 4px; align-self: flex-start; margin: 0 0 10px -6px; padding: 4px 8px 4px 4px;
+  border-radius: var(--radius-sm); color: var(--muted-foreground); font-size: var(--fs-sm); font-weight: 550; text-decoration: none; }
+.docs-back:hover { background: var(--accent); color: var(--foreground); }
+/* A narrow screen shows one at a time, all of it: the trees (no doc open), or the doc with "‹ Docs" over it */
 @media (max-width: 760px) {
   .docs-page { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .docs-resizer { display: none; }
-  .docs-panel { position: static; height: auto; max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--border); }
-  .docs-main { padding: 20px 16px 48px; }
+  .docs-panel { position: static; height: auto; min-height: calc(100dvh - 47px); border-right: 0; background: var(--background); }
+  .docs-page.has-doc .docs-panel, .docs-page.no-doc .docs-main { display: none; }
+  .docs-back { display: inline-flex; }
+  .docs-main { padding: 12px 16px 48px; }
 }
 /* Canvas (views/canvases.js): Docs' page, its panel the canvases by host (Free, Goals, each item's), the canvas picked
    filling the rest of the window (the Canvas layout, canvasview.js) */
@@ -655,6 +662,17 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-head h1 { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; font-size: var(--fs-title); font-weight: 700; letter-spacing: -.02em; line-height: 1.2; overflow-wrap: anywhere; }
 .files-head h1 .icon { flex: none; color: var(--muted-foreground); }
 .files-head .spacer { flex: 1; }
+/* Narrow: the title on a line of its own, and under it the modes and the buttons in one row from the left (Download
+   its icon only), all one height */
+@media (max-width: 760px) {
+  .files-head { gap: 6px; }
+  .files-head h1 { flex: 1 0 100%; margin-bottom: 6px; }
+  .files-head .spacer { display: none; }
+  .files-head > .seg { flex: 1 1 auto; flex-wrap: nowrap; }
+  .files-head > .seg > .btn { flex: 1; justify-content: center; }
+  .files-head > .seg + .files-more { margin-left: auto; }
+}
+.files-props a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .files-meta { margin: 0 0 14px; }
 .files-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well); }
 .files-item .btn { margin-left: auto; }
@@ -663,7 +681,10 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-props td { padding: 3px 0; overflow-wrap: anywhere; }
 /* A doc's own properties (views/files.js docProps): prop-rows, quiet, as an item's (design.md §Properties) */
 .doc-props { max-width: 560px; margin: 0 0 18px; }
-.files-md { max-width: 860px; }
+/* The reading width (Themes → Reading, themeprefs.js READING): Fit keeps the whole file — its head, properties,
+   outline, text and backlinks — in one centred column; Expanded (wide) lets it take the whole width. */
+.files-col { --read-max: 900px; }
+:root:not([data-width="wide"]) .files-col { max-width: var(--read-max); margin-inline: auto; }
 /* A heading scrolled to (a [[note#heading]] link, On this page) lands under the sticky top bar, not behind it */
 .files-md :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: calc(var(--pinbar-h, 46px) + 12px); }
 .files-source { margin: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--well);
@@ -697,7 +718,7 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-outline ul { list-style: none; margin: 6px 0 0; padding: 0; }
 .files-outline li { padding-left: calc(var(--lvl, 0) * 14px); }
 .files-outline .link { text-align: left; padding: 2px 0; }
-.files-backlinks { max-width: 860px; margin: 0 0 18px; padding-top: 12px; border-top: 1px solid var(--border); } /* a stackGroup: the items over the note, the notes at its foot */
+.files-backlinks { margin: 0 0 18px; padding-top: 12px; border-top: 1px solid var(--border); } /* a stackGroup: the items over the note, the notes at its foot */
 .files-md + .files-backlinks { margin: 24px 0 0; }
 ::highlight(tm-line) { background-color: color-mix(in srgb, var(--hl-title) 28%, transparent); }
 /* Search in files (views/find.js) */
@@ -721,16 +742,24 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .files-drop.drop-target { outline: 2px dashed var(--focus); outline-offset: 4px; }
 .files-drop-hint { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
 .files-view .attach-view-img { max-height: calc(100dvh - 220px); }
-/* An image to look into (zoom.js): fitted to its stage at first; zoomed, the stage scrolls and dragging moves it. */
+/* An image or a diagram to look into (zoom.js): fitted to its stage at first, in its middle; zoomed, the stage scrolls
+   and dragging moves it. The bar: the tools (Hand · Zoom) on the left, − · % · + · Fit on the right. */
 .zoom { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0; }
-.zoom-bar { display: flex; align-items: center; gap: 4px; align-self: flex-end; }
+.zoom-bar { display: flex; align-items: center; gap: 4px; }
+.zoom-bar .spacer { flex: 1; }
 .zoom-bar .btn.icon { width: 28px; height: 28px; }
 .zoom-pct { min-width: 64px; justify-content: center; font-variant-numeric: tabular-nums; }
 .zoom-stage { position: relative; overflow: auto; height: calc(100dvh - 290px); min-height: 240px; border: 1px solid var(--border);
-  border-radius: var(--radius); background: var(--well); cursor: zoom-out; user-select: none; touch-action: none; }
-.zoom-stage.fit { display: grid; place-items: center; overflow: hidden; cursor: zoom-in; }
-.zoom-stage:active:not(.fit) { cursor: grabbing; }
-.zoom-img { display: block; max-width: none; image-rendering: auto; }
+  border-radius: var(--radius); background: var(--well); user-select: none; touch-action: none;
+  display: grid; contain: inline-size; } /* zoomed, what it holds scrolls inside: it never widens the dialog (#modal-backdrop's grid
+  track would grow to it, and the dialog's 100% with it, off the screen) */
+.zoom-stage.fit { overflow: hidden; }
+.zoom-stage.tool-zoom { cursor: zoom-in; }
+.zoom-stage.tool-hand { cursor: grab; }
+.zoom-stage.dragging { cursor: grabbing; }
+/* margin: auto centres it while smaller than the stage, and, larger, leaves all of it reachable by scrolling (centring
+   with place-items would cut off its left and top) */
+.zoom-img { display: block; max-width: none; margin: auto; image-rendering: auto; }
 .modal .zoom-stage { height: min(70vh, calc(100dvh - 200px)); }
 .files-grid .files-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* a cell still (a flex cell broke the row's line) */
 .files-grid .files-name > * { vertical-align: middle; }
@@ -1588,6 +1617,12 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .mde-live .cm-check { display: inline-flex; margin: 0 8px 0 2px; vertical-align: -3px; cursor: pointer; } /* inline: the theme's boxes are flex blocks */
 .mde-live .cm-bullet { display: inline-block; width: 1.1em; color: var(--muted-foreground); }
 .mde-live .cm-rule { display: inline-block; width: 100%; vertical-align: middle; border-top: 1px solid var(--border); }
+/* A table, callout or diagram drawn whole (livemd.js blockField), as the preview draws it; a click shows its Markdown.
+   CodeMirror's text keeps its spaces (pre-wrap): the drawn HTML must not. Its own margins are the block's, kept
+   inside so a line's height stays what CodeMirror measured. */
+.mde-live .cm-block-widget { white-space: normal; cursor: text; padding: 1px 0; border-radius: var(--radius-sm); }
+.mde-live .cm-block-widget > :first-child { margin-top: .3em; } .mde-live .cm-block-widget > :last-child { margin-bottom: .3em; }
+.mde-live .cm-block-widget:hover { outline: 1px dashed var(--border); outline-offset: 2px; }
 .body-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--destructive); border-radius: var(--radius); background: color-mix(in srgb, var(--destructive) 7%, var(--background)); font-size: var(--fs-sm); }
 .body-conflict span { flex: 1 1 220px; }
 .body-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
@@ -1697,8 +1732,60 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .md pre { background: var(--muted); padding: 12px 14px; border-radius: var(--radius); overflow-x: auto; }
 .md pre code { background: none; padding: 0; }
 .md blockquote { border-left: 3px solid var(--foreground); margin: .6em 0; padding-left: 14px; color: var(--muted-foreground); }
+/* A table scrolls sideways in its own box (mdextras.js .md-table) rather than squeezing its columns: its words stay
+   whole, a short cell stays on one line, and a cell of prose keeps between 9em and 28em (-mid) or 16em and 28em
+   (-long), whichever column it is in; only a word longer than that breaks. */
+.md-table { max-width: 100%; overflow-x: auto; margin: .6em 0; }
 .md table { border-collapse: collapse; } .md td, .md th { border: 1px solid var(--border); padding: 6px 10px; }
+.md-table :is(th, td) { overflow-wrap: normal; vertical-align: top; white-space: nowrap; } /* a short cell (a date, a number) on one line */
+.md-table .md-cell-mid, .md-table .md-cell-long { max-width: 28em; overflow-wrap: anywhere; white-space: normal; }
+.md-table .md-cell-mid { min-width: 9em; }
+.md-table .md-cell-long { min-width: 16em; }
+.md-table th { background: var(--well); font-weight: 600; text-align: left; }
+.md-table th[align=center] { text-align: center; } .md-table th[align=right] { text-align: right; }
+/* Obsidian's ==highlight== and #tag (mdextras.js) */
+.md mark { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, #facc15 45%, transparent); color: inherit; }
+.md .md-tag { display: inline-block; padding: 0 7px; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .9em; line-height: 1.6; white-space: nowrap; }
+.md img { max-width: 100%; height: auto; }
+/* A callout (mdextras.js: > [!type] Title): a tinted box, a bar in its type's colour, its icon and title over its body;
+   `-` / `+` fold it (a <details>). The colours are the status dots', the same in both themes. */
+.md .callout { --c: var(--st-todo-dot); margin: .8em 0; padding: 10px 14px; border-left: 3px solid var(--c); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--c) 9%, transparent); color: var(--foreground); }
+.md .callout-title { display: flex; align-items: center; gap: 8px; font-weight: 600; color: color-mix(in srgb, var(--c) var(--c-mix, 65%), var(--foreground)); } /* ≥ 4.5:1 in both themes */
+.md .callout-title > .icon { flex: none; }
+.md summary.callout-title { cursor: pointer; list-style: none; }
+.md summary.callout-title::-webkit-details-marker { display: none; }
+.md summary.callout-title::after { content: ''; flex: none; width: 6px; height: 6px; margin-left: 2px; border-right: 2px solid; border-bottom: 2px solid; transform: rotate(-45deg); transition: transform .15s; }
+.md details[open] > summary.callout-title::after { transform: rotate(45deg) translate(-2px, -1px); }
+.md .callout-body { margin-top: 6px; }
+.md .callout-body > :first-child { margin-top: 0; } .md .callout-body > :last-child { margin-bottom: 0; }
+.md .callout-abstract { --c: var(--t-activity); }
+.md .callout-tip { --c: var(--t-analysis); }
+.md .callout-success { --c: var(--st-done-dot); }
+.md .callout-question { --c: var(--st-onhold-dot); --c-mix: 40%; } /* a yellow needs more of the text to read */
+.md .callout-warning { --c: var(--st-inprogress-dot); }
+.md .callout-danger { --c: var(--st-blocked-dot); }
+.md .callout-example { --c: var(--st-review-dot); }
+.md .callout-quote { --c: var(--st-backlog-dot); }
 .md a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+/* A [[link]] to nothing in the vault (filetree.js linkWikilinks): its label, dimmed and dashed, the target in its title. */
+.md .md-missing { color: var(--muted-foreground); text-decoration: underline dashed; text-underline-offset: 3px; cursor: help; }
+/* Each blank line beyond the first keeps its gap, as the editor shows it (mdextras.js keepBlankLines). */
+.md .md-gap { height: 1.65em; height: 1lh; }
+/* A ```mermaid fence drawn (diagrams.js): scrolls sideways when wider than the text; one that could not be drawn keeps
+   its code, with why under it. */
+.md .md-diagram { position: relative; margin: .8em 0; max-width: 100%; overflow-x: auto; text-align: center; }
+/* Its corner button opens it in a dialog to zoom and drag (expand.js): shown on hover, always on a touch screen. */
+.md .md-expand { position: absolute; top: 6px; right: 6px; background: var(--card); border: 1px solid var(--border);
+  opacity: 0; transition: opacity .12s; }
+.md .md-diagram:hover > .md-expand, .md .md-expand:focus-visible { opacity: 1; }
+@media (hover: none) { .md .md-expand { opacity: .9; } }
+/* A picture of rendered Markdown opens expanded with a click (not a linked one, nor in an editor, where a click edits). */
+.md img { cursor: zoom-in; }
+.md a img, .cm-editor .md img, .mde-live .md img { cursor: auto; }
+/* ![[picture.png|300]]: drawn at the width asked, never wider than the text. */
+.md .md-embed { max-width: 100%; height: auto; border-radius: calc(var(--radius) / 2); }
+.md .md-diagram-error { margin-top: -.3em; }
 .md hr { border: 0; border-top: 1px solid var(--border); }
 
 /* ── quick capture modal (compact); the create form uses #modal.card-modal above ── */
@@ -2097,6 +2184,10 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
 .attach-list.over .attach-hint { color: var(--foreground); }
 .attach-list.busy { pointer-events: none; opacity: .7; }
 #modal.attach-modal { width: min(1100px, 100%); max-height: calc(100dvh - max(6vh, var(--modal-gap)) - var(--modal-gap)); }
+/* A diagram or a picture expanded (expand.js): as wide as the screen allows, its stage as tall. */
+#modal.expand-modal { width: min(1400px, 100%); height: calc(100dvh - max(6vh, var(--modal-gap)) - var(--modal-gap)); }
+.expand-modal .zoom { flex: 1; min-height: 0; }
+.expand-modal .zoom-stage { flex: 1; height: auto; min-height: 0; }
 .attach-modal .modal-head { display: flex; align-items: center; gap: 8px; }
 .attach-modal .modal-head h2 { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-view { flex: 1; min-height: 0; display: grid; place-items: center; overflow: auto; }

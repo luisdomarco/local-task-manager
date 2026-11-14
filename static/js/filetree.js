@@ -162,17 +162,110 @@ export function splitFrontmatter(text) {
 /** The heading of a `[[Note#heading]]` (`#A#B`, a heading under a heading, is its last one), or null. */
 export const wikiHeading = (part) => (part ? part.split('#').map((s) => s.trim()).filter(Boolean).pop() || null : null);
 
-/** `[[Note]]`, `[[Note|alias]]` and `[[Note#heading]]` → a Markdown link to the vault file whose name (without .md) is
- * `Note`, as Obsidian resolves them, opening at the heading when it names one; one that names no file stays as it is.
- * `pathOf(stem)` → its path, or null. */
-export function linkWikilinks(md, pathOf) {
-  return String(md || '').replace(/\[\[([^\]|#\n]+)(#[^\]|\n]*)?(?:\|([^\]\n]*))?\]\]/g, (all, target, part, alias) => {
-    const path = pathOf(target.trim());
-    if (!path) return all;
-    const heading = wikiHeading(part);
-    const label = alias?.trim() || (heading ? `${target.trim()} > ${heading}` : target.trim()); // as Obsidian shows it
-    return `[${label.replace(/[[\]]/g, '')}](${filesHref(path, heading)})`;
+// A [[link]] (`![[…]]` an embed): its target (a name, a path, or nothing for a heading of the same note), `#heading`,
+// and `|alias` — the bar escaped (`\|`) when the link sits in a table cell, as Obsidian writes it there.
+const WIKILINK = /(!?)\[\[([^\]|#\n]*?)(#[^\]|\n]*)?(?:\\?\|([^\]\n]*))?\]\]/g;
+/** A file the page shows as a picture (an embed `![[x.png]]`, a Markdown image). */
+export const IMAGE_FILE = /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i;
+const escapeHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** What a `[[target]]` names in the vault's file tree, as Obsidian resolves it: a note by its path or its name (the
+ *  shortest path among those with that name), then any other file by its path or its name with its extension
+ *  (`[[diagram.png]]`), else a folder by its path or name. → its path, or null. */
+export function wikiTarget(tree, target) {
+  const want = String(target || '').trim().replace(/\.md$/i, '').replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (!want || !tree) return null;
+  const notes = [];
+  const files = [];
+  const dirs = [];
+  const walk = (n) => n.children?.forEach((c) => {
+    if (c.kind === 'dir') { dirs.push(c.path); walk(c); } else (/\.md$/i.test(c.path) ? notes : files).push(c.path);
   });
+  walk(tree);
+  const shortest = (list) => list.sort((a, b) => a.length - b.length)[0] || null;
+  const name = (p) => p.split('/').pop().replace(/\.md$/i, '').toLowerCase();
+  const full = (p) => p.split('/').pop().toLowerCase();
+  return notes.find((p) => p.replace(/\.md$/i, '').toLowerCase() === want)
+    || shortest(notes.filter((p) => name(p) === want))
+    || files.find((p) => p.toLowerCase() === want)
+    || shortest(files.filter((p) => full(p) === want))
+    || dirs.find((p) => p.toLowerCase() === want)
+    || shortest(dirs.filter((p) => name(p) === want));
+}
+
+/**
+ * Where a Markdown link's or image's `href` (`[t](Guides/Setup.md)`, `![](img/a.png)`, `../x.md#Part`) points in the
+ * vault, read from the note at `from`: { path, heading } — the path relative to the note's folder (or to the vault
+ * when it starts with `/`), %-escapes decoded — or null for a web address, an anchor or a path that climbs out.
+ */
+export function resolveRelative(from, href) {
+  let raw = String(href || '').trim();
+  if (!raw || raw.startsWith('#') || raw.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
+  const decode = (t) => { try { return decodeURIComponent(t); } catch { return t; } };
+  let heading = null;
+  const hash = raw.indexOf('#');
+  if (hash >= 0) { heading = decode(raw.slice(hash + 1)).trim() || null; raw = raw.slice(0, hash); }
+  raw = decode(raw.replace(/\?.*$/, ''));
+  const parts = raw.startsWith('/') || !from ? [] : String(from).split('/').slice(0, -1);
+  for (const seg of raw.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg === '..') { if (!parts.length) return null; parts.pop(); } else parts.push(seg);
+  }
+  return parts.length ? { path: parts.join('/'), heading } : null;
+}
+
+/** The file or folder a Markdown link from the note at `from` names, as Obsidian finds it: the path from the note's
+ *  folder, then from the vault's top, with `.md` or without, then by its name (wikiTarget). → { path, heading } or null. */
+export function relativeTarget(tree, from, href) {
+  const r = resolveRelative(from, href);
+  if (!r || !tree) return null;
+  const top = resolveRelative(null, href);
+  for (const p of [r.path, top?.path]) {
+    if (!p) continue;
+    for (const c of [p, `${p}.md`]) if (findNode(tree, c)) return { path: c, heading: r.heading };
+  }
+  const named = wikiTarget(tree, r.path.split('/').pop());
+  return named ? { path: named, heading: r.heading } : null;
+}
+
+/** Each run of `md` outside code — fenced blocks and `inline code` — through `fn`; code is left as written. */
+function outsideCode(md, fn) {
+  const parts = String(md || '').split(/(^[ ]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ ]{0,3}\2[ \t]*$|(?![\s\S])))/m);
+  let out = '';
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (part === undefined) continue;
+    if (i % 3 === 1) { out += part; continue; } // a fenced block
+    if (i % 3 === 2) continue; // the fence's own capture
+    out += part.split(/(`+[^`\n]*?`+)/).map((t, j) => (j % 2 ? t : fn(t))).join('');
+  }
+  return out;
+}
+
+/**
+ * `[[Note]]`, `[[Note|alias]]`, `[[Note#heading]]`, `[[folder/Note]]`, `[[#heading]]` (in this note) → a Markdown link
+ * to what it names, opening at the heading when it names one; one that names nothing reads as its label, marked as not
+ * found (.md-missing). `pathOf(target)` → its path, or null. `self`: this note's path (for `[[#heading]]`); `href(path,
+ * heading)`: the address of a file (#/files/… by default, #/docs/… in Docs). `src(path)`: the address of a file's bytes;
+ * with it, `![[picture.png|300]]` is drawn as the picture (else as a link). Code is left as written.
+ */
+export function linkWikilinks(md, pathOf, { self = null, href = filesHref, src = null } = {}) {
+  return outsideCode(md, (text) => text.replace(WIKILINK, (all, bang, rawTarget, part, alias) => {
+    const target = rawTarget.trim().replace(/\\$/, '').trim();
+    const heading = wikiHeading(part?.replace(/\\$/, '')); // `[[#Part\|alias]]` in a table: the bar's escape is not the heading's
+    if (!target && !heading) return all;
+    const path = target ? pathOf(target) : self;
+    // `![[picture.png]]`, `![[picture.png|300]]` (its width, or 300x200): the picture itself, from the vault
+    if (bang && src && IMAGE_FILE.test(target)) {
+      const size = /^\s*(\d+)(?:x(\d+))?\s*$/.exec(alias || '');
+      const alt = escapeHtml(size || !alias ? target.split('/').pop() : alias.trim());
+      if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target}`)}">${alt}</span>`;
+      return `<img class="md-embed" src="${escapeHtml(src(path))}" alt="${alt}"${size ? ` width="${size[1]}"` : ''}${size?.[2] ? ` height="${size[2]}"` : ''}>`;
+    }
+    const label = (alias?.trim() || (target && heading ? `${target} > ${heading}` : target || heading)).replace(/[[\]]/g, ''); // as Obsidian shows it
+    if (!path) return `<span class="md-missing" title="${escapeHtml(`Not found: ${target || `#${heading}`}`)}">${escapeHtml(label)}</span>`;
+    return `[${label}](${href(path, heading)})`; // an embed of a note (![[note]]) reads as a link to it, for now
+  }));
 }
 
 const routeOf = (view, path, heading) => `#/${view}${path ? `/${path.split('/').map(encodeURIComponent).join('/')}` : ''}${
