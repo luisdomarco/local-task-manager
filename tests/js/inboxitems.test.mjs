@@ -1,7 +1,7 @@
-// INB-033: the Inbox lists the newest capture first and says when each one last changed, with its time.
+// INB-033: the Inbox says when each item last changed, with its time, and lists the last changed first.
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { byNewestCapture, localStamp, updatedLabel } from '../../static/js/inboxitems.js';
+import { byLastUpdated, byNewestCapture, localStamp, updatedLabel } from '../../static/js/inboxitems.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
 const item = (id, fields = {}, extra = {}) => ({ id, fields, ...extra });
@@ -21,6 +21,17 @@ describe('the Inbox', () => {
     const rows = [item('ACME-INB-002', { created_at: '2026-10-15T09:00' }), item('ACME-INB-010', { created_at: '2026-10-15T08:00' }),
       item('ACME-INB-011', { created_at: '2026-10-15T08:00' })];
     assert.deepEqual(rows.sort(byNewestCapture).map((r) => r.id), ['ACME-INB-002', 'ACME-INB-011', 'ACME-INB-010']);
+  });
+
+  it('lists the last changed first, whenever it was captured', () => {
+    const rows = [
+      item('30', { created_at: '2026-10-15' }, { mtime: secs(2026, 10, 15, 9, 0) }),
+      item('5', { created_at: '2026-10-01' }, { mtime: secs(2026, 10, 15, 11, 30) }), // old, edited today in Obsidian
+      item('31', { created_at: '2026-10-15' }, { mtime: secs(2026, 10, 15, 10, 0) }),
+      item('7', { created_at: '2026-10-02', updated_at: '2026-10-03' }), // no file time: its day
+      item('32', { created_at: '2026-10-15' }, { mtime: secs(2026, 10, 15, 10, 0) }), // the same second: newer capture first
+    ];
+    assert.deepEqual(rows.sort(byLastUpdated).map((r) => r.id), ['5', '32', '31', '30', '7']);
   });
 
   it('says when it last changed, with its time, from its file', () => {

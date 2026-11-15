@@ -10,7 +10,7 @@ import { dropdown, emptyState, h, itemCard, parentOptions, rowAction, select, se
 import { refOf } from '../shownid.js';
 import { planSection } from '../planrows.js';
 import { pendingShare, pendingSharedFiles } from '../share.js';
-import { byNewestCapture, updatedLabel } from '../inboxitems.js';
+import { byLastUpdated, updatedLabel } from '../inboxitems.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders. A Projects inbox item keeps it in
 // its own `file_under` instead (its card's Properties shows it too, and Convert to carries it over).
@@ -61,7 +61,7 @@ export function mount(root) {
     list);
   const api = {
     update() {
-      const captured = state.items.filter((i) => i.type === 'inbox').sort(byNewestCapture);
+      const captured = state.items.filter((i) => i.type === 'inbox').sort(byLastUpdated);
       list.replaceChildren(...[
         h('section', { class: 'plan-block inbox-block' },
           planSection({ title: 'Captured', count: captured.length || '' }),
