@@ -806,7 +806,8 @@ function cardLines(stack, main, rest, act) {
   return lines.map(([cls, parts]) => h('div', { class: cls }, ...parts));
 }
 
-export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, cls = '', variant = null, projectName, shows, board = {} } = {}) {
+/** `info`: a quiet line of text after its chips (the Inbox's "Updated Today, 10:42"). */
+export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, cls = '', variant = null, projectName, shows, board = {}, info = '' } = {}) {
   const el = variant === 'board' ? boardCard(item, { onOpen, projectName, shows, ...board }) : h('div', {
     class: `card t-${item.type} ${isDone(item) ? 'done' : ''} ${cls}`,
     'data-key': item.key,
@@ -820,7 +821,7 @@ export function itemCard(item, { onOpen, draggable = false, extra = null, hidePa
         item.type !== 'task' && PLANNABLE.has(item.type) ? h('span', { class: 'type-ico' }, typeIcon(item.type)) : null,
         item.title)),
     hideParent ? null : parentLink(item),
-    h('div', { class: 'chips' }, chips(item, { hideStatus }))),
+    h('div', { class: 'chips' }, chips(item, { hideStatus }), info ? h('span', { class: 'muted card-info' }, info) : null)),
   extra ? h('div', { class: 'card-extra', onclick: (e) => e.stopPropagation() }, extra) : null);
   if (draggable) {
     el.setAttribute('draggable', 'true');

@@ -66,9 +66,10 @@ KINDS = {
 }
 
 # The app's fields a kind carries beyond its traits, the same in every structure: a task's list on the Board (board.md),
-# an initiative's star in the sidebar, an incoming message's source and what was done about it.
+# an initiative's and a project's star in the sidebar, an incoming message's source and what was done about it.
 OWN = {
     'task': ('list',),
+    'project': ('sidebar',),
     'initiative': ('sidebar',),
     'activity': ('source', 'from', 'date', 'time', 'resolution', 'resolved_at'),
 }

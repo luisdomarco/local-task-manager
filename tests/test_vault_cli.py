@@ -317,6 +317,22 @@ class WriteCommandsTest(SampleCopy):
         self.assertIn("has no field 'bogus'", self.cli('set', 'STY-5', 'bogus=1', code=1))
         self.assertIn('nothing to set', self.cli('set', 'STY-5', code=1))
 
+    def test_set_takes_a_place_given_as_text(self):
+        # INB-030: every value comes in as text; a goal's place read as a number, the goal with it in one write
+        for given, kept in (('1', 1), ('001', 1), ('+1', 1), (' 3 ', 3), ('1.0', 1), ('2.5', 2.5)):
+            out = self.cli_json('set', 'STY-6', 'goal=GOL-27', f'goal_order={given}')
+            self.assertEqual((out['fields']['goal'], out['fields']['goal_order']), ('27', kept), given)
+        self.assertIn('goal_order: 2.5', self.file(out['path']))
+        self.cli('set', 'STY-6', 'goal_order=4')
+        self.assertIn('goal_order: 4\n', self.file(out['path']))  # a whole number, never 4.0
+        before = self.file(out['path'])
+        for bad in ('abc', 'true', 'nan', 'inf'):
+            self.assertIn('goal_order must be a number', self.cli('set', 'STY-6', 'goal=', f'goal_order={bad}', code=1), bad)
+        self.assertEqual(self.file(out['path']), before)  # refused whole: not even the goal is written
+        self.cli('set', 'STY-6', 'goal_order=')
+        self.assertIsNone(self.store().read('STY-6')['fields'].get('goal_order'))
+        self.assertEqual(self.cli_json('set', 'STY-6', 'plan_order=7', 'week_order=02')['fields']['week_order'], 2)  # the other places too
+
     def test_set_with_a_stale_rev_is_refused(self):
         rev = self.cli_json('show', 'STY-5')['rev']
         self.cli('set', 'STY-5', 'priority=P1')

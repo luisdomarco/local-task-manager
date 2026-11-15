@@ -48,6 +48,7 @@ import { foldTabs } from './tabfold.js';
 import { itemPicker } from './itempicker.js';
 import { versionChip, versionsTab } from './versionstab.js';
 import { archNotice, entitiesTab, mapTab } from './archview.js';
+import { FAVOURITE_TYPES, isFavourite } from './favourites.js';
 
 /** A phone's width, where the card's head keeps only its essentials (app.css matches it). */
 const PHONE = '(max-width: 640px)';
@@ -141,10 +142,11 @@ async function copyPath(item) {
   }
 }
 
-/** Initiatives: whether this one is a favourite, listed under Favourites in the sidebar (a new one is not: store.py). */
+/** Projects and initiatives: whether this one is a favourite, listed under Favourites in the sidebar (a new one is not:
+ *  store.py; favourites.js says how one from before reads). */
 function sidebarButton(item) {
-  if (item.type !== 'initiative' || !item.id) return null;
-  const on = item.fields.sidebar !== false;
+  if (!FAVOURITE_TYPES.includes(item.type) || !item.id) return null;
+  const on = isFavourite(item);
   return h('button', {
     class: `btn icon toggle fav ${on ? 'on' : ''}`, 'aria-pressed': String(on),
     title: on ? 'In Favourites — click to remove' : 'Not in Favourites — click to add',

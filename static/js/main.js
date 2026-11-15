@@ -19,6 +19,7 @@ import { countOf, cssKey, emptyLine, h, icon, menuIsOpen, select, typeIcon } fro
 import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sections.js';
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
+import { favourites, projectProgress } from './favourites.js';
 import { GO } from './shortcuts.js';
 import { closesCard, is } from './keymap.js';
 import { openKeys } from './views/keyboard.js';
@@ -299,13 +300,11 @@ function renderSidebar() {
   }
   setTabCounts(vaultBlocked() ? {} : tabCounts);
   renderVaultSwitch();
-  // Favourites: the initiatives starred on their page (a new one is not; a file from before without the key is), in the
-  // order dragged there, then the ones never placed, by status: closed first, then under way, then not started (as the
-  // vault groups them).
+  // Favourites: the projects and initiatives starred on their page (favourites.js), in the order dragged there, then
+  // the ones never placed — projects first — by status: closed first, then under way, then not started (as the vault
+  // groups them).
   const rank = (i) => { const r = anyStatusRank(i.fields.status || 'Backlog'); return r >= 1000 ? Infinity : -r; };
-  const placed = (i) => { const r = state.sidebar.indexOf(i.id); return r < 0 ? Infinity : r; };
-  const inis = byType('initiative').filter((i) => i.id && i.fields.sidebar !== false)
-    .sort((a, b) => (placed(a) - placed(b)) || rank(a) - rank(b) || a.title.localeCompare(b.title));
+  const inis = favourites([...byType('project'), ...byType('initiative')], state.sidebar, rank);
   const ids = inis.map((i) => i.id);
   const move = (from, to) => {
     if (to < 0 || to >= ids.length || to === from) return;
@@ -315,9 +314,9 @@ function renderSidebar() {
     saveSidebarOrder([...next, ...state.sidebar.filter((id) => !next.includes(id))]);
   };
   const box = document.getElementById('side-initiatives');
-  // A vault with initiatives turned off has no Favourites section; the Board (tasks) and the day views (what can be
-  // planned) go when what they show is turned off too.
-  document.getElementById('side-favs').hidden = !isEnabled('initiative');
+  // A vault with projects and initiatives turned off has no Favourites section; the Board (tasks) and the day views
+  // (what can be planned) go when what they show is turned off too.
+  document.getElementById('side-favs').hidden = !isEnabled('initiative') && !isEnabled('project');
   renderSavedViews();
   document.querySelector('#sidebar a[data-view="board"]').hidden = !boardTypes().length;
   document.querySelector('#sidebar a[data-view="today"]').hidden = !STRUCTURE.types.some((t) => t.plannable);
@@ -329,7 +328,7 @@ function renderSidebar() {
   hideHomelessTypes();
   wireSidebarDrop(box, move);
   box.replaceChildren(...(inis.length ? inis.map((i, idx) => {
-    const p = progress(i.id);
+    const p = i.type === 'project' ? projectProgress(state.items, i.id, isDone) : progress(i.id);
     const href = pageHref(i);
     const status = i.fields.status || 'Backlog';
     const el = h('a', {
@@ -351,7 +350,7 @@ function renderSidebar() {
     });
     el.addEventListener('dragend', () => el.classList.remove('dragging'));
     return el;
-  }) : [emptyLine('No favourites — star an initiative on its page.')]));
+  }) : [emptyLine('No favourites — star a project or an initiative on its page.')]));
 }
 
 /** Views: the ones saved from a list's bar (savedviews.js), each a link to its page drawn as it was saved; × forgets it

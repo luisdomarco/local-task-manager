@@ -10,6 +10,7 @@ import { dropdown, emptyState, h, itemCard, parentOptions, rowAction, select, se
 import { refOf } from '../shownid.js';
 import { planSection } from '../planrows.js';
 import { pendingShare, pendingSharedFiles } from '../share.js';
+import { byNewestCapture, updatedLabel } from '../inboxitems.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders. A Projects inbox item keeps it in
 // its own `file_under` instead (its card's Properties shows it too, and Convert to carries it over).
@@ -49,8 +50,6 @@ function triage(item, rerender) {
   return [related, transform, discard];
 }
 
-const newestFirst = (a, b) => String(b.fields.created_at || '').localeCompare(String(a.fields.created_at || ''));
-
 export function mount(root) {
   const list = h('div', { class: 'plan-list inbox-list' });
   root.replaceChildren(
@@ -62,12 +61,12 @@ export function mount(root) {
     list);
   const api = {
     update() {
-      const captured = state.items.filter((i) => i.type === 'inbox').sort(newestFirst);
+      const captured = state.items.filter((i) => i.type === 'inbox').sort(byNewestCapture);
       list.replaceChildren(...[
         h('section', { class: 'plan-block inbox-block' },
           planSection({ title: 'Captured', count: captured.length || '' }),
           captured.length
-            ? h('div', { class: 'cards rows' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()),
+            ? h('div', { class: 'cards rows' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()), info: updatedLabel(i),
               cls: `hover-host ${keptOnItem() ? 'triage-in-card' : ''}` })))
             : emptyState('Inbox zero. Nothing captured waiting to be sorted.')),
       ].filter(Boolean));

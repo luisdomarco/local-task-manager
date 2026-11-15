@@ -169,7 +169,7 @@ def to_node(store, value):
 
 def parse_value(raw):
     text = raw.strip()
-    if text[:1] in '[{' or text in ('null', 'true', 'false'):
+    if (text and text[0] in '[{') or text in ('null', 'true', 'false'):  # '' is in every string: KEY= clears, as text
         try:
             return json.loads(text)
         except ValueError:

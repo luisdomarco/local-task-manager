@@ -50,8 +50,9 @@ DEFAULT_LISTS = [{'id': s.lower(), 'name': s, 'status': s} for s in STATUSES]
 # Today's board and every Custom grouping: columns of your own, never a status (tm/boards.py, Store.board).
 # Where an activity (a pasted email, Slack message, comment…) came from.
 ACTIVITY_SOURCES = ['Email', 'Slack', 'Comment', 'Other']
-# `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; a file without
-# the key, from before, still is (the page reads `sidebar !== false`).
+# `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; an initiative's
+# file without the key, from before, still is (the page reads `sidebar !== false`); a project's is not (projects got
+# the star later: `sidebar === true`, static/js/favourites.js).
 FIELD_DEFAULTS = {'status': 'Backlog', 'priority': 'Normal', 'links': [], 'relations': [], 'archived': False, 'sidebar': False,
                   'labels': [], 'attendees': [], 'comments': []}
 # Comments: [{at: 'YYYY-MM-DDTHH:MM', text}] in the frontmatter, oldest first.
@@ -163,6 +164,23 @@ def normalize_url(value, what):
     raise StoreError(400, f'{what} is not a link: {value}')
 
 
+def as_number(v, key):
+    """A place (plan_order, goal_order…) as it is kept: a number, or None for none. Text that reads as a number is one
+    (the CLI hands every value over as text: `goal_order=1`, `001`, `+1`, `1.0`); a whole number is kept as an int, so
+    the file says `1`, never `1.0`. Anything else (a word, true, nan, inf) is a 400 that says what it got."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    n = v
+    if isinstance(v, str):
+        try:
+            n = float(v.strip())
+        except ValueError:
+            n = None
+    if isinstance(n, bool) or not isinstance(n, (int, float)) or n != n or n in (float('inf'), float('-inf')):
+        raise StoreError(400, f'{key} must be a number, got {v!r}')
+    return int(n) if isinstance(n, float) and n.is_integer() else n
+
+
 def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
     """Reject values the app relies on being well-formed; normalize links. Statuses and priorities are the
     structure's (those of `item_type`, when given)."""
@@ -176,11 +194,8 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
     for key in ('plan_order', 'week_order', 'goal_order'):  # a card's place on Today and Week (TSK-053), the Free board, its goal: a number, or none
         if key in values:
-            v = values[key]
-            if v not in (None, '') and (isinstance(v, bool) or not isinstance(v, (int, float))):
-                raise StoreError(400, f'{key} must be a number')
-            values[key] = v if v not in (None, '') else None
-    if 'sidebar' in values:  # whether an initiative is listed in the sidebar
+            values[key] = as_number(values[key], key)
+    if 'sidebar' in values:  # whether an initiative or a project is listed under the sidebar's Favourites
         values['sidebar'] = bool(values['sidebar'])
     if 'resolved' in values:  # an action, never stored: see Store.update
         values['resolved'] = bool(values['resolved'])
@@ -1033,6 +1048,8 @@ class Store:
             'title': str(fields.get('subject') or fields.get('title') or fields.get('url') or stem),
             'path': self.rel(path),
             'rev': file_rev(key),
+            # When its file last changed (epoch seconds), here or in Obsidian: the time a day-only `updated_date` lacks.
+            'mtime': key[1] // 1_000_000_000,
             'body_rev': brev,
             'fields': fields,
             'checklist': {'done': sum(1 for m in marks if m != ' '), 'total': len(marks)},
@@ -4772,7 +4789,7 @@ class Store:
     # save: the UI just skips what it cannot find.
     ID_LISTS = {
         'pins': ('pins.md', '# Pinned', 'Items fixed to the top bar, in order. Edited from the app.'),
-        'sidebar': ('sidebar.md', '# Sidebar', 'Initiatives in the sidebar, in the order dragged there. Edited from the app.'),
+        'sidebar': ('sidebar.md', '# Sidebar', 'Projects and initiatives in the sidebar, in the order dragged there. Edited from the app.'),
     }
 
     def _id_list(self, kind):
@@ -4851,7 +4868,7 @@ class Store:
         return self._save_id_list('pins', ids)
 
     def sidebar_order(self):
-        """Initiative ids in the order the sidebar shows them (the rest follow, by status)."""
+        """Favourite ids (projects and initiatives) in the order the sidebar shows them (the rest follow: favourites.js)."""
         return self._id_list('sidebar')
 
     @writes

@@ -1015,6 +1015,8 @@ body.card-drag .pin-empty { display: inline; }
 /* ── badges (chips) ──────────────────────────────────────── */
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .chips:empty { display: none; }
+/* A card's quiet line of text after its chips (itemCard `info`: the Inbox's "Updated Today, 10:42"). */
+.card-info { font-size: 12px; align-self: center; white-space: nowrap; }
 /* A chip is Basecoat's badge (tools/basecoat_css.py): .on and the plan's Today / This week its primary variant, .late
    its destructive one, .parent / .link / .source / .session its outline one, any other its secondary one. Its shape and
    size are the theme's; its colours, here and below, are the app's in every theme (a status, a label, a person). */
