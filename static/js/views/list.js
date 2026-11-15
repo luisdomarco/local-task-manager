@@ -4,7 +4,7 @@
 // Board, and under it the filters on as chips. "Add <type>" top right (form modal) on a type's page and the Board. A row
 // opens the item: initiatives their page, the rest the card modal.
 import { TYPE_LABEL, openCreateModal } from '../create.js';
-import { COL, FILL_COLUMN, LIST_PAGE, columnOf, columnWidth, dataTable, projectName } from '../datatable.js';
+import { COL, FILL_COLUMN, LIST_PAGE, columnOf, columnWidth, dataTable, isBlankCell, projectName } from '../datatable.js';
 import { isOpen, openItem } from '../panel.js';
 import { NONE, planLabel } from '../grouping.js';
 import { pref, saveSort, savedSort, setPref } from '../prefs.js';
@@ -20,7 +20,7 @@ import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
 import { countOf, cssKey, h, icon, lowerName, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
-import { CUSTOM, cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, sortColumn } from '../viewmodel.js';
+import { CUSTOM, cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
 import { addList, boardOf, customColumns, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
@@ -95,6 +95,40 @@ const subjectLeast = (width) => Math.max(120, Math.min(SUBJECT_WIDTH, width - CO
 const idWidth = () => (state.all.some((i) => shownId(i, { full: true }).length > 8) ? 116 : LIST_WIDTHS.id);
 // A phone's rows are cards (app.css): no column is left out for width. A narrow window, or a phone you touch up to 760px.
 const PHONE = `(max-width: 640px), ${PHONE_TOUCH}`;
+
+/**
+ * A phone's row (app.css, design.md §3): the tick box, the status's dot and the subject, then one cell under the subject
+ * holding the rest in lines (viewmodel.js phoneLines) — where it hangs, its priority and plan, then what else Display
+ * shows, side by side or one a line (`stack`). Each piece is its column's own cell, so a priority still opens its select.
+ */
+function phoneColumns(cols, stack) {
+  const lead = cols.filter((c) => c.key === 'pick' || c.key === 'status' || c.key === 'title' || /^subject/.test(c.key));
+  const rest = cols.filter((c) => !lead.includes(c));
+  const byKey = new Map(rest.map((c) => [c.key, c]));
+  const lines = phoneLines(rest.map((c) => c.key));
+  const piece = (i, k, named) => {
+    const c = byKey.get(k);
+    const el = h('span', { class: `pm-cell pm-${k}`, title: typeof c.label === 'string' ? c.label : null }, c.cell(i));
+    if (isBlankCell(el)) return null;
+    if (named && typeof c.label === 'string') el.prepend(h('span', { class: 'pm-name' }, c.label));
+    return el;
+  };
+  const meta = {
+    key: 'meta', label: '', get: () => 0,
+    cell: (i) => {
+      const where = lines.where.map((k) => piece(i, k)).find(Boolean);
+      const when = lines.when.find((k) => piece(i, k)); // the first date with a value stands beside the priority
+      const main = [...lines.main, when].filter(Boolean).map((k) => piece(i, k)).filter(Boolean);
+      const extra = rest.map((c) => c.key).filter((k) => lines.extra.includes(k) || (lines.when.includes(k) && k !== when))
+        .map((k) => piece(i, k, stack === 'lines')).filter(Boolean);
+      return h('div', { class: `pm stack-${stack}` },
+        where ? h('div', { class: 'pm-line pm-where' }, where) : null,
+        main.length ? h('div', { class: 'pm-line pm-main' }, ...main) : null,
+        extra.length ? h('div', { class: 'pm-line pm-extra' }, ...extra) : null);
+    },
+  };
+  return [...lead, meta];
+}
 
 /** What the view's fields need from the vault (viewmodel.js filterFields). */
 export const vaultCtx = () => ({
@@ -232,7 +266,7 @@ export function listView(type, { page = null } = {}) {
         class: 'btn primary',
         onclick: () => openCreateModal(type, startWith()),
       }, icon('plus', 16), `Add ${lower(label)}`);
-      const columns = cfg.columns.filter((c) => c.key !== 'id' && !/^subject/.test(c.key) && c.label);
+      const columns = cfg.columns.filter((c) => !/^subject/.test(c.key) && c.label); // ID too: a phone starts with it off
       // List | Board: a type's page switches in place; the List page goes to the Board (the type it is filtered to);
       // the Board page goes to the List, filtered to its type.
       const onTimeline = () => spanned && view.layout === 'timeline';
@@ -270,6 +304,7 @@ export function listView(type, { page = null } = {}) {
           sort = { ...sort, dir: d }; saveSort(sortKey, sort); api.update();
         },
         props: columns.map((c) => [c.key, c.label]),
+        narrow: () => matchMedia(PHONE).matches && !board(), // a phone's row: its own ID default, and More properties
         cardProps: cardProps(types),
         columnOrder: {
           on: () => board() && !boardLists() && boardBy() !== CUSTOM, // Custom's columns move by their own header
@@ -507,7 +542,7 @@ export function listView(type, { page = null } = {}) {
           }
           onReorder = (from, to) => change({ colOrder: { ...(view.colOrder || {}), [by]: reorderColumns(saved, shown, from, to) } });
         }
-        tableBox.replaceChildren(boardOf({ columns: cols, onFold, onOpen: openItem, projectName, after, onReorder, shows: (k) => (k === 'status' && view.groupBy === 'status' ? false : cardShows(view, k)) })); // its column says its status
+        tableBox.replaceChildren(boardOf({ columns: cols, onFold, onOpen: openItem, projectName, after, onReorder, shows: (k) => (k === 'status' && view.groupBy === 'status' ? false : cardShows(view, k)), stack: stackOf(view) })); // its column says its status
       };
 
       const api = {
@@ -583,7 +618,8 @@ export function listView(type, { page = null } = {}) {
               // A finger's target around the box (phone.css); a tap on it ticks, it never opens the row.
               return isPhone() ? h('label', { class: 'pick-hit', onclick: (e) => e.stopPropagation() }, box) : box;
             } };
-          const wanted = cfg.columns.filter((c) => c.key !== said && columnOn(view.props, c.key));
+          const phoneRow = matchMedia(PHONE).matches;
+          const wanted = cfg.columns.filter((c) => c.key !== said && columnOn(view.props, c.key, { narrow: phoneRow }));
           // Nothing else says a row's project (no Project column, not grouped by it): its whole id (ACME-INI-001).
           const full = !wanted.some((c) => c.key === 'project') && view.groupBy !== 'project';
           widthsNow = { ...LIST_WIDTHS, id: idWidth() };
@@ -605,7 +641,7 @@ export function listView(type, { page = null } = {}) {
           const others = visible.filter((c) => c.key !== 'subject').reduce((n, c) => n + columnWidth(c, { subject: null }, widthsNow), 0);
           const roomy = width > 0 && !matchMedia(PHONE).matches && width - others >= SUBJECT_WIDTH;
           tableBox.replaceChildren(dataTable({
-            columns: roomy ? [...visible, FILL_COLUMN] : visible,
+            columns: phoneRow ? phoneColumns(visible, stackOf(view)) : roomy ? [...visible, FILL_COLUMN] : visible,
             flex: roomy ? { subject: null } : { subject: subjectLeast(width || 1200) },
             widths: roomy ? { ...widthsNow, subject: SUBJECT_WIDTH } : widthsNow,
             rowClass: (i) => `${isClosed(i) ? 'done' : ''} ${picked.has(i.key) ? 'picked' : ''}`,

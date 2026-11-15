@@ -90,9 +90,10 @@ function preview(p) {
 /**
  * The quick add box: a line of text parsed as it is typed (parseQuick), Enter creates. `files` (the Inbox's): a picture
  * or file pasted or dropped on it, or picked with its paperclip (on a phone, a photo), waits as a chip and is attached to
- * the item created (with no text, the item is named after the first file). `value`: the text it opens with (a share).
+ * the item created (with no text, the item is named after the first file). `value`: the text it opens with (a share);
+ * `attach`: files it opens with, or a promise of them (a picture shared from the iPhone's Photos, fetched from the app).
  */
-export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '' } = {}) {
+export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '', attach = null } = {}) {
   const prev = h('div', { class: 'chips qa-preview' });
   const phone = isPhone();
   const hint = placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note';
@@ -107,13 +108,13 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
   const drawFiles = () => filesRow?.replaceChildren(...waiting.map((f, i) => h('span', { class: 'chip qa-file', title: f.name },
     icon(f.type.startsWith('image/') ? 'image' : 'paperclip', 12), h('span', { class: 'qa-file-name' }, f.name),
     h('button', { type: 'button', class: 'btn icon qa-file-x', 'aria-label': `Leave out ${f.name}`, onclick: () => { waiting.splice(i, 1); drawFiles(); } }, icon('x', 12)))));
-  const take = (list) => {
+  const take = (list, { focus = true } = {}) => {
     for (const f of list) {
       const name = keptName(f.name, f.type);
       waiting.push(name === f.name ? f : new File([f], name, { type: f.type }));
     }
     drawFiles();
-    input.focus();
+    if (focus) input.focus();
   };
   const refresh = () => {
     prev.replaceChildren(...(input.value.trim() ? preview(parseQuick(input.value, defaults)) : []));
@@ -169,6 +170,8 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     });
   }
   if (value) setTimeout(refresh, 0);
+  // Not focused: on a phone that would raise the keyboard over the picture you came to see (autofocus decides).
+  if (files && attach) Promise.resolve(attach).then((list) => { if (list?.length) take(list, { focus: false }); });
   return box;
 }
 

@@ -109,7 +109,7 @@ A computer never matches either, so the desktop is unchanged by construction (§
 | **One tap acts** | iOS withholds the click of a tap whose mousemove changed the page. Hover in a list (the palette, the item picker) reacts to `pointerType === 'mouse'` only; tooltips too. |
 | **Hover** | What hover reveals shows from the start on `(pointer: coarse)` — not a quiet field's frame or a row's select's: those stay quiet, as on a computer, read as values, not a form. A hover background that would stick after a tap is in `@media (hover: hover)` in app.css. |
 | **The shell** | The drawer, the top bar, the view bar, the date picker, ⌘K, dialogs, Settings and the create form are sized in phone.css (`--control-h-sm` is 44 there). What a phone does differently in JS asks `isPhone()` / `isTouch()`: the drawer's focus and close (sidebar.js), long press on a tree row (treepane.js `longPress`), the Pinned button (pinbar.js), ⌘K's Cancel, `touchSearch()` (ui.js) on a search field, Settings' Keyboard section and its list of sections (`onPhone()` in views/settings.js). |
-| **Collections** | A list's row, an agenda's row (`.plan-row`, a grid of areas *tick · subject · act* over *tick · meta · act*), Labels' and Contacts' rows are two lines: the subject whole on two lines, what it carries under it. A list's row is a list app's, not a card: 60px with a one-line subject, growing with a second, its subject and id one block (no gap between them, the id's line 1.3) centred in it. A box that cannot grow (a list's tick, held at 20px by app.css's `!important`) sits in a 44px `label.pick-hit` that list.js builds only on a phone. A drag has a tap's way too: a board card's ⋯ *Move to…* and a column's ⋯ (boardview.js), Month's day sheet (month.js). A layout that is a screen of columns defaults to its list on a phone (Goals; Today already did). |
+| **Collections** | A list's row, an agenda's row (`.plan-row`, a grid of areas *tick · subject · act* over *tick · meta · act*), Labels' and Contacts' rows are two lines: the subject whole on two lines, what it carries under it. A list's row is a list app's, not a card: 60px with a one-line subject, growing with a second, its subject and the lines under it one block (no gap between them, the lines 1.3) centred in it. A box that cannot grow (a list's tick, held at 20px by app.css's `!important`) sits in a 44px `label.pick-hit` that list.js builds only on a phone. A drag has a tap's way too: a board card's ⋯ *Move to…* and a column's ⋯ (boardview.js), Month's day sheet (month.js). A layout that is a screen of columns defaults to its list on a phone (Goals; Today already did). |
 | **Item, pages, Docs, graph** | The card is the whole screen (`#item-modal:not(.is-prompt)`, its height `--vvh`); the status pill under the title is as clear of it as of the tabs under the pill (the title's block pulls the tabs up; `.item-tabs` has no top padding there); panel.js on a phone puts the head's resolve, Promote, Escalate and Convert under the title (`.im-title-acts`). On a touch screen a tap on a description's text opens it (no Edit button) and **Done** (`.body-done`) or a tap outside closes it, saving; the outside close listens to pointer events with a 10px slop (mdblock.js `watchOutside`), never `click`, which WebKit does not fire on a tap on what is not clickable, a comment's Return is a newline (panel.js `commentBox`), and a render waits until a focused field is left (`keepFocus`). `.mde` is `overflow: clip` there, so its toolbar can stick. Docs shows its trees or a doc, never both (`.docs-page.no-doc` / `.has-doc`, app.css ≤760, with `.docs-back` *‹ Docs* over the doc), and a file's head puts its title on a line of its own and the modes (stretched) and *Download* (`.files-download`, its icon) in one row under it; graphcanvas.js gives a touch pointer `TOUCH_REACH` and `TOUCH_SLOP`, tap-to-light in place of hover, and *Centre here* while a node is lit. A drag down from the card's head closes it (`phone.js` `swipeDown`, `swipeCloses`; the head is `touch-action: none`). Properties keep the computer's two columns; a row of `row-list` is one line, the title at least 70% (`.work-meta`: the status's dot, the priority's bars and word). A comment's actions are one ⋯ (panel.js `commentActions`). A box too small to grow gets an `::after` hit area (`.vb-switch`). |
 | **Desktop untouched** | A control only a phone has is **built only when `isPhone()`**, never built and hidden: an extra element changes a computer's DOM (and the §5 gate's hash). `replaceChildren(...)` writes a `null` as the text "null": filter the list first. app.css's ≤640 rules a phone shares are widened with `, (max-width: 760px) and (pointer: coarse)`, which no computer matches. |
 
@@ -392,10 +392,13 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   focused head moves it one place, as a pinned chip does. The order is the view's, per grouping (`view.colOrder`,
   `colorder.js`), never Order's; Group says *Drag a column by its header to move it*, and once one moved, offers
   *Reset column order*. A board of columns that move is `boardOf({ onReorder })` with `movable` columns.
-- **On a phone (≤ 640px)**: a row is two lines — dot and subject, the whole width, on the first; on the second the id,
-  its priority (the list's own select, frameless, its bars and word; nothing when none was given), when (Planned, else
-  Due, else Date; red when late) and · initiative or project in grey, cut with … when it does not fit. No column gap:
-  a cell that shows keeps its own distance, so one left out leaves no hole; the top bar takes the list's title and its Add as "+", the pins
+- **On a phone (≤ 640px)**: a row is its dot and subject, the whole width, then one cell of lines under the subject
+  (list.js `phoneColumns`, viewmodel.js `phoneLines`): where it hangs (initiative, else project, else parent, in grey,
+  cut with … when it does not fit); its ID (off until Display turns it on, there: `columnOn` `narrow`), priority (the
+  list's own select, frameless, its bars and word; nothing when none was given) and one date (Planned, else Due, else
+  Date, the first with a value; red when late); then whatever else Display shows, side by side and wrapping, or one a
+  line with its name (`view.stack`, Display → **More properties**). Each piece is its column's own cell, every piece of
+  a line the same size and centred on it; a line with nothing is left out. The top bar takes the list's title and its Add as "+", the pins
   giving way; the view bar and the applied filters slide sideways as 40px chips; the top bar's buttons are 44px.
 - **Bulk**: a pick column + `.bulk-bar` with one Undo (`bulk.js`); never confirm dialogs for reversible changes —
   toast with **Undo** (`toast(msg, false, { label: 'Undo', run })`).
@@ -509,7 +512,8 @@ its type has `start`). The page's box takes the window's height (`board-layout`,
   one), **Days | Weeks | Months** a `seg`, then `.tl-move`: − / + as `btn icon small` (disabled at ±3) and **Today**
   `btn ghost small` — kept together so they wrap as one on a phone.
 - **The grid** (`.tl-scroll` > `.tl-grid`): an HTML/CSS grid, `--tl-label` (280px; 150px under 640px) then the days'
-  width; every cell placed by `grid-area` (an auto-placed one would be shifted by today's line). The head's two lines
+  width, rows `--tl-row` (40px; bars and diamonds centred in it). The days run on at least to the box's right edge
+  (`fillRange`): zoomed out, the items' own range would end mid-panel. Every cell placed by `grid-area` (an auto-placed one would be shifted by today's line). The head's two lines
   (`.tl-bands`: months, or years on Months; `.tl-ticks`: days, weeks or months) and the `.tl-corner` are sticky on top;
   each row's `.tl-label` sticky left, indented by `--depth`; a band's name sticks past the names column (`overflow: clip`
   on the band — `hidden` would make it a scroller and the name would not stick). Weekends are `--muted` on Days; the
@@ -990,8 +994,8 @@ behave:
   (`side: 'top'`: always, a button at a dialog's foot), else moved up into view. `grow` (a picker whose rows change
   with a search): anchored by the edge nearest the button, so it grows away from it. Opened from the side panel it
   takes the panel's text size (`sideSized`). **On a phone** (≤760px, the phone layout) it opens in the middle of the screen instead, over the page dimmed
-  with `--overlay` (`.menu.centered`: up to 380px wide, a long one scrolls inside; one opened from another dims the
-  page once); with `grow`, its top stays still at 12% of the screen, clear of the keyboard. What opens focuses its first control
+  with `--overlay` (`.menu.centered`: up to 380px wide, a long one scrolls inside past about ten rows, phone.css `--menu-cap`, the view
+  bar's popovers too; one opened from another dims the page once); with `grow`, its top stays still at 12% of the screen, clear of the keyboard. What opens focuses its first control
   through `focusFirst(el, selector)`, which on a phone skips a text field: its keyboard would cover the popup at once.
 
 ## 4. Do / don't

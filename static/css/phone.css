@@ -57,7 +57,9 @@
      — a tap on the dim closes it and goes nowhere else — with one scroller and rows a finger hits. */
   .float-backdrop { position: fixed; inset: 0; z-index: var(--z-popover); background: var(--overlay); overscroll-behavior: contain; animation: fade .12s ease-out; }
   .float-backdrop ~ .float-backdrop { background: none; } /* a menu opened from a panel: the page is dimmed once */
-  .menu.centered { box-shadow: var(--shadow-lg); max-height: min(calc(var(--vvh, 100dvh) - 24px), 640px); }
+  /* About ten rows, half of the next showing that there is more: a long menu scrolls inside, never the whole screen */
+  :root { --menu-cap: min(calc(var(--vvh, 100dvh) - 24px), calc(10.5 * var(--tap) + 24px)); }
+  .menu.centered { box-shadow: var(--shadow-lg); max-height: var(--menu-cap); }
   .menu.centered .menu-list { max-height: none; }
   .menu-item, .menu-list > [role=option] { min-height: var(--tap); padding-block: 6px; } /* a name on two lines keeps its air */
 
@@ -122,7 +124,7 @@
   .vb-op .btn { height: 36px; padding: 0 12px; }
   .vb-value { min-height: var(--tap); }
   .vb-value input { width: 20px; height: 20px; }
-  .vb-pop { max-height: min(calc(var(--vvh, 100dvh) - 24px), 640px); }
+  .vb-pop { max-height: var(--menu-cap); }
   .vb-pop-foot .btn { min-height: var(--tap); }
 
   /* The date picker: seven days across the menu's width, each a finger's square */
@@ -162,18 +164,17 @@
   /* ── collections (phase 3): lists, tables, Inbox, boards, planning ── */
   /* A list's row (app.css's two-line row, from 760 on a phone): the subject in full on up to two lines; the box to tick
      and the status's dot each a finger's target (list.js wraps the box in .pick-hit) */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 44px 36px auto auto auto minmax(0, 1fr); column-gap: 0; min-height: 64px; padding: 8px 4px 8px 0; }
-  /* The tick box and the dot (44px targets) down both lines, so neither stretches the first: the subject and its id
-     sit together, the id right under it (no gap, a tight line), the pair centred in the row. A row is 60px with a
-     one-line subject — a list app's row on a phone, not a card — and grows with a second line */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject subject subject subject" "pick dot id prio when where";
-    align-content: center; row-gap: 0; min-height: 60px; }
+  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 44px 36px minmax(0, 1fr); column-gap: 0; min-height: 64px; padding: 8px 4px 8px 0; }
+  /* The tick box and the dot (44px targets) down every line, so neither stretches the first: the subject and the lines
+     under it sit together (no gap), the whole centred in the row. A row is 60px with a one-line subject and one line
+     under it — a list app's row on a phone, not a card — and grows with each line more */
+  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject" "pick dot meta";
+    align-content: center; row-gap: 1px; min-height: 60px; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { font-size: var(--fs-base); line-height: 1.3; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .item-link { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-initiative, .c-project, .c-parent) { font-size: var(--fs-2xs); line-height: 1.3; }
   /* (the subject keeps to its line's foot, what is under it to its head, so the two stay together) */
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { align-self: end; }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-id, .c-priority, .c-plan, .c-due, .c-date, .c-initiative, .c-project, .c-parent) { align-self: start; line-height: 1.3; }
+  .list-main .grid tbody tr:not(.group-head) > td.c-meta { align-self: start; }
   .list-main .grid tbody tr > td.c-status .select-btn { width: var(--tap); max-width: none; height: var(--tap); margin: 0 -7px; }
   /* (app.css holds the cell at 20px with !important: it stays, centred, and its target spills over it) */
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { overflow: visible; justify-self: center; justify-content: center; }
@@ -251,7 +252,7 @@
   .list-head .btn.icon, .col-fold.btn.icon, .col-more.btn.icon { width: var(--tap); height: var(--tap); }
   .col-fold.btn.icon { opacity: 1; }
   .fold-strip { width: var(--tap); }
-  .board-card .card-meta .plan-move.btn.icon { width: var(--tap); height: var(--tap); margin: -10px -10px -10px 0; }
+  .board-card :is(.card-main, .card-meta) .plan-move.btn.icon { width: var(--tap); height: var(--tap); margin: -10px -10px -10px 0; }
   /* "Move to…" on each card (boardview.js): its top right, the card's subject clear of it */
   .card.has-move { position: relative; padding-right: 46px; }
   .card-move.btn.icon { position: absolute; top: 2px; right: 2px; width: var(--tap); height: var(--tap); color: var(--muted-foreground); }
@@ -400,7 +401,10 @@
   /* A switch keeps its drawn size; its target spills 13px over and under it (it has no ::after of its own) */
   .vb-switch::after { content: ''; position: absolute; inset: -13px -8px; }
   /* A page (an initiative's, a project's): its crumbs' and tabs' targets */
-  .crumbs > a { display: inline-flex; align-items: center; min-height: var(--tap); }
+  .crumbs:not(.files-crumbs) > a { display: inline-flex; align-items: center; min-height: var(--tap); }
+  /* Docs: a doc's path wraps when long, so its lines stay close (a 44px link each made them 50px apart) */
+  .files-crumbs { row-gap: 0; line-height: 1.3; }
+  .files-crumbs > a { min-height: 30px; }
   /* Docs: the trees or the doc (app.css ≤760); "‹ Docs", the doc's buttons and outline a finger's */
   .docs-panel-title { min-height: var(--tap); }
   .docs-back { min-height: var(--tap); margin-bottom: 4px; font-size: var(--fs-base); }

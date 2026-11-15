@@ -26,15 +26,24 @@ Read
                                       column (by its name or id; REF= takes it off). Never writes the item's file
     agents [--on | --off | --print]   the vault's guide for agents (AGENTS.md): whether it has it, turn it on or off,
                                       or print what it would say
+    trash                             what is in the trash, most recently deleted first (what `restore` takes)
 
 Write (as an agent: the structure's transitions and gates apply)
-    new TYPE TITLE [--set KEY=VALUE]… [--body TEXT | --body -]
+    new TYPE TITLE [--set KEY=VALUE]… [--body TEXT | --body -] [--attach FILE]…
+                                      every type; `types TYPE` says what one needs to be created (a project its key,
+                                      `--set project_key=EN`; a plan its parent, `--set related_to=INI-3`…)
     set REF KEY=VALUE… [--body TEXT | --body -] [--rev REV]
     move REF STATUS
     link REF KIND REF                 KIND: relates, blocked, blocks, precedes, follows, duplicates, duplicated,
                                       copied_to, copied_from (Projects keeps "blocked" in depends_on)
     unlink REF REF
     comment REF TEXT                  (TEXT "-" reads it from stdin)
+    attach REF FILE… [--name NAME]    keep files on the item (Attachments/<its folder>/, at most 25 MB each)
+    detach REF PATH                   take one off (PATH as `show` lists it): the file goes to the trash
+    delete REF [--with-items]         to the trash, as the app deletes: whatever hung from it loses the link and a
+                                      restore gives it back. A project goes with its folder and every item in it, so
+                                      it asks for --with-items
+    restore TRASHED                   back to where it was deleted from (TRASHED as `delete` or `trash` prints it)
 
 A VALUE is text; `[…]` or `{…}` is JSON, `null`/`true`/`false` too. A link field (related_to, project, plan, origin,
 depends_on…) takes refs: `--set related_to=INI-3`, `--set depends_on=STY-4,STY-9`. --rev (from `show`) refuses the write
@@ -49,7 +58,7 @@ import sys
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
-from tm import agentsmd  # noqa: E402
+from tm import agentsmd, attachments  # noqa: E402
 from tm.fsutil import download_on_read  # noqa: E402
 from tm import graph as tm_graph  # noqa: E402
 from tm.store import META_DIR, Store, StoreError  # noqa: E402
@@ -65,6 +74,7 @@ RECENT = 10
 # Keys a new item is made from but never keeps as fields (a Projects project: its key, fixed once made, and the
 # `project_kind` a project from before initiative kinds said, read as its initiatives' kind).
 CREATE_ONLY = {'project_key', 'project_kind'}
+TRASH_ROWS = 50  # entries `trash` prints (all of them with --json)
 
 
 class CliError(Exception):
@@ -114,6 +124,10 @@ def node_of(it):
 def closed(store, it):
     status = it['fields'].get('status')
     return bool(status) and status in store.structure.closed_of(it['type'])
+
+
+def plural(n, word):
+    return f"{n} {word}{'s' * (n != 1)}"
 
 
 def cell(text):
@@ -187,6 +201,27 @@ def parse_values(store, item_type, pairs, creating=False):
     return values
 
 
+def creation_needs(store, item_type):
+    """What `new TYPE` must be given, beyond a title, as `--set` hints: read from the structure (the rules Store.create
+    applies), never a list of types of its own. [] when a title is enough."""
+    s = store.structure
+    t = s.types[item_type]
+    extras = s.extras
+    parents = ' / '.join(p for p in t.parents if p in s.types) or 'item'
+    codec = s.codec
+    if codec and getattr(codec, 'owns_folder', None) and codec.owns_folder(item_type):
+        return ['project_key=<2 to 4 capital letters, fixed once made>']
+    if item_type in extras.get('needs_parent', ()):
+        return [f'related_to=<the ref of its {parents}>']
+    if item_type in extras.get('project_scoped', ()) and item_type not in extras.get('leaves_project', ()):
+        return [f'project=<KEY> or related_to=<the ref of its {parents}>']
+    return []
+
+
+def needs_text(store, item_type):
+    return ' · '.join(f'`--set {n}`' for n in creation_needs(store, item_type))
+
+
 # ── read ─────────────────────────────────────────────────────────────────────
 def cmd_overview(store, args):
     items = store.items()
@@ -224,11 +259,12 @@ def cmd_types(store, args):
     s = store.structure
     public = {t['name']: t for t in s.public()['types']}
     if not args.type:
-        rows = [{'type': name, 'label': t.label, 'prefix': t.prefix, 'folder': t.folder, 'statuses': list(t.statuses)}
-                for name, t in s.types.items()]
-        lines = [f'# Item types ({REGISTRY[args.structure_id].label})', '', '| Type | Name | Id | Folder | Statuses |', '|---|---|---|---|---|']
+        rows = [{'type': name, 'label': t.label, 'prefix': t.prefix, 'folder': t.folder, 'statuses': list(t.statuses),
+                 'needs': creation_needs(store, name)} for name, t in s.types.items()]
+        lines = [f'# Item types ({REGISTRY[args.structure_id].label})', '',
+                 '| Type | Name | Id | Folder | Statuses | To create one, also |', '|---|---|---|---|---|---|']
         lines += [f"| `{r['type']}` | {cell(r['label'])} | {r['prefix'] or '—'} | {cell(r['folder'] or '—')} | "
-                  f"{cell(', '.join(r['statuses']) or '—')} |" for r in rows]
+                  f"{cell(', '.join(r['statuses']) or '—')} | {cell(needs_text(store, r['type']) or '—')} |" for r in rows]
         lines += ['', 'More on one: `types TYPE`. Relation kinds: ' + ', '.join(k for k, _ in (s.extras.get('relation_kinds') or {}).get('kinds', ()))]
         return rows, lines
     if args.type not in s.types:
@@ -238,15 +274,29 @@ def cmd_types(store, args):
     links = link_fields(store, args.type)
     lines = [f'# {t.label} (`{args.type}`)', '',
              f"Id: {t.prefix or 'none'} · folder: `{t.folder or '—'}` · parents: {', '.join(t.parents) or 'none'}",
-             f"Statuses: {', '.join(t.statuses) or '—'} (closed: {', '.join(s.closed_of(args.type)) or '—'})", '',
+             f"Statuses: {', '.join(t.statuses) or '—'} (closed: {', '.join(s.closed_of(args.type)) or '—'})",
+             f"To create one: `new {args.type} \"<title>\"`" + (f" {needs_text(store, args.type)}" if creation_needs(store, args.type) else ''), '',
              '## Fields', '', '| Key | Name | Kind | Values |', '|---|---|---|---|']
     for p in props:
         values = ', '.join(str(o[0]) for o in p.get('options') or [] if o and o[0]) or ', '.join(p.get('types') or [])
-        lines.append(f"| `{p['key']}` | {cell(p.get('label'))} | {p.get('kind')} | {cell(values)} |")
+        # A key the card never edits but `new` takes (a project's key): set once, there.
+        kind = 'set by `new` only' if p['key'] in CREATE_ONLY else p.get('kind')
+        lines.append(f"| `{p['key']}` | {cell(p.get('label'))} | {kind} | {cell(values)} |")
     others = sorted(k for k in s.allowed_fields(args.type) if k not in {p['key'] for p in props})
     lines += ['', 'Other keys it keeps: ' + ', '.join(f'`{k}`' for k in others),
               'Link fields (take refs): ' + (', '.join(f'`{k}`' for k in links) or 'none')]
-    return pub, lines
+    return {**pub, 'needs': creation_needs(store, args.type)}, lines
+
+
+def cmd_trash(store, args):
+    entries = store.trash()
+    lines = [f'{len(entries)} in the trash' + (f' (the latest {TRASH_ROWS})' if len(entries) > TRASH_ROWS else '')]
+    if entries:
+        lines += ['', '| Deleted | What | Was at | Restore with |', '|---|---|---|---|']
+        lines += [f"| {cell(e['deleted_at'])} | {cell(' '.join(x for x in (e['ref'], e['title']) if x))} ({e['type']}"
+                  f"{', with ' + plural(e['holds'], 'item') if e.get('holds') else ''}) | `{cell(e['original_path'])}` | "
+                  f"`restore {cell(e['trashed'])}` |" for e in entries[:TRASH_ROWS]]
+    return entries, lines
 
 
 def cmd_find(store, args):
@@ -397,11 +447,32 @@ def written(store, its, verb):
     return (its[0] if len(its) == 1 else its), lines or ['Nothing to change.']
 
 
+def read_upload(path):
+    """A file to attach: its bytes, refused before reading when it is bigger than an attachment may be."""
+    full = os.path.expanduser(path)
+    if not os.path.isfile(full):
+        raise CliError(f'no such file: {path}')
+    if os.path.getsize(full) > attachments.MAX_BYTES:
+        raise CliError(f'{path}: an attachment is at most {attachments.MAX_BYTES // (1024 * 1024)} MB')
+    with open(full, 'rb') as f:
+        return f.read()
+
+
 def cmd_new(store, args):
     if args.type not in store.structure.types:
         raise CliError(f"no type '{args.type}' in this vault (there are: {', '.join(store.structure.types)})")
     values = parse_values(store, args.type, args.set, creating=True)
-    it = store.create(args.type, args.title, values, read_text(args.body) if args.body is not None else None)  # none: the type's default text
+    uploads = [(os.path.basename(f), read_upload(f)) for f in args.attach or ()]  # all read before anything is written
+    try:
+        it = store.create(args.type, args.title, values, read_text(args.body) if args.body is not None else None)  # none: the type's default text
+    except StoreError as e:
+        # The Store speaks of the app's form ("choose it in Parent"): say what to pass here.
+        needs = needs_text(store, args.type)
+        if e.status == 400 and needs:
+            raise StoreError(400, f'{e} — here: {needs} (see: types {args.type})') from None
+        raise
+    for name, data in uploads:
+        it = store.add_attachment(it['key'], name, data)
     return written(store, [it], 'Created')
 
 
@@ -434,6 +505,49 @@ def cmd_unlink(store, args):
 def cmd_comment(store, args):
     it = store.add_comment(args.ref, read_text(args.text))
     return written(store, [it], 'Commented on')
+
+
+def cmd_attach(store, args):
+    if args.name and len(args.files) > 1:
+        raise CliError('--name names one file: attach them one at a time')
+    it = store.find(args.ref)
+    uploads = [(args.name or os.path.basename(f), read_upload(f)) for f in args.files]
+    for name, data in uploads:
+        it = store.add_attachment(it['key'], name, data)
+    kept = (it['fields'].get('attachments') or [])[-len(uploads):]
+    return it, [f"Attached to {item_line(it)}:"] + [f'- `{p}`' for p in kept]
+
+
+def cmd_detach(store, args):
+    it = store.find(args.ref)
+    out = store.remove_attachment(it['key'], args.path)
+    where = f" · the file is in the trash (`{out['trashed']}`)" if out['trashed'] else ' · its file was already gone'
+    return out, [f"Took `{args.path}` off {item_line(out['item'])}{where}"]
+
+
+def cmd_delete(store, args):
+    it = store.find(args.ref)
+    name = item_line(it)
+    if it['type'] == 'project':
+        # What goes with it is what lives in its folder (an item elsewhere that names it only loses the link).
+        folder = os.path.dirname(it['path']).replace(os.sep, '/') + '/'
+        held = [i for i in store.items() if i['key'] != it['key'] and i['path'].replace(os.sep, '/').startswith(folder)]
+        if held and not args.with_items:
+            raise CliError(f'{name} holds {plural(len(held), "item")} in its folder: they go to the trash with it. Add '
+                           '--with-items to delete them all, or move them first')
+    out = store.delete(it['key'])
+    lines = [f"Deleted {name} → the trash (`{out['trashed']}`)"]
+    if out.get('holds'):
+        lines.append(f"With it, {plural(out['holds'], 'item')} of its folder.")
+    if out.get('unlinked'):
+        lines.append(f"{plural(out['unlinked'], 'item')} that named it lost the link; a restore gives it back.")
+    lines.append(f"Undo: `restore {out['trashed']}`")
+    return out, lines
+
+
+def cmd_restore(store, args):
+    it = store.restore_trashed(args.trashed)
+    return written(store, [it], 'Restored')
 
 
 BASE_ROWS = 100  # rows `base` prints (all of them with --json)
@@ -505,7 +619,7 @@ def cmd_board(store, args):
     return board, lines
 
 
-WRITES = (cmd_new, cmd_set, cmd_move, cmd_link, cmd_unlink, cmd_comment)
+WRITES = (cmd_new, cmd_set, cmd_move, cmd_link, cmd_unlink, cmd_comment, cmd_attach, cmd_detach, cmd_delete, cmd_restore)
 
 
 # ── the command line ─────────────────────────────────────────────────────────
@@ -544,14 +658,22 @@ def parser():
     onoff = agents.add_mutually_exclusive_group()
     onoff.add_argument('--on', action='store_true')
     onoff.add_argument('--off', action='store_true')
-    add('new', cmd_new, 'create an item', (('type',), {}), (('title',), {}),
-        (('--set',), {'action': 'append', 'metavar': 'KEY=VALUE'}), (('--body',), {}))
+    add('trash', cmd_trash, 'what is in the trash (what restore takes)')
+    add('new', cmd_new, 'create an item (any type: `types TYPE` says what it needs)', (('type',), {}), (('title',), {}),
+        (('--set',), {'action': 'append', 'metavar': 'KEY=VALUE'}), (('--body',), {}),
+        (('--attach',), {'action': 'append', 'metavar': 'FILE', 'help': 'a file to keep on it (repeat for more)'}))
     add('set', cmd_set, 'change fields or the description', (('ref',), {}), (('pairs',), {'nargs': '*', 'metavar': 'KEY=VALUE'}),
         (('--body',), {}), (('--rev',), {}))
     add('move', cmd_move, 'change the status', (('ref',), {}), (('status',), {}))
     add('link', cmd_link, 'relate two items', (('ref',), {}), (('kind',), {}), (('other',), {}))
     add('unlink', cmd_unlink, 'take a relation off', (('ref',), {}), (('other',), {}))
     add('comment', cmd_comment, 'add a comment', (('ref',), {}), (('text',), {}))
+    add('attach', cmd_attach, 'keep files on an item', (('ref',), {}), (('files',), {'nargs': '+', 'metavar': 'FILE'}),
+        (('--name',), {'help': 'the name it is kept as (one file)'}))
+    add('detach', cmd_detach, 'take an attachment off (to the trash)', (('ref',), {}), (('path',), {}))
+    add('delete', cmd_delete, 'to the trash (restore takes it back)', (('ref',), {}),
+        (('--with-items',), {'action': 'store_true', 'help': "a project: with its folder's items"}))
+    add('restore', cmd_restore, 'back from the trash', (('trashed',), {}))
     return p
 
 

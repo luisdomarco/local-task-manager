@@ -248,8 +248,42 @@ export const closedLast = (items, isClosed = isDone) => [...items.filter((i) => 
 // ── which columns a list shows ───────────────────────────────────────────────
 // The columns a list leaves out until Display → Show columns turns them on: Goal (Projects), shown by its own view.
 export const COLUMNS_OFF = new Set(['goal']);
-/** Whether a list shows column `key`, by its view's Show columns (`props`: true or false where it was picked). */
-export const columnOn = (props, key) => (COLUMNS_OFF.has(key) ? props?.[key] === true : props?.[key] !== false);
+// And those a phone's row leaves out until it is turned on there (`narrow`): the ID, which the subject says enough without.
+// Display keeps what is picked in this browser (prefs.js), so a phone and a computer each start from their own.
+export const COLUMNS_OFF_NARROW = new Set(['id']);
+/** Whether a list shows column `key`, by its view's Show columns (`props`: true or false where it was picked); `narrow`
+ *  a phone's row (list.js PHONE). */
+export const columnOn = (props, key, { narrow = false } = {}) => (COLUMNS_OFF.has(key) || (narrow && COLUMNS_OFF_NARROW.has(key))
+  ? props?.[key] === true : props?.[key] !== false);
+
+// ── a phone's row, and a board's card: its lines ─────────────────────────────
+// Under the subject: where it hangs (one line), its priority and plan (one line), then the rest Display shows, side by
+// side (wrapping when they do not fit) or one a line (view.stack: Display → More properties).
+export const STACKS = [['wrap', 'Side by side'], ['lines', 'One per line']];
+export const stackOf = (view) => (view?.stack === 'lines' ? 'lines' : 'wrap');
+/** The columns that say where a row hangs, the first one with something to say winning (its initiative, else its
+ *  project, else its parent). */
+export const WHERE_KEYS = ['initiative', 'project', 'parent'];
+
+/**
+ * How a phone's row lays out the columns Display shows under its subject (`keys`, in the list's order; the tick box,
+ * status and subject are not among them): `{ where, main, when, extra }`, each a list of keys.
+ * - `where`: the line of what it hangs from: one of them shows, the first with a value (list.js).
+ * - `main` and `when`: the line of its ID (when Display turns it on) and priority, then one date — of `when`, the first
+ *   with a value in that row (list.js); the other dates with a value join `extra`.
+ * - `extra`: every other key, in order, side by side or one a line.
+ * A key the list does not show is in none of them; every key it shows is in exactly one.
+ */
+export function phoneLines(keys) {
+  const where = WHERE_KEYS.filter((k) => keys.includes(k));
+  const main = ['id', 'priority'].filter((k) => keys.includes(k));
+  const when = WHEN_KEYS.filter((k) => keys.includes(k));
+  const extra = keys.filter((k) => !where.includes(k) && !main.includes(k) && !when.includes(k));
+  return { where, main, when, extra };
+}
+/** The dates that may stand beside the priority, the first with a value winning: Planned, else Due, else (a meeting)
+ *  its Date. The others with a value go with the rest. */
+export const WHEN_KEYS = ['plan', 'due', 'date'];
 
 // ── columns on a narrow window ───────────────────────────────────────────────
 // Never a sideways scroll: as the table narrows, its columns give way — first any beyond the core set, the right-most

@@ -86,6 +86,15 @@ export function rangeOf(spans, now, scale = 'weeks') {
 }
 
 /**
+ * `range` with its end pushed on until it covers at least `minDays` days, so a zoomed-out timeline still fills the width
+ * it has (its start stays where it is). A range already that long, or longer, is returned as it is.
+ */
+export function fillRange(range, minDays) {
+  const days = dayNum(range.to) - dayNum(range.from) + 1;
+  return days >= minDays ? range : { from: range.from, to: fromNum(dayNum(range.from) + Math.ceil(minDays) - 1) };
+}
+
+/**
  * The header's two lines over `range`: `bands` (months, or years on Months) and `ticks` (days, weeks or months), each
  * { day, days, label } — where it starts and how many days it covers, cut to the range.
  */

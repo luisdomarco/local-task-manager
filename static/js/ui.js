@@ -761,13 +761,14 @@ export function checkbox(item) {
 
 /**
  * A card of a list's board (views/list.js as a board; docs/design.md §3): its done box, a subject of two lines at
- * most, a grey line with what it hangs from (its initiative or parent, else its project), and one row of priority,
- * ID, planned (red when late), due, the tracker's ticket and labels. No status (its column says it), no framed chips.
+ * most, a grey line with what it hangs from (its initiative or parent, else its project), a line of its priority and
+ * plan (red when late), then the rest — status, ID, due, the tracker's ticket, labels — side by side or one a line
+ * (`stack`: Display → More properties, as a phone's list row). No framed chips.
  * `shows(key)` says which it carries (Display → Show on cards: viewmodel.js cardProps / cardShows).
  * Planning's boards (planrows.js planCard) leave out the ID (`id: false`) and the plan where the column says it
  * (`plan: false`), add what they say of it (`meta`: due, done) and a move at its right (`action`: carried over → now).
  */
-function boardCard(item, { onOpen, projectName = (k) => k, shows = (k) => !CARD_OFF.has(k), id = true, plan: showPlan = true, meta = [], action = null, status = null }) {
+function boardCard(item, { onOpen, projectName = (k) => k, shows = (k) => !CARD_OFF.has(k), id = true, plan: showPlan = true, meta = [], action = null, status = null, stack = 'wrap' }) {
   const p = shows('parent') && item.fields.related_to && state.byId.get(item.fields.related_to);
   const proj = item.fields.project && (shows('project') || (shows('parent') && !p)) ? projectName(item.fields.project) : null;
   const where = [
@@ -785,17 +786,24 @@ function boardCard(item, { onOpen, projectName = (k) => k, shows = (k) => !CARD_
   h('div', { class: 'card-body' },
     h('div', { class: 'card-title', title: item.title }, item.title),
     where.length ? h('div', { class: 'card-where', title: [p ? `${refOf(p)} · ${p.title}` : null, proj].filter(Boolean).join(' · ') }, ...where) : null,
-    h('div', { class: 'card-meta' }, ...[
-      (status ?? shows('status')) && item.fields.status ? statusChip(item.fields.status) : null, // its status, then its priority (as a list's columns)
+    ...cardLines(stack, [
       shows('priority') && item.fields.priority ? priorityChip(item.fields.priority) : null,
-      id && shows('id') ? h('span', { class: 'mono' }, shownId(item)) : null,
       showPlan && shows('plan') && PLANNABLE.has(item.type) && !plan.none ? h('span', { class: plan.late ? 'late-text' : '', title: plan.late ? `Planned ${plan.since}` : null }, plan.text) : null,
+    ], [
+      (status ?? shows('status')) && item.fields.status ? statusChip(item.fields.status) : null,
+      id && shows('id') ? h('span', { class: 'mono' }, shownId(item)) : null,
       shows('due') && item.fields.due ? h('span', { class: isOverdue(item) ? 'late-text' : '', title: `Due ${item.fields.due}` }, `Due ${relDay(item.fields.due)}`) : null,
       ref ? h('span', { class: 'mono', title: `${EXTERNAL_REF.label} #${ref}` }, `#${ref}`) : null,
       ...meta,
       ...labels.map((l) => h('span', { class: 'card-label' }, `#${l}`)),
-      action ? h('span', { class: 'card-act' }, action) : null,
-    ].filter(Boolean))));
+    ], action ? h('span', { class: 'card-act' }, action) : null)));
+}
+/** A board card's lines under its title: its priority and plan, then the rest; a line with nothing is left out, and the
+ *  move (`act`) ends the last one, at its right. */
+function cardLines(stack, main, rest, act) {
+  const lines = [['card-main', main.filter(Boolean)], [`card-meta stack-${stack}`, rest.filter(Boolean)]].filter(([, p]) => p.length);
+  if (act) (lines.at(-1) || lines[lines.push(['card-main', []]) - 1])[1].push(act);
+  return lines.map(([cls, parts]) => h('div', { class: cls }, ...parts));
 }
 
 export function itemCard(item, { onOpen, draggable = false, extra = null, hideParent = false, hideStatus = false, cls = '', variant = null, projectName, shows, board = {} } = {}) {

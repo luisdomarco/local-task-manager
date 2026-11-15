@@ -9,7 +9,7 @@
 // columns or card properties on show. The view is the page's own (viewmodel.js), saved by the page as it changes.
 import { closeFloating, cssKey, floating, floatingFrom, focusFirst, h, icon, priorityChip, removeButton, searchBox as searchBoxOf, seg, select, statusLabel, touchSearch, typeIcon } from './ui.js';
 import { isPhone } from './phone.js';
-import { cardShows, columnOn, fresh, filterParts, filterText, groupLabel, matches, valueCounts } from './viewmodel.js';
+import { STACKS, cardShows, columnOn, fresh, filterParts, filterText, groupLabel, matches, stackOf, valueCounts } from './viewmodel.js';
 
 const CLOSED_MODES = [['none', 'None'], ['week', 'Last week'], ['all', 'All']];
 const EMPTY_MODES = [['show', 'Show'], ['fold', 'Fold'], ['hide', 'Hide']];
@@ -253,15 +253,18 @@ export function viewBar(opts) {
       ...(opts.displayRows?.() || []),
       closable ? row('Show closed', seg(opts.closedModes || CLOSED_MODES, view.closed, (k) => change({ closed: k }), { aria: 'Show closed' })) : null,
       isBoard() ? row('Empty columns', seg(EMPTY_MODES, view.emptyCols || 'fold', (k) => change({ emptyCols: k, boardFold: {} }), { aria: 'Empty columns' })) : null,
-      props.length && !isBoard() ? pills(opts.propsLabel || 'Show columns', props, (k) => columnOn(view.props, k),
-        (k) => change({ props: { ...view.props, [k]: !columnOn(view.props, k) } })) : null,
+      props.length && !isBoard() ? pills(opts.propsLabel || 'Show columns', props, (k) => columnOn(view.props, k, { narrow: !!opts.narrow?.() }),
+        (k) => change({ props: { ...view.props, [k]: !columnOn(view.props, k, { narrow: !!opts.narrow?.() }) } })) : null,
       cardProps.length && isBoard() ? pills('Show on cards', cardProps, (k) => cardShows(view, k),
         (k) => change({ cards: { ...(view.cards || {}), [k]: !cardShows(view, k) } })) : null,
+      // A board's cards and a phone's rows: what comes after the priority and plan, side by side or one a line
+      (isBoard() && cardProps.length) || (props.length && opts.narrow?.())
+        ? row('More properties', seg(STACKS, stackOf(view), (k) => change({ stack: k }), { aria: 'More properties' })) : null,
       h('div', { class: 'menu-sep' }),
       h('div', { class: 'vb-pop-foot' },
         h('button', {
           type: 'button', class: 'vb-foot-btn',
-          onclick: () => { const d = fresh(); opts.onOrder?.(null); opts.onReset?.(); change({ closed: opts.closedDefault || d.closed, props: {}, cards: {}, emptyCols: null, boardFold: {} }); update(); },
+          onclick: () => { const d = fresh(); opts.onOrder?.(null); opts.onReset?.(); change({ closed: opts.closedDefault || d.closed, props: {}, cards: {}, emptyCols: null, boardFold: {}, stack: null }); update(); },
         }, 'Reset to default'),
         opts.saveAs ? saveAsBtn('vb-foot-btn strong') : null),
     ].filter(Boolean));

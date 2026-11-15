@@ -521,6 +521,8 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .props-value.editing { cursor: default; flex-wrap: wrap; padding: 6px; background: var(--card, var(--background)); }
 .props-value.editing .tag-rename { width: 240px; height: var(--control-h); font-size: var(--fs-sm); }
 .props-value.editing .form-actions { margin-left: auto; }
+/* What saving does, on a line of its own under the field: in the row it pushed Cancel and Save down to the next line */
+.props-value.editing > .muted { flex-basis: 100%; order: 3; }
 @media (max-width: 760px) {
   .props-edit { max-width: calc(100vw - 48px); }
   .props-edit .prop-rows .field { grid-template-columns: minmax(0, 1fr); }
@@ -1193,49 +1195,48 @@ button.chip.kind:hover { background: var(--accent); }
   #item-modal .im-head > .im-in { display: none; } /* its parent is in the card itself, under Relations */
   #item-modal .im-head > .mono { white-space: nowrap; flex: none; }
   .create-keys { display: none; } /* keyboard hints: no keyboard to speak of on a phone, and they squeezed the buttons */
-  /* A list on a phone (design.md §3): each row two lines, the header row left out —
+  /* A list on a phone (design.md §3): the header row left out, each row its subject and, under it, one cell of lines
+     (list.js phoneColumns; viewmodel.js phoneLines):
        [☐] ● Subject ………………………………………
-           ID  Priority  Planned (or Due, or Date; red when late) · Initiative (else Project, else Parent), in grey
-     The status keeps its select, drawn as its dot, and so does the priority, drawn as its bars and word (only when
-     one was given: list.js); the rest of the row is in the item's card. No column gap: a cell of the second line
-     that shows keeps its own distance, so one left out leaves no hole. */
+           What it hangs from (its initiative, else project, else parent)
+           Priority  Planned
+           The rest Display shows: side by side, wrapping, or one a line (Display → More properties)
+     The status keeps its select, drawn as its dot, and so does the priority, drawn as its bars and word; the rest of
+     the row is in the item's card. Every piece of a line the same size, centred on it, so none sits higher. */
   .list-main .grid thead, .list-main .grid colgroup { display: none; }
   .list-main .grid, .list-main .grid tbody { display: block; width: 100% !important; min-width: 0 !important; }
   .list-main .grid tbody tr:not(.group-head) {
-    display: grid; grid-template-columns: 28px 32px auto auto auto minmax(0, 1fr); align-items: center; column-gap: 0; row-gap: 3px; /* the dot keeps its place in a type without status */
-    grid-template-areas: "pick dot subject subject subject subject" "pick . id prio when where"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 28px 32px minmax(0, 1fr); align-items: center; column-gap: 0; row-gap: 3px; /* the dot keeps its place in a type without status */
+    grid-template-areas: "pick dot subject" "pick dot meta"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
   }
   .list-main .grid tbody tr:not(.group-head) > td { display: none; height: auto; padding: 0; border: 0; width: auto !important; min-width: 0; max-width: 100%; }
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { display: flex; grid-area: pick; width: 20px !important; }
   .list-main .grid tbody tr:not(.group-head) > td.c-status { display: block; grid-area: dot; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { display: block; grid-area: subject; font-weight: 500; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .title-cell > :not(.item-link) { display: none; } /* its labels: in the card */
-  .list-main .grid tbody tr:not(.group-head) > td.c-id:not(.blank) { display: block; grid-area: id; font-size: var(--fs-2xs); color: var(--muted-foreground); }
-  /* when: what it is planned for, else its due date, else (a meeting) its date */
-  .list-main .grid tbody tr:not(.group-head) > td.c-priority:not(.blank) { display: block; grid-area: prio; }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-plan, .c-due, .c-date) { grid-area: when; font-size: var(--fs-2xs); color: var(--muted-foreground); white-space: nowrap; }
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-priority, .c-plan, .c-due, .c-date) { margin-left: 10px; }
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-id:not(.blank))) > td.c-priority { margin-left: 0; }
-  /* (one :has each: a :has inside a :has is invalid, and drops the whole rule) */
-  .list-main .grid tbody tr:not(.group-head) > td.c-plan:not(.blank),
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-plan:not(.blank))) > td.c-due:not(.blank),
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-plan:not(.blank), > td.c-due:not(.blank))) > td.c-date:not(.blank) { display: block; }
-  /* where: its initiative, else its project, else its parent */
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) { grid-area: where; font-size: var(--fs-xs); overflow: hidden; margin-left: 6px; }
-  .list-main .grid tbody tr:not(.group-head) > td.c-initiative:not(.blank),
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td.c-initiative:not(.blank))) > td.c-project:not(.blank),
-  .list-main .grid tbody tr:not(.group-head):not(:has(> td:is(.c-initiative, .c-project):not(.blank))) > td.c-parent:not(.blank) { display: flex; align-items: baseline; }
-  .list-main .grid tbody tr:not(.group-head) > td.c-id:not(.blank) ~ td:is(.c-initiative, .c-project, .c-parent)::before { content: "·"; flex: none; margin-right: 4px; color: var(--muted-foreground); }
-  /* (a flex row: a name too long for what is left is cut with …, never pushed under the line) */
-  .list-main .grid tbody tr:not(.group-head) > td:is(.c-initiative, .c-project, .c-parent) .ref-text { display: inline-flex; vertical-align: baseline; min-width: 0; }
+  .list-main .grid tbody tr:not(.group-head) > td.c-meta:not(.blank) { display: block; grid-area: meta; overflow: hidden; }
+  .pm { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-2xs); line-height: 1.3; color: var(--muted-foreground); }
+  .pm-line { display: flex; align-items: center; gap: 2px 12px; min-width: 0; }
+  .pm-extra { flex-wrap: wrap; }
+  .pm.stack-lines .pm-extra { flex-direction: column; align-items: flex-start; }
+  .pm-cell { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+  .pm-cell .mono { font-size: inherit; }
+  .pm-name { flex: none; color: var(--muted-foreground); opacity: .8; } /* one a line: what each is */
+  .pm-name::after { content: ":"; }
+  /* (a name too long for its line is cut with …, never pushed under it) */
+  .pm-where .pm-cell, .pm-where .ref-text { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .pm-where .ref-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pm-where .ref-text > .icon { flex: none; }
+  .pm-plan, .pm-due, .pm-date { white-space: nowrap; }
   /* the status as its dot: still a button that opens its select */
   .list-main .grid tbody tr > td.c-status .select-btn { width: 24px; height: 24px; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; }
   .list-main .grid tbody tr > td.c-status .select-text { padding-left: 0; width: 100%; height: 100%; }
   .list-main .grid tbody tr > td.c-status .select-text::before { left: 50%; transform: translate(-50%, -50%); }
   .list-main .grid tbody tr > td.c-status :is(.select-label, .select-sizer) { display: none; }
   /* the priority as its bars and word, small and frameless: still a button that opens its select */
-  .list-main .grid tbody tr > td.c-priority .select-btn { width: auto; height: auto; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; font-size: var(--fs-2xs); }
-  .list-main .grid tbody tr > td.c-priority .select-sizer { display: none; }
+  .pm-priority .select-btn { width: auto; height: auto; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; font-size: inherit; }
+  .pm-priority .select-text { line-height: inherit; }
+  .pm-priority .select-sizer { display: none; }
   .list-main .grid tbody tr > td.empty { display: block; grid-column: 1 / -1; }
   .list-main .grid tbody tr.group-head { display: block; }
   .list-main .grid tbody tr.group-head > td { display: block; }
@@ -2502,7 +2503,7 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-modal .vault-features > p { margin: 0; }
 .vault-feature-list { display: flex; flex-direction: column; gap: 10px; }
 .vault-feature { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-.vault-feature input { width: auto; flex: none; margin-top: 2px; }
+.vault-feature input { flex: none; margin-top: 2px; } /* its own size: Modern's box is drawn, and width:auto collapsed an unticked one */
 .vault-feature input:disabled ~ .vault-feature-text { opacity: .7; }
 .vault-feature-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .vault-feature-name { font-size: var(--fs-sm); font-weight: 500; }
@@ -3393,8 +3394,10 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .board-card .card-where > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-card .card-where > .icon { flex: none; }
 .board-card .card-where > .card-where-sep { flex: none; }
-.board-card .card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; color: var(--muted-foreground); font-size: var(--fs-xs); }
-.board-card .card-meta .mono { font-size: var(--fs-2xs); }
+.board-card :is(.card-main, .card-meta) { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; color: var(--muted-foreground); font-size: var(--fs-xs); }
+.board-card .card-main + .card-meta { margin-top: 4px; }
+.board-card .card-meta.stack-lines { flex-direction: column; align-items: flex-start; gap: 3px; }
+.board-card :is(.card-main, .card-meta) .mono { font-size: var(--fs-2xs); }
 /* List | Board, at the end of the bar; the Board page's type beside its title. */
 .vb-layout-slot { display: contents; } /* seg() drawn again inside it (viewbar.js paintLayout) */
 .vb-layout { flex: none; }
@@ -3576,9 +3579,9 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .vboard .list-head .head-sub { color: var(--muted-foreground); font-weight: 400; font-size: var(--fs-xs); }
 .vboard .list-head .plan-sec-btn.btn.small { height: 26px; padding: 0 6px; }
 .vboard .col-empty { margin: 2px 8px 8px; color: var(--muted-foreground); font-size: var(--fs-xs); }
-.board-card .card-meta .card-act { margin-left: auto; }
-.board-card .card-meta .plan-move.btn.icon { width: 22px; height: 22px; margin: -3px -4px -3px 0; }
-.board-card .card-meta .late-text { color: var(--destructive); }
+.board-card :is(.card-main, .card-meta) .card-act { margin-left: auto; }
+.board-card :is(.card-main, .card-meta) .plan-move.btn.icon { width: 22px; height: 22px; margin: -3px -4px -3px 0; }
+.board-card :is(.card-main, .card-meta) .late-text { color: var(--destructive); }
 .vboard .board-col.add-list { flex: 0 0 236px; background: none; box-shadow: none; padding: 4px 0; }
 /* Month as a calendar (views/month.js): a week column, then Mon…Sun; a day its number and pills (a status's dot and the
    subject), "+N more" past three; the week column holds what is planned for the week with no day. */
@@ -4032,7 +4035,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .tl-move { display: inline-flex; align-items: center; gap: 8px; }
 .tl-zoom { display: inline-flex; gap: 2px; }
 .tl-scroll { position: relative; flex: 1; min-height: 160px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
-.tl-grid { --tl-label: 280px; --tl-row: 34px; display: grid; grid-auto-rows: var(--tl-row); position: relative; min-width: min-content; }
+.tl-grid { --tl-label: 280px; --tl-row: 40px; display: grid; grid-auto-rows: var(--tl-row); position: relative; min-width: min-content; }
 /* the head: names' corner and the scale stay on top, the names column on the left */
 .tl-corner, .tl-scale { position: sticky; top: 0; z-index: 3; height: 48px; background: var(--background); border-bottom: 1px solid var(--border); }
 .tl-grid { grid-template-rows: 48px; }
@@ -4065,7 +4068,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .tl-now { grid-column: 2; position: relative; pointer-events: none; z-index: 1; }
 .tl-now > span { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--destructive); opacity: .7; }
 /* a bar: the status's hue, its name inside; its ends drag */
-.tl-span { position: absolute; top: 7px; height: 20px; display: flex; align-items: center; box-sizing: border-box; padding: 0 8px; border-radius: 5px;
+.tl-span { position: absolute; top: calc((var(--tl-row) - 20px) / 2); height: 20px; display: flex; align-items: center; box-sizing: border-box; padding: 0 8px; border-radius: 5px;
   background: color-mix(in oklab, var(--st-dot, var(--muted-foreground)) 22%, var(--background)); border: 1px solid color-mix(in oklab, var(--st-dot, var(--muted-foreground)) 70%, transparent);
   color: var(--foreground); font-size: var(--fs-2xs); font-weight: 500; cursor: grab; user-select: none; touch-action: pan-y; }
 .tl-span.done { opacity: .6; }
@@ -4076,7 +4079,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .tl-grip.start { left: -4px; }
 .tl-grip.end { right: -4px; }
 @media (hover: hover) { .tl-span:hover { border-color: var(--st-dot, var(--foreground)); } }
-.tl-diamond { position: absolute; top: 10px; width: 14px; height: 14px; margin-left: -7px; padding: 0; transform: rotate(45deg); border-radius: 2px;
+.tl-diamond { position: absolute; top: calc((var(--tl-row) - 14px) / 2); width: 14px; height: 14px; margin-left: -7px; padding: 0; transform: rotate(45deg); border-radius: 2px;
   border: 1px solid var(--st-dot, var(--foreground)); background: color-mix(in oklab, var(--st-dot, var(--foreground)) 45%, var(--background)); cursor: grab; }
 .tl-empty { position: absolute; top: 64px; left: 0; right: 0; margin: 0; text-align: center; color: var(--muted-foreground); }
 /* a phone: a narrower names column, the IDs left out; the lanes scroll under it with a finger */

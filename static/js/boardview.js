@@ -29,7 +29,7 @@ import { isPhone } from './phone.js';
  * `to` count the board's columns that move); shows(key) what the cards carry (Display → Show on cards). A column's
  * quick may carry onCreated(item), run once the card it adds is made (a Custom column places it there).
  */
-export function boardOf({ columns, onFold, onOpen, projectName, after = null, onReorder = null, shows }) {
+export function boardOf({ columns, onFold, onOpen, projectName, after = null, onReorder = null, shows, stack = 'wrap' }) {
   const board = h('div', { class: 'board vboard' });
   if (onReorder) listDropZone(board, onReorder);
   const movable = onReorder ? columns.filter((c) => c.movable) : [];
@@ -37,7 +37,7 @@ export function boardOf({ columns, onFold, onOpen, projectName, after = null, on
   // A phone has no drag to speak of (a long press is iOS's): each card's "Move to…" names the columns it can go to.
   const targets = isPhone() ? columns.filter((c) => c.drop) : [];
   board.append(...columns.map((c) => (c.folded ? strip(c, onFold, moveOf(c))
-    : column(c, { onFold, onOpen, projectName, shows, move: moveOf(c), targets }))), ...(after ? [after] : []));
+    : column(c, { onFold, onOpen, projectName, shows, stack, move: moveOf(c), targets }))), ...(after ? [after] : []));
   return board;
 }
 
@@ -84,7 +84,7 @@ function strip(c, onFold, move = null) {
   return el;
 }
 
-function column(c, { onFold, onOpen, projectName, shows, move = null, targets = [] }) {
+function column(c, { onFold, onOpen, projectName, shows, stack = 'wrap', move = null, targets = [] }) {
   const fold = h('button', {
     type: 'button', class: 'btn icon small col-fold', title: `Fold ${c.label}`, 'aria-label': `Fold ${c.label}`, 'aria-expanded': 'true',
     onclick: (e) => { e.stopPropagation(); onFold(c.key, true); },
@@ -111,7 +111,7 @@ function column(c, { onFold, onOpen, projectName, shows, move = null, targets = 
   }
   const cards = h('div', { class: 'col-cards' }, c.items.length || !c.empty
     ? c.items.map((i) => {
-      const card = c.card ? c.card(i) : itemCard(i, { onOpen, variant: 'board', projectName, shows, draggable: !!c.drop && !isPhone() });
+      const card = c.card ? c.card(i) : itemCard(i, { onOpen, variant: 'board', projectName, shows, board: { stack }, draggable: !!c.drop && !isPhone() });
       return c.drop && targets.length ? moveTo(card, i, c, targets) : card;
     })
     : h('p', { class: 'col-empty' }, c.empty));

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { NONE } from '../../static/js/grouping.js';
 import {
-  cardProps, cardShows, closedLast, closedShown, columnOrder, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, planText, sortColumn, valueCounts,
+  cardProps, cardShows, closedLast, closedShown, columnOn, columnOrder, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, phoneLines, planText, sortColumn, stackOf, valueCounts,
 } from '../../static/js/viewmodel.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -267,5 +267,34 @@ describe('viewmodel', () => {
       assert.deepEqual(v.filters.map((f) => f.field), ['status']);
       assert.equal(v.groupBy, null);
     });
+  });
+});
+
+describe("a phone's row", () => {
+  it('splits what Display shows into where it hangs, ID + priority, the dates, and the rest, each once', () => {
+    const story = ['id', 'priority', 'plan', 'initiative', 'project', 'due', 'labels', 'updated_at'];
+    assert.deepEqual(phoneLines(story), { where: ['initiative', 'project'], main: ['id', 'priority'], when: ['plan', 'due'], extra: ['labels', 'updated_at'] });
+    const keys = (r) => [...r.where, ...r.main, ...r.when, ...r.extra].sort();
+    assert.deepEqual(keys(phoneLines(story)), [...story].sort());
+  });
+
+  it('offers a meeting its Date, and nothing for nothing', () => {
+    assert.deepEqual(phoneLines(['date', 'parent']), { where: ['parent'], main: [], when: ['date'], extra: [] });
+    assert.deepEqual(phoneLines([]), { where: [], main: [], when: [], extra: [] });
+  });
+
+  it('starts with the ID off on a phone only, and keeps what was picked', () => {
+    assert.equal(columnOn({}, 'id'), true);
+    assert.equal(columnOn({}, 'id', { narrow: true }), false);
+    assert.equal(columnOn({ id: true }, 'id', { narrow: true }), true);
+    assert.equal(columnOn({ id: false }, 'id'), false);
+    assert.equal(columnOn({}, 'goal', { narrow: true }), false);
+    assert.equal(columnOn({}, 'due', { narrow: true }), true);
+  });
+
+  it('lays out the rest side by side unless One per line is picked', () => {
+    assert.equal(stackOf({}), 'wrap');
+    assert.equal(stackOf({ stack: 'lines' }), 'lines');
+    assert.equal(stackOf({ stack: 'nonsense' }), 'wrap');
   });
 });

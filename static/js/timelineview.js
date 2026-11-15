@@ -16,11 +16,10 @@ import { hasField, isDone, TYPE_DEFS } from './rules.js';
 import { updateItem } from './state.js';
 import { refOf } from './shownid.js';
 import { checkSelect, cssKey, h, icon, seg, typeIcon } from './ui.js';
-import { ZOOM, dayAt, dayNum, dragSpan, fromNum, pxPerDay, rangeOf, rowsOf, spanOf, ticksOf, xOf } from './timeline.js';
+import { ZOOM, dayAt, dayNum, dragSpan, fillRange, fromNum, pxPerDay, rangeOf, rowsOf, spanOf, ticksOf, xOf } from './timeline.js';
 import { isPhone } from './phone.js';
 
 const SCALES = [['days', 'Days'], ['weeks', 'Weeks'], ['months', 'Months']];
-const ROW_H = 34;
 // Where each timeline was scrolled, so a repaint (an item saved, a filter) leaves it where it was. Per page box.
 const scrolled = new WeakMap();
 
@@ -48,7 +47,8 @@ export function paintTimeline(box, { items, types, defaults = types, view, chang
   const shown = items.filter((i) => tl.types.includes(i.type));
   const rows = rowsOf(shown, { folded: new Set(tl.folded) });
   const spans = new Map(rows.map((r) => [r.item.key, spanOf(r.item, { now, closed: isDone(r.item) })]));
-  const range = rangeOf([...spans.values()], now, tl.scale);
+  // As wide as the box at least: zoomed out, the items' days alone would end mid-panel and leave it blank on the right.
+  const range = fillRange(rangeOf([...spans.values()], now, tl.scale), Math.max(0, box.clientWidth - namesWidth()) / ppd);
   const { bands, ticks } = ticksOf(range, tl.scale);
   const width = (dayNum(range.to) - dayNum(range.from) + 1) * ppd;
   const prev = scrolled.get(box);
@@ -119,6 +119,8 @@ export function paintTimeline(box, { items, types, defaults = types, view, chang
     set({ zoom });
   }
   function labelWidth() { return grid.querySelector('.tl-corner')?.offsetWidth || 0; }
+  // The names column before the grid is drawn: app.css --tl-label (150px on a phone, 280px otherwise), and the borders.
+  function namesWidth() { return (matchMedia('(max-width: 640px)').matches ? 150 : 280) + 2; }
   function tickWidth() { return tl.scale === 'days' ? ppd : tl.scale === 'weeks' ? ppd * 7 : 0; }
 
   // ── a row's name: its fold, type, ID and title ──

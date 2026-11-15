@@ -343,6 +343,57 @@ class WriteCommandsTest(SampleCopy):
         self.assertEqual(self.store().read('STY-5')['fields']['comments'][-1]['text'], 'Ask the PSP about tokens')
         self.assertTrue(self.store().check()['ok'])
 
+    def test_delete_goes_to_the_trash_and_restore_brings_it_back_linked(self):
+        plan = self.cli_json('new', 'plan', 'Rollout', '--set', 'related_to=STY-5')['ref']
+        out = self.cli_json('delete', 'STY-5')
+        self.assertTrue(out['trashed'].startswith('.task-manager/trash/'))
+        self.assertIn('item not found', self.cli('show', 'STY-5', code=1))
+        entry = next(e for e in self.cli_json('trash') if e['trashed'] == out['trashed'])
+        # Its subject, as its file name says it (a Projects ticket keeps none in a key), never the trash's stamp.
+        self.assertEqual((entry['ref'], entry['title']), ('STY-5', 'Address, shipping and payment on one page'))
+        self.assertIn(f"`restore {out['trashed']}`", self.cli('trash'))
+        self.cli('restore', out['trashed'])
+        self.assertEqual(self.store().read(plan)['fields']['related_to'], '5')
+        self.assertIn('not in the trash', self.cli('restore', out['trashed'], code=1))
+        self.assertTrue(self.store().check()['ok'])
+
+    def test_a_project_is_deleted_with_its_items_only_when_asked(self):
+        self.cli('new', 'project', 'Salon', '--set', 'project_key=SAL')
+        sty = self.cli_json('new', 'story', 'Bookings', '--set', 'project=SAL')
+        self.assertTrue(sty['path'].startswith('Salon/'))
+        self.assertIn('--with-items', self.cli('delete', 'SAL', code=1))
+        self.assertEqual(self.store().read(sty['ref'])['ref'], sty['ref'])  # nothing went
+        self.assertIn('With it, 1 item of its folder', self.cli('delete', 'SAL', '--with-items'))
+        self.assertIn('item not found', self.cli('show', sty['ref'], code=1))
+        self.assertTrue(self.store().check()['ok'])
+
+    def test_attach_detach_and_a_new_item_with_its_files(self):
+        pic = os.path.join(self.tmp, 'shot.png')
+        with open(pic, 'wb') as f:
+            f.write(b'\x89PNG fake')
+        made = self.cli_json('new', 'inbox', 'A screenshot', '--attach', pic)
+        self.assertEqual(len(made['fields']['attachments']), 1)
+        with open(os.path.join(self.root, made['fields']['attachments'][0]), 'rb') as f:
+            self.assertEqual(f.read(), b'\x89PNG fake')
+        kept = self.cli_json('attach', 'STY-5', pic, '--name', 'checkout.png')['fields']['attachments']
+        self.assertTrue(kept[-1].endswith('/checkout.png'))
+        self.assertIn(kept[-1], self.cli('show', 'STY-5', '--no-body'))
+        gone = self.cli_json('detach', 'STY-5', kept[-1])
+        self.assertNotIn(kept[-1], gone['item']['fields'].get('attachments') or [])
+        self.assertTrue(os.path.isfile(os.path.join(self.root, gone['trashed'])))
+        self.assertIn('has no attachment', self.cli('detach', 'STY-5', kept[-1], code=1))
+        self.assertIn('no such file', self.cli('attach', 'STY-5', os.path.join(self.tmp, 'nope.png'), code=1))
+        self.assertIn('--name names one file', self.cli('attach', 'STY-5', pic, pic, '--name', 'x.png', code=1))
+        self.assertTrue(self.store().check()['ok'])
+
+    def test_a_file_too_big_is_refused_before_anything_is_written(self):
+        big = os.path.join(self.tmp, 'big.bin')
+        with open(big, 'wb') as f:
+            f.truncate(vault.attachments.MAX_BYTES + 1)
+        before = len(self.store().items())
+        self.assertIn('at most 25 MB', self.cli('new', 'note', 'Too big', '--attach', big, code=1))
+        self.assertEqual(len(self.store().items()), before)
+
     def test_a_vault_that_does_not_match_its_structure_is_read_but_never_written(self):
         os.makedirs(os.path.join(self.root, 'Random'))
         with open(os.path.join(self.root, 'Random', 'x.md'), 'w') as f:
@@ -350,6 +401,40 @@ class WriteCommandsTest(SampleCopy):
         self.assertFalse(self.store().check()['ok'])
         self.assertIn('does not match', self.cli('overview'))
         self.assertIn('read-only', self.cli('new', 'note', 'Nope', code=1))
+
+
+class EveryTypeTest(SampleCopy):
+    """Each type of the vault can be made from the shell with what `types` says it needs, and nothing else: a type
+    added to a structure that needs more than the CLI can say fails here."""
+
+    def make_every_type(self):
+        s = vault.open_store(self.root)[0]  # as the CLI opens it: the structure it detects
+        rows = self.cli_json('types')
+        self.assertEqual({r['type'] for r in rows}, set(s.structure.types))
+        made = {}
+        for r in rows:
+            sets = []
+            for need in r['needs']:
+                key = need.split('=')[0]
+                if key == 'project_key':
+                    sets.append('project_key=ZZ')
+                elif key in ('related_to', 'project'):
+                    parents = s.structure.types[r['type']].parents
+                    parent = next(it for it in s.items() if it['type'] in parents and it.get('ref'))
+                    sets.append(f"related_to={parent['ref']}")
+            argv = ['new', r['type'], f"Made from the shell {r['type']}"] + [a for kv in sets for a in ('--set', kv)]
+            made[r['type']] = self.cli_json(*argv)
+            self.assertEqual(made[r['type']]['type'], r['type'])
+            # what `types TYPE` prints is the line that worked
+            self.assertIn(f"`new {r['type']} \"<title>\"`", self.cli('types', r['type']))
+        self.assertTrue(vault.open_store(self.root)[0].check()['ok'])
+        return made
+
+    def test_every_type_of_a_projects_vault(self):
+        self.make_every_type()
+        self.assertIn('project_key', self.cli('new', 'project', 'No key', code=1).split('here:')[1])
+        self.assertIn('`--set related_to=', self.cli('new', 'plan', 'Orphan', code=1))
+        self.assertIn('set by `new` only', self.cli('types', 'project'))
 
 
 class LegacyVaultTest(SampleCopy):
@@ -361,6 +446,9 @@ class LegacyVaultTest(SampleCopy):
         data = self.cli_json('new', 'task', 'From the shell')
         self.assertEqual(data['type'], 'task')
         self.assertIn('From the shell', self.cli('show', data['ref'] or data['id'], '--no-body'))
+
+    def test_every_type_of_a_legacy_vault(self):
+        EveryTypeTest.make_every_type(self)
 
 
 if __name__ == '__main__':

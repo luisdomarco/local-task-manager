@@ -19,6 +19,7 @@ import { docChoices, docsGroups, docsHref, docsSubtrees, resolveDocs } from './f
 import { treePane } from './treepane.js';
 import { itemHref, opener, pageHref } from './links.js';
 import { mdBlock } from './mdblock.js';
+import { liveLoaded } from './livemd.js';
 import { pref, saveSort, savedSort, setPref } from './prefs.js';
 import { attachmentsBody } from './attachments.js';
 import { shownKinds } from './kindgroups.js';
@@ -1408,6 +1409,10 @@ function keepFocus(root, render) {
   if (!inside) return;
   const target = fk ? root.querySelector(`[data-fk="${fk}"]`) : root.querySelectorAll(FOCUSABLE)[idx];
   if (!target) return;
+  // The Live editor (CodeMirror) keeps its own selection: its focus() draws it back. Focusing its content element
+  // directly would put the caret at the start, and that is what CodeMirror would then keep.
+  const live = target.closest('.cm-editor') && liveLoaded()?.EditorView.findFromDOM(target);
+  if (live) { live.focus(); return; }
   target.focus({ preventScroll: true }); // the render put the scroll back where it was: focusing must not move it
   try { if (sel && sel[0] !== null) target.setSelectionRange(...sel); } catch { /* not a text control */ }
 }

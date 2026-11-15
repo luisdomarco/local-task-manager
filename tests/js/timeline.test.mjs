@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayAt, dayNum, dragSpan, fromNum, parentAmong, withKids, pxPerDay, rangeOf, rowsOf, spanOf, ticksOf, unitStart, xOf } from '../../static/js/timeline.js';
+import { dayAt, dayNum, dragSpan, fillRange, fromNum, parentAmong, withKids, pxPerDay, rangeOf, rowsOf, spanOf, ticksOf, unitStart, xOf } from '../../static/js/timeline.js';
 
 const it = (id, type, fields = {}) => ({ id, key: `K-${id}`, type, title: `${type} ${id}`, fields });
 const NOW = '2026-11-14';
@@ -47,6 +47,14 @@ test('the range holds every span and today, from the start of a tick', () => {
   assert.equal(rangeOf([], NOW, 'months').from.slice(8), '01');
   assert.equal(unitStart('2026-11-14', 'week'), '2026-11-09');
   assert.equal(unitStart('2026-11-14', 'year'), '2026-01-01');
+});
+
+test('a range too short for the width it has is pushed on at its end', () => {
+  const r = { from: '2026-11-01', to: '2026-11-30' }; // 30 days
+  assert.deepEqual(fillRange(r, 45), { from: '2026-11-01', to: '2026-12-15' });
+  assert.deepEqual(fillRange(r, 44.2), { from: '2026-11-01', to: '2026-12-15' }); // a part of a day counts as one
+  assert.equal(fillRange(r, 30), r); // long enough: as it was
+  assert.equal(fillRange(r, 0), r); // no width known (not on screen yet)
 });
 
 test('ticks and bands cover the range, cut at its ends', () => {

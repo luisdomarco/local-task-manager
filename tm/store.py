@@ -2606,14 +2606,26 @@ class Store:
             out.append({
                 'trashed': self.rel(path), 'id': tid, 'ref': self.structure.ref(kind, tid), 'type': kind,
                 # A project's name is its folder's (its note has no subject).
-                'title': str(fields.get('subject') or fields.get('title') or (project and os.path.dirname(original))
-                             or os.path.splitext(name)[0]),
+                'title': str(fields.get('subject') or fields.get('title') or self._trashed_subject(original, fields)
+                             or (project and os.path.dirname(original))
+                             or os.path.splitext(stamp.group(3) if stamp else name)[0]),
                 'original_path': original, 'deleted_at': deleted_at or '',
                 'related_to': fields.get('related_to'),
                 'unlinked': len(meta.get('children') or []) + len(meta.get('detached') or []) + len(meta.get('project_members') or []),
                 'holds': len(self._with_bundle(path)) - 1,  # a project: the items of its folder that went with it
             })
         return sorted(out, key=lambda e: e['deleted_at'], reverse=True)
+
+    def _trashed_subject(self, original, fields):
+        """The subject of a trashed file, read as its structure reads it where it was: a Projects ticket keeps it in its
+        file name (`STY-482 Pay with a card.md`), not in a key. None when the structure cannot tell."""
+        codec = self.structure.codec
+        if not codec:
+            return None
+        try:
+            return codec.decode(original, fields).get('subject') or None
+        except (KeyError, ValueError, TypeError, AttributeError):  # a file its structure does not classify
+            return None
 
     # ── attachments (tm/attachments.py) ─────────────────────────────────────────
     @writes

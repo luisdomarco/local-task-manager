@@ -124,6 +124,9 @@ export function pagedBox(build) {
  * `sortColumns` (default `columns`): every column the sort may name, shown or not (viewmodel.js sortColumn), so a
  * column left out for width still orders the rows.
  */
+/** Whether a cell has nothing to say (empty, a dash, "Not planned"): a phone's row leaves it out (list.js, app.css). */
+export const isBlankCell = (el) => (/^[—–-]?$/.test(el.textContent.trim()) && !el.querySelector('button, input, a')) || !!el.querySelector(':scope > .plan-none');
+
 export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing here.', label = 'Items', rowClass = null, group = null, paging = null, doneLast = false, flex = {}, widths = {}, rowLabel = null, rowHref = null, sortColumns = columns }) {
   const col = sortColumn(sort, sortColumns);
   const sorted = rows.slice().sort((a, b) => {
@@ -143,8 +146,7 @@ export function dataTable({ columns, rows, sort, onSort, onRow, empty = 'Nothing
     },
   }, columns.map((c) => {
     const td = h('td', { class: c.cls ? `c-${c.key} ${c.cls}` : `c-${c.key}` }, c.cell(i)); // cls: as its header (num: right-aligned)
-    // Nothing to say ("Not planned" neither): a phone's two-line row leaves it out (app.css)
-    if ((/^[—–-]?$/.test(td.textContent.trim()) && !td.querySelector('button, input, a')) || td.querySelector(':scope > .plan-none')) td.classList.add('blank');
+    if (isBlankCell(td)) td.classList.add('blank');
     return td;
   }));
   const fixed = fixedColumns(columns, flex, widths);

@@ -5,11 +5,11 @@ import { TYPES, TYPE_ICON, TYPE_LABEL } from '../create.js';
 import { convertTo, openItem } from '../panel.js';
 import { quickAddBar } from '../quickadd.js';
 import { PARENT_TYPES, propsOf } from '../rules.js';
-import { deleteItem, state, updateItem } from '../state.js';
+import { deleteItem, state, toast, updateItem } from '../state.js';
 import { dropdown, emptyState, h, itemCard, parentOptions, rowAction, select, selectButton } from '../ui.js';
 import { refOf } from '../shownid.js';
 import { planSection } from '../planrows.js';
-import { pendingShare } from '../share.js';
+import { pendingShare, pendingSharedFiles } from '../share.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders. A Projects inbox item keeps it in
 // its own `file_under` instead (its card's Properties shows it too, and Convert to carries it over).
@@ -55,8 +55,9 @@ export function mount(root) {
   const list = h('div', { class: 'plan-list inbox-list' });
   root.replaceChildren(
     h('header', { class: 'view-head' }, h('h1', {}, 'Inbox')),
-    // A link typed or pasted goes in the item's url; a picture pasted, dropped or picked is attached to it.
+    // A link typed or pasted goes in the item's url; a picture pasted, dropped, picked or shared is attached to it.
     quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: pendingShare() || '',
+      attach: pendingSharedFiles({ onError: (msg) => toast(msg, true) }),
       placeholder: 'Capture anything…  a link, a picture  (/task, /note… to file it straight away)' }),
     list);
   const api = {
