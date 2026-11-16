@@ -790,7 +790,8 @@ more buttons beside it; what is done with the file goes in that menu. The readin
 - A vault opening (`views/welcome.js`, `boot.js`): the **welcome** — one `btn primary` (`.welcome-go`, the first
   stage's type, its icon and plural: the page never names a type) centred, and under it the `.progress` bar
   (`.welcome-bar`, never under 4 % so it shows it started) and one `muted` line of what is in (`.welcome-said`,
-  `aria-live`). Nothing else: no logo, no tips. When everything is in, the bar and its line go and the button stays.
+  `aria-live`). Nothing else: no logo, no tips. It is only for while the vault loads: when everything is in, a page still on it goes home
+  (`boot.js` `homeHash`: Today, else the List), replacing it in the history.
   Any other page asked for while the vault opens shows `loadingLine('Opening the vault…')` until its items are in;
   a view that needs only the first stage's types (the Inbox) mounts as soon as those are in, and keeps what is typed
   in it while the rest arrives.

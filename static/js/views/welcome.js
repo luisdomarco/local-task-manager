@@ -1,8 +1,9 @@
 // The welcome screen (TSK-128, docs/design.md §3): what a page opened with no address shows while it opens its vault a
 // stage at a time (boot.js, state.js itemsByStages) — one button, to the Inbox, which works as soon as its stage is in,
-// and under it a bar of how far the rest is. Once everything is in it stays, without the bar: the sidebar goes to the
-// rest. A share lands here too, and goes into the Inbox by itself once that is in (main.js route).
-import { entryType, progressLabel, stages } from '../boot.js';
+// and under it a bar of how far the rest is. It is only for while the vault loads: once everything is in, a page still
+// on it goes where a page with no address always went (boot.js homeHash: Today), in place of it in the history. A
+// share lands here too, and goes into the Inbox by itself once that is in (main.js route).
+import { entryType, homeHash, progressLabel, stages, welcomeFor } from '../boot.js';
 import { STRUCTURE, TYPE_DEFS } from '../rules.js';
 import { firstLoad, state } from '../state.js';
 import { h, icon } from '../ui.js';
@@ -31,6 +32,11 @@ export function mount(root) {
       said.textContent = progressLabel(plan, done) || 'Opening the vault…';
     },
   };
-  firstLoad.then(() => { loaded = true; if (root.isConnected) api.update(); });
+  firstLoad.then(() => {
+    loaded = true;
+    if (!go.isConnected) return; // the Inbox, or another view, was opened meanwhile
+    if (welcomeFor(location.hash, false)) location.replace(homeHash(STRUCTURE));
+    else api.update();
+  });
   return api;
 }

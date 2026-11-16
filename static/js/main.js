@@ -15,7 +15,7 @@ import { openQuickModal } from './quickadd.js';
 import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, inSomeProject, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
 import { shiftWeek, thisWeek, weekDays } from './dates.js';
 import { byType, createVaultFolders, firstLoad, inboxReady, onChange, progress, reload, saveSidebarOrder, state, structureReady, toast } from './state.js';
-import { typeLoaded, welcomeFor } from './boot.js';
+import { homeHash, typeLoaded, welcomeFor } from './boot.js';
 import { countOf, cssKey, emptyLine, h, icon, loadingLine, menuIsOpen, select, typeIcon } from './ui.js';
 import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sections.js';
 import { switchVault, vaultId } from './vault.js';
@@ -266,7 +266,7 @@ async function route() {
   const off = (name === 'board' && !boardTypes().length) || (['today', 'week', 'nextweek', 'month'].includes(name) && !planning);
   if (name === 'people') { location.replace('#/contacts'); return; } // People is Contacts' first tab (TSK-050)
   if (name === 'tomorrow') { location.replace('#/week'); return; } // Tomorrow is gone: an old link lands on its week
-  if (!VIEWS[name] || off) { location.hash = planning ? '#/today' : '#/table'; return; }
+  if (!VIEWS[name] || off) { location.hash = homeHash(STRUCTURE); return; }
   const key = `${name}/${param || ''}`;
   if (key === currentRoute) return;
   currentRoute = key;

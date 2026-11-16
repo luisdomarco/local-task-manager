@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { entryType, progressLabel, stages, typeLoaded, welcomeFor } from '../../static/js/boot.js';
+import { entryType, homeHash, progressLabel, stages, typeLoaded, welcomeFor } from '../../static/js/boot.js';
 
 const types = (...names) => names.map((name) => ({ name }));
 
@@ -46,5 +46,11 @@ describe('opening a vault a stage at a time (TSK-128)', () => {
     assert.equal(welcomeFor('#/inbox', true), true); // a share: the welcome, then the Inbox once it is in
     assert.equal(welcomeFor('#/tasks', false), false);
     assert.equal(welcomeFor('#/item/TSK-1', false), false);
+  });
+
+  it('once it is all in, the welcome screen gives way to Today, or the List where nothing is planned', () => {
+    assert.equal(homeHash({ types: [{ id: 'inbox' }, { id: 'task', plannable: true }] }), '#/today');
+    assert.equal(homeHash({ types: [{ id: 'note' }] }), '#/table');
+    assert.equal(homeHash(null), '#/table');
   });
 });

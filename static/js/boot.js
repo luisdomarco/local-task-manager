@@ -34,3 +34,7 @@ export const typeLoaded = (type, loaded) => !loaded || loaded.has(type);
 /** Whether the page opens on the welcome screen: with no address (`hash`), or with a share — it goes into the Inbox
  *  once that is in. An address of its own (a view reloaded, a link to an item, Open in App) skips it. */
 export const welcomeFor = (hash, shared) => !!shared || !hash || hash === '#' || hash === '#/';
+
+/** Where a page with no address goes once its vault is in, and where an unknown address or a view turned off goes:
+ *  Today, or the List in a vault where nothing can be planned. The welcome screen is only for while it loads. */
+export const homeHash = (structure) => ((structure?.types || []).some((t) => t.plannable) ? '#/today' : '#/table');

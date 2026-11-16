@@ -25,7 +25,8 @@ All notable changes to this project are written down here. Versions follow [Sema
   the vault has opened (*Inbox ✓ · Projects…*). The Inbox can be used as soon as its stage is in, a capture typed
   meanwhile stays, and a share goes into the Inbox by itself. A link to a view or an item skips the welcome and opens
   once everything is in. The server answers `GET /api/items?types=inbox,project` from the same single walk of the
-  vault, and says which walk it was, so a write between stages makes the page ask for everything again.
+  vault, and says which walk it was, so a write between stages makes the page ask for everything again. The welcome
+  is only for while it loads: once everything is in, a page still on it goes to Today, as it always did.
 - **Comments are files of their own** (Projects vaults). Each comment is `Comments/<ref>/<when>.md`, named by the moment
   it was written to the millisecond, with a link to its item that Obsidian follows; the item's file is no longer
   rewritten when you comment, so Obsidian, git and a sync see one new file per comment. Activity reads them when it
