@@ -60,10 +60,59 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(status, 200, out)
         return out
 
+    def test_comments_as_files_by_their_id(self):
+        # A Projects vault (TSK-128): comments are files, named by their id; the items say when, not what.
+        root = os.path.join(self.root, 'projects')
+        shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sample-vault'), root)
+        server.APP.store = Store(root, structure='ticketing')
+        key = next(i for i in self.call('/api/items')['items'] if i['type'] == 'task')['key']
+        c = self.call('/api/item/comment', {'key': key, 'text': 'First'})['comment']
+        self.assertEqual(c['by'], 'owner')  # the page writes as the owner
+        item = next(i for i in self.call('/api/items')['items'] if i['key'] == key)
+        self.assertEqual(item['comment_ats'], [c['at']])
+        staged = next(i for i in self.call('/api/items?types=task')['items'] if i['key'] == key)  # the boot's stages too
+        self.assertEqual(staged['comment_ats'], [c['at']])
+        self.assertEqual(self.call(f'/api/item?key={quote(key)}')['comments_rev'], item['comments_rev'])
+        q = f'/api/item/comments?key={quote(key)}'
+        self.assertEqual([x['text'] for x in self.call(q)['comments']], ['First'])
+        self.call('/api/item/comment/edit', {'key': key, 'id': c['id'], 'text': 'First!', 'was': 'First'})
+        out = self.call('/api/item/comment/delete', {'key': key, 'id': c['id']})
+        self.assertEqual(self.call(q)['comments'], [])
+        self.call('/api/item/comment/restore', {'key': key, 'id': c['id'], 'comment': out['removed']})
+        self.assertEqual([x['text'] for x in self.call(q)['comments']], ['First!'])
+        self.assertEqual(self.request('/api/item/comment/delete', {'key': key, 'index': 0})[0], 404)  # not by its place
+
     def test_a_request_body_too_large_is_refused_unread(self):
         with mock.patch.object(server, 'JSON_MAX', 64):
             self.assertEqual(self.request('/api/item/create', {'type': 'note', 'subject': 'x' * 200, 'values': {}, 'body': ''})[0], 413)
         self.assertEqual(self.request('/api/item/create', {'type': 'note', 'subject': 'Small', 'values': {}, 'body': ''})[0], 200)
+
+    def test_items_a_stage_at_a_time_are_the_whole_list(self):
+        # The page's boot (TSK-128): every boot_order stage asked for apart gives back, together, what one call gives,
+        # each item's links resolved against the whole vault (a task still names its initiative and project).
+        root = os.path.join(self.root, 'projects')
+        shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sample-vault'), root)
+        server.APP.store = Store(root, structure='ticketing')
+        whole = self.call('/api/items')['items']
+        stages = server.APP.store.structure.extras['boot_order']
+        parts, walks = [], set()
+        for _label, types in stages:
+            out = self.call('/api/items?types=' + ','.join(types))
+            self.assertEqual(out['types'], types)
+            self.assertTrue(all(it['type'] in types for it in out['items']))
+            parts += out['items']
+            walks.add(out['walk'])
+        key = lambda it: it['key']
+        self.assertEqual(sorted(parts, key=key), sorted(whole, key=key))
+        self.assertEqual(len(walks), 1, 'one walk while nothing changed')
+        self.assertTrue(any(it['type'] == 'task' and it['fields'].get('related_to') for it in parts))
+        # a write is a new walk: the page reads every item again
+        self.call('/api/item/create', {'type': 'inbox', 'subject': 'Later', 'values': {}, 'body': ''})
+        self.assertNotIn(self.call('/api/items?types=inbox')['walk'], walks)
+        # a type it does not have is refused; one turned off is left out
+        self.assertEqual(self.request('/api/items?types=inbox,nope')[0], 400)
+        server.APP.store = Store(root, structure='ticketing', disabled_types=['prd'])
+        self.assertEqual(self.call('/api/items?types=story,prd')['types'], ['story'])
 
     def test_create_with_the_payload_api_js_sends(self):
         # Mirrors api.create(type, subject, values, body) in static/js/api.js

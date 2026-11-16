@@ -315,7 +315,11 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   and plan cells are `select.small`, frameless until the row is hovered. An unset value is a blank cell (`.blank`) or a
   muted *—*, never *null* or *undefined*.
 - **Rows of cards** (Inbox): `h('div', { class: 'cards rows' }, …itemCard())` under a Planning section head
-  (*Captured 1*, `planSection`) — no box, a line between, pickers quiet until hover (always framed on touch screens).
+  (*Captured 1*, `planSection`) — no box, a line between, pickers quiet until hover (always framed on touch screens);
+  a page at a time (`paged({ keep: true })`: acting on a row keeps the page), the row's trash last in its own 32px column.
+- **A link kept apart** (a capture box): a link pasted or shared never stays in the Subject — it waits under the box as
+  a `chip link qa-link` with the same × as a waiting file (`qa-file-x`), cut to one line; the Subject starts with its
+  site's name and a dash (`linkSubject`).
 - **A page's head and bar** (Labels, Contacts, Trash, Settings): the head a list's, `pageHead({ title,
   count, action })` (ui.js): the title, its grey count on the baseline (`pageCount()`: *3 labels*, *1 item*, *Empty*;
   none where tabs under the title carry the counts, as Contacts' People · Groups), the primary *Add …* at the right.
@@ -349,7 +353,9 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   that adds a relation has a
   primary *Add*, faded until an item is picked (`btn small primary`).
 - **Activity / AI Sessions**: lists without frames but for what someone wrote or started. Activity under the name of each
-  day (`.activity-day`), a comment a `surface-card` (`.activity-card`), an event a grey line with a dot; a session a
+  day (`.activity-day`), a comment a `surface-card` (`.activity-card`, its author *You* or *Agent* from `by`, and a
+  comment still kept in its item's file, before `migrate_comments`, a quiet *· in its file* and no ✎ or 🗑; while the
+  comments are read, `loadingLine`), an event a grey line with a dot; a session a
   `surface-card` too (`.cs-item`, title over a short meta with `agoLabel`, its ↗ ⋯ over its corner, `hover-reveal`).
 - **The view bar** (`viewbar.js` on `viewmodel.js`, the same on every list, board and section tab): `[Search] [Filter]
   … [Order: X ▾] [Group: X ▾] [Display] [List | Board]`. Search is a 260px `--muted` box with no border. **Filter** is a
@@ -361,8 +367,9 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   its head is *Group by* with the same ↑ / ↓ `seg` as Order's (`view.groupDesc`, through `grouping.js directed`: the
   NONE group stays last), shown only for the list's own keys, not a board's Custom or Days. Status groups follow the
   list's types (`rules.js statusRankIn`), never the best rank across every type of the vault.
-  **Display**: Show closed (None / Last week / All), the columns to show (on a board, **Show on cards**: priority, ID,
-  planned, due, labels, parent, project, ticket — `cardProps` / `cardShows`), on a board *Empty columns* (Show / Fold
+  **Display**: Show closed (None / Last week / All), **Show properties** (`displayProps`: the list's columns in the one
+  order; on its board the same pills say what the cards show, each view keeping its own pick — `view.props` / `view.cards`,
+  `columnOn` / `cardShows`), on a board *Empty columns* (Show / Fold
   / Hide), and a foot with *Reset to default* left and **Save as view** right. Pills that turn a thing on or off
   (`.vb-pill`) are dark while on (`--foreground`), outlined while off. **Save as view** asks a name and keeps the
   page's view, its order and (on the Board) its type under it (`savedviews.js`); the views are listed in the sidebar's
@@ -371,7 +378,10 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
 - **Rows** (`.list-main`): 40px, a line between, `--muted` on hover; the id mono and grey, the subject takes the rest
   and is cut with "…", status a dot + name, initiative / project as grey text with the type's icon, Planned in red when
   late. Status, Priority and Planned are edited in place (selects framed only on hover, capped at their cell: a longer
-  label is cut with "…", never over the next column); on a phone Planned reads as text. The columns shared by every list keep one width and one order (`LIST_WIDTHS`, `COLUMN_RANK`); what does not
+  label is cut with "…", never over the next column); on a phone Planned reads as text. **Properties have one order**
+  (`COLUMN_RANK`, TSK-128) in a list's columns, a phone's row, a board's card and Display's pills: the box and Subject,
+  then Status · Priority · Project / Initiative / Parent · Planned · Due · Labels · a type's own (Size…) · Resolved,
+  Created, Updated · ID · Type. The columns shared by every list keep one width (`LIST_WIDTHS`); what does not
   fit gives way, Due first and Type last (`hiddenColumns`) — the page never scrolls sideways. A group's head is a 34px
   `--well` row: fold arrow, dot or icon, name, count and a "+" on hover that adds an item with that value.
 - **Under a list's table**: its pager always (`paged({ always: true })` for every main list — `LIST_PAGE` —, even on one page; an item's tables only from a second page), then one quiet line of how the closed rows go and the way back: *4 closed are hidden · Show closed*, or *4 closed shown · Hide closed* (`.vb-hidden`, a `link-btn`).
@@ -383,7 +393,9 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   it, then (at the right) the fold button on hover and the ⋯; the window's height with each column scrolling on its own and the sideways scroll at the bottom. A closed or
   empty column folds into a 40px strip read top to bottom; a click unfolds it. "+ Add a card" shows on hover. A card
   (`itemCard(…, { variant: 'board' })`): its 14px done box, a title of 2 lines at most, a grey line with where it
-  belongs, then priority (its bars and its name, `priorityChip`) · planned (what Display → Show on cards leaves on: ID and labels start off, `CARD_OFF`), no
+  belongs, then status (`statusChip`; not where the column says it) · priority (its bars and its name, `priorityChip`)
+  · planned, then the rest in the one order (`order`; a property the card has no drawing of, its column's own cell —
+  `cell`, list.js `propPiece`). A fresh board shows status, priority, planned and where it hangs (`CARD_ON`), no
   framed chips. Dropping a card sets the field the board groups by
   (Planned and Label have none); its place in the column is kept with **Order → Manual**, the default (`order`, every
   type has it). Grouped by status, a task's board keeps board.md's lists (name, WIP, ⋯). **Columns move** on every list's
@@ -392,11 +404,12 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   focused head moves it one place, as a pinned chip does. The order is the view's, per grouping (`view.colOrder`,
   `colorder.js`), never Order's; Group says *Drag a column by its header to move it*, and once one moved, offers
   *Reset column order*. A board of columns that move is `boardOf({ onReorder })` with `movable` columns.
-- **On a phone (≤ 640px)**: a row is its dot and subject, the whole width, then one cell of lines under the subject
+- **On a phone (≤ 640px)**: a row is its box and subject, the whole width, then one cell of lines under the subject
   (list.js `phoneColumns`, viewmodel.js `phoneLines`): where it hangs (initiative, else project, else parent, in grey,
-  cut with … when it does not fit); its ID (off until Display turns it on, there: `columnOn` `narrow`), priority (the
-  list's own select, frameless, its bars and word; nothing when none was given) and one date (Planned, else Due, else
-  Date, the first with a value; red when late); then whatever else Display shows, side by side and wrapping, or one a
+  cut with … when it does not fit); its status (its dot and name) and priority (its bars and word; nothing when none
+  was given) — the list's own selects, never framed, not even while open — and one date (Planned, else Due, else
+  Date, the first with a value; red when late); then whatever else Display shows (the ID off until Display turns it
+  on there: `columnOn` `narrow`), side by side and wrapping, or one a
   line with its name (`view.stack`, Display → **More properties**). Each piece is its column's own cell, every piece of
   a line the same size and centred on it; a line with nothing is left out. The top bar takes the list's title and its Add as "+", the pins
   giving way; the view bar and the applied filters slide sideways as 40px chips; the top bar's buttons are 44px.
@@ -774,6 +787,13 @@ more buttons beside it; what is done with the file goes in that menu. The readin
 - Being read: **`loadingLine(text = 'Loading…')`**, the same grey line with `role="status"` (a screen reader says
   it), in a panel or for a whole page — never an `emptyState` box that flashes before the content. The menus' and
   pickers' *No matches* stay `.menu-empty`, inside the menu.
+- A vault opening (`views/welcome.js`, `boot.js`): the **welcome** — one `btn primary` (`.welcome-go`, the first
+  stage's type, its icon and plural: the page never names a type) centred, and under it the `.progress` bar
+  (`.welcome-bar`, never under 4 % so it shows it started) and one `muted` line of what is in (`.welcome-said`,
+  `aria-live`). Nothing else: no logo, no tips. When everything is in, the bar and its line go and the button stays.
+  Any other page asked for while the vault opens shows `loadingLine('Opening the vault…')` until its items are in;
+  a view that needs only the first stage's types (the Inbox) mounts as soon as those are in, and keeps what is typed
+  in it while the rest arrives.
 - Deleting what can be undone (an item, a comment, a work-log entry, a file) is one click, and the toast's **Undo**
   puts back the same thing in its place (`deleteItem`, `deleteComment`, `unlogWork`, `removeAttachment` in
   `state.js`). A confirmation is for what cannot be undone.

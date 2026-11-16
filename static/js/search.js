@@ -56,16 +56,21 @@ export function groupByType(query, items, { order = [], isClosed = () => false, 
 /** The text search's lines (GET /api/files/search, for `query`) that are in an item's file → [{item, line, text}], one
  *  per item, in the order found, leaving out the items already shown (`shown`: their keys) and those not in `items`
  *  (the archived ones). A `key: value` line counts only by its value — not by its key («re» is in every `related_to:`), nor by the
- *  `# comment` a template leaves after it. */
-export function bodyHits(query, results, items, shown = new Set()) {
+ *  `# comment` a template leaves after it. A line of a comment's file (`commentsFolder`/<ref>/…, where comments are
+ *  files: comments.js) is its item's, by its text only (not its frontmatter: every one says `fileClass: Comment`). */
+export function bodyHits(query, results, items, shown = new Set(), commentsFolder = '') {
   const q = norm(query.trim());
   const byPath = new Map(items.map((i) => [i.path, i]));
+  const byRef = new Map(commentsFolder ? items.map((i) => [String(i.ref || i.id || i.path.split('/').pop().replace(/\.md$/, '')), i]) : []);
+  const comment = (path) => (commentsFolder && path?.startsWith(`${commentsFolder}/`) ? path.split('/')[1] : null);
   const out = [];
   const seen = new Set(shown);
   for (const r of results || []) {
-    const it = byPath.get(r.path);
+    const ref = comment(r.path);
+    const it = ref ? byRef.get(ref) : byPath.get(r.path);
     if (!it || seen.has(it.key)) continue;
     const field = String(r.text || '').match(/^\s*[A-Za-z_][\w-]*:\s*(.*)$/);
+    if (field && ref) continue; // a comment's frontmatter
     if (field && !norm(field[1].replace(/\s#.*$/, '')).includes(q)) continue; // its value, not the template's # comment
     seen.add(it.key);
     out.push({ item: it, line: r.line, text: r.text });

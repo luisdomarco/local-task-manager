@@ -37,6 +37,11 @@ describe('work log suggestions', () => {
     assert.doesNotMatch(out[0].note, /Edited/); // "edited" adds nothing next to the others
   });
 
+  it('counts comments kept as files by when they were written (TSK-128)', () => {
+    const out = run([item({ comment_ats: ['2026-10-13T10:00:00.000', '2026-10-13T11:00:00.500'] })]);
+    assert.equal(out.find((s) => s.date === '2026-10-13')?.note.match(/2 comments/)?.[0], '2 comments');
+  });
+
   it('guesses the kind of work from the type', () => {
     assert.equal(guessKind({ type: 'meeting', fields: {} }, new Set()), 'Meeting');
     assert.equal(guessKind({ type: 'transcription', fields: {} }, new Set()), 'Meeting');

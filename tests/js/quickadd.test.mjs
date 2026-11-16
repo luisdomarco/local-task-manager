@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { parseQuick } from '../../static/js/quickadd.js';
+import { linkSubject, parseQuick, splitLinks, withKept } from '../../static/js/quickadd.js';
 import { setStructure } from '../../static/js/rules.js';
 import { FOLDER_PER_TYPE, PROJECTS } from '../../static/js/structure.js';
 import { state } from '../../static/js/state.js';
@@ -91,4 +91,26 @@ it('a link alone is named after its site, the link in its url (a share with no t
   const titled = parseQuick('A thread on caching https://x.com/someone/status/1857', { type: 'inbox' });
   assert.equal(titled.title, 'A thread on caching');
   assert.equal(titled.values.url, 'https://x.com/someone/status/1857');
+});
+
+it('TSK-128: a pasted or shared link leaves the Subject: its words stay, its links go apart', () => {
+  assert.deepEqual(splitLinks('Read later https://x.com/a/status/1 www.pepita.com/b'), { rest: 'Read later', urls: ['https://x.com/a/status/1', 'https://www.pepita.com/b'] });
+  assert.deepEqual(splitLinks(''), { rest: '', urls: [] });
+  assert.equal(linkSubject('https://x.com/a/status/1'), 'X — ');
+});
+
+it('TSK-128: the links kept apart become the url and links; an untouched "X —" loses its dash', () => {
+  const kept = ['https://x.com/a/status/1'];
+  const bare = withKept(parseQuick('X —', { type: 'inbox' }), kept);
+  assert.equal(bare.title, 'X');
+  assert.equal(bare.values.url, 'https://x.com/a/status/1');
+  const written = withKept(parseQuick('X — a thread on caching', { type: 'inbox' }), kept);
+  assert.equal(written.title, 'X — a thread on caching');
+  const empty = withKept(parseQuick('', { type: 'inbox' }), kept);
+  assert.equal(empty.title, 'X'); // nothing written: the site's name
+  // a link typed in the box stays the url; the kept one is a second link, never twice
+  const both = withKept(parseQuick('Docs https://a.io', { type: 'inbox' }), ['https://b.io', 'https://a.io']);
+  assert.equal(both.values.url, 'https://a.io');
+  assert.deepEqual(both.values.links, [{ url: 'https://b.io' }]);
+  assert.equal(withKept(parseQuick('A - B', { type: 'inbox' }), []).title, 'A - B'); // a dash inside is kept
 });

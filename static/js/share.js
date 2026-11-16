@@ -10,9 +10,9 @@
 
 const KEYS = ['share_title', 'share_text', 'share_url', 'share_file', 'share_name'];
 
-/** The capture text for what was shared: its title (or its text), then its address if the text does not hold it
- *  already. Lines joined by spaces; '' when nothing came. */
-export function shareText({ title = '', text = '', url = '' } = {}) {
+/** What was shared, apart: `text`, its title (or its text, or both: "title — text") with its address taken out, and
+ *  `url`, its address ('' for none). The capture box writes the text in its Subject and keeps the address as a chip. */
+export function shareParts({ title = '', text = '', url = '' } = {}) {
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
   const t = clean(title);
   const body = clean(text);
@@ -21,14 +21,29 @@ export function shareText({ title = '', text = '', url = '' } = {}) {
   if (found) u = found[0];
   let words = t && body && !body.includes(t) ? `${t} — ${body}` : t || body;
   if (u && words.includes(u)) words = words.replace(u, '').replace(/\s+/g, ' ').replace(/\s*—\s*$/, '').trim();
-  return [words, u].filter(Boolean).join(' ');
+  return { text: words, url: u };
 }
+
+/** The capture text for what was shared: its title (or its text), then its address if the text does not hold it
+ *  already. Lines joined by spaces; '' when nothing came. */
+export function shareText(shared = {}) {
+  const { text, url } = shareParts(shared);
+  return [text, url].filter(Boolean).join(' ');
+}
+
+const partsIn = (q) => shareParts({ title: q.get('share_title'), text: q.get('share_text'), url: q.get('share_url') });
 
 /** What `search` (a page address's query) shares as text, or null ('' for a picture alone). */
 export function sharedIn(search) {
   const q = new URLSearchParams(search || '');
   if (!KEYS.some((k) => q.has(k))) return null;
   return shareText({ title: q.get('share_title'), text: q.get('share_text'), url: q.get('share_url') });
+}
+
+/** What `search` shares, apart (shareParts), or null when it shares nothing. */
+export function sharedPartsIn(search) {
+  const q = new URLSearchParams(search || '');
+  return KEYS.some((k) => q.has(k)) ? partsIn(q) : null;
 }
 
 /** The picture `search` shares, or null: `{ token, name }`. The token is the app's (letters, digits and -, so it can
@@ -46,7 +61,7 @@ let pendingFile = null;
 
 /** On load: the share in the page's address, kept for the Inbox, and the address made clean (#/inbox). → whether one came. */
 export function takeShare() {
-  const shared = sharedIn(location.search);
+  const shared = sharedPartsIn(location.search);
   if (shared === null) return false;
   pending = shared;
   pendingFile = sharedFile(location.search);
@@ -57,7 +72,7 @@ export function takeShare() {
   return true;
 }
 
-/** The share waiting for the capture box, once. */
+/** The share waiting for the capture box, once: `{ text, url }` (shareParts), or null. */
 export function pendingShare() {
   const out = pending;
   pending = null;

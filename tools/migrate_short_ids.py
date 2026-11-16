@@ -41,6 +41,7 @@ import sys
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
 from tm import boards  # noqa: E402
+from tm.comments import DIR as COMMENTS_DIR  # noqa: E402
 from tm import frontmatter as fm  # noqa: E402
 from tm.fsutil import atomic_write  # noqa: E402
 from tm.history import path_of as history_path  # noqa: E402
@@ -332,6 +333,7 @@ def _write(plan, target, rewrite_bodies):
     for old_rel, new_rel in plan['renames']:
         os.rename(os.path.join(target, old_rel), os.path.join(target, new_rel))
     _canvases(target, refs)
+    _comments(target, refs)
     return n + _meta(target, plan)
 
 
@@ -339,6 +341,16 @@ def _canvases(target, refs):
     """An item's canvases are kept by its ref (<Docs>/Canvases/ACME-STY-001, panel.js canvasTab): its folder follows it
     to the new one. Their cards' wikilinks to its file were relinked with every other file's."""
     root = os.path.join(target, DOCS_FOLDER, 'Canvases')
+    for old, ref in refs.items():
+        src, dst = os.path.join(root, old), os.path.join(root, ref)
+        if os.path.isdir(src) and not os.path.exists(dst):
+            os.rename(src, dst)
+
+
+def _comments(target, refs):
+    """An item's comments are kept by its ref (Comments/ACME-STY-001, tm/comments.py): its folder follows it to the new
+    one. The `item:` link in each was relinked with every other file's."""
+    root = os.path.join(target, COMMENTS_DIR)
     for old, ref in refs.items():
         src, dst = os.path.join(root, old), os.path.join(root, ref)
         if os.path.isdir(src) and not os.path.exists(dst):

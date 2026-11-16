@@ -109,7 +109,7 @@ class RouteTest(Base):
         self.app.set_vault_settings('a', {'disabled_features': ['graph', 'worklog', 'contacts', 'activity', 'agents']})
         store = self.app.store_for('a')
         for path in ('/api/graph', '/api/worklog', '/api/worklog/confirm', '/api/people', '/api/groups/update',
-                     '/api/item/comment', '/api/item/history', '/api/item/claude', '/api/claude/sessions'):
+                     '/api/item/comment', '/api/item/comments', '/api/item/history', '/api/item/claude', '/api/claude/sessions'):
             with self.subTest(path):
                 self.assertIn('turned off in this vault', server.feature_refused(store, path))
         for path in ('/api/items', '/api/graphs', '/api/canvases', '/api/agents/runs'):

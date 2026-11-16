@@ -60,6 +60,21 @@ BACKUPS_DIR = 'backups'
 AGENT_RUNS = 'agent-runs.json'
 
 
+def items_payload(store, types):
+    """GET /api/items: every item; with `types` (comma separated), those types' only, with the types it gave and the
+    number of the walk they were read in (Store.items_of): the page's boot, a stage at a time (TSK-128). A type the
+    structure does not have is a 400; one this vault turned off is left out."""
+    if not types:
+        return {'items': store.with_comments(store.items())}
+    names = [t for t in types.split(',') if t]
+    unknown = [t for t in names if t not in store.full_structure.types]
+    if unknown:
+        raise StoreError(400, f"unknown type: {', '.join(unknown)}")
+    shown = [t for t in names if t in store.structure.types]
+    items, walk = store.items_of(shown)
+    return {'items': store.with_comments(items), 'types': shown, 'walk': walk}
+
+
 def platform():
     """Where this server runs: sys.platform, unless TM_PLATFORM says otherwise. The iOS app sets it to 'ios' (CPython
     on an iPhone reports 'ios' too); on a Mac, TM_PLATFORM=ios serves the page as the phone shows it."""
@@ -485,8 +500,9 @@ class App:
     @staticmethod
     def migrate(store):
         """One-off upgrades of a vault's files, only on a vault that matches its structure: one that does not
-        is read-only, and these write."""
-        if not store.check()['ok']:
+        is read-only, and these write. The check leaves the Docs folders out (they only give warnings, so `ok` is
+        the same): on a phone it was most of the wait before the page opened."""
+        if not store.check(docs=False)['ok']:
             print(f'not migrating {store.root}: it does not match its structure')
             return
         if store.seed_default_texts():  # the body each type starts with, into the vault once (Settings → Vaults)
@@ -2180,6 +2196,21 @@ def vault_changes(store, q):
     return out
 
 
+def writer(body):
+    """Who a write is by: 'agent' when the request says so (a script, a command), else 'owner' (a person in the page)."""
+    return 'agent' if body.get('by') == 'agent' else 'owner'
+
+
+def comment_ref(body, default):
+    """The comment a request names: its `id` (a file's name, where comments are files), else its `index` in the list."""
+    if body.get('id') is not None:
+        return str(body['id'])
+    try:
+        return int(body.get('index', default))
+    except (TypeError, ValueError):
+        raise StoreError(400, 'a comment is named by its id or its index') from None
+
+
 ROUTES = {
     ('GET', '/api/config'): lambda s, q, b: APP.public_config(),
     ('POST', '/api/config'): lambda s, q, b: (APP.set_config(b), APP.public_config())[1],
@@ -2209,7 +2240,7 @@ ROUTES = {
                                                                                       str(b.get('kind') or '') or None),
                                                          'kind_texts': s.default_kind_texts()},
     ('POST', '/api/vault/settings'): lambda s, q, b: APP.set_vault_settings(s.vault_id, b),
-    ('GET', '/api/items'): lambda s, q, b: {'items': s.items()},
+    ('GET', '/api/items'): lambda s, q, b: items_payload(s, q.get('types')),
     # The vault as a graph: its items and docs, and every link between them (tm/graph.py). The page filters it.
     ('GET', '/api/graph'): lambda s, q, b: s.graph(),
     ('GET', '/api/files'): lambda s, q, b: s.files(hidden=q.get('hidden') == '1'),
@@ -2235,7 +2266,7 @@ ROUTES = {
     ('POST', '/api/files/create'): lambda s, q, b: s.create_file(b.get('path'), b.get('text') or '', parents=bool(b.get('parents'))),
     ('POST', '/api/files/duplicate'): lambda s, q, b: s.duplicate_file(b.get('path')),
     ('POST', '/api/files/upload'): lambda s, q, b: s.upload_file(q.get('folder') or '', b['filename'], b['data']),
-    ('GET', '/api/item'): lambda s, q, b: s.read(q['key']),
+    ('GET', '/api/item'): lambda s, q, b: s.with_comments(s.read(q['key'])),
     ('GET', '/api/item/history'): lambda s, q, b: {'entries': s.item_history(q['key'])},
     # A definition's versions (an architecture, an entity: tm/versions.py): the list, one with its diff, cut, restore.
     ('GET', '/api/item/versions'): lambda s, q, b: s.item_versions(q['key']),
@@ -2340,10 +2371,13 @@ ROUTES = {
     ('POST', '/api/chat/interrupt'): lambda s, q, b: CHATS.get(b.get('id')).interrupt(),
     ('POST', '/api/chat/control'): lambda s, q, b: chat_control(b.get('id'), b.get('mode'), b.get('model'), b.get('effort')),
     ('POST', '/api/chat/close'): lambda s, q, b: CHATS.close(b.get('id')),
-    ('POST', '/api/item/comment'): lambda s, q, b: s.add_comment(b.get('key'), b.get('text')),
-    ('POST', '/api/item/comment/delete'): lambda s, q, b: s.delete_comment(b.get('key'), int(b.get('index', -1))),
-    ('POST', '/api/item/comment/restore'): lambda s, q, b: s.restore_comment(b.get('key'), int(b.get('index', 0)), b.get('comment')),
-    ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), int(b.get('index', -1)), b.get('text'), b.get('was')),
+    # A comment is named by its `id` where comments are files (its file's name), by its `index` in the item's list
+    # elsewhere (comment_ref). `by`: who writes, as for an update.
+    ('GET', '/api/item/comments'): lambda s, q, b: s.item_comments(q['key']),
+    ('POST', '/api/item/comment'): lambda s, q, b: s.with_comments(s.add_comment(b.get('key'), b.get('text'), by=writer(b))),
+    ('POST', '/api/item/comment/delete'): lambda s, q, b: s.delete_comment(b.get('key'), comment_ref(b, -1)),
+    ('POST', '/api/item/comment/restore'): lambda s, q, b: s.restore_comment(b.get('key'), comment_ref(b, 0), b.get('comment'), by=writer(b)),
+    ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), comment_ref(b, -1), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
     ('POST', '/api/folder/pick'): lambda s, q, b: pick_folder(b.get('start'), b.get('prompt')),
@@ -2391,7 +2425,7 @@ UPLOAD_ROUTES = {('POST', '/api/attachments/add'), ('POST', '/api/files/upload')
 FEATURE_ROUTES = (
     ('/api/graph', 'graph'), ('/api/worklog', 'worklog'), ('/api/canvases', 'canvas'),
     ('/api/people', 'contacts'), ('/api/groups', 'contacts'),
-    ('/api/item/comment', 'activity'), ('/api/item/history', 'activity'),
+    ('/api/item/comment', 'activity'), ('/api/item/comments', 'activity'), ('/api/item/history', 'activity'),
     ('/api/item/claude', 'agents'), ('/api/claude/', 'agents'), ('/api/agents/open', 'agents'), ('/api/agents/run', 'agents'),
 )
 

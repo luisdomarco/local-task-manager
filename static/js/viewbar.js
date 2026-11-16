@@ -55,8 +55,9 @@ function valueFace(field, v) {
  *   orders                     [[key, label]] for Order (the button left of Group); `order()` / onOrder(key) the one
  *                              on, `dir()` / onDir(1 | -1) which way; `boardOrders` go first on a board (Manual, which
  *                              has no way)
- *   props                      [[key, label]] the columns Display can hide (a list)
- *   cardProps                  [[key, label]] what a board's cards can show (Display → Show on cards: view.cards)
+ *   props                      [[key, label]] the properties Display shows or hides (viewmodel.js displayProps): a
+ *                              list's columns (view.props), a board's cards (view.cards), the same set and order
+ *   propsOnBoard               true: a board's cards show what `props` picks (a list's board: views/list.js)
  *   saveAs(name)               keeps the view under a name (savedviews.js): "Save as view" by the chips and in Display
  *   placeholder, onText(text)  the search
  *   layout                     { current() → 'list' | 'board', pick(l), options?, isBoard? }: the List | Board switch
@@ -76,7 +77,7 @@ function valueFace(field, v) {
  * Returns { bar, chips, search, update() } — `update` redraws the chips and the button labels.
  */
 export function viewBar(opts) {
-  const { view, save, fields, ctx, items, groups = [], closable = false, orders = [], props = [], cardProps = [], layout = null, onChange } = opts;
+  const { view, save, fields, ctx, items, groups = [], closable = false, orders = [], props = [], layout = null, onChange } = opts;
   const labelOf = opts.groupLabel || groupLabel;
   const isBoard = () => (layout?.isBoard ? layout.isBoard() : layout?.current() === 'board');
   const LAYOUTS = layout?.options || [['list', 'List', 'list'], ['board', 'Board', 'kanban']];
@@ -247,18 +248,21 @@ export function viewBar(opts) {
       type: 'button', class: `vb-pill ${isOn(k) ? 'on' : ''}`, 'aria-pressed': String(isOn(k)), onclick: () => flip(k),
     }, l))));
   const displayBtn = h('button', { type: 'button', class: 'btn ghost small vb-btn', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Display' }, icon('columns', 14), h('span', { class: 'vb-btn-text' }, 'Display'));
+  /** Whether Display's pill `k` is on: a board's cards, or a list's columns (a phone's row starts with fewer). */
+  const propOn = (k) => (isBoard() ? cardShows(view, k) : columnOn(view.props, k, { narrow: !!opts.narrow?.() }));
   function renderDisplay(el) {
     const row = (label, control) => h('div', { class: 'vb-row' }, h('span', {}, label), control);
     el.replaceChildren(...[
       ...(opts.displayRows?.() || []),
       closable ? row('Show closed', seg(opts.closedModes || CLOSED_MODES, view.closed, (k) => change({ closed: k }), { aria: 'Show closed' })) : null,
       isBoard() ? row('Empty columns', seg(EMPTY_MODES, view.emptyCols || 'fold', (k) => change({ emptyCols: k, boardFold: {} }), { aria: 'Empty columns' })) : null,
-      props.length && !isBoard() ? pills(opts.propsLabel || 'Show columns', props, (k) => columnOn(view.props, k, { narrow: !!opts.narrow?.() }),
-        (k) => change({ props: { ...view.props, [k]: !columnOn(view.props, k, { narrow: !!opts.narrow?.() }) } })) : null,
-      cardProps.length && isBoard() ? pills('Show on cards', cardProps, (k) => cardShows(view, k),
-        (k) => change({ cards: { ...(view.cards || {}), [k]: !cardShows(view, k) } })) : null,
-      // A board's cards and a phone's rows: what comes after the priority and plan, side by side or one a line
-      (isBoard() && cardProps.length) || (props.length && opts.narrow?.())
+      // The same properties, in the same order, on a list and on a board (TSK-128); each keeps its own pick: a list's
+      // columns (view.props), a board's cards (view.cards).
+      props.length && (!isBoard() || opts.propsOnBoard) ? pills('Show properties', props, (k) => propOn(k), (k) => change(isBoard()
+        ? { cards: { ...(view.cards || {}), [k]: !propOn(k) } }
+        : { props: { ...view.props, [k]: !propOn(k) } })) : null,
+      // A board's cards and a phone's rows: what comes after the status, priority and plan, side by side or one a line
+      props.length && (isBoard() ? opts.propsOnBoard : opts.narrow?.())
         ? row('More properties', seg(STACKS, stackOf(view), (k) => change({ stack: k }), { aria: 'More properties' })) : null,
       h('div', { class: 'menu-sep' }),
       h('div', { class: 'vb-pop-foot' },

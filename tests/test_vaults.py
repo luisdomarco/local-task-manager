@@ -159,6 +159,13 @@ class ConfigTest(VaultsBase):
         server.App.migrate(Store(legacy, enforce_structure=True))
         self.assertEqual(tree_hash(legacy), before)
 
+    def test_migration_checks_without_reading_the_docs(self):
+        store = Store(self.a, enforce_structure=True)
+        with mock.patch.object(store, 'check', wraps=store.check) as check:
+            server.App.migrate(store)
+        self.assertTrue(check.call_args_list)  # its own check, and each write's: none reads the Docs folders
+        self.assertEqual({c.kwargs.get('docs') for c in check.call_args_list}, {False})
+
 
 class LegacyStructuresTest(VaultsBase):
     """Projects is the structure a new vault gets; Initiatives and Tasks stay for the folders that already are theirs."""

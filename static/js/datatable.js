@@ -68,15 +68,18 @@ const pageAt = new Map(); // `at` → { index, total }
  *   onChange re-renders the table after a page or size change
  *   always   a main list (LIST_PAGE): its bar shows even when every row fits in one page (1–18 of 18, the size to
  *            pick), so every list has it in the same place; a table inside an item has none until it needs a second page
- * The page goes back to the first when the number of rows changes (a filter, a search). No bar with no rows.
+ *   keep     the page stays when the number of rows changes (the Inbox: triaging or discarding a row on page 3 keeps
+ *            you on page 3, or the last one when it emptied); without it the page goes back to the first, as a
+ *            filter or a search should.
+ * No bar with no rows.
  */
-export function paged({ key, at = key, rows, size: fallback, onChange, always = false }) {
+export function paged({ key, at = key, rows, size: fallback, onChange, always = false, keep = false }) {
   const saved = pref(`page.${key}`);
   const size = PAGE_SIZES.includes(saved) ? saved : fallback;
   const total = rows.length;
   const pages = Math.max(1, Math.ceil(total / size));
   const was = pageAt.get(at);
-  const index = was && was.total === total ? Math.min(was.index, pages - 1) : 0;
+  const index = was && (keep || was.total === total) ? Math.min(was.index, pages - 1) : 0;
   pageAt.set(at, { index, total });
   const from = index * size;
   const go = (i) => { pageAt.set(at, { index: i, total }); onChange(); };

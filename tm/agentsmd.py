@@ -107,6 +107,12 @@ def render(info, app_dir, python='python3'):
         lines += ['', '## Docs', '',
                   'Documents that are not items (no id, no status), free Markdown: ' + ', '.join(f'`{d}`' for d in info['docs'])
                   + '. Edit them as files; link to an item with `[[<its file name without .md>]]`.']
+    if info.get('comments_folder'):
+        d = info['comments_folder']
+        lines += ['', '## Comments', '',
+                  f"An item's comments are files of their own: `{d}/<ref>/<when, to the millisecond>.md`, its text the body, "
+                  f'`item: "[[<the item\'s file>]]"` in the frontmatter. Add one with `{cli} comment <REF> "…"`; '
+                  f'`{cli} show <REF>` reads them. Never put them in the item\'s file.']
     lines += _bases_lines(info, cli)
     if info.get('agentic'):
         lines += _agentic_lines(info['agentic'], types, cli)

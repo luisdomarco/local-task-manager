@@ -8,6 +8,7 @@
 // It is a heuristic and says so: an item only remembers its LAST edit, so older days show
 // less than they did. Nothing is saved until you accept a suggestion.
 import { pref, setPref } from './prefs.js';
+import { commentAts } from './comments.js';
 
 const dayOf = (stamp) => String(stamp || '').slice(0, 10);
 
@@ -51,7 +52,7 @@ export function suggestLog({ items, worklog, from = '', to = '', today, dismisse
     note(item, dayOf(f.completed_at), 'closed');
     note(item, dayOf(f.resolved_at), 'resolved');
     if (item.type === 'meeting') note(item, dayOf(f.date), 'held');
-    for (const c of f.comments || []) note(item, dayOf(c.at), 'comment');
+    for (const at of commentAts(item)) note(item, dayOf(at), 'comment'); // its files' or its frontmatter's (comments.js)
     note(item, dayOf(f.updated_at), 'edited');
   }
 

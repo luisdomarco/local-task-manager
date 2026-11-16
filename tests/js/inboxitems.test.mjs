@@ -11,6 +11,14 @@ describe('the Inbox', () => {
   before(freezeDate); // 2026-10-15 12:00 local
   after(unfreezeDate);
 
+  it('counts a comment as a change: written as a file of its own, it leaves the item\'s time as it was (TSK-128)', () => {
+    const quiet = item('1', {}, { mtime: secs(2026, 10, 15, 9, 0) });
+    const talked = item('2', {}, { mtime: secs(2026, 10, 14, 9, 0), comment_ats: ['2026-10-15T10:30:00.000'] });
+    assert.deepEqual([quiet, talked].sort(byLastUpdated).map((r) => r.id), ['2', '1']);
+    assert.equal(updatedLabel(talked), 'Updated Today, 10:30');
+    assert.equal(updatedLabel(quiet), 'Updated Today, 09:00');
+  });
+
   it('puts the newest capture first: by day, then by the id\'s number the same day', () => {
     const rows = [item('28', { created_at: '2026-10-14' }), item('30', { created_at: '2026-10-15' }),
       item('33', { created_at: '2026-10-15' }), item('9', { created_at: '2026-10-15' }), item('1', {})];

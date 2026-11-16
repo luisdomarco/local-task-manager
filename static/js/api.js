@@ -42,6 +42,8 @@ async function call(method, url, body, file = null, other = null) {
 const get = (url) => call('GET', url);
 const post = (url, body) => call('POST', url, body || {});
 
+const commentRef = (id) => (typeof id === 'number' ? { index: id } : { id });
+
 export const api = {
   config: () => get('/api/config'),
   guide: () => get('/api/guide'), // docs/user-guide.md, for Settings → Documentation
@@ -69,6 +71,8 @@ export const api = {
   statuses: () => get('/api/statuses'),
   saveStatuses: (types, colors, remap) => post('/api/statuses', { types, colors, remap }),
   items: () => get('/api/items'),
+  // A stage of the first load (state.js itemsByStages): those types' items and the walk they were read in.
+  itemsOf: (types) => get(`/api/items?types=${encodeURIComponent(types.join(','))}`),
   // The vault as a graph (tm/graph.py): { nodes: [{ id, ref, type, title, path, status, done, project }], edges: [{ source, target, kind, field?, relation? }] }.
   graph: () => get('/api/graph'),
   // The vault as files, for the sidebar's Explorer: { entries: [{ path, kind, size, mtime, item? }], truncated }.
@@ -98,6 +102,7 @@ export const api = {
   backlinks: (path) => get(`/api/files/backlinks?path=${encodeURIComponent(path)}`),
   // What changed on an item's followed fields (tm/history.py). → { entries: [{ at, by, field, from, to }] }, oldest first
   itemHistory: (key) => get(`/api/item/history?key=${encodeURIComponent(key)}`),
+  itemComments: (key) => get(`/api/item/comments?key=${encodeURIComponent(key)}`),
   // A definition's versions (tm/versions.py): → { version, edited, versions: [{ version, at, by, note, title, entities? }] },
   // newest first; one of them with its file then and a diff to now; cut the next one; restore one (a new version too).
   itemVersions: (key) => get(`/api/item/versions?key=${encodeURIComponent(key)}`),
@@ -205,9 +210,10 @@ export const api = {
   emptyTrash: () => post('/api/trash/empty'),
   convert: (key, type, values) => post('/api/item/convert', { key, type, values }),
   addComment: (key, text) => post('/api/item/comment', { key, text }),
-  deleteComment: (key, index) => post('/api/item/comment/delete', { key, index }),
-  restoreComment: (key, index, comment) => post('/api/item/comment/restore', { key, index, comment }),
-  editComment: (key, index, text, was) => post('/api/item/comment/edit', { key, index, text, was }),
+  // A comment is named by its id: its file's name where comments are files, else its place in the list (a number).
+  deleteComment: (key, id) => post('/api/item/comment/delete', { key, ...commentRef(id) }),
+  restoreComment: (key, id, comment) => post('/api/item/comment/restore', { key, ...commentRef(id), comment }),
+  editComment: (key, id, text, was) => post('/api/item/comment/edit', { key, ...commentRef(id), text, was }),
   assignIds: () => post('/api/assign-ids'),
   board: () => get('/api/board'),
   saveBoard: (lists) => post('/api/board', { lists }),

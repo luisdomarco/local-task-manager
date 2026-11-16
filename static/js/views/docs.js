@@ -12,7 +12,7 @@ import { fileTree, loadFiles, onFiles } from '../explorer.js';
 import { docText, docsGroupOf, docsGroups, docsHref, findNode, pathOfParam } from '../filetree.js';
 import { pref, setPref } from '../prefs.js';
 import { cssWidth, wireResizer } from '../resizer.js';
-import { onChange } from '../state.js';
+import { onChange, opening } from '../state.js';
 import { treePane } from '../treepane.js';
 import { dropdown, emptyState, foldHead, h, icon } from '../ui.js';
 import { mountFiles } from './files.js';
@@ -78,7 +78,7 @@ function load() {
   }).catch(() => {});
 }
 onFiles(() => { if (live) load(); });
-onChange(() => { if (live) load(); });
+onChange(() => { if (live && !opening()) load(); }); // not at each stage of the vault opening
 
 export function mount(root, param) {
   shown = pathOfParam(param);

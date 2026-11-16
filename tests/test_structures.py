@@ -245,6 +245,20 @@ class LayoutTest(unittest.TestCase):
         self.assertNotIn('hotfix', s.public()['project_scoped'])
 
 
+    def test_the_boot_order_loads_every_type_once_inbox_first(self):
+        # The page loads a Projects vault a stage at a time (TSK-128): every type in exactly one stage, the Inbox alone
+        # first; a type turned off leaves its stage, and a stage left empty goes.
+        s = get('ticketing')
+        order = s.public()['boot_order']
+        types = [t for _label, ts in order for t in ts]
+        self.assertEqual(sorted(types), sorted(s.types))
+        self.assertEqual(len(types), len(set(types)))
+        self.assertEqual(order[0], ['Inbox', ['inbox']])
+        off = s.without(['prd', 'plan', 'analysis', 'spec', 'error', 'learning']).public()['boot_order']
+        self.assertNotIn('prd', [t for _l, ts in off for t in ts])
+        self.assertNotIn('Records', [label for label, _ts in off])  # every type of it off: no stage
+        self.assertNotIn('boot_order', get('folders').public())  # a legacy vault loads in one go
+
 class RegistryTest(unittest.TestCase):
     def test_three_structures_in_the_order_settings_offers_them(self):
         self.assertEqual([(k, s.label) for k, s in REGISTRY.items()],

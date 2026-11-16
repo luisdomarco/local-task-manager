@@ -965,6 +965,10 @@ body.card-drag .pin-empty { display: inline; }
 .qa-file { max-width: 260px; gap: 4px; padding-right: 2px; }
 .qa-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qa-file-x { width: 20px; height: 20px; }
+/* A link kept apart from the Subject (pasted, shared): one line, cut short, its × to leave it out. */
+.qa-link { max-width: min(360px, 100%); gap: 4px; }
+.qa-link:has(.qa-file-x) { padding-right: 2px; }
+.qa-link-url { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quick-add.qa-drop .qa-input { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); }
 
 /* ── cards ───────────────────────────────────────────────── */
@@ -993,6 +997,9 @@ body.card-drag .pin-empty { display: inline; }
 .cards.rows .card-body { flex: 1 1 220px; }
 .cards.rows .card-extra .select-btn { width: auto; min-width: 0; max-width: 220px; }
 @media (hover: hover) { .cards.rows .card:not(:hover):not(:focus-within) .card-extra .select-btn:not([aria-expanded="true"]) { border-color: transparent; background-color: transparent; box-shadow: none; background-image: none; color: var(--muted-foreground); } }
+/* The Inbox's trash: a column of its own at the row's end, wider than a bare icon, so it neither sits on the edge nor
+   is hit when aiming at Convert to. */
+.cards.rows .btn.icon.row-action.inbox-discard { width: 32px; height: 32px; margin-left: 6px; }
 @media (max-width: 640px) { .cards.rows .card-extra { flex: 1 1 100%; justify-content: flex-start; padding-left: 26px; } }
 /* A phone: its controls share one row in equal halves (the Inbox's Related to… and Convert to) */
 @media (max-width: 760px) {
@@ -1199,21 +1206,20 @@ button.chip.kind:hover { background: var(--accent); }
   .create-keys { display: none; } /* keyboard hints: no keyboard to speak of on a phone, and they squeezed the buttons */
   /* A list on a phone (design.md §3): the header row left out, each row its subject and, under it, one cell of lines
      (list.js phoneColumns; viewmodel.js phoneLines):
-       [☐] ● Subject ………………………………………
+       [☐] Subject ………………………………………
            What it hangs from (its initiative, else project, else parent)
-           Priority  Planned
+           ● Status  Priority  Planned
            The rest Display shows: side by side, wrapping, or one a line (Display → More properties)
-     The status keeps its select, drawn as its dot, and so does the priority, drawn as its bars and word; the rest of
-     the row is in the item's card. Every piece of a line the same size, centred on it, so none sits higher. */
+     The status keeps its select, drawn as its dot and name, and so does the priority, drawn as its bars and word; the
+     rest of the row is in the item's card. Every piece of a line the same size, centred on it, so none sits higher. */
   .list-main .grid thead, .list-main .grid colgroup { display: none; }
   .list-main .grid, .list-main .grid tbody { display: block; width: 100% !important; min-width: 0 !important; }
   .list-main .grid tbody tr:not(.group-head) {
-    display: grid; grid-template-columns: 28px 32px minmax(0, 1fr); align-items: center; column-gap: 0; row-gap: 3px; /* the dot keeps its place in a type without status */
-    grid-template-areas: "pick dot subject" "pick dot meta"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; column-gap: 0; row-gap: 3px;
+    grid-template-areas: "pick subject" "pick meta"; min-height: 56px; padding: 8px 4px; border-bottom: 1px solid var(--border);
   }
   .list-main .grid tbody tr:not(.group-head) > td { display: none; height: auto; padding: 0; border: 0; width: auto !important; min-width: 0; max-width: 100%; }
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { display: flex; grid-area: pick; width: 20px !important; }
-  .list-main .grid tbody tr:not(.group-head) > td.c-status { display: block; grid-area: dot; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { display: block; grid-area: subject; font-weight: 500; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .title-cell > :not(.item-link) { display: none; } /* its labels: in the card */
   .list-main .grid tbody tr:not(.group-head) > td.c-meta:not(.blank) { display: block; grid-area: meta; overflow: hidden; }
@@ -1230,15 +1236,16 @@ button.chip.kind:hover { background: var(--accent); }
   .pm-where .ref-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pm-where .ref-text > .icon { flex: none; }
   .pm-plan, .pm-due, .pm-date { white-space: nowrap; }
-  /* the status as its dot: still a button that opens its select */
-  .list-main .grid tbody tr > td.c-status .select-btn { width: 24px; height: 24px; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; }
-  .list-main .grid tbody tr > td.c-status .select-text { padding-left: 0; width: 100%; height: 100%; }
-  .list-main .grid tbody tr > td.c-status .select-text::before { left: 50%; transform: translate(-50%, -50%); }
-  .list-main .grid tbody tr > td.c-status :is(.select-label, .select-sizer) { display: none; }
-  /* the priority as its bars and word, small and frameless: still a button that opens its select */
-  .pm-priority .select-btn { width: auto; height: auto; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; font-size: inherit; }
-  .pm-priority .select-text { line-height: inherit; }
-  .pm-priority .select-sizer { display: none; }
+  /* the status and the priority as their chips (its dot and name, its bars and word): still buttons that open their
+     select, never framed, not even while it is open — the open state's chevron, repeated under the word, read as a
+     second glyph (TSK-128) */
+  .list-main .grid td .pm-cell .select-btn.small:is(*, :hover, :focus-visible, [aria-expanded="true"]) {
+    width: auto; height: auto; min-height: 0; padding: 0; border-color: transparent; background: none; box-shadow: none; font-size: inherit;
+  }
+  .list-main .grid td .pm-cell .select-btn.small:focus-visible { outline: 2px solid var(--field-ring); outline-offset: 2px; }
+  .list-main .grid td .pm-cell .select-text { line-height: inherit; }
+  .list-main .grid td .pm-cell .select-sizer { display: none; }
+  .list-main .grid td .pm-status .select-btn { color: var(--foreground); }
   .list-main .grid tbody tr > td.empty { display: block; grid-column: 1 / -1; }
   .list-main .grid tbody tr.group-head { display: block; }
   .list-main .grid tbody tr.group-head > td { display: block; }
@@ -3400,6 +3407,11 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .board-card .card-main + .card-meta { margin-top: 4px; }
 .board-card .card-meta.stack-lines { flex-direction: column; align-items: flex-start; gap: 3px; }
 .board-card :is(.card-main, .card-meta) .mono { font-size: var(--fs-2xs); }
+/* a property the card has no drawing of (Size, Updated, Type…): its list column's cell, named when one a line */
+.board-card .card-meta .pm-cell { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
+.board-card .card-meta .pm-cell .ref-text { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.board-card .card-meta .pm-name { flex: none; opacity: .8; }
+.board-card .card-meta .pm-name::after { content: ":"; }
 /* List | Board, at the end of the bar; the Board page's type beside its title. */
 .vb-layout-slot { display: contents; } /* seg() drawn again inside it (viewbar.js paintLayout) */
 .vb-layout { flex: none; }
@@ -4086,3 +4098,14 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .tl-empty { position: absolute; top: 64px; left: 0; right: 0; margin: 0; text-align: center; color: var(--muted-foreground); }
 /* a phone: a narrower names column, the IDs left out; the lanes scroll under it with a finger */
 @media (max-width: 640px) { .tl-grid { --tl-label: 150px; } .tl-ref { display: none; } }
+
+/* ── the welcome screen (views/welcome.js, TSK-128) ─────────────────────────
+   What a page opened with no address shows while it opens its vault: one button to the Inbox, a bar under it of how
+   far the rest is (gone once all is in), centred in the view. */
+.welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; min-height: 60vh; padding: 24px 16px; }
+.welcome-go { min-width: 160px; justify-content: center; gap: 8px; }
+.welcome-load { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(280px, 100%); }
+.welcome-load[hidden] { display: none; }
+.welcome-bar { width: 100%; height: 4px; }
+.welcome-bar > div { transition: width .2s ease-out; }
+.welcome-said { margin: 0; font-size: var(--fs-xs); text-align: center; }

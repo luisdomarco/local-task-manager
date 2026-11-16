@@ -14,8 +14,9 @@ import { restoreTerms } from './term.js';
 import { openQuickModal } from './quickadd.js';
 import { STRUCTURE, anyStatusRank, carriedOverDay, carriedOverWeek, hasPage, inSomeProject, isDone, isEnabled, isPlannedToday, isPlannedWeek, onStructure } from './rules.js';
 import { shiftWeek, thisWeek, weekDays } from './dates.js';
-import { byType, createVaultFolders, firstLoad, onChange, progress, reload, saveSidebarOrder, state, toast } from './state.js';
-import { countOf, cssKey, emptyLine, h, icon, menuIsOpen, select, typeIcon } from './ui.js';
+import { byType, createVaultFolders, firstLoad, inboxReady, onChange, progress, reload, saveSidebarOrder, state, structureReady, toast } from './state.js';
+import { typeLoaded, welcomeFor } from './boot.js';
+import { countOf, cssKey, emptyLine, h, icon, loadingLine, menuIsOpen, select, typeIcon } from './ui.js';
 import { lastTab, sectionOf, sectionRoutes, sections, setTabCounts } from './sections.js';
 import { switchVault, vaultId } from './vault.js';
 import { pageHref } from './datatable.js';
@@ -52,6 +53,7 @@ import * as graph from './views/graph.js';
 import * as goals from './views/goals.js';
 import * as runs from './views/runs.js';
 import * as lab from './views/lab.js';
+import * as welcome from './views/welcome.js';
 import { loadBasecoat } from './basecoat.js';
 import { has, viewOn } from './features.js';
 import { initAgents } from './agentspane.js';
@@ -60,10 +62,10 @@ import { applyView, isShowing, onSavedViews, removeView, restoreView, savedViews
 
 // The views every vault has; each type of the vault's structure adds its list (#/<route>), and its page
 // (#/<type>/<ref>) when it has one.
-const FIXED_VIEWS = { inbox, today, week, nextweek, month, board, table, log, labels, properties, contacts, trash, settings, files, find, docs, canvas, graph, runs, lab };
+const FIXED_VIEWS = { welcome, inbox, today, week, nextweek, month, board, table, log, labels, properties, contacts, trash, settings, files, find, docs, canvas, graph, runs, lab };
 // What the browser tab calls each of them (tabtitle.js); a type's list is its plural, an item's page the item's title.
 const FIXED_TITLES = {
-  inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
+  welcome: 'Task Manager', inbox: 'Inbox', today: 'Today', week: 'Week', nextweek: 'Next week', month: 'Month', board: 'Board', table: 'List', log: 'Work log',
   labels: 'Labels', properties: 'Properties', contacts: 'Contacts', trash: 'Trash', settings: 'Settings', files: 'Explorer', find: 'Search', docs: 'Docs', canvas: 'Canvas', graph: 'Graph',
   runs: 'Agents', lab: 'Lab', // #/lab: the design-system spike, by its address only (not in the sidebar or ⌘K)
 };
@@ -139,7 +141,8 @@ function hideHomelessTypes() {
   for (const box of document.querySelectorAll('[data-nav-group]')) {
     for (const t of STRUCTURE.types) {
       const a = t.nav && box.querySelector(`a[data-view="${t.route}"]`);
-      if (a) a.hidden = !inSomeProject(t.name, state.all) && !state.all.some((i) => i.type === t.name); // its items stay reachable
+      // its items stay reachable; a type still on its way while the page opens keeps its link (no flicker)
+      if (a) a.hidden = typeLoaded(t.name, state.loadedTypes) && !inSomeProject(t.name, state.all) && !state.all.some((i) => i.type === t.name);
     }
     // A section's link goes to the tab it was left on; with no tab left (none of its types here), it is not there.
     const shown = sections();
@@ -196,11 +199,44 @@ function showVaultNotice() {
   noticeShown = true;
 }
 
+let loadedAll = false;
+firstLoad.then(() => { loadedAll = true; });
+let inboxIn = false;
+inboxReady.then(() => { inboxIn = true; });
+// A share opens on the welcome screen too, and goes into the Inbox once that is in (boot.js welcomeFor).
+let shareWelcome = false;
+
+/** While route waits: the welcome screen, or a line that the vault is loading (an address of its own). */
+function placeholder(kind) {
+  if (kind === 'welcome' && currentRoute === 'welcome/') return;
+  if (current?.unmount) current.unmount();
+  const root = document.getElementById('view');
+  if (kind === 'welcome') {
+    root.className = 'view-welcome';
+    current = welcome.mount(root);
+    currentRoute = 'welcome/';
+    current.update();
+    return;
+  }
+  current = null;
+  currentRoute = null;
+  root.className = 'view-loading';
+  root.replaceChildren(loadingLine('Opening the vault…'));
+}
+
 async function route() {
-  // An address followed while the page still loads (its vault's structure names the views: a project's page…)
-  // waits for it, rather than being sent home as a view that does not exist.
-  await firstLoad;
-  const [, name, param] = location.hash.match(/^#\/(\w+)(?:\/(.+))?/) || [];
+  // The page opens its vault a stage at a time (TSK-128, state.js): the welcome screen needs only the structure, the
+  // Inbox its own stage, and any other view every item — an address followed while the page still loads (its vault's
+  // structure names the views: a project's page…) waits for it with a line saying so, rather than being sent home
+  // as a view that does not exist. No address is the welcome screen.
+  const asked = location.hash;
+  const [, hashName, param] = asked.match(/^#\/(\w+)(?:\/(.+))?/) || [];
+  const name = hashName || 'welcome';
+  if (name === 'welcome') await structureReady;
+  else if (name === 'inbox') {
+    if (!inboxIn) { await structureReady; placeholder(shareWelcome ? 'welcome' : 'loading'); await inboxReady; }
+  } else if (!loadedAll) { placeholder('loading'); await firstLoad; }
+  if (location.hash !== asked) return; // another address was followed meanwhile: its own route() draws it
   const explorerOnly = vaultBlocked() && sidebarMode() === 'explorer';
   if (explorerOnly && !['settings', 'files', 'find'].includes(name)) { location.replace(filesHref('')); return; }
   // Settings and the Agents section are not about the vault: they open whatever it holds.
@@ -289,15 +325,19 @@ function renderSidebar() {
     month: month.openCount(),
     trash: state.trash.length + state.trashedFiles.length,
   };
+  // While the vault opens (state.loadedTypes) a count whose items are not all in yet stays blank: never a 0 that jumps.
+  const waiting = new Set(state.loadedTypes ? ['today', 'week', 'nextweek', 'month'] : []);
+  for (const [route, type] of COUNTED) if (!typeLoaded(type, state.loadedTypes)) waiting.add(route);
   for (const [k, n] of Object.entries(counts)) {
     const el = document.querySelector(`[data-count="${k}"]`);
-    if (el) el.textContent = vaultBlocked() ? '' : n || ALWAYS_COUNTED.has(k) ? String(n) : '';
+    if (el) el.textContent = vaultBlocked() || waiting.has(k) ? '' : n || ALWAYS_COUNTED.has(k) ? String(n) : '';
   }
   // A section's tabs count what each holds: Planning's, what is planned there (as above); a type's, its open items.
   const tabCounts = { week: counts.week, nextweek: counts.nextweek, month: counts.month };
   for (const sec of sections()) {
-    for (const t of sec.tabs) if (t.type) tabCounts[t.route] = byType(t.type).filter((i) => !isDone(i)).length;
+    for (const t of sec.tabs) if (t.type && typeLoaded(t.type, state.loadedTypes)) tabCounts[t.route] = byType(t.type).filter((i) => !isDone(i)).length;
   }
+  for (const k of waiting) delete tabCounts[k];
   setTabCounts(vaultBlocked() ? {} : tabCounts);
   renderVaultSwitch();
   // Favourites: the projects and initiatives starred on their page (favourites.js), in the order dragged there, then
@@ -503,8 +543,10 @@ initExplorer();
 initVaultWatch();
 firstLoad.then(() => { if (has('agents')) initAgents(); }); // the Agents mode's pane: none where agents cannot run
 onChange(renderAll);
-takeShare(); // what another app shared: the Inbox, its capture box filled in (share.js)
-reload().then(route).then(() => { if (has('terminal')) restoreTerms(); }); // terminals the server still runs get their tabs back
+// What another app shared: the Inbox, its capture box filled in (share.js), by way of the welcome screen while it loads.
+shareWelcome = takeShare() && welcomeFor(location.hash, true);
+reload();
+route().then(() => { if (has('terminal')) restoreTerms(); }); // terminals the server still runs get their tabs back
 
 /**
  * An open page learns the app was updated: an update (tools/install_app.py --update) restarts the server, and a page

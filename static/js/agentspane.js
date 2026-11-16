@@ -11,7 +11,7 @@ import { buildTree, findNode } from './filetree.js';
 import { folderButton } from './folderpick.js';
 import { pref, setPref } from './prefs.js';
 import { onSidebarMode, sidebarMode } from './sidebar.js';
-import { onChange, saveConfig, state, toast } from './state.js';
+import { onChange, opening, saveConfig, state, toast } from './state.js';
 import { agentMarks, inboxCount, RUN_STATUSES } from './runmodel.js';
 import { treePane } from './treepane.js';
 import { countOf, dropdown, foldHead, formActions, h, icon, openDialog, propRow } from './ui.js';
@@ -222,7 +222,7 @@ export function initAgents() {
   const listed = () => sidebarMode() === 'agents';
   onSidebarMode((mode) => { if (mode === 'agents') loadAgents().then(() => pane.reveal(agentPathOfHash(location.hash))); });
   // A save in Settings (a folder added, renamed or removed) reloads the page's state: the list follows.
-  onChange(() => { if (listed() || dirs) loadAgents(); });
+  onChange(() => { if ((listed() || dirs) && !opening()) loadAgents(); }); // not at each stage of the vault opening
   window.addEventListener('hashchange', () => { if (listed() && tree) { pane.render(); pane.reveal(agentPathOfHash(location.hash)); } });
   if (listed()) loadAgents().then(() => pane.reveal(agentPathOfHash(location.hash)));
   // The Inbox's count and each agent's mark follow the runs.

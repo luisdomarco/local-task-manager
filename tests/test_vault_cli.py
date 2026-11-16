@@ -356,7 +356,9 @@ class WriteCommandsTest(SampleCopy):
         self.cli('unlink', 'STY-5', 'STY-6')
         self.assertEqual(self.store().read('STY-6')['fields']['depends_on'], [])
         self.cli('comment', 'STY-5', 'Ask the PSP about tokens')
-        self.assertEqual(self.store().read('STY-5')['fields']['comments'][-1]['text'], 'Ask the PSP about tokens')
+        said = self.store().item_comments('STY-5')['comments'][-1]  # a file of its own (tm/comments.py), by an agent
+        self.assertEqual((said['text'], said['by']), ('Ask the PSP about tokens', 'agent'))
+        self.assertIn('Ask the PSP about tokens', self.cli('show', 'STY-5'))
         self.assertTrue(self.store().check()['ok'])
 
     def test_delete_goes_to_the_trash_and_restore_brings_it_back_linked(self):

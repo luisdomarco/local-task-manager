@@ -8,7 +8,7 @@ import { api } from './api.js';
 import { buildTree } from './filetree.js';
 import { onSidebarMode, sidebarMode } from './sidebar.js';
 import { pref } from './prefs.js';
-import { firstLoad, onChange } from './state.js';
+import { onChange, opening, structureReady } from './state.js';
 import { h, icon } from './ui.js';
 import { currentPath, treePane } from './treepane.js';
 
@@ -47,8 +47,8 @@ export function loadFiles() {
     again = again || loading.then(() => { again = null; return loadFiles(); });
     return again;
   }
-  // Not before the page knows its vault (every request names it): the first load waits for it.
-  loading = firstLoad.then(() => api.files(!!pref('files.hidden'))).then((res) => {
+  // Not before the page knows its vault (every request names it): its config and structure, not every item (TSK-128).
+  loading = structureReady.then(() => api.files(!!pref('files.hidden'))).then((res) => {
     const next = JSON.stringify(res);
     if (next === sig) return;
     sig = next;
@@ -68,7 +68,7 @@ export const dropTarget = (el, folder) => pane.dropTarget(el, folder);
 export function initExplorer() {
   const listed = () => sidebarMode() === 'explorer';
   onSidebarMode((mode) => { if (mode === 'explorer') loadFiles().then(() => pane.reveal(currentPath())); });
-  onChange(() => { if (listed()) loadFiles(); });
+  onChange(() => { if (listed() && !opening()) loadFiles(); }); // while the vault opens, once: when all of it is in
   window.addEventListener('hashchange', () => { if (sidebarMode() === 'explorer' && tree) pane.reveal(currentPath()); });
   if (listed()) loadFiles().then(() => { if (sidebarMode() === 'explorer') pane.reveal(currentPath()); });
 }

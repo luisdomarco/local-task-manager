@@ -68,13 +68,46 @@ export function parseQuick(text, defaults = {}) {
   return out;
 }
 
-function preview(p) {
+const LINK = /^(?:https?:\/\/|www\.)\S+$/i;
+const fullUrl = (w) => (/^www\./i.test(w) ? `https://${w}` : w);
+
+/** `text` without its links: `rest` (the other words, spaces made one) and `urls` (each link, `www.` made https). */
+export function splitLinks(text) {
+  const urls = [];
+  const rest = [];
+  for (const w of String(text || '').split(/\s+/).filter(Boolean)) (LINK.test(w) ? urls : rest).push(LINK.test(w) ? fullUrl(w) : w);
+  return { rest: rest.join(' '), urls };
+}
+
+/** The Subject a link starts with when nothing else is written: its site's name and a dash, to write after. */
+export const linkSubject = (url) => `${siteName(url)} — `;
+
+/**
+ * A parse (parseQuick) with the links the box keeps apart (`kept`: pasted or shared, shown as chips, never in the
+ * Subject): the first is the url when none was typed, the rest go to links. No words: the site's name. A Subject
+ * left as it started ("X —") loses its dash.
+ */
+export function withKept(p, kept = []) {
+  const values = { ...p.values };
+  for (const url of kept) {
+    if (!values.url) values.url = url;
+    else if (values.url !== url && !(values.links || []).some((l) => l.url === url)) values.links = [...(values.links || []), { url }];
+  }
+  let title = p.title.replace(/\s+[—–-]$/, '').trim();
+  if (!title && values.url) title = siteName(values.url);
+  return { ...p, title, values };
+}
+
+function preview(p, kept = [], drop = () => {}) {
   const v = p.values;
   const parts = [h('span', { class: `chip t-${p.type}` }, TYPE_DEFS[p.type]?.label || p.type)];
   if (v.related_to) parts.push(h('span', { class: 'chip parent' }, state.byId.get(v.related_to)?.title || v.related_to));
   if (v.priority) parts.push(priorityChip(v.priority));
-  if (v.url) parts.push(h('span', { class: 'chip link' }, icon('link', 12), v.url));
-  for (const l of v.links || []) parts.push(h('span', { class: 'chip' }, `+ ${l.url}`));
+  // A link kept apart (pasted, shared) can be left out with its ×; one typed in the box goes by deleting it there.
+  const unkeep = (url) => (kept.includes(url) ? h('button', { type: 'button', class: 'btn icon qa-file-x', 'aria-label': `Leave out ${url}`,
+    onclick: () => drop(url) }, icon('x', 12)) : null);
+  if (v.url) parts.push(h('span', { class: 'chip link qa-link', title: v.url }, icon('link', 12), h('span', { class: 'qa-link-url' }, v.url), unkeep(v.url)));
+  for (const l of v.links || []) parts.push(h('span', { class: 'chip qa-link', title: l.url }, h('span', { class: 'qa-link-url' }, `+ ${l.url}`), unkeep(l.url)));
   if (v.plan_day) parts.push(h('span', { class: 'chip plan today' }, icon('sun', 12), relDay(v.plan_day)));
   else if (v.plan_week) parts.push(h('span', { class: 'chip plan week' }, icon('calendar', 12), v.plan_week));
   else if (v.plan_month) parts.push(h('span', { class: 'chip plan week' }, icon('calendar', 12), monthLabel(v.plan_month, true)));
@@ -91,9 +124,12 @@ function preview(p) {
  * The quick add box: a line of text parsed as it is typed (parseQuick), Enter creates. `files` (the Inbox's): a picture
  * or file pasted or dropped on it, or picked with its paperclip (on a phone, a photo), waits as a chip and is attached to
  * the item created (with no text, the item is named after the first file). `value`: the text it opens with (a share);
- * `attach`: files it opens with, or a promise of them (a picture shared from the iPhone's Photos, fetched from the app).
+ * `links`: addresses it opens with (a share's), kept apart; `attach`: files it opens with, or a promise of them (a
+ * picture shared from the iPhone's Photos, fetched from the app).
+ * A link pasted or shared never stays in the Subject: it waits as a chip (×: leave it out) and becomes the item's url,
+ * and an empty Subject starts with its site's name ("X — ") for the rest to be written after it.
  */
-export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '', attach = null } = {}) {
+export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '', links = [], attach = null } = {}) {
   const prev = h('div', { class: 'chips qa-preview' });
   const phone = isPhone();
   const hint = placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note';
@@ -102,7 +138,9 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     // A phone's box is narrow: what to type, not the tokens after it (they still work); its keyboard says Done.
     placeholder: phone ? hint.split('  ')[0] : hint, enterkeyhint: phone ? 'done' : null,
   });
-  input.value = value;
+  const opening = splitLinks(value);
+  const kept = [...new Set([...links.filter(Boolean), ...opening.urls])]; // links kept apart, as chips
+  input.value = opening.rest || (kept.length ? linkSubject(kept[0]) : '');
   const waiting = []; // files to attach to what Enter creates
   const filesRow = files ? h('div', { class: 'chips qa-files' }) : null;
   const drawFiles = () => filesRow?.replaceChildren(...waiting.map((f, i) => h('span', { class: 'chip qa-file', title: f.name },
@@ -116,19 +154,38 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     drawFiles();
     if (focus) input.focus();
   };
+  const drop = (url) => {
+    kept.splice(kept.indexOf(url), 1);
+    if (!kept.length && input.value === linkSubject(url)) input.value = ''; // the Subject it started, untouched
+    refresh();
+  };
   const refresh = () => {
-    prev.replaceChildren(...(input.value.trim() ? preview(parseQuick(input.value, defaults)) : []));
+    prev.replaceChildren(...(input.value.trim() || kept.length ? preview(withKept(parseQuick(input.value, defaults), kept), kept, drop) : []));
   };
   input.addEventListener('input', refresh);
+  // Text pasted with a link in it: the link goes to the chips, the rest where the cursor is. A Subject left empty
+  // starts with the link's site.
+  input.addEventListener('paste', (e) => {
+    if (e.clipboardData?.files?.length) return; // a file: the Inbox's own paste (files) takes it
+    const { rest, urls } = splitLinks(e.clipboardData?.getData('text/plain') || '');
+    if (!urls.length) return;
+    e.preventDefault();
+    for (const u of urls) if (!kept.includes(u)) kept.push(u);
+    input.setRangeText(rest, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
+    if (!input.value.trim()) input.value = linkSubject(kept[0]);
+    input.setSelectionRange(input.value.length, input.value.length);
+    refresh();
+  });
   const submit = async () => {
     const text = input.value.trim() || (waiting.length ? waiting[0].name.replace(/\.[^.]+$/, '') : '');
-    const p = parseQuick(text, defaults);
-    if (!p.title && !p.values.url) return; // a link alone has its site's name (parseQuick); one with none, no subject
+    const p = withKept(parseQuick(text, defaults), kept);
+    if (!p.title && !p.values.url) return; // a link alone has its site's name (withKept); one with none, no subject
     if (p.errors.length) return toast(p.errors[0], true);
     let item;
     try { item = await createItem(p.type, p.title, p.values); } catch { return; } // already toasted
     toast(`Created ${refOf(item)}`);
     input.value = '';
+    kept.length = 0;
     refresh();
     if (waiting.length) {
       const sent = waiting.splice(0);
@@ -169,7 +226,7 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
       take([...e.dataTransfer.files]);
     });
   }
-  if (value) setTimeout(refresh, 0);
+  if (value || kept.length) setTimeout(refresh, 0);
   // Not focused: on a phone that would raise the keyboard over the picture you came to see (autofocus decides).
   if (files && attach) Promise.resolve(attach).then((list) => { if (list?.length) take(list, { focus: false }); });
   return box;

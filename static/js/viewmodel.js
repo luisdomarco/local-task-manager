@@ -12,7 +12,7 @@ import { dayLabel, isoWeek, lateBy, monthLabel, monthOf, shiftWeek, thisWeek, to
 import { GROUPS, NONE, PLAN_BUCKETS, ancestorsOf, directed, projectOf } from './grouping.js';
 import { byGoalRank } from './goals.js';
 import {
-  ACTIVITY_SOURCES, EXTERNAL_REF, PARENT_TYPES, PLANNABLE, PLAN_FILTERS, PRIORITIES, PRIORITY_RANK, TYPE_DEFS, hasExternalRef,
+  ACTIVITY_SOURCES, PLAN_FILTERS, PRIORITIES, PRIORITY_RANK, TYPE_DEFS,
   hasField, isDone, labelsOf, planFilter, statusRankIn, statusesOf,
 } from './rules.js';
 
@@ -266,17 +266,18 @@ export const stackOf = (view) => (view?.stack === 'lines' ? 'lines' : 'wrap');
 export const WHERE_KEYS = ['initiative', 'project', 'parent'];
 
 /**
- * How a phone's row lays out the columns Display shows under its subject (`keys`, in the list's order; the tick box,
- * status and subject are not among them): `{ where, main, when, extra }`, each a list of keys.
+ * How a phone's row lays out the columns Display shows under its subject (`keys`, in the list's order; the tick box
+ * and subject are not among them): `{ where, main, when, extra }`, each a list of keys.
  * - `where`: the line of what it hangs from: one of them shows, the first with a value (list.js).
- * - `main` and `when`: the line of its ID (when Display turns it on) and priority, then one date — of `when`, the first
- *   with a value in that row (list.js); the other dates with a value join `extra`.
+ * - `main` and `when`: the line of its status and priority (a property as any other, TSK-128: no longer a dot before
+ *   the subject), then one date — of `when`, the first with a value in that row (list.js); the other dates with a value
+ *   join `extra`.
  * - `extra`: every other key, in order, side by side or one a line.
  * A key the list does not show is in none of them; every key it shows is in exactly one.
  */
 export function phoneLines(keys) {
   const where = WHERE_KEYS.filter((k) => keys.includes(k));
-  const main = ['id', 'priority'].filter((k) => keys.includes(k));
+  const main = ['status', 'priority'].filter((k) => keys.includes(k));
   const when = WHEN_KEYS.filter((k) => keys.includes(k));
   const extra = keys.filter((k) => !where.includes(k) && !main.includes(k) && !when.includes(k));
   return { where, main, when, extra };
@@ -310,14 +311,15 @@ export function hiddenColumns(columns, width, { subjectMin = SUBJECT_MIN } = {})
 }
 
 /**
- * The order a list draws its columns in, whatever order the structure lists them: the box, ID, Subject, Status, the
- * priority (or a level), what it hangs from (Initiative, Project, its parent, a meeting), Planned, Due (a meeting's Date,
- * Time, Duration), Labels; then a type's own columns (Size, Severity…) in the structure's order; Resolved, Created and
- * Updated last. Sorting is stable, so two of a rank keep theirs.
+ * The one order of an item's properties (TSK-128, docs/design.md §3), whatever order the structure lists them: a list's
+ * columns, a phone's row, a board's card and Display's pills all follow it. The box and the Subject first; then Status,
+ * the priority (or a level), where it hangs (Project, Initiative, its parent, a meeting, a goal), Planned, Due (a
+ * meeting's Date, Time, Duration), Labels; then a type's own columns (Size, Severity…) in the structure's order;
+ * Resolved, Created and Updated; the ID and the Type last. Sorting is stable, so two of a rank keep theirs.
  */
-const COLUMN_RANK = ['pick', 'id', 'subject', 'subjectPlain', 'type', 'status', 'state', 'priority', 'prop:level', 'goal', 'initiative', 'project', 'parent', 'meetingOf',
+const COLUMN_RANK = ['pick', 'subject', 'subjectPlain', 'status', 'state', 'priority', 'prop:level', 'project', 'initiative', 'parent', 'meetingOf', 'goal',
   'plan', 'start', 'due', 'date', 'time', 'duration', 'attendees', 'source', 'from', 'labels'];
-const COLUMN_LAST = ['resolved', 'created_at', 'updated_at']; // after a type's own columns, in every list
+const COLUMN_LAST = ['resolved', 'created_at', 'updated_at', 'id', 'extref', 'type']; // after a type's own columns, in every list
 export function columnOrder(columns) {
   const rank = (c) => {
     const r = COLUMN_RANK.indexOf(c.key);
@@ -327,6 +329,15 @@ export function columnOrder(columns) {
   };
   return columns.map((c, n) => [c, n]).sort(([a, x], [b, y]) => rank(a) - rank(b) || x - y).map(([c]) => c);
 }
+
+/**
+ * What Display offers to show, [[key, label]], in the one order (columnOrder): a list's columns and a board's cards
+ * offer the same (TSK-128), each view keeping its own pick (view.props, view.cards). The box and the Subject are not
+ * among them: they always show.
+ */
+export const displayProps = (columns) => columnOrder(columns)
+  .filter((c) => c.key !== 'pick' && !/^subject/.test(c.key) && typeof c.label === 'string' && c.label)
+  .map((c) => [c.key, c.label]);
 
 /**
  * The column a table's sort ({ col, dir }) orders by: `sort.col` among `columns`, every column it may name, shown or
@@ -361,31 +372,12 @@ const withoutTomorrow = (filters) => filters
  * `labels`, `source`, `groupBy`), as the bar's: the same items show. A meeting's date scope becomes a Date filter;
  * Open is closed hidden, All every one, Closed every one too (the bar keeps no "closed only").
  */
-// ── what a board's cards show (Display → Show on cards) ───────────────────
-/** Off on a fresh board: the card stays short (priority, plan and where it hangs show; Display turns the rest on). */
-export const CARD_OFF = new Set(['id', 'labels', 'due', 'project', 'extref']);
-
-/** The properties a card of these types can show, [[key, label]], as Display lists them (the mockup's order): the
- *  meta row's first (status, priority, id, planned, due, labels), then the line under the title (what it hangs from, its
- *  project), and the tracker's ticket. */
-export function cardProps(types) {
-  const any = (f) => types.some(f);
-  const parents = uniq(types.flatMap((t) => PARENT_TYPES[t] || []));
-  return [
-    any((t) => hasField(t, 'status')) ? ['status', 'Status'] : null,
-    any((t) => hasField(t, 'priority')) ? ['priority', 'Priority'] : null,
-    ['id', 'ID'],
-    any((t) => PLANNABLE.has(t)) ? ['plan', 'Planned'] : null,
-    any((t) => hasField(t, 'due')) ? ['due', 'Due'] : null,
-    any((t) => hasField(t, 'labels')) ? ['labels', 'Labels'] : null,
-    parents.length ? ['parent', parents.length === 1 ? TYPE_DEFS[parents[0]]?.label || 'Parent' : 'Parent'] : null,
-    any((t) => hasField(t, 'project') && t !== 'project') ? ['project', 'Project'] : null,
-    any(hasExternalRef) ? ['extref', EXTERNAL_REF.label || 'Ticket'] : null,
-  ].filter(Boolean);
-}
+// ── what a board's cards show (Display → Show properties, on a board) ─────────
+/** On on a fresh board: the card stays short (its status, priority, plan and where it hangs; Display turns the rest on). */
+export const CARD_ON = new Set(['status', 'priority', 'plan', 'parent', 'initiative']);
 
 /** Whether a board's cards show `key`: what the view says (view.cards), else its default. */
-export const cardShows = (view, key) => (view?.cards && key in view.cards ? !!view.cards[key] : !CARD_OFF.has(key));
+export const cardShows = (view, key) => (view?.cards && key in view.cards ? !!view.cards[key] : CARD_ON.has(key));
 
 export function migrateView(old) {
   if (!old) return fresh();

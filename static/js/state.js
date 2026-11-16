@@ -4,7 +4,8 @@ import { serial } from './serial.js';
 import { api } from './api.js';
 import { has, setFeatures } from './features.js';
 import { today, thisMonth, thisWeek, isoWeek } from './dates.js';
-import { isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
+import { STRUCTURE, isArchived, isDone, placement, setStructure, statusFor } from './rules.js';
+import { stages } from './boot.js';
 import { pickVault, vaultId } from './vault.js';
 import { isTentative } from './worktime.js';
 import { refOf } from './shownid.js';
@@ -31,6 +32,9 @@ export const state = {
   vaultAgents: null, // the vault's guide for agents (Settings → Vaults)
   vaultCheck: null, // whether its folder matches its structure (tm/structures/check.py); when not, nothing else is loaded
   vaultMatches: [], // when it does not: the other structures its folder does match, if any [{ id, label }]
+  loadedTypes: null, // while the page opens a vault a stage at a time (boot.js): the types in so far; null once all are
+  bootStages: [],   // those stages ([{ label, types }]) and how many are in: what the welcome screen's bar shows
+  bootDone: 0,
   claudeModels: [], // the models claude offers ({ value, label, description, resolved, efforts }), as the latest chat to
                     // start was told: every model menu shows them (chat-model.js modelOptions, launchModelOptions)
   error: null,
@@ -43,6 +47,14 @@ const notify = () => listeners.forEach((fn) => fn());
 // waits for when only the loaded items can name its item (a project, by its key).
 let loadedOnce;
 export const firstLoad = new Promise((resolve) => { loadedOnce = resolve; });
+// Settled once the structure is known (what the welcome screen needs), and once the first stage of items is in — the
+// Inbox, which can be used while the rest comes in (TSK-128). Both settle on an error or a vault that does not match
+// too: nothing waits for them forever.
+let structureKnown;
+export const structureReady = new Promise((resolve) => { structureKnown = resolve; });
+let inboxIn;
+export const inboxReady = new Promise((resolve) => { inboxIn = resolve; });
+let booted = false; // the first load went through: every later one asks for every item in one call
 
 /** What this page knew of the vault, emptied: a vault that does not match shows nothing of itself. */
 function forgetVaultData() {
@@ -98,6 +110,7 @@ async function loadAll() {
       setStructure(await api.structure());
       structureLoaded = true;
     }
+    structureKnown();
     if (statusDue || !state.vaultCheck) {
       statusDue = false;
       const status = await api.vaultStatus();
@@ -110,20 +123,25 @@ async function loadAll() {
       forgetVaultData();
       state.error = null;
       notify();
+      inboxIn();
       loadedOnce(); // its files still show (the Explorer), and what waits for the first load must not wait forever
       return;
     }
     // Today's and the Week's boards always (their pages draw at once), and every other board a page has asked for.
     const boardNames = [...new Set(['today', 'week', ...Object.keys(state.boards)])];
-    const [items, board, log, pins, sidebar, people, groups, labels, trash, ...boards] = await Promise.all([
+    const rest = Promise.all([
       // A feature the vault turned off is not asked for (its routes refuse it: server.py FEATURE_ROUTES)
-      api.items(), api.board(), has('worklog') ? api.worklog() : { entries: [] }, api.pins(), api.sidebar(),
+      api.board(), has('worklog') ? api.worklog() : { entries: [] }, api.pins(), api.sidebar(),
       has('contacts') ? api.people() : { people: [] }, has('contacts') ? api.groups() : { groups: [] },
       api.labels(), api.trash(), ...boardNames.map((n) => api.customBoard(n).catch(() => emptyBoard())),
     ]);
-    state.all = items.items;
-    state.items = state.all.filter((i) => !isArchived(i));
-    state.byId = new Map(state.all.filter((i) => i.id).map((i) => [i.id, i]));
+    rest.catch(() => {}); // its error is the load's, below: never an unhandled one while the stages come in
+    const plan = booted ? [] : stages(STRUCTURE);
+    const items = plan.length > 1 ? await itemsByStages(plan) : (await api.items()).items;
+    booted = true;
+    const [board, log, pins, sidebar, people, groups, labels, trash, ...boards] = await rest;
+    setItems(items);
+    state.loadedTypes = null;
     state.board = board;
     state.pins = pins.items;
     state.sidebar = sidebar.items;
@@ -138,16 +156,56 @@ async function loadAll() {
     state.error = null;
   } catch (e) {
     state.error = e.message;
+    state.loadedTypes = null;
   }
+  structureKnown();
+  inboxIn();
   notify();
   loadedOnce();
 }
+
+function setItems(items) {
+  state.all = items;
+  state.items = state.all.filter((i) => !isArchived(i));
+  state.byId = new Map(state.all.filter((i) => i.id).map((i) => [i.id, i]));
+}
+
+/**
+ * The first load's items, a stage at a time (boot.js stages: the Inbox first), each stage shown as it comes in
+ * (state.loadedTypes, notify). Each answer says the walk it was read in (Store.items_of): two walks — a write came
+ * between — and every item is asked for again in one call, so nothing is half old.
+ */
+async function itemsByStages(plan) {
+  state.bootStages = plan;
+  state.bootDone = 0;
+  state.loadedTypes = new Set();
+  let all = [];
+  let walk = null;
+  for (const stage of plan) {
+    const out = await api.itemsOf(stage.types);
+    if (walk !== null && out.walk !== walk) return (await api.items()).items;
+    walk = out.walk;
+    all = [...all, ...out.items];
+    setItems(all);
+    stage.types.forEach((t) => state.loadedTypes.add(t));
+    state.bootDone += 1;
+    notify();
+    inboxIn();
+  }
+  return all;
+}
+
+/** Whether the page is still opening its vault (the stages of its first load). */
+export const opening = () => state.loadedTypes !== null;
 
 /** Run API calls, then reload once. Errors surface as a toast, never silently. */
 async function mutate(fn) {
   try {
     const out = await fn();
-    await reload({ status: false });
+    // While the page opens its vault, the reload waits in line behind the stages (loadOnce): a capture in the Inbox
+    // then does not wait for every item to come in — its stage, a later one or the reload after brings it.
+    if (opening()) reload({ status: false });
+    else await reload({ status: false });
     return out;
   } catch (e) {
     toast(e.message, true);
@@ -273,13 +331,13 @@ export const addComment = (key, text) => mutate(() => api.addComment(key, text))
 export const cutVersion = (key, major, note) => mutate(() => api.cutVersion(key, major, note));
 /** Put a definition back as it was at `version`: a new version "Restored <version>"; 409 when it changed on disk since. */
 export const restoreVersion = (key, version, baseRev) => mutate(() => api.restoreVersion(key, version, baseRev));
-/** Delete a comment, with an Undo in the toast that puts the same comment back at its place. */
-export async function deleteComment(key, index) {
-  const out = await mutate(() => api.deleteComment(key, index));
-  toast('Comment deleted', false, out.removed ? { label: 'Undo', run: () => mutate(() => api.restoreComment(key, index, out.removed)) } : null);
+/** Delete a comment (by its id: comments.js), with an Undo in the toast that puts the same comment back at its place. */
+export async function deleteComment(key, id) {
+  const out = await mutate(() => api.deleteComment(key, id));
+  toast('Comment deleted', false, out.removed ? { label: 'Undo', run: () => mutate(() => api.restoreComment(key, id, out.removed)) } : null);
   return out;
 }
-export const editComment = (key, index, text, was) => mutate(() => api.editComment(key, index, text, was));
+export const editComment = (key, id, text, was) => mutate(() => api.editComment(key, id, text, was));
 /** Open Terminal with claude on the item (or on a bare prompt, key null); the launch is recorded, so the state reloads. */
 export const claudeLaunch = (key, instruction, model, effort, cwd, target) => mutate(() => api.claudeLaunch(key, instruction, model, effort, cwd, target));
 export const claudeForget = (key, index) => mutate(() => api.claudeForget(key, index));

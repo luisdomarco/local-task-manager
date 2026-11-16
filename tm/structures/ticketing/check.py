@@ -21,6 +21,7 @@ import os
 import re
 
 from ...attachments import DIR as ATTACHMENTS_DIR
+from ...comments import DIR as COMMENTS_DIR, FILE_CLASS as COMMENT_CLASS, STEM_RE as COMMENT_STEM_RE
 from ...fsutil import read_error
 from ..check import IGNORED_FILES, PLACEHOLDER_RE, ROOT_GUIDES, _finding, _result, _read_fields
 from ..kinds import PROJECT_FOLDER_TYPES
@@ -28,7 +29,8 @@ from .. import NUMBER_RE
 from .definition import (DOCS_FOLDER, ID_RE, INDEX_NOTE, OPTIONAL_ROOT_FOLDERS, PROJECT_KEY_RE, PROJECT_ROOT_TOPS, ROOT_FOLDERS, SPEC,
                          WORKLOG_FOLDER, BY_FILE_CLASS)
 
-SKIP_DIRS = {'node_modules', '__pycache__', ATTACHMENTS_DIR}  # Attachments/: files, never items (tm/attachments.py)
+# Attachments/ and Comments/: files, never items (tm/attachments.py, tm/comments.py)
+SKIP_DIRS = {'node_modules', '__pycache__', ATTACHMENTS_DIR, COMMENTS_DIR}
 
 
 # Every folder a project may have, each made with its first file (what it holds follows from its initiatives' kinds,
@@ -115,6 +117,8 @@ def check(root, load=None, docs=True):
     # Every file: where it is, what it is, its id and its name.
     expected = {}  # type -> function(project folder) -> folder it belongs in
     seen_ids = {}
+    refs = set(keys)  # what a folder of Comments/ may be named: every item's ref (a project's key)
+    in_file = []  # the items that still keep their comments in their own file (`comments:`)
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith('.') and d not in SKIP_DIRS)
         rel_dir = os.path.relpath(dirpath, root).replace(os.sep, '/')
@@ -151,6 +155,8 @@ def check(root, load=None, docs=True):
                 warnings.append(_finding('untyped', rel, 'No fileClass of this structure: the app ignores it.'))
                 continue
             spec = SPEC[t]
+            if isinstance(fields.get('comments'), list) and fields['comments']:
+                in_file.append(rel)
             if spec['scope'] == 'note':
                 if top not in projects or rel != f'{top}/00 {top}.md':
                     blocking.append(_finding('wrong_folder', rel, 'A project note outside its own project folder.'))
@@ -176,6 +182,7 @@ def check(root, load=None, docs=True):
             # from before short ids, the long one (`ACME-STY-001`, the file named by it).
             item_id = str(fields.get('id') or '').strip()
             if not item_id and spec['legacy_title']:
+                refs.add(os.path.splitext(name)[0])  # known by its file's name (tm/comments.py folder_name)
                 continue  # a plan or an analysis from before they had ids: named as it was (tools/migrate_short_ids.py)
             short = bool(NUMBER_RE.match(item_id))
             m = ID_RE.match(item_id)
@@ -188,6 +195,41 @@ def check(root, load=None, docs=True):
             else:
                 seen_ids[item_id] = rel
                 named = f"{spec['code']}-{item_id}" if short else item_id
+                refs.add(named)
                 if not re.match(re.escape(named) + r'( .+)?\.md$', name):  # `INB-87.md`: one with no title (a shared link)
                     blocking.append(_finding('bad_name', rel, f'Its file must be named "{named} <Title>.md".'))
+    if in_file:
+        warnings.append(_finding('comments_in_file', in_file[0],
+                                 f'{len(in_file)} item(s) keep their comments in their own file, read only: move them to '
+                                 f'{COMMENTS_DIR}/ with tools/migrate_comments.py.'))
+    if docs:
+        _check_comments(root, refs, load, warnings)
     return _result(blocking, warnings, missing)
+
+
+def _check_comments(root, refs, load, warnings):
+    """Comments/ (tm/comments.py): a folder per item, named by its ref, and in it only comments. What else is there is
+    pointed out, never blocking: the app does not show it."""
+    top = os.path.join(root, COMMENTS_DIR)
+    if not os.path.isdir(top):
+        return
+    for folder in sorted(os.listdir(top)):
+        path = os.path.join(top, folder)
+        if folder.startswith('.') or not os.path.isdir(path):
+            continue
+        if folder not in refs:
+            warnings.append(_finding('comments_orphaned', f'{COMMENTS_DIR}/{folder}',
+                                     f'Comments of "{folder}", which is no item of this vault: no page shows them.'))
+        for name in sorted(os.listdir(path)):
+            rel = f'{COMMENTS_DIR}/{folder}/{name}'
+            if name.startswith('.') or name in IGNORED_FILES or PLACEHOLDER_RE.search(name):
+                continue
+            if not name.endswith('.md') or not COMMENT_STEM_RE.match(name[:-3]):
+                warnings.append(_finding('not_a_comment', rel, 'Not a comment (named <when>.md, as the app writes them): the app ignores it.'))
+                continue
+            try:
+                fields = load(os.path.join(path, name))
+            except OSError:
+                continue
+            if str(fields.get('fileClass') or '').strip() != COMMENT_CLASS:
+                warnings.append(_finding('not_a_comment', rel, f'No "fileClass: {COMMENT_CLASS}": not a comment the app wrote.'))

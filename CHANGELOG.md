@@ -4,6 +4,38 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A shared or pasted link stays out of the Subject.** In the Inbox's box (and any capture box) a link shared from the
+  iPhone or pasted waits under it as a chip, with its × to leave it out, and becomes the item's link; the Subject keeps
+  the share's title or starts with the site's name and a dash (*X — *) for the rest to be written after it. Before, the
+  address filled the Subject and had to be deleted by hand.
+- **The Inbox a page at a time.** 20 captured items a page, with the pager every list has; triaging or discarding an
+  item keeps you on the page you were on.
+- **Converting from the Inbox opens nothing.** *Convert to* on a row leaves you triaging, with **Open** in the toast to
+  go to the new item; from the item's own card it still takes its place. The row's trash has a wider column of its own.
+- **Properties have one order, and a board offers what its list does.** A list's columns, a phone's row, a board's card
+  and Display all go Status · Priority · Project / Related to · Planned · Due date · Labels · Updated · ID · Type.
+  Display's **Show properties** offers the same set on a list and on its board, each keeping its own pick; a card can
+  now show Updated, Type and a type's own fields (Size…). On a phone a row says its status by name, beside its
+  priority, instead of a dot before the subject.
+
+- **A phone's priority no longer doubles up when tapped.** Opening a row's priority drew a frame and its chevron
+  repeated under the word; it now stays as it looks, as does the status.
+- **The Inbox opens first.** A Projects vault now opens a stage at a time — the Inbox, then projects, initiatives,
+  tasks and the rest — and a page opened with no address shows a welcome: one **Inbox** button and a bar of how far
+  the vault has opened (*Inbox ✓ · Projects…*). The Inbox can be used as soon as its stage is in, a capture typed
+  meanwhile stays, and a share goes into the Inbox by itself. A link to a view or an item skips the welcome and opens
+  once everything is in. The server answers `GET /api/items?types=inbox,project` from the same single walk of the
+  vault, and says which walk it was, so a write between stages makes the page ask for everything again.
+- **Comments are files of their own** (Projects vaults). Each comment is `Comments/<ref>/<when>.md`, named by the moment
+  it was written to the millisecond, with a link to its item that Obsidian follows; the item's file is no longer
+  rewritten when you comment, so Obsidian, git and a sync see one new file per comment. Activity reads them when it
+  shows them and says who wrote each (*You* or *Agent*); deleting one goes to the trash with Undo; converting, renaming,
+  deleting and restoring an item take its comments along. Comments from before stay in the item's file, read only,
+  until `tools/migrate_comments.py` moves them (plan, a copy compared, then in place, resumable: docs/migrate-comments.md); the vault's check points them out. Initiatives and Tasks vaults are as
+  they were.
+
+- **A vault opens sooner.** The check before a vault's one-off upgrades, at every start, no longer reads the Docs
+  folders (they only give warnings): about 4× less on a vault of 2,000 notes, most of the wait on the iPhone.
 - **A link with no title is named after its site.** Shared or pasted alone in the Inbox's box (iPhone or desktop), a
   link whose page gave no title gets its site's name as its subject — *X* for x.com, *pepita* for pepita.com — for you
   to write over, and the address in its link; before, the address showed as its title too. With a title, the title.

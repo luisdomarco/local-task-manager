@@ -123,6 +123,9 @@ class Structure:
     docs_folder: str = 'docs'
     docs_in_projects: bool = False
     docs_not_projects: frozenset = frozenset()
+    # Where its items' comments are kept as files, one per comment (tm/comments.py, TSK-128): `Comments/<ref>/<at>.md`.
+    # '' for a structure that keeps them in the item's frontmatter (`comments:`), as the legacy ones do.
+    comments_folder: str = ''
     # Initiative kinds (tm/structures/kinds.py): {id: Kind}, what an initiative is and what that gives it and its
     # project, and the initiative field that names it (`kind_key`). {} and '' for a structure without kinds.
     kinds: dict = field(default_factory=dict)
@@ -163,6 +166,9 @@ class Structure:
         for key in ('project_scoped', 'project_delivery_types', 'initiative_delivery_types', 'needs_parent', 'leaves_project'):
             if key in extras:
                 extras[key] = [t for t in extras[key] if t not in off]
+        if 'boot_order' in extras:  # a type turned off is not loaded; a stage with none left is no stage
+            extras['boot_order'] = [[label, [t for t in ts if t not in off]] for label, ts in extras['boot_order']
+                                    if any(t not in off for t in ts)]
         if 'sections' in extras:  # a type turned off is no tab; a section with none left is no link
             extras['sections'] = [dict(s, types=[t for t in s['types'] if t not in off]) for s in extras['sections']
                                   if any(t not in off for t in s['types'])]
@@ -361,6 +367,7 @@ class Structure:
             **({'colors': dict(self.colors)} if self.colors else {}),
             **({'defaults': dict(self.defaults)} if self.defaults else {}),
             **({'required': list(self.required)} if self.required else {}),
+            **({'comments_folder': self.comments_folder} if self.comments_folder else {}),
             # What an initiative may be, what that gives it and the fields it has not (tm/structures/kinds.py), and the
             # field that says it: the page offers the kinds, and in each initiative and project only what they give.
             **({'kinds': [k.public() for k in self.kinds.values()], 'kind_key': self.kind_key} if self.kinds else {}),

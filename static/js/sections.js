@@ -3,6 +3,7 @@
 // per group of types, each tab that type's list. A tab keeps its own address (#/week, #/prds), so links, ⌘K and the
 // "g then" keys still land on it; the section's link goes to the tab it was left on (remembered per vault).
 import { STRUCTURE, inSomeProject } from './rules.js';
+import { typeLoaded } from './boot.js';
 import { pref, setPref } from './prefs.js';
 import { state } from './state.js';
 import { countOf, h, icon } from './ui.js';
@@ -14,7 +15,7 @@ export const PLANNING = {
 
 /** A type's tab is there while the vault may hold it (rules.js inSomeProject: a vault of simple projects has no
  *  stories) or has some: the sidebar's rule for a type's link. Empty, it is still there, so tabs never move. */
-const typeShown = (t) => inSomeProject(t.name, state.all) || state.all.some((i) => i.type === t.name);
+const typeShown = (t) => !typeLoaded(t.name, state.loadedTypes) || inSomeProject(t.name, state.all) || state.all.some((i) => i.type === t.name); // on its way while the page opens: there
 
 /** Every section of this vault, with the tabs it shows: [{ key, label, icon, tabs: [{ route, label, icon }] }].
  *  A section with no tab left is not there. */

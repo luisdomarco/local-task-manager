@@ -39,8 +39,9 @@ import {
   noteToDoc, saveBody, state, toast, togglePin, unlogWork, unplan, updateItem,
 } from './state.js';
 import { addSessionPicker, openClaudeDialog, sessionList } from './claude.js';
-import { closedToggle, countOf, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
+import { closedToggle, countOf, dropdown, emptyLine, foldHead, formActions, h, icon, linkButton, loadingLine, propRow, rowAction, rowItem, rowList, secondaryButton, sectionLabel, select, stackGroup, statusLabel, tabAddButton, tabPanels, tagInput, trapFocus, typeIcon, withMentions } from './ui.js';
 import { refOf } from './shownid.js';
+import { authorOf, commentCount, commentStore, keptComments } from './comments.js';
 import { MEMBER_TYPES, byGoalOrder, goalCandidates, goalProgress, inGoal, nextGoalOrder } from './goals.js';
 import { mountCanvasView } from './canvas/canvasview.js';
 import { canvasHost, canvasItems } from './canvas/itemcanvas.js';
@@ -1195,7 +1196,7 @@ function sideTabs(item, rerender, current, onPick) {
   // Activity and Time are features a vault may turn off (Settings → Vaults → Features): then they are no tab.
   const tabs = [
     { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
-    has('activity') ? { key: 'activity', label: 'Activity', count: (f.comments || []).length, fill: true, content: activity(item, { heading: false, rerender }) } : null,
+    has('activity') ? { key: 'activity', label: 'Activity', count: commentCount(item), fill: true, content: activity(item, { heading: false, rerender }) } : null,
     has('terminal') ? { key: 'ai', label: 'AI Sessions', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
     relationsTab(item, rerender),
     versionsTab(item, rerender), // a definition's (an architecture, an entity): tm/versions.py
@@ -1257,6 +1258,8 @@ function byDay(entries) {
 
 // item key → { rev, entries }: its history (GET /api/item/history), asked once per version of it.
 const histories = new Map();
+// Its comments where they are files (comments.js): read once per version of them (GET /api/item/comments).
+const commentsOf = commentStore((key) => api.itemComments(key).then((out) => out.comments || []));
 
 function activity(item, { heading = true, rerender = null } = {}) {
   const f = item.fields;
@@ -1284,8 +1287,9 @@ function activity(item, { heading = true, rerender = null } = {}) {
     f.resolved_at ? { at: f.resolved_at, text: 'Resolved' } : null,
     ...changes.map((c) => ({ at: c.at, text: historyText(c, EXTERNAL_REF || {}) })),
   ].filter(Boolean);
-  const comments = (f.comments || []).map((c, index) => ({ ...c, index }));
-  const entries = [...events.map((e) => ({ ...e, system: true })), ...comments].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  // Its comments: as files (read when they change: null the first time, while they come), else its frontmatter's.
+  const comments = STRUCTURE.comments_folder ? commentsOf(item, rerender) : keptComments(item);
+  const entries = [...events.map((e) => ({ ...e, system: true })), ...(comments || [])].sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const { input, grow } = commentBox({
     placeholder: 'Write a comment…', title: 'Enter adds the comment · Shift+Enter or Alt+Enter starts a new line', 'aria-label': 'New comment', 'data-fk': 'comment',
   }, () => add());
@@ -1304,23 +1308,24 @@ function activity(item, { heading = true, rerender = null } = {}) {
   };
 
   const commentCard = (e) => {
-    const k = `${item.key}#${e.index}`;
+    const k = `${item.key}#${e.id}`;
     const open = commentEdits.get(k);
     if (open && open.was !== e.text) commentEdits.delete(k); // the comment changed under the edit (elsewhere, or a delete shifted it)
     const editing = commentEdits.get(k);
     const redraw = () => card.replaceWith(commentCard(e));
-    const head = h('header', {}, h('span', { class: 'activity-author' }, 'You'),
+    const head = h('header', {}, h('span', { class: 'activity-author' }, authorOf(e)),
       h('time', { class: 'muted small', datetime: e.at, title: e.edited ? `${when(e.at)} · edited ${when(e.edited)}` : when(e.at) }, clock(e.at)),
       e.edited ? h('span', { class: 'muted small', title: `Edited ${when(e.edited)}` }, '· edited') : null,
-      ...commentActions());
+      // One still in the item's own file, from before comments were files: read only until they are moved.
+      ...(e.legacy ? [h('span', { class: 'muted small', title: "Kept in the item's file: moving this vault's comments to files (tools/migrate_comments.py) makes it editable" }, '· in its file')] : commentActions()));
     function startEdit() {
       commentEdits.set(k, { was: e.text, text: e.text });
       redraw();
-      const ta = list.querySelector(`[data-fk="comment-${e.index}"]`);
+      const ta = list.querySelector(`[data-fk="comment-${e.id}"]`);
       ta?.focus();
       ta?.setSelectionRange(ta.value.length, ta.value.length);
     }
-    function remove() { commentEdits.delete(k); deleteComment(item.key, e.index); }
+    function remove() { commentEdits.delete(k); deleteComment(item.key, e.id); }
     // On a computer a pencil and a × on hover; on a phone one ⋯ with both (two 44px buttons crowded its head)
     function commentActions() {
       if (isPhone()) {
@@ -1343,10 +1348,10 @@ function activity(item, { heading = true, rerender = null } = {}) {
       if (!text) return;
       if (text === e.text) { cancel(); return; }
       commentEdits.delete(k); // before the save: the card re-renders with the new text while it is on its way
-      try { await editComment(item.key, e.index, text, e.text); } catch { commentEdits.set(k, editing); } // toasted; the edit stays open
+      try { await editComment(item.key, e.id, text, e.text); } catch { commentEdits.set(k, editing); } // toasted; the edit stays open
     };
     const box = commentBox({
-      'aria-label': 'Edit comment', title: 'Enter saves · Esc cancels · Shift+Enter or Alt+Enter starts a new line', 'data-fk': `comment-${e.index}`,
+      'aria-label': 'Edit comment', title: 'Enter saves · Esc cancels · Shift+Enter or Alt+Enter starts a new line', 'data-fk': `comment-${e.id}`,
     }, save);
     box.input.value = editing.text;
     box.input.addEventListener('input', () => { editing.text = box.input.value; });
@@ -1358,9 +1363,9 @@ function activity(item, { heading = true, rerender = null } = {}) {
   };
 
   const section = h('section', { class: 'panel-section activity' },
-    heading ? h('h4', {}, icon('message', 14), 'Activity', comments.length ? h('span', { class: 'muted' }, ` · ${comments.length}`) : null) : null,
+    heading ? h('h4', {}, icon('message', 14), 'Activity', commentCount(item) ? h('span', { class: 'muted' }, ` · ${commentCount(item)}`) : null) : null,
     h('div', { class: 'activity-list', role: 'log', 'aria-label': 'Activity' },
-      entries.length ? byDay(entries).map(({ day, list: dayEntries }) => h('div', { class: 'activity-day' },
+      comments === null ? loadingLine('Loading comments…') : entries.length ? byDay(entries).map(({ day, list: dayEntries }) => h('div', { class: 'activity-day' },
         h('span', { class: 'activity-day-name' }, day ? relDay(day) : 'Undated'),
         ...dayEntries.map((e) => (e.system
           ? h('div', { class: 'activity-event' }, h('span', {}, e.text), h('time', { class: 'muted small', datetime: e.at, title: when(e.at) }, clock(e.at)))
@@ -1623,12 +1628,17 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
   return ed;
 }
 
-/** Inbox → task / initiative / note / meeting; the converted item opens right away. */
-export async function convertTo(item, type, values = {}) {
+/**
+ * Inbox → task / initiative / note / meeting. From the Inbox's list nothing opens: you go on triaging, and the toast
+ * offers to open it. `open`: from the item's own card, the converted item takes the place of the inbox one there.
+ */
+export async function convertTo(item, type, values = {}, { open = false } = {}) {
   let out;
   try { out = await convertItem(item.key, type, values); } catch { return; } // toasted
-  toast(`${refOf(item)} is now ${refOf(out)}`);
-  show(out.id, { parent: parentView }); // the converted item takes the place of the inbox one
+  if (open) {
+    toast(`${refOf(item)} is now ${refOf(out)}`);
+    show(out.id, { parent: parentView });
+  } else toast(`${refOf(item)} is now ${refOf(out)}`, false, { label: 'Open', run: () => openItem(out.key) });
 }
 
 function convertButton(item) {
@@ -1640,7 +1650,7 @@ function convertButton(item) {
     const parent = under ? state.byId.get(under) : null;
     const fits = parent ? TYPES.filter((t) => (PARENT_TYPES[t] || []).includes(parent.type)) : TYPES;
     const rest = parent ? TYPES.filter((t) => !fits.includes(t)) : [];
-    const row = (t) => ({ label: TYPE_LABEL[t], icon: TYPE_ICON[t], onSelect: () => convertTo(item, t) });
+    const row = (t) => ({ label: TYPE_LABEL[t], icon: TYPE_ICON[t], onSelect: () => convertTo(item, t, {}, { open: true }) });
     dropdown(btn, [
       ...(parent ? [{ heading: `Can relate to ${refOf(parent)}` }] : []), ...fits.map(row),
       ...(rest.length ? [{ heading: 'Unrelated' }, ...rest.map(row)] : []),

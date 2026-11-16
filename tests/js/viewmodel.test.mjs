@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { NONE } from '../../static/js/grouping.js';
 import {
-  cardProps, cardShows, closedLast, closedShown, columnOn, columnOrder, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, phoneLines, planText, sortColumn, stackOf, valueCounts,
+  cardShows, closedLast, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, phoneLines, planText, sortColumn, stackOf, valueCounts,
 } from '../../static/js/viewmodel.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -176,15 +176,17 @@ describe('viewmodel', () => {
     });
   });
 
-  it('draws the columns in the list\'s order whatever the structure\'s, the rest after in theirs', () => {
+  it('draws the columns in the one order of properties whatever the structure\'s, the rest after in theirs (TSK-128)', () => {
     const keys = (ks) => columnOrder(ks.map((key) => ({ key }))).map((c) => c.key);
+    // Status · Priority · Project / Related to · Planned · Due · Labels · Updated · ID · Type
     assert.deepEqual(keys(['id', 'subject', 'status', 'priority', 'plan', 'due', 'labels', 'project', 'initiative', 'parent', 'updated_at']),
-      ['id', 'subject', 'status', 'priority', 'initiative', 'project', 'parent', 'plan', 'due', 'labels', 'updated_at']); // labels: a column of its own
+      ['subject', 'status', 'priority', 'project', 'initiative', 'parent', 'plan', 'due', 'labels', 'updated_at', 'id']);
+    assert.deepEqual(keys(['pick', 'id', 'subject']), ['pick', 'subject', 'id']); // the box and the Subject first
     assert.deepEqual(keys(['subjectPlain', 'prop:kind', 'project']), ['subjectPlain', 'project', 'prop:kind']);
-    assert.deepEqual(keys(['id', 'subject', 'status', 'type', 'updated_at']), ['id', 'subject', 'type', 'status', 'updated_at']); // the List page's Type
-    // a type's own columns between the common ones and Created / Updated, which close every list
+    assert.deepEqual(keys(['id', 'subject', 'status', 'type', 'updated_at']), ['subject', 'status', 'updated_at', 'id', 'type']); // the List page's Type, last
+    // a type's own columns between the common ones and Created / Updated, ID and Type, which close every list
     assert.deepEqual(keys(['id', 'subject', 'labels', 'project', 'created_at', 'updated_at', 'prop:size', 'date']),
-      ['id', 'subject', 'project', 'date', 'labels', 'prop:size', 'created_at', 'updated_at']);
+      ['subject', 'project', 'date', 'labels', 'prop:size', 'created_at', 'updated_at', 'id']);
   });
 
   it('sorts by the sort\'s column even when it is not shown, never by the ticks', () => {
@@ -215,19 +217,21 @@ describe('viewmodel', () => {
     });
   });
 
-  describe('a board\'s cards (Display → Show on cards)', () => {
-    it('offer what the type has, in Display\'s order', () => {
-      const keys = cardProps(['task']).map(([k]) => k);
-      for (const k of ['parent', 'priority', 'id', 'plan', 'labels']) assert.ok(keys.includes(k), k);
-      assert.deepEqual(keys.slice(0, 3), ['status', 'priority', 'id']); // status before priority, as a list's columns
-      assert.ok(keys.indexOf('labels') < keys.indexOf('parent'), 'the meta row first, then where it hangs');
-      assert.ok(!cardProps(['note']).some(([k]) => k === 'priority'), 'a note has no priority');
+  describe('Display → Show properties (a list\'s columns, a board\'s cards)', () => {
+    it('offers the list\'s columns, in the one order, without the box and the Subject (the same on a board, TSK-128)', () => {
+      const col = (key, label = key) => ({ key, label });
+      const cols = [{ key: 'pick', label: {} }, col('id', 'ID'), col('subject', 'Subject'), col('type', 'Type'), col('status', 'Status'),
+        col('priority', 'Priority'), col('project', 'Project'), col('parent', 'Related to'), col('plan', 'Planned'), col('due', 'Due date'),
+        col('labels', 'Labels'), col('updated_at', 'Updated')];
+      assert.deepEqual(displayProps(cols).map(([, l]) => l),
+        ['Status', 'Priority', 'Project', 'Related to', 'Planned', 'Due date', 'Labels', 'Updated', 'ID', 'Type']);
+      assert.deepEqual(displayProps([col('subjectPlain', 'Subject'), col('prop:size', 'Size'), col('state', 'State')]).map(([k]) => k), ['state', 'prop:size']);
     });
 
-    it('show status, priority, plan and parent by default (no id, no labels), and what the view says over that', () => {
+    it('a board shows status, priority, plan and where it hangs by default (no id, no labels), and what the view says over that', () => {
       const view = migrateView(null);
-      assert.deepEqual(['status', 'priority', 'id', 'plan', 'labels', 'parent', 'due', 'project', 'extref'].map((k) => cardShows(view, k)),
-        [true, true, false, true, false, true, false, false, false]);
+      assert.deepEqual(['status', 'priority', 'id', 'plan', 'labels', 'parent', 'initiative', 'due', 'project', 'extref', 'updated_at', 'type', 'prop:size'].map((k) => cardShows(view, k)),
+        [true, true, false, true, false, true, true, false, false, false, false, false, false]);
       const mine = { ...view, cards: { id: true, due: true } };
       assert.equal(cardShows(mine, 'id'), true);
       assert.equal(cardShows(mine, 'due'), true);
@@ -271,9 +275,9 @@ describe('viewmodel', () => {
 });
 
 describe("a phone's row", () => {
-  it('splits what Display shows into where it hangs, ID + priority, the dates, and the rest, each once', () => {
-    const story = ['id', 'priority', 'plan', 'initiative', 'project', 'due', 'labels', 'updated_at'];
-    assert.deepEqual(phoneLines(story), { where: ['initiative', 'project'], main: ['id', 'priority'], when: ['plan', 'due'], extra: ['labels', 'updated_at'] });
+  it('splits what Display shows into where it hangs, status + priority, the dates, and the rest, each once', () => {
+    const story = ['status', 'priority', 'project', 'initiative', 'plan', 'due', 'labels', 'updated_at', 'id'];
+    assert.deepEqual(phoneLines(story), { where: ['initiative', 'project'], main: ['status', 'priority'], when: ['plan', 'due'], extra: ['labels', 'updated_at', 'id'] });
     const keys = (r) => [...r.where, ...r.main, ...r.when, ...r.extra].sort();
     assert.deepEqual(keys(phoneLines(story)), [...story].sort());
   });

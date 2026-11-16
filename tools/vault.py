@@ -384,12 +384,13 @@ def cmd_show(store, args):
             v = [refs.get(x, x) for x in v] if isinstance(v, list) else refs.get(v, v)
         lines.append(f'- {k}: {", ".join(map(str, v)) if k in kinds and isinstance(v, list) else json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v}')
     lines += ['', '## Links', ''] + ([f"- {link['reading']} {node_name(link)} ({link['type']})" for link in links] or ['none'])
-    comments = [c for c in f.get('comments') or [] if isinstance(c, dict)]
+    # Its comments: files of their own in a Projects vault (Comments/<ref>/), else in its frontmatter (tm/comments.py)
+    comments = store.item_comments(it['key'])['comments']
     if comments:
         lines += ['', '## Comments', ''] + [f"- {c.get('at', '')}: {c.get('text', '')}" for c in comments]
     if not args.no_body:
         lines += ['', '## Description', '', (it.get('body') or '').strip() or '(empty)']
-    return {**it, 'links': links}, lines
+    return {**it, 'links': links, 'comments': comments}, lines
 
 
 def cmd_graph(store, args):

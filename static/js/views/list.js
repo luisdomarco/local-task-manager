@@ -20,7 +20,7 @@ import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
 import { countOf, cssKey, h, icon, lowerName, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
-import { CUSTOM, cardProps, cardShows, closedShown, columnOn, columnOrder, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
+import { CUSTOM, cardShows, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
 import { addList, boardOf, customColumns, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
@@ -96,23 +96,28 @@ const idWidth = () => (state.all.some((i) => shownId(i, { full: true }).length >
 // A phone's rows are cards (app.css): no column is left out for width. A narrow window, or a phone you touch up to 760px.
 const PHONE = `(max-width: 640px), ${PHONE_TOUCH}`;
 
+/** One property of a row or a card, drawn by its column's own cell (a priority still opens its select), named when
+ *  `named` (one a line: "Size: M"); null when it has nothing to say. */
+function propPiece(c, i, named) {
+  if (!c) return null;
+  const el = h('span', { class: `pm-cell pm-${c.key.replace(':', '-')}`, title: typeof c.label === 'string' ? c.label : null }, c.cell(i));
+  if (isBlankCell(el)) return null;
+  if (named && typeof c.label === 'string') el.prepend(h('span', { class: 'pm-name' }, c.label));
+  return el;
+}
+
 /**
- * A phone's row (app.css, design.md §3): the tick box, the status's dot and the subject, then one cell under the subject
- * holding the rest in lines (viewmodel.js phoneLines) — where it hangs, its priority and plan, then what else Display
- * shows, side by side or one a line (`stack`). Each piece is its column's own cell, so a priority still opens its select.
+ * A phone's row (app.css, design.md §3): the tick box and the subject, then one cell under the subject holding the
+ * rest in lines (viewmodel.js phoneLines) — where it hangs, its status, priority and plan, then what else Display
+ * shows, side by side or one a line (`stack`). Each piece is its column's own cell, so a status or a priority still
+ * opens its select.
  */
 function phoneColumns(cols, stack) {
-  const lead = cols.filter((c) => c.key === 'pick' || c.key === 'status' || c.key === 'title' || /^subject/.test(c.key));
+  const lead = cols.filter((c) => c.key === 'pick' || c.key === 'title' || /^subject/.test(c.key));
   const rest = cols.filter((c) => !lead.includes(c));
   const byKey = new Map(rest.map((c) => [c.key, c]));
   const lines = phoneLines(rest.map((c) => c.key));
-  const piece = (i, k, named) => {
-    const c = byKey.get(k);
-    const el = h('span', { class: `pm-cell pm-${k}`, title: typeof c.label === 'string' ? c.label : null }, c.cell(i));
-    if (isBlankCell(el)) return null;
-    if (named && typeof c.label === 'string') el.prepend(h('span', { class: 'pm-name' }, c.label));
-    return el;
-  };
+  const piece = (i, k, named) => propPiece(byKey.get(k), i, named);
   const meta = {
     key: 'meta', label: '', get: () => 0,
     cell: (i) => {
@@ -303,9 +308,9 @@ export function listView(type, { page = null } = {}) {
           if (board()) { change({ boardSort: { ...boardSort(), dir: d } }); return; }
           sort = { ...sort, dir: d }; saveSort(sortKey, sort); api.update();
         },
-        props: columns.map((c) => [c.key, c.label]),
+        // The same properties, in the same order, on a list and on a board; each keeps its own pick (TSK-128).
+        props: displayProps(columns), propsOnBoard: true,
         narrow: () => matchMedia(PHONE).matches && !board(), // a phone's row: its own ID default, and More properties
-        cardProps: cardProps(types),
         columnOrder: {
           on: () => board() && !boardLists() && boardBy() !== CUSTOM, // Custom's columns move by their own header
           custom: () => (view.colOrder?.[boardBy()] || []).length > 0,
@@ -542,7 +547,14 @@ export function listView(type, { page = null } = {}) {
           }
           onReorder = (from, to) => change({ colOrder: { ...(view.colOrder || {}), [by]: reorderColumns(saved, shown, from, to) } });
         }
-        tableBox.replaceChildren(boardOf({ columns: cols, onFold, onOpen: openItem, projectName, after, onReorder, shows: (k) => (k === 'status' && view.groupBy === 'status' ? false : cardShows(view, k)), stack: stackOf(view) })); // its column says its status
+        // A card shows what Display picked for the board, in the list's order; a property it has no drawing of is the
+        // column's own cell, as on a phone's row.
+        const colByKey = new Map(columns.map((c) => [c.key, c]));
+        tableBox.replaceChildren(boardOf({
+          columns: cols, onFold, onOpen: openItem, projectName, after, onReorder, stack: stackOf(view),
+          shows: (k) => (k === 'status' && view.groupBy === 'status' ? false : cardShows(view, k)), // its column says its status
+          order: displayProps(columns).map(([k]) => k), cell: (k, i) => propPiece(colByKey.get(k), i, stackOf(view) === 'lines'),
+        }));
       };
 
       const api = {

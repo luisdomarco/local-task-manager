@@ -56,7 +56,7 @@ function results(query) {
       }
     }
     if (body.q === q) {
-      for (const b of bodyHits(q, body.hits, state.items, shown).slice(0, 8)) {
+      for (const b of bodyHits(q, body.hits, state.items, shown, STRUCTURE.comments_folder || '').slice(0, 8)) {
         out.push({ group: 'In the text', label: b.item.title, meta: `${refOf(b.item)} · “${b.text.slice(0, 80)}”`, type: b.item.type, run: () => openItem(b.item) });
       }
     }

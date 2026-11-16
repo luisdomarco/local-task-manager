@@ -74,6 +74,9 @@ shows `refOf(item)`, never `item.id`). A vault from before keeps its long ids (`
 (`tools/migrate_structures.py`): it writes a new folder, and each proposed project and open question goes to the user
 before `--apply`.
 
+**A Projects vault's comments still in their items' frontmatter move to files with [docs/migrate-comments.md](docs/migrate-comments.md)**
+(`tools/migrate_comments.py`): first on a copy with `--compare`, then `--apply` only with the owner's OK.
+
 Behaviour a user sees is documented in README §7 in the same PR; a new top-level file that must travel with the
 system zip goes in `tm/export.py` `INCLUDE`.
 

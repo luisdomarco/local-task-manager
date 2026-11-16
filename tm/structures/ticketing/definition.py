@@ -23,6 +23,7 @@ shows of it (tm/structures TypeDef).
 import re
 
 from ...attachments import DIR as ATTACHMENTS_DIR
+from ...comments import DIR as COMMENTS_DIR
 from .. import Structure, TypeDef, agents
 from ..kinds import (DELIVERY_SETTINGS, INITIATIVE_DELIVERY_TYPES, KIND_KEY, KINDS, LEGACY_DEFAULT, LEGACY_KIND_KEY, NEW_KIND,
                      PROJECT_DELIVERY_TYPES, WIDENS)
@@ -490,9 +491,9 @@ def build(codec, checker):
         defaults={'status': 'Backlog', 'priority': 'P2'},
         codec=codec, checker=checker, required=('project',), statuses_locked=True,
         kinds=dict(KINDS), kind_key=KIND_KEY,
-        docs_folder=DOCS_FOLDER, docs_in_projects=True,
+        docs_folder=DOCS_FOLDER, docs_in_projects=True, comments_folder=COMMENTS_DIR,
         docs_not_projects=frozenset({*ROOT_FOLDERS.values(), *OPTIONAL_ROOT_FOLDERS.values(), *PROJECT_ROOT_TOPS, WORKLOG_FOLDER,
-                                     ATTACHMENTS_DIR}),
+                                     ATTACHMENTS_DIR, COMMENTS_DIR}),
         extras={'levels': list(LEVELS), 'project_scoped': [t for t, s in SPEC.items() if s['scope'] == 'project'],
                 'needs_parent': list(NEEDS_PARENT),
                 # The tickets that may be in no project and change or drop theirs (with short ids); the other types of a
@@ -516,5 +517,11 @@ def build(codec, checker):
                 'relation_kinds': relation_kinds(types, {'blocked': 'depends_on'}),
                 # An architecture's entities as its page draws them: their levels, each type's level, canon and prefix,
                 # and which architecture each harness usually comes out as (tm/structures/agents.py public).
-                'agents': agents.public()},
+                'agents': agents.public(),
+                # The order the page loads a vault's items in (TSK-128): a stage at a time, the Inbox first so it can
+                # be used while the rest comes in; [label, [types]], every type once (tests/test_structures.py).
+                'boot_order': [['Inbox', ['inbox']], ['Projects', ['project']], ['Initiatives', ['initiative']],
+                               ['Tasks', ['task']], ['Work', ['story', 'support', 'hotfix', 'goal', 'prd']],
+                               ['Records', ['plan', 'analysis', 'spec', 'error', 'learning']],
+                               ['Notes', ['meeting', 'transcription', 'note', 'activity', 'prompt', 'agent', 'entity']]]},
     )

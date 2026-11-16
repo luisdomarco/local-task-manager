@@ -58,3 +58,26 @@ test('the shared picture is fetched from the app once; one that cannot be read i
     delete globalThis.history;
   }
 });
+
+test('TSK-128: what was shared, apart: its words for the Subject, its address for a chip', async () => {
+  const { shareParts, sharedPartsIn } = await import('../../static/js/share.js');
+  assert.deepEqual(shareParts({ url: 'https://x.com/a/status/1' }), { text: '', url: 'https://x.com/a/status/1' });
+  assert.deepEqual(shareParts({ title: 'A page', url: 'https://x.io' }), { text: 'A page', url: 'https://x.io' });
+  assert.deepEqual(shareParts({ text: 'Read this https://example.com/a later' }), { text: 'Read this later', url: 'https://example.com/a' });
+  assert.equal(sharedPartsIn('?vault=sample'), null);
+  assert.deepEqual(sharedPartsIn('?share_url=https%3A%2F%2Fx.com%2Fa'), { text: '', url: 'https://x.com/a' });
+});
+
+test('TSK-128: takeShare keeps the share apart for the Inbox', async () => {
+  const { pendingShare } = await import('../../static/js/share.js');
+  try {
+    globalThis.location = { search: '?share_title=Thread&share_url=https%3A%2F%2Fx.com%2Fa', pathname: '/' };
+    globalThis.history = { replaceState: () => {} };
+    assert.equal(takeShare(), true);
+    assert.deepEqual(pendingShare(), { text: 'Thread', url: 'https://x.com/a' });
+    assert.equal(pendingShare(), null); // once
+  } finally {
+    delete globalThis.location;
+    delete globalThis.history;
+  }
+});

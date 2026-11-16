@@ -20,6 +20,7 @@ from . import agentsmd
 from . import attachments
 from . import bases
 from . import boards
+from . import comments as tm_comments
 from . import frontmatter as fm
 from . import graph as tm_graph
 from . import history
@@ -77,12 +78,13 @@ META_DIR = '.task-manager'
 ORDER_FILE = '.order'  # in a Docs folder: its entries' names in the order dragged (Store.set_order)
 STATUSES_FILE = 'statuses.json'  # in META_DIR: how this vault arranged its types' statuses (TSK-037)
 DEFAULT_TEXTS_DIR = 'templates'  # in META_DIR: <type>.md, the body a new item of that type starts with (Projects)
-SKIP_DIRS = {'node_modules', '__pycache__', attachments.DIR}  # Attachments/: files, never items
+SKIP_DIRS = {'node_modules', '__pycache__', attachments.DIR, tm_comments.DIR}  # Attachments/, Comments/: files, never items
 # What "work on it with Claude" sends: the item as plain text. The user sees it in full before it goes out.
 CLAUDE_MAX_PROMPT = 100_000  # bytes of prompt; the body is cut (and says so) beyond this
 CLAUDE_ITEM_CONTEXT_MAX = 16_000  # bytes of an item's description attached to a chat message
 CLAUDE_DEFAULT_INSTRUCTION = ('Read this item, tell me in a few lines what you understand it asks for and what you would do first, '
                               'and wait for my go-ahead before changing anything.')
+LEGACY_COMMENT = 'frontmatter-'  # the id of a comment still in its item's frontmatter, where comments are files
 TRASH_STAMP_RE = re.compile(r'^(\d{8})-(\d{6})-(.+)$')  # <deleted-at>-<original file name>
 CHECK_RE = re.compile(r'^\s*[-*+]\s+\[([ xX])\]', re.MULTILINE)
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
@@ -515,6 +517,7 @@ class Store:
         self._cache_lock = threading.Lock()
         self._md_memo = None  # (walk, docs, [(path, stat key)]): _md_entries of the last walk, while it is the same
         self._memo = None  # Store._items_memo: the items of the last walk, while it is the same
+        self._walks = 0  # how many walks were read: each memo's number (its 'walk'), what items_of hands out
         self._decoded_files = {}  # abs path -> (stat key, structure, type, item or (date, fields) or None): _read_items
 
         # Reentrant: add_comment/delete_comment read the item and call update() under one hold, so
@@ -556,8 +559,12 @@ class Store:
                                   keep=self._no_items if items_only else None)
 
     def _no_items(self, rel_dir):
-        """A folder that holds no items, and nothing under it does: a Docs folder, Attachments/, a skipped one."""
+        """A folder that holds no items, and nothing under it does: a Docs folder, Attachments/, a skipped one. Not
+        Comments/ (tm/comments.py): no items, but walked with them, so a comment is seen at the next quick poll and one
+        this tab wrote is known as its own."""
         name = rel_dir.rsplit('/', 1)[-1]
+        if self.structure.comments_folder and rel_dir.split('/', 1)[0] == self.structure.comments_folder:
+            return False
         return name.startswith('.') or name in SKIP_DIRS or bool(self.full_structure.docs_container(rel_dir))
 
     def _md_entries(self, docs=False):
@@ -676,6 +683,7 @@ class Store:
                 'project_scoped': sorted(scoped), 'relation_kinds': self.structure.extras.get('relation_kinds') or {},
                 'docs': [r['path'] for r in self.docs_roots() if r.get('exists')], 'default_texts': self.has_default_texts(),
                 'bases': bases_list, 'bases_count': bases_count, 'boards': self._boards_info(),
+                'comments_folder': self.structure.comments_folder,
                 'agentic': agents_vocabulary() if {'agent', 'entity'} <= set(self.structure.types) else None}
 
     AGENTS_BASES_MAX = 30  # bases the guide names one by one (it says how many more there are)
@@ -1087,6 +1095,8 @@ class Store:
         items, days = self._read_items(structure.types, entries)
         memo = {'entries': entries, 'structure': structure, 'items': items, 'days': days}
         if not hidden_too:
+            self._walks += 1
+            memo['walk'] = self._walks
             self._memo = memo
         return memo
 
@@ -1147,6 +1157,15 @@ class Store:
 
     def items(self):
         return self.scan()[0]
+
+    def items_of(self, types):
+        """(the items of `types` only, the number of the walk they were read in): the page loads a vault a stage at a
+        time (TSK-128, boot_order), each item's links resolved against the whole walk as items() resolves them, so
+        a task still names its initiative before the initiatives come. Two stages that got two numbers read two walks
+        (a write came between): the page then reads every item again."""
+        memo = self._items_memo()
+        wanted = set(types)
+        return [self._resolved(it, memo) for it in memo['items'] if it['type'] in wanted], memo['walk']
 
     def find(self, key):
         """The item of `key`: its id or path (its key); else its ref as drawn (TSK-482), else one of its old ids
@@ -1494,6 +1513,7 @@ class Store:
             else:
                 new = self._create_coded(new_type, it['title'], {**carried, **values, 'converted_from': it['id']}, None, lead=body)
                 os.remove(src)
+            self._move_comments(it, new)
         return new
 
     def _check_project_has(self, item_type, project, r, items=None, bringing=()):
@@ -1718,8 +1738,9 @@ class Store:
         the edits are planned before any is written. → how many files changed."""
         rewrite = self.structure.codec.relink if self.structure.codec else wikilinks.rewrite
         edits = []
-        # The trash too: a deleted item keeps linking its project by its name now, so a restore still finds it.
-        for path in [*self._walk_md(docs=True), *self._trash_mds()]:
+        # The trash too: a deleted item keeps linking its project by its name now, so a restore still finds it. And the
+        # comments' files (Comments/, out of the walk): each names its item by its file's name.
+        for path in [*self._walk_md(docs=True), *self._trash_mds(), *self._comment_mds()]:
             with open(path, encoding='utf-8') as f:
                 before = f.read()
             after = rewrite(before, old_stem, new_stem)
@@ -1981,8 +2002,108 @@ class Store:
             os.remove(src)
         return self.read(new_id)
 
+    # ── comments: files of their own where the structure keeps them so (tm/comments.py), else in the item's file ──
+    def _comment_files(self):
+        """Whether this vault keeps each comment as a file (Projects), not in its item's frontmatter (`comments:`)."""
+        return bool(self.structure.comments_folder)
+
+    def _comments_dir(self, it):
+        return os.path.join(self.root, self.structure.comments_folder, tm_comments.folder_name(it))
+
+    def _comments_trash(self, it):
+        return os.path.join(self.root, META_DIR, tm_comments.TRASH, tm_comments.folder_name(it))
+
+    def _discussed(self, it):
+        if 'comments' not in self.structure.allowed_fields(it['type']):  # update() would drop it without a word
+            raise StoreError(400, f"a {it['type']} has no comments")
+
+    def _comment_file(self, it, ident):
+        """The path of the comment `ident` (its file's name) of `it`. One still in the item's frontmatter, from before
+        comments were files, is read only (tools/migrate_comments.py moves them): a 409 that says so."""
+        ident = str(ident or '')
+        if ident.startswith(LEGACY_COMMENT):
+            raise StoreError(409, "that comment is still in the item's file: move this vault's comments to files "
+                                  '(tools/migrate_comments.py) to change it')
+        if not tm_comments.STEM_RE.match(ident):
+            raise StoreError(404, 'comment not found')
+        return os.path.join(self._comments_dir(it), ident + '.md')
+
+    def _move_comments(self, old, new):
+        """An item known by another ref or file now (an inbox item converted, INB-482 → TSK-482): its comments' folder
+        goes with it, each comment naming it by its new file. A comment the new folder already has keeps its place."""
+        if not self._comment_files():
+            return
+        src, dst = self._comments_dir(old), self._comments_dir(new)
+        names = tm_comments.names(src)
+        if not names:
+            return
+        os.makedirs(dst, exist_ok=True)
+        link = tm_comments.item_link(new)
+        for name in names:
+            with open(os.path.join(src, name), encoding='utf-8') as f:
+                text = f.read()
+            target = os.path.join(dst, name)
+            if src != dst and os.path.exists(target):
+                continue
+            atomic_write(target, fm.patch(text, {'item': link}))
+            if src != dst:
+                os.remove(os.path.join(src, name))
+        if src != dst:
+            try:
+                os.rmdir(src)
+            except OSError:  # something else in it: left as it is
+                pass
+
+    def _drop_comments(self, paths):
+        """Items purged for good (their trashed files, `paths`): their comments go with them, and those deleted from them.
+        A ref a live item has (a project's key used again) keeps its folder."""
+        if not self._comment_files():
+            return
+        live = {tm_comments.folder_name(it) for it in self._items_memo(hidden_too=True)['items']}
+        for path in paths:
+            try:
+                key, fields, body, brev = self._load(path)
+            except OSError:
+                continue
+            rel = self.rel(path)
+            if self._type_of(rel, fields) not in self.full_structure.types:
+                continue
+            it = self._item(path, key, self._decoded(rel, fields), body, brev)
+            if tm_comments.folder_name(it) in live:
+                continue
+            for folder in (self._comments_dir(it), self._comments_trash(it)):
+                if os.path.isdir(folder):
+                    shutil.rmtree(folder)
+
+    def with_comments(self, items):
+        """`items` (a list, or one item) as the page gets them: where comments are files, each item that has some with
+        `comment_ats` (when they were written, oldest first) and `comments_rev` (changes with any of them added, edited
+        or removed), from the folders' listings: no comment is opened. Elsewhere as they are (`fields.comments`)."""
+        if not self._comment_files():
+            return items
+        summary = tm_comments.summary(os.path.join(self.root, self.structure.comments_folder))
+        for it in items if isinstance(items, list) else [items]:
+            found = summary.get(tm_comments.folder_name(it))
+            if found:
+                it['comment_ats'], it['comments_rev'] = found['ats'], found['rev']
+        return items
+
+    def item_comments(self, key):
+        """An item's comments, oldest first: {comments: [{id, at, text, by?, edited?, legacy?}]}. Where they are files:
+        those (`id` their file's name), and any still in its frontmatter from before, read only (`legacy`). Elsewhere
+        its frontmatter's, each with its place in the list as its `id`."""
+        it = self.find(key)
+        kept = [{**(c if isinstance(c, dict) else {'text': str(c)}), 'id': i} for i, c in enumerate(it['fields'].get('comments') or [])]
+        if not self._comment_files():
+            return {'comments': kept}
+        old = [{**c, 'id': f"{LEGACY_COMMENT}{c['id']}", 'legacy': True} for c in kept]
+        files = tm_comments.read_folder(self._comments_dir(it))
+        return {'comments': sorted([*old, *files], key=lambda c: str(c.get('at') or ''))}
+
     @writes
-    def add_comment(self, key, text):
+    def add_comment(self, key, text, by='agent'):
+        """A new comment on an item. Where comments are files, a file of its own (its item's file untouched): → the
+        item, and the `comment`. `by`: 'owner' (a person in the app) or 'agent'."""
         text = str(text or '').strip()
         if not text:
             raise StoreError(400, 'a comment needs text')
@@ -1990,15 +2111,32 @@ class Store:
         # instead of each rewriting the list it read before the other was saved.
         with self._lock:
             it = self.find(key)
-            if 'comments' not in self.structure.allowed_fields(it['type']):  # update() would drop it without a word
-                raise StoreError(400, f"a {it['type']} has no comments")
+            self._discussed(it)
+            if self._comment_files():
+                comment = tm_comments.write_new(self._comments_dir(it), tm_comments.item_link(it), text, by)
+                return {**self.read(it['key']), 'comment': comment}
             comments = list(it['fields'].get('comments') or []) + [{'at': now_moment(), 'text': text}]
             return self.update(it['key'], {'comments': comments})
 
     @writes
-    def delete_comment(self, key, index):
+    def delete_comment(self, key, ident):
+        """Delete a comment: by its file's name where comments are files (it goes to .task-manager/trash/comments/,
+        whence restore_comment brings it back), else by its place in the frontmatter list. → the item, and what went
+        (`removed`, for the page's Undo)."""
         with self._lock:  # the index points into the list as it is now, not as some other request left it
             it = self.find(key)
+            if self._comment_files():
+                path = self._comment_file(it, ident)
+                try:
+                    with open(path, encoding='utf-8') as f:
+                        removed = tm_comments.parse(f.read(), str(ident))
+                except FileNotFoundError:
+                    raise StoreError(404, 'comment not found') from None
+                trash = self._comments_trash(it)
+                os.makedirs(trash, exist_ok=True)
+                os.replace(path, os.path.join(trash, os.path.basename(path)))
+                return {**self.read(it['key']), 'removed': removed}
+            index = int(ident)
             comments = list(it['fields'].get('comments') or [])
             if not 0 <= index < len(comments):
                 raise StoreError(404, 'comment not found')
@@ -2007,29 +2145,61 @@ class Store:
             return {**self.update(it['key'], {'comments': comments}), 'removed': removed}
 
     @writes
-    def restore_comment(self, key, index, comment):
-        """Put back a comment delete_comment took off (its Undo): the same comment — its `at`, its text, `edited` —
-        at its place, or last when the list has shortened meanwhile. update() keeps only a comment's own keys."""
+    def restore_comment(self, key, ident, comment, by='agent'):
+        """Put back a comment delete_comment took off (its Undo): the same comment — its `at`, its text, `edited`. As a
+        file, from the trash (or written again from `comment` when the trash no longer has it), never over another; in
+        the frontmatter, at its place, or last when the list has shortened meanwhile. update() keeps only a comment's
+        own keys."""
         if not isinstance(comment, (dict, str)):
             raise StoreError(400, 'a comment needs text')
         with self._lock:
             it = self.find(key)
-            if 'comments' not in self.structure.allowed_fields(it['type']):
-                raise StoreError(400, f"a {it['type']} has no comments")
+            self._discussed(it)
+            if self._comment_files():
+                path = self._comment_file(it, ident)
+                if os.path.exists(path):
+                    raise StoreError(409, 'that comment is already there')
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                kept = os.path.join(self._comments_trash(it), os.path.basename(path))
+                if os.path.isfile(kept):
+                    os.replace(kept, path)
+                else:
+                    c = comment if isinstance(comment, dict) else {'text': comment}
+                    if not str(c.get('text') or '').strip():
+                        raise StoreError(400, 'a comment needs text')
+                    at = tm_comments.at_of(ident)
+                    atomic_write(path, tm_comments.render(tm_comments.item_link(it), at, c['text'], str(c.get('by') or by),
+                                                          c.get('edited')), exclusive=True)
+                return self.read(it['key'])
             comments = list(it['fields'].get('comments') or [])
-            comments.insert(min(max(int(index), 0), len(comments)), comment)
+            comments.insert(min(max(int(ident), 0), len(comments)), comment)
             return self.update(it['key'], {'comments': comments})
 
     @writes
-    def edit_comment(self, key, index, text, was=None):
+    def edit_comment(self, key, ident, text, was=None):
         """New text for a comment, which keeps its place and its `at` and gains `edited`. `was`, when given, is the text
-        the client edited: an index another request has shifted (a delete in between) is a 409, not someone else's
-        comment. (Not `at`: it is to the minute, so two comments can share it.)"""
+        the client edited: a comment changed meanwhile (or, in the frontmatter, an index another request has shifted —
+        a delete in between) is a 409, not someone else's comment overwritten. As a file, only its `edited` and its
+        text change; every other byte stays."""
         text = str(text or '').strip()
         if not text:
             raise StoreError(400, 'a comment needs text')
         with self._lock:
             it = self.find(key)
+            if self._comment_files():
+                path = self._comment_file(it, ident)
+                try:
+                    with open(path, encoding='utf-8') as f:
+                        before = f.read()
+                except FileNotFoundError:
+                    raise StoreError(404, 'comment not found') from None
+                now = tm_comments.parse(before, str(ident))
+                if was is not None and now['text'] != str(was).strip():
+                    raise StoreError(409, 'the comment changed meanwhile: reload and try again')
+                if now['text'] != text:
+                    atomic_write(path, fm.patch(before, {'edited': now_moment()}, f'\n{text}\n'))
+                return self.read(it['key'])
+            index = int(ident)
             comments = [dict(c) if isinstance(c, dict) else {'text': c} for c in it['fields'].get('comments') or []]
             if not 0 <= index < len(comments):
                 raise StoreError(404, 'comment not found')
@@ -2344,7 +2514,7 @@ class Store:
         f = it['fields']
         facts = self._claude_facts(it)
         body = (it.get('body') or '').strip()
-        comments = [c.get('text') for c in f.get('comments') or [] if isinstance(c, dict)]
+        comments = [c.get('text') for c in self.item_comments(it['key'])['comments']]  # its files' or its frontmatter's
         tail_people = self.watchers_note(f.get('watchers')) + self.mentions_note(body, *comments, instruction)
         head = f"I want to work on this item from my task manager.\n\n# {it.get('ref') or it['id'] or it['type']} · {it['title']}\n\n" + '\n'.join(facts)
         tail = f"{tail_people}\n\n## What I want\n\n{(instruction or '').strip() or CLAUDE_DEFAULT_INSTRUCTION}\n"
@@ -2522,6 +2692,18 @@ class Store:
             dirnames.sort()
             out.extend(os.path.join(dirpath, n) for n in sorted(filenames) if n.endswith('.md') and not n.startswith('.'))
         return out
+
+    def _comment_mds(self):
+        """Every comment's file (Comments/<ref>/<at>.md), where comments are files: out of the walk (SKIP_DIRS)."""
+        if not self._comment_files():
+            return []
+        top = os.path.join(self.root, self.structure.comments_folder)
+        try:
+            folders = sorted(os.listdir(top))
+        except OSError:
+            return []
+        return [os.path.join(top, d, n) for d in folders if not d.startswith('.') and os.path.isdir(os.path.join(top, d))
+                for n in tm_comments.names(os.path.join(top, d))]
 
     def _trash_mds(self):
         """Every .md in the trash that is (or was) an item: a deleted item's file, and those in a deleted project's folder."""
@@ -3720,6 +3902,7 @@ class Store:
             files = self._orphaned_by([src]) if src.endswith('.md') else []
             # gone for good, but its id stays used (items made before ids.json); a project's, and those of its tickets
             self._mark_ids([i for md in self._with_bundle(src) for i in self._file_ids(md)])
+            self._drop_comments(self._with_bundle(src))
             os.remove(src)
             self._drop_sidecars(src)
             if os.path.isdir(self._bundle(src)):
@@ -3735,6 +3918,7 @@ class Store:
             files = self._trash_files()
             orphans = self._orphaned_by(files)
             self._mark_ids(self._trashed_ids())
+            self._drop_comments(self._trash_mds())
             for path in files:
                 os.remove(path)
                 self._drop_sidecars(path)
@@ -3745,6 +3929,8 @@ class Store:
             if os.path.isdir(removed):
                 gone += self.removed_attachments()
                 shutil.rmtree(removed)
+            if self._comment_files() and os.path.isdir(os.path.join(self.root, META_DIR, tm_comments.TRASH)):
+                shutil.rmtree(os.path.join(self.root, META_DIR, tm_comments.TRASH))  # the comments deleted one by one
             deleted_files = len(self.trashed_files())
             if os.path.isdir(self._files_trash()):
                 shutil.rmtree(self._files_trash())
@@ -4116,6 +4302,15 @@ class Store:
                 moved = [{**c, 'text': people.rename_mentions(c.get('text'), old, new)} if isinstance(c, dict) else c for c in comments]
                 if moved != comments:
                     out = fm.patch(out, {'comments': moved}, None)
+            if out != text:
+                atomic_write(path, out)
+        for path in self._comment_mds():  # a comment's text is its file's body
+            with open(path, encoding='utf-8') as f:
+                text = f.read()
+            if '@[' not in text:
+                continue
+            _, body = fm.split(text)
+            out = text[:len(text) - len(body)] + people.rename_mentions(body, old, new)
             if out != text:
                 atomic_write(path, out)
 

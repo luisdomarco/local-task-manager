@@ -17,3 +17,26 @@ test('a phone keeps the card\'s ⋯ for it', () => {
   const phone = css.slice(css.indexOf('/* A phone: its controls share one row'));
   assert.match(phone.slice(0, 600), /\.inbox-discard \{ display: none; \}/);
 });
+
+test('TSK-128: the Inbox shows a page at a time and triaging keeps the page', () => {
+  const js = source('js/views/inbox.js');
+  assert.match(js, /paged\(\{ key: 'inbox', rows: captured, size: LIST_PAGE, keep: true/);
+  assert.match(js, /page\.rows\.map\(/);
+  assert.match(js, /page\.pager\)/);
+});
+
+test('TSK-128: a share opens the box with its words and its address apart', () => {
+  const js = source('js/views/inbox.js');
+  assert.match(js, /value: shared\?\.text \|\| '', links: shared\?\.url \? \[shared\.url\] : \[\]/);
+});
+
+test('TSK-128: converting from the Inbox list opens nothing; the toast offers it', () => {
+  const panel = source('js/panel.js');
+  assert.match(panel, /export async function convertTo\(item, type, values = \{\}, \{ open = false \} = \{\}\)/);
+  assert.match(panel, /\{ label: 'Open', run: \(\) => openItem\(out\.key\) \}/);
+  assert.match(source('js/views/inbox.js'), /onSelect: \(\) => convertTo\(item, t, parent \? \{ related_to: parent\.id \} : \{\}\),/);
+});
+
+test('TSK-128: the trash has a wider column of its own on a computer', () => {
+  assert.match(source('css/app.css'), /\.cards\.rows \.btn\.icon\.row-action\.inbox-discard \{ width: 32px; height: 32px; margin-left: 6px; \}/);
+});

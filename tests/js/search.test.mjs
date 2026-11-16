@@ -66,6 +66,15 @@ test('a line found in the text points at its item, once, and not at one already 
   assert.deepEqual(bodyHits('x', undefined, [a]), []);
 });
 
+test('a line of a comment (Comments/<ref>/…, TSK-128) is its item\'s, by its text only', () => {
+  const a = item('482', 'Uno', 'task', { ref: 'TSK-482' });
+  const results = [{ path: 'Comments/TSK-482/2026-11-16T09-00-00-000.md', line: 2, text: 'fileClass: Comment' },
+    { path: 'Comments/TSK-482/2026-11-16T09-00-00-000.md', line: 7, text: 'the comment says comment' },
+    { path: 'Comments/TSK-999/2026-11-16T09-00-00-000.md', line: 7, text: 'comment of no item' }];
+  assert.deepEqual(bodyHits('comment', results, [a], new Set(), 'Comments').map((x) => [x.item.id, x.line]), [['482', 7]]);
+  assert.deepEqual(bodyHits('comment', results, [a]), []); // a vault that keeps none as files: none of its items
+});
+
 test('a frontmatter line counts by its value, not by its key', () => {
   const a = item('TSK-001', 'Uno');
   const b = item('TSK-002', 'Dos');

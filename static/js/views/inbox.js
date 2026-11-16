@@ -11,6 +11,7 @@ import { refOf } from '../shownid.js';
 import { planSection } from '../planrows.js';
 import { pendingShare, pendingSharedFiles } from '../share.js';
 import { byLastUpdated, updatedLabel } from '../inboxitems.js';
+import { LIST_PAGE, paged } from '../datatable.js';
 
 // "Related to…" picked on a card before it is transformed, kept across re-renders. A Projects inbox item keeps it in
 // its own `file_under` instead (its card's Properties shows it too, and Convert to carries it over).
@@ -52,23 +53,27 @@ function triage(item, rerender) {
 
 export function mount(root) {
   const list = h('div', { class: 'plan-list inbox-list' });
+  const shared = pendingShare(); // its words in the Subject, its address apart as a chip
   root.replaceChildren(
     h('header', { class: 'view-head' }, h('h1', {}, 'Inbox')),
     // A link typed or pasted goes in the item's url; a picture pasted, dropped, picked or shared is attached to it.
-    quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: pendingShare() || '',
+    quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: shared?.text || '', links: shared?.url ? [shared.url] : [],
       attach: pendingSharedFiles({ onError: (msg) => toast(msg, true) }),
       placeholder: 'Capture anything…  a link, a picture  (/task, /note… to file it straight away)' }),
     list);
   const api = {
     update() {
       const captured = state.items.filter((i) => i.type === 'inbox').sort(byLastUpdated);
+      // A page at a time, as every list; triaging or discarding a row keeps the page you are on (keep).
+      const page = paged({ key: 'inbox', rows: captured, size: LIST_PAGE, keep: true, onChange: () => api.update() });
       list.replaceChildren(...[
         h('section', { class: 'plan-block inbox-block' },
           planSection({ title: 'Captured', count: captured.length || '' }),
           captured.length
-            ? h('div', { class: 'cards rows' }, captured.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()), info: updatedLabel(i),
+            ? h('div', { class: 'cards rows' }, page.rows.map((i) => itemCard(i, { onOpen: openItem, extra: triage(i, () => api.update()), info: updatedLabel(i),
               cls: `hover-host ${keptOnItem() ? 'triage-in-card' : ''}` })))
-            : emptyState('Inbox zero. Nothing captured waiting to be sorted.')),
+            : emptyState('Inbox zero. Nothing captured waiting to be sorted.'),
+          page.pager),
       ].filter(Boolean));
     },
   };
