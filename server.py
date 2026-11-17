@@ -279,6 +279,16 @@ def _slug(text):
     return out or 'vault'
 
 
+def _free_id(name, taken):
+    """A new vault's id: its name as a slug, with -2, -3… when another vault has it."""
+    base = vid = _slug(name)
+    n = 2
+    while vid in taken:
+        vid = f'{base[:28]}-{n}'
+        n += 1
+    return vid
+
+
 def clean_vaults(vaults, default_vault, saved=None):
     """The vault list from Settings, checked: ids kept (a new vault gets one from its name, once, and it never
     changes), a name, an existing folder that is not / nor the home folder, a known structure, and no vault
@@ -300,11 +310,7 @@ def clean_vaults(vaults, default_vault, saved=None):
         if vid and not VAULT_ID_RE.match(vid):
             raise StoreError(400, f'not a valid vault id: {vid}')
         if not vid:  # a new vault: an id from its name, free among the others
-            base = vid = _slug(name)
-            n = 2
-            while vid in ids or vid in given:
-                vid = f'{base[:28]}-{n}'
-                n += 1
+            vid = _free_id(name, ids | given)
         if vid in ids:
             raise StoreError(400, f'two vaults have the id {vid}')
         structure = raw.get('structure') or DEFAULT_STRUCTURE
@@ -587,6 +593,32 @@ class App:
             if store is not None:
                 with self._stores_lock:
                     self._put(v['id'], store)
+
+    def add_vault(self, body):
+        """POST /api/vaults/add: one vault more, for a script or the install guide (docs/install-with-claude.md), which
+        would otherwise have to send the whole list back. A name and an existing folder; the structure is the default
+        one unless given; the default vault unless `default` is false. Saved through set_config, so it is checked as
+        Settings → Vaults checks it. A folder already in the list gives that vault back, nothing added. A config that
+        saved no vault and names no root (a new install) lists only the bundled sample, in memory: the vault replaces it.
+        → {'vault': the vault, 'added': bool}."""
+        name, path = ' '.join(str(body.get('name') or '').split()), str(body.get('path') or '').strip()
+        if not name or not path:
+            raise StoreError(400, 'a vault needs a name and a folder')
+        same = next((v for v in self.config['vaults'] if resolve_root(v['path']) == resolve_root(path)), None)
+        try:
+            with open(CONFIG_PATH, encoding='utf-8') as f:
+                own = json.load(f)
+        except FileNotFoundError:
+            own = {}
+        vaults = [dict(v) for v in self.config['vaults']]
+        if not same and not own.get('vaults') and not own.get('root'):
+            vaults = []  # only the bundled sample, never saved
+        vid = same['id'] if same else _free_id(name, {v['id'] for v in vaults})
+        if not same:
+            vaults.append({'id': vid, 'name': name, 'path': path, 'structure': body.get('structure') or DEFAULT_STRUCTURE})
+        default = vid if body.get('default', True) is not False else self.config['default_vault']
+        self.set_config({'vaults': vaults, 'default_vault': default})
+        return {'vault': self.public_vault(vid), 'added': not same}
 
     def _refuse_other_shapes(self, vaults):
         """A vault given a folder (or a structure) that clearly is another structure's vault — a folder-per-type vault saved
@@ -2214,6 +2246,7 @@ def comment_ref(body, default):
 ROUTES = {
     ('GET', '/api/config'): lambda s, q, b: APP.public_config(),
     ('POST', '/api/config'): lambda s, q, b: (APP.set_config(b), APP.public_config())[1],
+    ('POST', '/api/vaults/add'): lambda s, q, b: APP.add_vault(b),  # one vault more, by name and folder (install guide)
     ('GET', '/api/vault/status'): lambda s, q, b: vault_status(s, s.vault_id, warnings=q.get('warnings') == '1'),
     # The vault's structure: its types, statuses, priorities, lists… what the page builds itself from.
     ('GET', '/api/structure'): lambda s, q, b: s.structure.public(),
@@ -2442,7 +2475,7 @@ def feature_refused(store, path):
 
 # The routes that are not about one vault: they get no store and need no X-TM-Vault. Everything else does.
 GLOBAL_ROUTES = {
-    ('GET', '/api/config'), ('POST', '/api/config'),
+    ('GET', '/api/config'), ('POST', '/api/config'), ('POST', '/api/vaults/add'),
     ('GET', '/api/term/list'), ('POST', '/api/term/input'), ('POST', '/api/term/resize'), ('POST', '/api/term/close'),
     ('GET', '/api/chat/list'), ('GET', '/api/chat/files'), ('POST', '/api/chat/send'), ('POST', '/api/chat/permission'),
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),

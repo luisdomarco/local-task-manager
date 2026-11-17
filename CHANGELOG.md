@@ -4,6 +4,18 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **Add item stays clear of the Mac app's window buttons.** In Safari's desktop app (*Add to Dock*), scrolling the
+  sidebar slid Add item up under close · minimise · zoom, where a click did not reach it; the band under the buttons
+  no longer scrolls. A window opened in full screen also gets that band when it leaves full screen.
+- **Installing it with Claude works from a fresh Mac.** The prompt in `docs/install-with-claude.md` now checks the
+  system, installs Python if it is missing, clones or updates the code, runs the tests, installs (or updates) the app,
+  adds your vault as a Projects vault through the running app, makes its folders and its first project, optionally
+  writes the guide for agents, and opens it. It no longer offers the legacy structure nor writes `config.json` by hand.
+- **`POST /api/vaults/add`** adds one vault by its name and folder, checked as Settings → Vaults checks it, without
+  sending the whole list back; on a new install it takes the place of the bundled sample.
+- **A checklist with blank lines between its items keeps each box beside its text.** In a description or a doc,
+  `- [ ] one`, a blank line, `- [ ] two` drew each box on a line of its own with its text under it; it now reads as
+  a checklist written without the blank lines.
 - **A shared or pasted link stays out of the Subject.** In the Inbox's box (and any capture box) a link shared from the
   iPhone or pasted waits under it as a chip, with its × to leave it out, and becomes the item's link; the Subject keeps
   the share's title or starts with the site's name and a dash (*X — *) for the rest to be written after it. Before, the

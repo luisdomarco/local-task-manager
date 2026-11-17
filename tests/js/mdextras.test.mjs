@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calloutHtml, calloutType, cellClass, hideBlockIds, keepBlankLines, stripComments, useExtras } from '../../static/js/mdextras.js';
+import { calloutHtml, calloutType, cellClass, hideBlockIds, keepBlankLines, stripComments, toggleTask, useExtras } from '../../static/js/mdextras.js';
 
 // marked is a UMD script the page loads as is (no module): run it with an `exports` to fill (package.json is "module").
 const exports = {};
@@ -85,6 +85,17 @@ test('a task\'s box has no space after it, tight or loose; other items are marke
   assert.match(render('- [ ] one\n\n- [ ] two'), /<li><p><input disabled="" type="checkbox">one<\/p>/);
   assert.match(render('- plain'), /<li>plain<\/li>/);
   assert.match(render('- [ ] outer\n  - [ ] inner'), /<li><input disabled="" type="checkbox">outer<ul>\n<li><input disabled="" type="checkbox">inner<\/li>/);
+});
+
+test('a click on the n-th box flips the n-th marker, tight or loose, and only that one', () => {
+  assert.equal(toggleTask('- [ ] a\n- [ ] b\n- [x] c', 1), '- [ ] a\n- [x] b\n- [x] c');
+  assert.equal(toggleTask('- [ ] a\n\n- [ ] b\n\n- [X] c', 2), '- [ ] a\n\n- [ ] b\n\n- [ ] c');
+  assert.equal(toggleTask('intro\n* [ ] a\n  + [ ] nested', 1), 'intro\n* [ ] a\n  + [x] nested');
+  // Each box rendered has its marker at the same index, loose or not.
+  for (const text of ['- [ ] a\n- [x] b', '- [ ] a\n\n- [x] b\n\n- [ ] c']) {
+    const boxes = render(text).match(/<input /g).length;
+    assert.equal(boxes, text.match(/\[[ xX]\]/g).length);
+  }
 });
 
 test('%%comments%% are not shown: inline, over lines, unclosed to the end; code keeps them', () => {

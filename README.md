@@ -151,7 +151,7 @@ an `AGENTS.md` and a command-line tool (`tools/vault.py`) so any agent can read 
 ## Quick start
 
 ```bash
-git clone https://github.com/luisdomarco/local-task-manager.git local-task-manager && cd local-task-manager
+git clone https://github.com/luisdomarco/local-task-manager local-task-manager && cd local-task-manager
 python3 tools/serve_sample.py                  # → http://127.0.0.1:3101, on a copy of the sample vault
 ```
 
@@ -159,9 +159,11 @@ That opens the sample vault — a small product team's real week: three projects
 status, meetings, docs and agents' prompts — on a throwaway copy, so try anything. That is all it needs: Python 3.9 or
 newer, which comes with the Mac's Command Line Tools (`xcode-select --install`). For the agents, add a folder with a
 `.claude/commands/` in **Settings → Agents**; Claude Code must be installed and logged in.
-To set it up as a Mac app with your first
-vault, paste the prompt in [`docs/install-with-claude.md`](docs/install-with-claude.md) into Claude Code. How to use it
-day to day: [the user guide](docs/user-guide.md), also inside the app under **Settings → Documentation**.
+
+**To use it for real**, paste the prompt in [`docs/install-with-claude.md`](docs/install-with-claude.md) into Claude
+Code: from a Mac with nothing on it, it installs Python if it is missing, clones the code, installs the app on
+http://localhost:3200, adds your first vault with its first project and opens it. How to use it day to day:
+[the user guide](docs/user-guide.md), also inside the app under **Settings → Documentation**.
 
 [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [MIT License](LICENSE)
 
@@ -185,7 +187,8 @@ Contents: [1 What it is](#1-what-it-is) · [2 Setup](#2-setup-in-5-minutes) · [
 
 ## 2. Setup in 5 minutes
 
-Rather have Claude do it? Paste the prompt in [`docs/install-with-claude.md`](docs/install-with-claude.md) into Claude Code.
+Rather have Claude do it? Paste the prompt in [`docs/install-with-claude.md`](docs/install-with-claude.md) into Claude
+Code: it does all of this section and [the Mac app](#3-mac-app-mode) for you, up to the app open on your first vault.
 
 ### Requirements
 
@@ -253,12 +256,18 @@ temp dir, whose path they print.
    shows the same types. A vault whose folder is later moved or deleted outside the app stays in the list with
    *Folder not found*: edit it to give its new place, or remove it.
 4. **Switch to it** with the vault selector at the foot of the sidebar. A new vault opens in the **Explorer** (the
-   sidebar's file view): click **Project**, the first of the two buttons at the foot of the sidebar (under the vault selector), to see the vault
+   sidebar's file view): click **Project**, the first of the three icons at the foot of the sidebar (under the vault selector), to see the vault
    as items (see [Sidebar modes](#sidebar-modes)). Until its folders exist, that page says *does not match its structure* and offers **Create the N missing
    folders** — empty folders only, no file is touched.
 5. **Projects only:** tickets usually live in a project, so start with **Add item → Project** (a name and a key of 2–4
    capital letters, e.g. `DP`). The project's folder and its type folders are made with it. A ticket may also be in
    no project: it then lives in its type's folder at the top of the vault (`Initiatives/`, `Stories/`…).
+
+**From a script** (what the install prompt does), with the app running: `POST /api/vaults/add` with
+`{"name": …, "path": <an existing folder>}` adds one vault, checked as Settings checks it, and makes it the default
+(`"default": false` does not); on a new install it takes the bundled sample's place, and a folder already in the list
+gives that vault back. Then `POST /api/vault/create-folders` with its id in `X-TM-Vault` makes its folders. Every POST
+needs the `X-Task-Manager: 1` header.
 
 Several vaults are fine: each is independent (its items, labels, people, statuses and view preferences are its own),
 and the address says which one you are on (`?vault=<id>`). Two vaults cannot overlap (one inside the other), and
@@ -322,8 +331,9 @@ python3 tools/install_app.py --dry-run     # say what it would do, do nothing
 - **In the Dock.** Open `http://localhost:3200` in Safari and choose *File → Add to Dock*, or in Chrome *⋮ → Cast,
   save and share → Install page as app*. It gets its own window and the check icon (`static/manifest.json`,
   `static/icons/`). Safari's has no title bar: macOS draws the window's buttons over the page's
-  top-left corner, so there the sidebar's head starts under them, and with the sidebar hidden (or a narrow window)
-  the top bar's first button starts beside them. In full screen, a browser tab, the iPhone and an iPad nothing moves.
+  top-left corner, so there the sidebar keeps a band under them that never scrolls (Add item stays clickable however
+  far the sidebar is scrolled), and with the sidebar hidden (or a narrow window) the top bar's first button starts
+  beside them. In full screen, a browser tab, the iPhone and an iPad nothing moves.
 - **Logs:** `~/Library/Logs/TaskManager/server.log` (output and errors).
 - **`install.json` points back at the checkout.** The installer writes the path of the checkout it came from into the
   app's folder. Two things use it, because the copy has no `.git`, `tests/` or `.claude/`: **Settings → Export** makes

@@ -28,7 +28,7 @@ Add as many vaults as you like in **Settings → Vaults** and switch between the
 
 **Guide for agents** (in a vault's dialog in Settings → Vaults) writes an `AGENTS.md` at the top of the vault: open Claude Code, Codex or Cursor in the vault's folder and it knows how to read and write your items, even with the app closed — ask it *what blocks this initiative?* or *file a story for…*. It is written from your vault and kept up to date; anything you add outside its markers stays.
 
-A new vault opens in the **Explorer** (its files). Click **Project**, the first button at the top of the sidebar, to see it as items. If folders the structure needs are missing, the page offers to create them.
+A new vault opens in the **Explorer** (its files). Click **Project**, the first of the three icons at the foot of the sidebar (under the vault selector), to see it as items. If folders the structure needs are missing, the page offers to create them.
 
 ## A day with it
 

@@ -150,6 +150,14 @@ function footList() {
   return `<section class="footnotes"><ol>${rows.join('')}</ol></section>\n`;
 }
 
+// A click on the n-th checklist box of a rendered description: the n-th "- [ ]" / "- [x]" marker of its source, flipped
+// (mdblock.js). Boxes and markers are counted the same way whether the list is tight or loose (a blank line between
+// items only wraps their text in a <p>).
+export function toggleTask(md, n) {
+  let i = -1;
+  return md.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) => (++i === n ? `${pre}[${mark === ' ' ? 'x' : ' '}]` : m));
+}
+
 /** Adds the extras to `marked` (once: marked.use adds up). `iconSvg(name)` draws a callout's icon. */
 export function useExtras(marked, { iconSvg } = {}) {
   marked.use({

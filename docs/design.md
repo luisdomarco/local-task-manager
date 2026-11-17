@@ -82,9 +82,12 @@ name the layers fixes their order.
 Safari's web app on a Mac (*Add to Dock*, shown `standalone`) has no title bar: macOS draws close · minimise · zoom over
 the page's top-left corner. index.html's first script marks it with `mac-app` on the root (standalone, a Mac, no
 touch screen: never an iPhone or an iPad, which say *MacIntel* too); app.css, under `@media (display-mode:
-standalone)`, gives the sidebar `--titlebar-h` (28px) more at its top and, while the sidebar is hidden or a drawer,
-the top bar `--titlebar-w` (78px) more at its left. Full screen is not `standalone`, so the room goes with the buttons.
-Anything new pinned to the window's top-left corner leaves the same room.
+standalone)`, gives the sidebar a top border `--titlebar-h` (28px) tall in its own background and, while the sidebar is
+hidden or a drawer, the top bar `--titlebar-w` (78px) more at its left. The room is a border, not padding: the sidebar
+scrolls, and padding scrolls away with it (a scrolled sidebar slid Add item under the buttons), while a border stays.
+Full screen is not `standalone`, so the room goes with the buttons; the script marks the root again whenever the
+display mode changes, so a window opened in full screen gets the room on leaving it. Anything new pinned to the
+window's top-left corner leaves the same room, outside what scrolls.
 
 ### The phone layer
 
@@ -729,6 +732,8 @@ What marked reads plus Obsidian's own, one look everywhere Markdown is shown (a 
   column of its own). The box hangs to the left of the first line, centred on it, and the wrapped lines start under the
   text: the hang is `--task-box` (the checkbox's own size, larger on a phone, 18px in Classic) + 10px, and marked's
   space after the box is dropped (`mdextras.js listitem`) so the first line starts where the others do.
+  A loose list (a blank line between items) wraps each item's text in a `<p>`; the same rules reach the box there
+  (`li > p:first-child > input`), so box and text never fall onto two lines.
 - **Blank lines**: each beyond the first is a `.md-gap` one line high (`keepBlankLines`, marked's `preprocess` hook).
 - **Diagram**: a ```` ```mermaid ```` fence becomes `.md-diagram` (`diagrams.js renderDiagrams`, called after the HTML
   is set; Mermaid loads only then), in Mermaid's `default` or `dark` theme by the page's, scrolling sideways when wider.

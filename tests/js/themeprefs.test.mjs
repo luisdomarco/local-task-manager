@@ -208,3 +208,24 @@ test("index.html's first script marks the Mac desktop app, and nothing else", ()
   assert.equal(marked('iPhone', 5, true), false, 'an iPhone');
   assert.equal(marked('Win32', 0, true), false, 'a desktop app elsewhere keeps its own title bar');
 });
+
+// Opened in full screen (not `standalone`), the window's buttons come back on leaving it: the mark follows the
+// display mode, not only the moment the page loaded.
+test('the Mac desktop app is marked again when it leaves or enters full screen', () => {
+  const run = new Function('document', 'localStorage', 'matchMedia', 'innerWidth', 'location', 'URLSearchParams', 'navigator', firstScript);
+  const root = fakeRoot();
+  let standalone = false;
+  const listeners = [];
+  const matchMedia = (q) => ({
+    get matches() { return q.includes('standalone') ? standalone : false; },
+    addEventListener: (type, fn) => { if (q.includes('standalone') && type === 'change') listeners.push(fn); },
+  });
+  run({ documentElement: root, write() {} }, { getItem: () => null }, matchMedia, 1200, { search: '' }, URLSearchParams,
+    { platform: 'MacIntel', maxTouchPoints: 0 });
+  assert.equal(root.classList.contains('mac-app'), false, 'opened in full screen: no buttons, no room');
+  assert.equal(listeners.length, 1, 'it listens to the display mode');
+  standalone = true; listeners.forEach((fn) => fn());
+  assert.equal(root.classList.contains('mac-app'), true, 'out of full screen: the buttons are back');
+  standalone = false; listeners.forEach((fn) => fn());
+  assert.equal(root.classList.contains('mac-app'), false, 'back in full screen');
+});

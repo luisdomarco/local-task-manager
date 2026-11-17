@@ -833,5 +833,93 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(app.store.root, os.path.realpath(self.b))
 
 
+class AddVaultTest(unittest.TestCase):
+    """POST /api/vaults/add, what docs/install-with-claude.md calls on the installed app: one vault more by its name and
+    folder, then its folders, with no config.json written by hand."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.cfg = os.path.join(self.tmp, 'config.json')
+        self.sample = os.path.join(self.tmp, 'sample')  # the bundled sample a new install opens, as a temp copy
+        shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sample-vault'), self.sample)
+        self.mine = os.path.join(self.tmp, 'Tasks')
+        os.makedirs(self.mine)
+        for patcher in (mock.patch.object(server, 'CONFIG_PATH', self.cfg),
+                        mock.patch.dict(server.DEFAULT_CONFIG, {'root': self.sample}),
+                        contextlib.redirect_stdout(io.StringIO())):
+            patcher.__enter__()
+            self.addCleanup(patcher.__exit__, None, None, None)
+
+    def serve(self, config):
+        with open(self.cfg, 'w', encoding='utf-8') as f:
+            json.dump(config, f)
+        patcher = mock.patch.object(server, 'APP', server.App())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        httpd = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        self.base = f'http://127.0.0.1:{httpd.server_address[1]}'
+
+    def post(self, path, body, vault=None, header=True):
+        headers = {'Content-Type': 'application/json'}
+        if header:
+            headers['X-Task-Manager'] = '1'
+        if vault:
+            headers['X-TM-Vault'] = vault
+        req = Request(self.base + path, data=json.dumps(body).encode(), headers=headers)
+        try:
+            with urlopen(req) as res:
+                return res.status, json.loads(res.read())
+        except HTTPError as e:
+            with e:
+                return e.code, json.loads(e.read())
+
+    def saved(self):
+        with open(self.cfg, encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_a_new_install_gets_the_vault_in_place_of_the_sample(self):
+        self.serve({'port': 3200})  # what tools/install_app.py writes when the checkout has no config.json
+        code, out = self.post('/api/vaults/add', {'name': 'My tasks', 'path': self.mine})
+        self.assertEqual(code, 200, out)
+        self.assertEqual((out['added'], out['vault']['id'], out['vault']['structure']), (True, 'my-tasks', 'ticketing'))
+        cfg = self.saved()
+        self.assertEqual([v['path'] for v in cfg['vaults']], [self.mine])  # the sample was only in memory
+        self.assertEqual((cfg['default_vault'], cfg['port']), ('my-tasks', 3200))
+        code, out = self.post('/api/vault/create-folders', {}, vault='my-tasks')
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out['check']['ok'], out)
+        self.assertTrue(os.path.isdir(os.path.join(self.mine, 'Tasks')))
+        # The guide run twice: the same folder gives the same vault back, nothing added.
+        code, out = self.post('/api/vaults/add', {'name': 'Other name', 'path': self.mine + '/'})
+        self.assertEqual((code, out['added'], out['vault']['id']), (200, False, 'my-tasks'))
+        self.assertEqual(len(self.saved()['vaults']), 1)
+
+    def test_saved_vaults_stay_and_the_new_one_is_the_default(self):
+        self.serve({'default_vault': 'sample', 'vaults': [{'id': 'sample', 'name': 'Sample', 'path': self.sample,
+                                                           'structure': 'ticketing'}]})
+        code, out = self.post('/api/vaults/add', {'name': 'Sample', 'path': self.mine})  # its name's id is taken
+        self.assertEqual((code, out['vault']['id']), (200, 'sample-2'), out)
+        cfg = self.saved()
+        self.assertEqual(([v['id'] for v in cfg['vaults']], cfg['default_vault']), (['sample', 'sample-2'], 'sample-2'))
+        other = os.path.join(self.tmp, 'Other')
+        os.makedirs(other)
+        self.post('/api/vaults/add', {'name': 'Other', 'path': other, 'default': False})
+        self.assertEqual((len(self.saved()['vaults']), self.saved()['default_vault']), (3, 'sample-2'))
+
+    def test_refused_as_settings_refuses_it(self):
+        self.serve({'port': 3200})
+        for body in ({'name': 'X'}, {'name': 'X', 'path': os.path.join(self.tmp, 'missing')},
+                     {'name': 'X', 'path': self.mine, 'structure': 'folders'}):  # legacy, on an empty folder
+            code, out = self.post('/api/vaults/add', body)
+            self.assertEqual(code, 400, (body, out))
+        self.assertEqual(self.post('/api/vaults/add', {'name': 'X', 'path': self.mine}, header=False)[0], 403)
+        self.assertNotIn('vaults', self.saved())  # nothing was saved
+
+
 if __name__ == '__main__':
     unittest.main()

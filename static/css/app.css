@@ -1873,8 +1873,9 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
    The hang is the box's own size (Basecoat's, larger on a phone; Classic's 18px) plus the gap, so they line up. */
 .md { --task-box: calc(var(--spacing) * 4); }
 :where(:root[data-skin="classic"]) .md { --task-box: 18px; }
-.md li:has(> input[type=checkbox]) { padding: 4px 0 4px calc(var(--task-box) + 10px); }
-.md li > input[type=checkbox]:first-child {
+/* A loose list (a blank line between its items) wraps each item's text in a <p>: its box is then the <p>'s first child. */
+.md li:has(> input[type=checkbox]:first-child, > p:first-child > input[type=checkbox]:first-child) { padding: 4px 0 4px calc(var(--task-box) + 10px); }
+.md :is(li, li > p:first-child) > input[type=checkbox]:first-child {
   display: inline-flex; width: var(--task-box); height: var(--task-box);
   margin: 0 10px 0 calc(-10px - var(--task-box));
   vertical-align: calc(.4em - var(--task-box) / 2); /* its middle on the text's, whatever the box's size */
@@ -3440,11 +3441,13 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 /* The desktop app: Safari's web app (File → Add to Dock) on a Mac has no title bar, and macOS draws the window's
    buttons over the page's top-left corner, where the sidebar's name and its hide button are. index.html's first
    script marks it (`mac-app`: shown standalone, on a Mac, with no touch screen, so never on an iPhone or an iPad); the
-   sidebar's head then starts under the buttons' band, and while the sidebar is hidden (or a drawer, ≤ 760px) the top
-   bar's first button starts beside them. Full screen hides the buttons and is no longer `standalone`: the room goes. */
+   sidebar then keeps the buttons' band empty, and while the sidebar is hidden (or a drawer, ≤ 760px) the top bar's
+   first button starts beside them. The band is the sidebar's top border, not its padding: the sidebar scrolls, its
+   padding scrolls with it, and a scrolled sidebar slid Add item under the buttons; a border is outside what scrolls.
+   Full screen hides the buttons and is no longer `standalone`: the room goes. */
 @media (display-mode: standalone) {
   :root.mac-app { --titlebar-h: 28px; --titlebar-w: 78px; }
-  :root.mac-app #sidebar { padding-top: calc(12px + var(--titlebar-h)); }
+  :root.mac-app #sidebar { border-top: var(--titlebar-h) solid var(--sidebar); }
   :root.mac-app.side-collapsed #pinbar { padding-left: calc(8px + var(--titlebar-w)); }
 }
 @media (display-mode: standalone) and (max-width: 760px) {

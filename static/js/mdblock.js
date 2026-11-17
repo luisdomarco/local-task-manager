@@ -2,6 +2,7 @@
 // in a bordered box that opens the editor on a click, and back to the text once left. Out of panel.js so the create form
 // (create.js, which panel.js imports) draws its description the same way.
 import { sourceOffset } from './clickmap.js';
+import { toggleTask } from './mdextras.js';
 import { drawRendered } from './mdview.js';
 import { lfOffset } from './livemd.js';
 import { mdEditor } from './mdeditor.js';
@@ -278,9 +279,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         content.querySelectorAll('input[type=checkbox]').forEach((box, n) => {
           box.disabled = false;
           box.addEventListener('change', () => {
-            let i = -1;
-            draft = text.replace(/^(\s*[-*+]\s+)\[([ xX])\]/gm, (m, pre, mark) =>
-              (++i === n ? `${pre}[${mark === ' ' ? 'x' : ' '}]` : m));
+            draft = toggleTask(text, n);
             blk.flush();
           });
         });
