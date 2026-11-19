@@ -29,8 +29,8 @@ app itself.
    package manager. From here on, `python3` means the one you just checked.
 
 3. The code: ask me where to keep it (default `~/Applications/local-task-manager`).
-   - If it does not exist, run `git clone https://github.com/luisdomarco/local-task-manager <that folder>` and `cd` into it.
-   - If `git -C <that folder> remote get-url origin` prints https://github.com/luisdomarco/local-task-manager, it is a clone of this app already: `cd` into
+   - If it does not exist, run `git clone https://github.com/luisdomarco/local-task-manager.git <that folder>` and `cd` into it.
+   - If `git -C <that folder> remote get-url origin` prints https://github.com/luisdomarco/local-task-manager.git, it is a clone of this app already: `cd` into
      it and run `git pull`.
    - If it exists and is something else, stop and ask me for another folder.
    Then run the tests: `python3 -m unittest discover -s tests -t .`. They take 2 to 3 minutes: give the command a

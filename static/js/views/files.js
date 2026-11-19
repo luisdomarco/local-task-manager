@@ -10,7 +10,7 @@ import { fileUrl, api } from '../api.js';
 import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
-import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, isBase, isDrawio, linkWikilinks, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
+import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, isBase, isDrawio, linkWikilinks, nodeOf, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
 import { highlight } from '../highlight.js';
 import { itemHref, pageHref } from '../links.js';
 import { mdEditor } from '../mdeditor.js';
@@ -484,12 +484,29 @@ export function mountFiles(root, param, { href = filesHref } = {}) {
     return wrap;
   };
 
+  // A path the loaded list does not hold is not a file that is gone. The list may not have caught up with one just
+  // written outside the app (Obsidian, an agent), and a vault with more entries than one answer carries never had it
+  // (Store.FILES_MAX). So the server is asked about that one path (/api/files/entry) before the page says it is not
+  // there — and told once, the tree is reloaded so it holds it too.
+  let stray = null;   // what the server said: { node } or { gone: true }; null until it has answered
+  let asking = false;
+  const strayNode = () => {
+    if (!stray && !asking) {
+      asking = true;
+      api.fileEntry(path).then(({ entry, children }) => { stray = { node: nodeOf(entry, children) }; loadFiles(); },
+        () => { stray = { gone: true }; }).then(() => { asking = false; if (live && !ed) render(); });
+    }
+    return stray?.node || null;
+  };
+
   function render() {
     const tree = fileTree();
     if (!tree) { root.replaceChildren(loadingLine()); return; }
-    const node = findNode(tree, path);
+    const node = findNode(tree, path) || (path ? strayNode() : null);
     if (!node) {
-      root.replaceChildren(crumbs(path, href), h('div', { class: 'empty' }, 'This file is not in the vault any more.'));
+      root.replaceChildren(crumbs(path, href), stray?.gone
+        ? h('div', { class: 'empty' }, 'This file is not in the vault any more.')
+        : loadingLine());
       return;
     }
     let body = null;

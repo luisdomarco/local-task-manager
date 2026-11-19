@@ -396,7 +396,7 @@ export function treePane(cfg) {
       });
       list = h('div', { class: 'tree', role: 'tree', 'aria-label': cfg.label, onkeydown: onTreeKey });
       if (cfg.rootDrop && !cfg.readonly) dropTarget(list, ''); // the tree's empty space is the vault itself
-      note = h('p', { class: 'muted small side-explorer-msg', hidden: true }, 'Too many files: only the first ones are listed.');
+      note = h('p', { class: 'muted small side-explorer-msg', hidden: true }, '');
       // What the files say, not what they are called: Enter searches their text (views/find.js).
       const search = h('input', {
         type: 'search', class: 'side-explorer-filter side-explorer-search', placeholder: 'Search in files… ⏎', 'aria-label': 'Search in files',
@@ -417,7 +417,11 @@ export function treePane(cfg) {
       return [...(s.head ? [s.head] : []), ...fresh, ...top];
     });
     list.replaceChildren(...(rows.length ? rows : [h('p', { class: 'muted small side-explorer-msg' }, filtering ? 'Nothing matches.' : cfg.empty)]));
-    note.hidden = !cfg.truncated?.();
+    // A vault with more entries than one answer of /api/files carries: the tree says which part of it it is showing,
+    // and that nothing is lost by it (explorer.js filesCut, Store.FILES_MAX).
+    const cut = cfg.cut?.();
+    note.hidden = !cut;
+    if (cut) note.textContent = `Too many files to list here: the first ${cut.shown.toLocaleString()} of ${cut.total.toLocaleString()} by name. The rest is still searched, still linked, and opens by its address.`;
     markActive();
     const field = list.querySelector('.tree-edit');
     if (field) {

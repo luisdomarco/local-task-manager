@@ -52,10 +52,39 @@ class StoreFilesTest(unittest.TestCase):
         self.assertEqual(entry['item']['type'], 'task')
         self.assertNotIn('item', next(e for e in self.store.files()['entries'] if e['path'] == 'templates/plan.md'))
 
-    def test_a_vault_too_big_says_it_was_cut(self):
+    def test_a_vault_too_big_says_it_was_cut_and_the_cut_is_the_tail_by_name(self):
+        whole = [e['path'] for e in self.store.files()['entries']]
         self.store.FILES_MAX = 3
         result = self.store.files()
-        self.assertEqual((len(result['entries']), result['truncated']), (3, True))
+        # The first three by name, never whatever the index's walk happened to reach last (that dropped a whole
+        # folder of the owner's vault with nothing saying which).
+        self.assertEqual([e['path'] for e in result['entries']], whole[:3])
+        self.assertEqual((result['truncated'], result['total']), (True, len(whole)))
+
+    def test_a_file_past_the_cap_is_still_searched_linked_and_opened_by_its_path(self):
+        write(self.root, 'templates/plan.md', '# Plan\nla idea del plan\n')
+        write(self.root, 'templates/otro.md', 'mira [[plan]]\n')
+        self.store.FILES_MAX = 2  # 'templates/…' is past it: the list stops inside Attachments/
+        listed = self.store.files()
+        self.assertTrue(listed['truncated'])
+        self.assertNotIn('templates/plan.md', [e['path'] for e in listed['entries']])
+        # What is traversed has no cap: the search reads it, and so does the backlink list…
+        self.assertEqual([r['path'] for r in self.store.search_files('idea del plan')['results']], ['templates/plan.md'])
+        self.assertEqual([l['path'] for l in self.store.backlinks('templates/plan.md')['links']], ['templates/otro.md'])
+        # …and its address opens it on its own (what the page asks when its list does not hold the path).
+        got = self.store.file_entry('templates/plan.md')
+        self.assertEqual((got['entry']['path'], got['entry']['kind'], got['children']), ('templates/plan.md', 'file', None))
+
+    def test_one_path_on_its_own_is_read_from_the_disk_folder_and_all(self):
+        write(self.root, 'templates/nuevo.md', 'written behind the app’s back')  # never walked yet
+        got = self.store.file_entry('templates')
+        self.assertEqual(got['entry']['kind'], 'dir')
+        self.assertEqual([c['path'] for c in got['children']], ['templates/nuevo.md', 'templates/plan.md'])
+        self.assertEqual(self.store.file_entry(self.task['path'])['entry']['item']['key'], self.task['key'])
+        for bad, status in [('nope.md', 404), ('templates/nope.md', 404), ('../etc/passwd', 400), ('.git/config', 400), ('', 400)]:
+            with self.subTest(bad=bad), self.assertRaises(StoreError) as e:
+                self.store.file_entry(bad)
+            self.assertEqual(e.exception.status, status)
 
     def test_vault_file_stays_inside_and_visible(self):
         self.assertEqual(self.store.vault_file('templates/plan.md'), os.path.join(self.root, 'templates', 'plan.md'))
@@ -76,6 +105,38 @@ class StoreFilesTest(unittest.TestCase):
 
 
 SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample-vault-legacy')
+
+
+class VaultPastTheOldCapTest(unittest.TestCase):
+    """A vault with more entries than the 5,000 one answer of /api/files used to carry. Whatever the index's walk
+    reached after them vanished — from the Explorer and Docs, from Search in files and from a backlink list, the last
+    two in silence — because both read the capped list. The owner's vault is at 5,700 entries and a whole project's
+    documents went missing that way."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        self.store = Store(self.root)
+        # 'Docs/' is walked before 'Ingles/' and takes the old cap on its own, as Docs/ and Attachments/ do there.
+        os.makedirs(os.path.join(self.root, 'Docs'))
+        for n in range(5200):
+            with open(os.path.join(self.root, 'Docs', f'note-{n:05d}.md'), 'w', encoding='utf-8') as f:
+                f.write('nothing of note\n')
+        write(self.root, 'Ingles/Docs/English Coach/00 Index.md', '# Index\nel plan de estudio\n')
+        write(self.root, 'Ingles/Docs/English Coach/Dossier.md', 'see [[00 Index]]\n')
+
+    def test_a_file_past_the_old_cap_is_listed_searched_and_linked(self):
+        index = 'Ingles/Docs/English Coach/00 Index.md'
+        listed = self.store.files()
+        self.assertGreater(listed['total'], 5000)                      # the vault is past where the cap used to be
+        self.assertEqual((listed['truncated'], len(listed['entries'])), (False, listed['total']))
+        self.assertIn(index, [e['path'] for e in listed['entries']])   # the Explorer and Docs hold it
+        self.assertEqual(self.store.file_entry(index)['entry']['size'],
+                         os.path.getsize(os.path.join(self.root, *index.split('/'))))  # the address opens it
+        self.assertEqual([r['path'] for r in self.store.search_files('plan de estudio')['results']], [index])
+        self.assertEqual([l['path'] for l in self.store.backlinks(index)['links']],
+                         ['Ingles/Docs/English Coach/Dossier.md'])
 
 
 class StoreFileOpsTest(unittest.TestCase):

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Serve a throwaway copy of the sample vaults, never your real vaults or config.json.
 
-    python3 tools/serve_sample.py            # → http://127.0.0.1:3101 (TM_PORT=<port> for another)
-    python3 tools/serve_sample.py --legacy   # and sample-vault-legacy/ (Initiatives) next to it
+    python3 tools/serve_sample.py                # → http://127.0.0.1:3101 (TM_PORT=<port> for another)
+    python3 tools/serve_sample.py --legacy       # and sample-vault-legacy/ (Initiatives) next to it
+    python3 tools/serve_sample.py --filler 5200  # a vault of thousands of files, to try one that big
 
 What it serves lives in a fresh folder in the system's temp dir (tm-sample-<port>-…): a copy of sample-vault/, so
 trying things never writes into the versioned one, and a config.json of its own, so a save from Settings never
@@ -35,13 +36,28 @@ def copy_sample(src, dst):
     return dst
 
 
-def setup(port=DEFAULT_PORT, legacy=False, ticketing=False):
+FILLER_DIR = ('Docs', 'Filler')  # where --filler writes: a Docs folder, walked before the projects' own
+
+
+def add_filler(vault, count):
+    """`count` throwaway documents in the copy's Docs/Filler/, to see the app with a vault of thousands of files
+    (plans/big-vaults.md). They are walked before the projects' folders, as Docs/ is in a real vault."""
+    folder = os.path.join(vault, *FILLER_DIR)
+    os.makedirs(folder, exist_ok=True)
+    for n in range(count):
+        with open(os.path.join(folder, f'note-{n:05d}.md'), 'w', encoding='utf-8') as f:
+            f.write(f'---\nfileClass: Doc\n---\n\n# Note {n}\n\nFiller, so the vault is a big one.\n')
+
+
+def setup(port=DEFAULT_PORT, legacy=False, ticketing=False, filler=0):
     """Point the server at a temp copy of the sample vault (and a temp config.json). → the temp folder.
     `legacy` adds a copy of the Initiatives sample, to see a legacy vault (its notice, a migration). `ticketing` is
     what an older launch config passes: the sample is a Projects vault already, so it changes nothing.
     Only changes this process's `server` module: nothing on disk outside the temp folder."""
     tmp = tempfile.mkdtemp(prefix=f'tm-sample-{port}-')
     sample = copy_sample(SAMPLE_VAULT, os.path.join(tmp, 'sample-vault'))
+    if filler:
+        add_filler(sample, filler)
     vaults = [{'id': 'sample', 'name': 'Sample', 'path': sample, 'structure': 'ticketing'}]
     if legacy:
         old = copy_sample(SAMPLE_LEGACY, os.path.join(tmp, 'sample-vault-legacy'))
@@ -61,10 +77,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--legacy', action='store_true', help='also serve the legacy Initiatives sample')
     ap.add_argument('--ticketing', action='store_true', help=argparse.SUPPRESS)  # older launch configs: the default now
+    ap.add_argument('--filler', type=int, default=0, metavar='N',
+                    help='N throwaway docs in the copy, to try a vault of thousands of files')
     args = ap.parse_args()
     port = int(os.environ.get('TM_PORT') or DEFAULT_PORT)
     os.environ['TM_PORT'] = str(port)
-    tmp = setup(port, legacy=args.legacy)
+    tmp = setup(port, legacy=args.legacy, filler=args.filler)
     print(f'sample copy and its config.json in {tmp}', flush=True)
     server.main()
 

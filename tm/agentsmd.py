@@ -127,12 +127,18 @@ def render(info, app_dir, python='python3'):
 
 
 def _needs(b):
-    """What a base asks of a note, as the guide's cell: in `Docs/X` · #tag · `fileClass: Y` · `category`."""
+    """What a base asks of a note, as the guide's cell: in `Docs/X` · #tag · `fileClass: Y` · `category`, and last what
+    keeps a note out (`not in `Docs/X``, from a negated filter). The ` · ` reads as a list of conditions, not as the
+    filter's own and/or structure."""
     out = [f'in `{_cell(f)}`' for f in b['folders']] + [f'`#{_cell(t)}`' for t in b['tags']]
     for name, values in b['properties'].items():
         vals = [v for v in values if not isinstance(v, bool)]
         out.append(f'`{_cell(name)}: {_cell(vals[0])}`' if len(vals) == 1
                    else f'`{_cell(name)}` ({" or ".join(_cell(v) for v in vals)})' if vals else f'`{_cell(name)}`')
+    no = b.get('excludes') or {}
+    out += [f'not in `{_cell(f)}`' for f in no.get('folders') or ()]
+    out += [f'not `#{_cell(t)}`' for t in no.get('tags') or ()]
+    out += [f'not `{_cell(p)}`' for p in no.get('properties') or ()]
     return ' · '.join(out) or 'any file (no filter)'
 
 

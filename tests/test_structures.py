@@ -219,6 +219,7 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual({p['tab'] for p in types['project']['props']}, {'settings', 'hidden', 'relations'})  # relations: its goal
         settings = [(p['group'], p['key']) for p in types['project']['props'] if p['tab'] == 'settings']
         self.assertEqual(settings, [('Global', 'project_kind'), ('Global', 'execution_mode'),
+                                    ('Global', 'premise_max_age_days'),
                                     ('Code', 'repo'), ('Code', 'managed_by'), ('Support due days', 'support_due_days')])
 
     def test_what_a_later_step_writes_is_not_asked_on_create(self):

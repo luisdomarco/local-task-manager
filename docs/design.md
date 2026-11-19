@@ -322,7 +322,8 @@ is being written, no frame and no ring, just the caret. Crumbs/type chip and id 
   a page at a time (`paged({ keep: true })`: acting on a row keeps the page), the row's trash last in its own 32px column.
 - **A link kept apart** (a capture box): a link pasted or shared never stays in the Subject — it waits under the box as
   a `chip link qa-link` with the same × as a waiting file (`qa-file-x`), cut to one line; the Subject starts with its
-  site's name and a dash (`linkSubject`).
+  site's name and a dash (`linkSubject`). A text too long for a Subject (`longText`, share.js) waits the same way, whole,
+  as a `chip qa-file qa-desc` with the `text` icon and *Description · N characters*; its first line starts the Subject.
 - **A page's head and bar** (Labels, Contacts, Trash, Settings): the head a list's, `pageHead({ title,
   count, action })` (ui.js): the title, its grey count on the baseline (`pageCount()`: *3 labels*, *1 item*, *Empty*;
   none where tabs under the title carry the counts, as Contacts' People · Groups), the primary *Add …* at the right.

@@ -13,13 +13,16 @@ import { h, icon } from './ui.js';
 import { currentPath, treePane } from './treepane.js';
 
 let tree = null;      // buildTree of the latest list
-let truncated = false;
+let cut = null;       // { shown, total } when the vault holds more entries than one answer carries, else null
 let sig = '';         // that list, to skip a redraw when nothing changed
 let loading = null;
 let again = null; // the fetch queued behind the one in flight (loadFiles)
 
 /** The vault's tree as the latest load left it (views/files.js lists a folder from it), or null before one. */
 export const fileTree = () => tree;
+/** { shown, total } while the vault holds more entries than one /api/files answer carries (the tree says so), else
+ *  null. Nothing is lost by it: a file past it is searched, linked, and opened by its address (/api/files/entry). */
+export const filesCut = () => cut;
 /** Whether the file tree is on screen (the sidebar's Explorer): the poll then asks the server to walk the whole folder
  *  every time, not only the item folders (vaultwatch.js). */
 export const filesShown = () => { const b = box(); return !!b && b.offsetParent !== null; };
@@ -30,7 +33,7 @@ export const onFiles = (fn) => listeners.add(fn);
 const box = () => document.getElementById('side-explorer');
 const pane = treePane({
   box, tree: fileTree, openKey: 'explorer.open', label: 'Vault files', rootDrop: true, empty: 'This vault is empty.',
-  truncated: () => truncated,
+  cut: filesCut,
   reload: () => loadFiles(),
   sections: (t) => [{ id: '', path: '', node: t }],
   bar: [
@@ -53,7 +56,7 @@ export function loadFiles() {
     if (next === sig) return;
     sig = next;
     tree = buildTree(res.entries);
-    truncated = res.truncated;
+    cut = res.truncated ? { shown: res.entries.length, total: res.total } : null;
     pane.render(); // a name being typed is not swept away (treepane.js waits for it)
     listeners.forEach((fn) => fn());
   }).catch((e) => {

@@ -75,9 +75,14 @@ export const api = {
   itemsOf: (types) => get(`/api/items?types=${encodeURIComponent(types.join(','))}`),
   // The vault as a graph (tm/graph.py): { nodes: [{ id, ref, type, title, path, status, done, project }], edges: [{ source, target, kind, field?, relation? }] }.
   graph: () => get('/api/graph'),
-  // The vault as files, for the sidebar's Explorer: { entries: [{ path, kind, size, mtime, item? }], truncated }.
+  // The vault as files, for the sidebar's Explorer: { entries: [{ path, kind, size, mtime, item? }], truncated, total }.
   // The vault's folders and files; `hidden`: dotfiles too (.obsidian, .gitignore), .git and .task-manager sealed.
+  // `truncated`: the vault holds more than one answer carries (Store.FILES_MAX), and `total` how many — the rest is
+  // still searched, still linked, and still opens by its address (fileEntry).
   files: (hidden = false) => get(`/api/files${hidden ? '?hidden=1' : ''}`),
+  // One path, read from the disk now: { entry, children } (a folder's, one level) — 404 when it is not there. What an
+  // address asks for when the list above does not hold it (written outside the app a moment ago, or past its cap).
+  fileEntry: (path) => get(`/api/files/entry?path=${encodeURIComponent(path)}`),
   // The Explorer's operations (Store.make_folder…): each answers { path } (the new one), a delete { trashed, path, item? }.
   makeFolder: (path, parents = false) => post('/api/files/mkdir', { path, parents }),
   docsRoots: () => get('/api/docs/roots'),

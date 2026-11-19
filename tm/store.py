@@ -183,6 +183,12 @@ def as_number(v, key):
     return int(n) if isinstance(n, float) and n.is_integer() else n
 
 
+def number_fields(structure, item_type=None):
+    """The keys kept as numbers: the app's own places, and the fields `item_type` declares with `kind='number'`."""
+    t = structure.types.get(item_type) if item_type else None
+    return {'plan_order', 'week_order', 'goal_order'} | {p['key'] for p in (t.props if t else ()) if p.get('kind') == 'number'}
+
+
 def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
     """Reject values the app relies on being well-formed; normalize links. Statuses and priorities are the
     structure's (those of `item_type`, when given)."""
@@ -194,7 +200,10 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         raise StoreError(400, f'priority must be one of {priorities}')
     if values.get('source') and values['source'] not in ACTIVITY_SOURCES:
         raise StoreError(400, f'source must be one of {ACTIVITY_SOURCES}')
-    for key in ('plan_order', 'week_order', 'goal_order'):  # a card's place on Today and Week (TSK-053), the Free board, its goal: a number, or none
+    # A card's place on Today and Week (TSK-053), the Free board and its goal, and every field its type draws as a
+    # number (a project's premise max age): kept as a number, or none. Read from the structure, never a list of its
+    # own — the page and tools/vault.py both hand every value over as text.
+    for key in number_fields(structure, item_type):
         if key in values:
             values[key] = as_number(values[key], key)
     if 'sidebar' in values:  # whether an initiative or a project is listed under the sidebar's Favourites
@@ -689,8 +698,8 @@ class Store:
     AGENTS_BASES_MAX = 30  # bases the guide names one by one (it says how many more there are)
 
     def _bases_info(self):
-        """([what each .base asks of a note: {path, views, properties, folders, tags, group_by, shows, error}], how many
-        there are), sorted by path: what the vault's guide says about its indexes (bases.describe)."""
+        """([what each .base asks of a note: {path, views, properties, folders, tags, excludes, group_by, shows,
+        error}], how many there are), sorted by path: what the vault's guide says about its indexes (bases.describe)."""
         rels = sorted((rel for rel, e in self._entries().items()
                        if e.kind == 'file' and rel.lower().endswith('.base') and self._listable(rel)), key=str.casefold)
         out = []
@@ -700,7 +709,7 @@ class Store:
                 bases.Base(data, None)  # what the app would refuse to draw, the guide says it cannot read
                 d = bases.describe(data)
             except bases.BaseError as e:
-                d = {'views': [], 'properties': {}, 'folders': [], 'tags': [], 'group_by': [], 'shows': [], 'error': str(e)}
+                d = bases.describe_empty(str(e))
             out.append({'path': rel, **d})
         return out, len(rels)
 
@@ -2902,7 +2911,13 @@ class Store:
         return full
 
     # ── the vault as files (the sidebar's Explorer) ──────────────────────────
-    FILES_MAX = 5000  # entries listed; a vault with more says it was cut (truncated)
+    # Nothing here caps what is *walked*: files() lists every folder and file of the vault, and search_files and
+    # backlinks read every file. FILES_MAX caps only what one answer of files() carries, and it cuts the tail **after
+    # sorting**, so what is left out is predictable (the last paths by name) and the page says so (`truncated`). A
+    # file past it is still opened by its address, found by a search and listed as a backlink: Store.file_entry
+    # answers for one path on its own. It used to be 5,000 and to cut before sorting, which dropped whatever the walk
+    # reached last — a whole folder of a 5,700-entry vault went missing with no sign of it anywhere on the page.
+    FILES_MAX = 20000
     FILES_SKIP = {'node_modules', '__pycache__'}  # unlike SKIP_DIRS, Attachments/ is listed: it holds real files
     # Hidden folders the Explorer never opens nor touches, shown or not: the app's own (ids, trash, the lock) and git's.
     # Matched case aside: on a Mac's disk `.GIT` is `.git`.
@@ -2921,20 +2936,31 @@ class Store:
             return False
         return not any(cls._protected(p) if hidden else p.startswith('.') for p in parts)
 
+    def _walked(self, hidden=False, entries=None):
+        """(rel, Entry) of every folder and file the Explorer shows — the whole vault, with no cap — in the index's
+        walk order (each folder's subfolders, then its files, by name). Hidden ones (a name starting with '.') only
+        with `hidden`. `entries`: a walk already in hand (files() reads it for the folder orders too)."""
+        for rel, e in (self._entries() if entries is None else entries).items():
+            if not hidden and any(p.startswith('.') for p in rel.split('/')):
+                continue
+            yield rel, e
+
+    def _walked_files(self, hidden=False):
+        """The files of _walked (no folders), by path: every text file a search or a backlink has to read, however
+        many there are. Not files()['entries']: that one answer is capped, and a search of only the files the page
+        happens to be showing finds nothing in the rest of the vault."""
+        return sorted(((rel, e) for rel, e in self._walked(hidden) if e.kind == 'file'), key=lambda p: p[0])
+
     def files(self, hidden=False):
         """Every folder and file of the vault, as a flat list of {path, kind: dir|file, size, mtime, item?}, sorted
         by path. A file that is an item carries {key, type, status, title}. Hidden ones (a name starting with '.') only
-        with `hidden`; then .git and .task-manager are listed as folders `sealed`, never walked into (git alone would
-        fill FILES_MAX)."""
+        with `hidden`; then .git and .task-manager are listed as folders `sealed`, never walked into. At most
+        FILES_MAX of them, the first by name: a vault with more says so (`truncated`), and file_entry opens one of the
+        rest."""
         items = {it['path'].replace(os.sep, '/'): it for it in self.items()}
         entries = self._entries()  # the index's walk (tm/index.py): each folder's subfolders, then its files, by name
-        out, truncated = [], False
-        for rel, e in entries.items():
-            if not hidden and any(p.startswith('.') for p in rel.split('/')):
-                continue
-            if len(out) >= self.FILES_MAX:
-                truncated = True
-                break
+        out = []
+        for rel, e in self._walked(hidden, entries):
             entry = {'path': rel, 'kind': e.kind, 'mtime': e.mtime}
             if e.sealed:
                 entry['sealed'] = True
@@ -2950,23 +2976,64 @@ class Store:
                                      'status': it['fields'].get('status'), 'rename': self._renames(it['type'])}
             out.append(entry)
         out.sort(key=lambda e: e['path'])
-        return {'entries': out, 'truncated': truncated}
+        truncated = len(out) > self.FILES_MAX  # the tail by name is left out, never a folder the walk reached late
+        return {'entries': out[:self.FILES_MAX], 'truncated': truncated, 'total': len(out)}
+
+    def file_entry(self, path):
+        """What files() would list for the one path `path`, read from the disk now — and, for a folder, what it holds
+        (one level). → {entry, children: [...] | None}; 404 when there is nothing there. This is how an address
+        (#/files/<path>, #/docs/<path>) is answered without the whole list: the page's list may not hold the path yet
+        (a file written in Obsidian a moment ago, or one past FILES_MAX), and "not in the list" is not "not in the
+        vault"."""
+        rel = self._rel_path(path)  # no '..', nothing under .git or .task-manager; a hidden file is fine
+        full = self.abs(rel)
+        kind = 'dir' if os.path.isdir(full) else 'file' if os.path.isfile(full) else None
+        if not kind:
+            raise StoreError(404, f'no such file: {rel}')
+        items = {it['path'].replace(os.sep, '/'): it for it in self.items()}
+        entry = self._disk_entry(rel, kind, items)
+        children = None
+        if kind == 'dir':
+            children = []
+            with os.scandir(full) as inside:  # one stat per child, from the dirent: a Docs folder may hold thousands
+                for d in inside:
+                    child = f'{rel}/{d.name}' if rel else d.name
+                    if not self._listable(child, hidden=True):
+                        continue
+                    at_kind = 'dir' if d.is_dir() else 'file' if d.is_file() else None
+                    if at_kind:
+                        children.append(self._disk_entry(child, at_kind, items, d.stat()))
+            children.sort(key=lambda e: e['path'])
+        return {'entry': entry, 'children': children}
+
+    def _disk_entry(self, rel, kind, items, st=None):
+        """One entry of file_entry, from a stat of `rel` itself (not from the index's last walk)."""
+        st = st if st is not None else os.stat(self.abs(rel))
+        entry = {'path': rel, 'kind': kind, 'mtime': st.st_mtime}
+        if kind == 'file':
+            entry['size'] = st.st_size
+            it = items.get(rel)
+            if it:
+                entry['item'] = {'key': it['key'], 'type': it['type'], 'title': it['title'],
+                                 'status': it['fields'].get('status'), 'rename': self._renames(it['type'])}
+        return entry
 
     SEARCH_MAX = 200     # lines answered, at most
     SEARCH_PER_FILE = 20  # of them from one file
 
     def search_files(self, query):
-        """The lines of the vault's text files that hold `query` (case and accents aside), file by file, as the
-        Explorer lists them (hidden folders out). → {query, results: [{path, line, text}], files, truncated}. A file that
-        is not text (not UTF-8, a NUL in it) or larger than SAVE_MAX is skipped."""
+        """The lines of the vault's text files that hold `query` (case and accents aside), file by file, by path
+        (hidden folders out). → {query, results: [{path, line, text}], files, truncated}. A file that is not text (not
+        UTF-8, a NUL in it) or larger than SAVE_MAX is skipped. Every file of the vault is read: `truncated` says the
+        *answer* was cut at SEARCH_MAX lines, never that part of the vault went unread."""
         q = index_fold(str(query or '').strip())
         if len(q) < 2:
             raise StoreError(400, 'search for 2 characters or more')
         results, files, truncated = [], 0, False
-        for e in self.files()['entries']:
-            if e['kind'] != 'file' or e.get('size', 0) > self.SAVE_MAX:
+        for rel, e in self._walked_files():
+            if e.size > self.SAVE_MAX:
                 continue
-            read = self.index.lines(e['path'])  # read and folded once per version of the file (tm/index.py)
+            read = self.index.lines(rel)  # read and folded once per version of the file (tm/index.py)
             if read is None:
                 continue
             hits = 0
@@ -2975,7 +3042,7 @@ class Store:
                     if len(results) >= self.SEARCH_MAX:
                         truncated = True
                         break
-                    results.append({'path': e['path'], 'line': n, 'text': line.strip()[:300]})
+                    results.append({'path': rel, 'line': n, 'text': line.strip()[:300]})
                     hits += 1
                     if hits >= self.SEARCH_PER_FILE:
                         break
@@ -2995,18 +3062,20 @@ class Store:
         # line by line. A stem with # or | in it cannot be told apart from a heading or an alias that way: every file then.
         wanted = None if ('#' in stem or '|' in stem) else stem.strip().lower()
         out = []
-        for e in self.files()['entries']:
-            if e['kind'] != 'file' or e['path'] == rel or not e['path'].lower().endswith('.md') or e.get('size', 0) > self.SAVE_MAX:
+        # Every Markdown file of the vault, not only the ones one answer of files() carries: a backlink list that
+        # quietly left out the files past a cap looked right and was wrong.
+        for at, e in self._walked_files():
+            if at == rel or not at.lower().endswith('.md') or e.size > self.SAVE_MAX:
                 continue
-            if wanted is not None and wanted not in (self.index.value(e['path'], 'link_keys', link_keys, utf8=True) or ()):
+            if wanted is not None and wanted not in (self.index.value(at, 'link_keys', link_keys, utf8=True) or ()):
                 continue
-            text = self.index.text(e['path'])
+            text = self.index.text(at)
             if text is None:
                 continue
             hits = [(n, line) for n, line in enumerate(text.splitlines(), 1) if link.search(line)]
             if hits:
                 n, line = hits[0]
-                out.append({'path': e['path'], 'line': n, 'text': line.strip()[:300], 'count': len(hits)})
+                out.append({'path': at, 'line': n, 'text': line.strip()[:300], 'count': len(hits)})
         return {'path': rel, 'links': out}
 
     def _renames(self, item_type):

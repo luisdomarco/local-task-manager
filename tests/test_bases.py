@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from tm import agentsmd
 from tm import bases
 from tm.store import Store, StoreError
 
@@ -275,6 +276,63 @@ class Evaluate(unittest.TestCase):
         self.assertTrue(out['errors'] and 'unexpected' in out['errors'][0])
         out = self.run_base('formulas:\n  a: formula.b\n  b: formula.a\nviews:\n  - type: table\n    order: [formula.a]\n')
         self.assertIn('refers to itself', ' '.join(out['errors']))
+
+
+class Describe(unittest.TestCase):
+    """What the vault's guide says a base asks of a note (bases.describe, drawn by tm.agentsmd._needs): a filter and its
+    negation cannot say the same thing. Reading a predicate without the `not` above it said the opposite — the folder a
+    base leaves out was printed as the way in (TSKM SUP-393). The parser and the evaluator always read it right."""
+
+    def described(self, filters):
+        return bases.describe({'filters': filters, 'views': [{'type': 'table', 'name': 'All'}]})
+
+    def cell(self, filters):
+        """The guide's "A note is in it with" cell for a base with these filters."""
+        return agentsmd._needs(self.described(filters))
+
+    def test_a_negated_folder_is_not_a_way_in(self):
+        d = self.described('!file.inFolder("Docs/Templates")')
+        self.assertEqual(d['folders'], [], 'the folder it excludes is not a folder a note must be in')
+        self.assertEqual(d['excludes']['folders'], ['Docs/Templates'])
+
+    def test_a_filter_and_its_negation_are_never_drawn_alike(self):
+        for f in ('file.inFolder("Docs/Templates")', 'file.hasTag("draft")', 'file.hasProperty("status")'):
+            self.assertNotEqual(self.cell(f), self.cell(f'!{f}'), f)
+
+    def test_what_keeps_a_note_out_is_said_so(self):
+        self.assertEqual(self.cell('!file.inFolder("Docs/Templates")'), 'not in `Docs/Templates`')
+        self.assertEqual(self.cell('!file.hasTag("draft")'), 'not `#draft`')
+        self.assertEqual(self.cell('!file.hasProperty("status")'), 'not `status`')
+
+    def test_a_not_group_of_yaml_is_a_negation_too(self):
+        """Obsidian writes "none of the following are true" as a `not:` group (DOCS_EXAMPLE, Base.matches)."""
+        self.assertEqual(self.cell({'not': ['file.inFolder("Docs/Templates")']}), 'not in `Docs/Templates`')
+        self.assertEqual(self.cell({'and': ['file.inFolder("Docs")', {'not': ['file.hasTag("draft")']}]}),
+                         'in `Docs` · not `#draft`')
+
+    def test_a_negation_of_a_negation_is_a_requirement_again(self):
+        self.assertEqual(self.cell('!!file.inFolder("Docs")'), 'in `Docs`')
+        self.assertEqual(self.cell({'not': [{'not': ['file.inFolder("Docs")']}]}), 'in `Docs`')
+
+    def test_a_folder_with_one_subfolder_left_out_says_both(self):
+        self.assertEqual(self.cell({'and': ['file.inFolder("Docs/Systems")', 'type == "system"',
+                                            '!file.inFolder("Docs/Systems/_template")']}),
+                         'in `Docs/Systems` · `type: system` · not in `Docs/Systems/_template`')
+
+    def test_a_value_a_note_must_not_have_is_not_drawn_as_one_it_can(self):
+        self.assertEqual(self.cell('!(status == "Done")'), '`status`', 'the property matters, that value does not let it in')
+        self.assertEqual(self.cell('status != "Done"'), '`status`')  # as it already read before this fix
+
+    def test_a_views_filter_still_asks_nothing_of_a_note(self):
+        d = bases.describe({'filters': 'file.ext == "md"',
+                            'views': [{'type': 'table', 'name': 'All', 'filters': '!file.inFolder("Docs/Templates")'}]})
+        self.assertEqual((d['folders'], d['excludes']['folders']), ([], []), "a view chooses among the base's notes")
+
+    def test_a_base_that_cannot_be_read_has_every_bucket_empty(self):
+        d = bases.describe_empty('views: [')
+        self.assertEqual(d['error'], 'views: [')
+        self.assertEqual(agentsmd._needs(d), 'any file (no filter)')
+        self.assertEqual(sorted(d), sorted(self.described('file.ext == "md"')), 'one shape, whoever builds it')
 
 
 class StoreBases(unittest.TestCase):

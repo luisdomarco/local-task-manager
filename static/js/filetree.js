@@ -23,6 +23,17 @@ export function buildTree(entries) {
   return root;
 }
 
+/** The node of one entry the server answered for a single path (/api/files/entry, Store.file_entry), with `children`
+ *  (its direct entries, for a folder) as buildTree would hold them: what a view draws for a path the loaded list does
+ *  not have. Only one level deep — a folder inside it has no children until it is asked for in its turn. */
+export function nodeOf(entry, children = null) {
+  const named = (e) => ({ ...e, name: e.path.slice(e.path.lastIndexOf('/') + 1) });
+  if (!entry) return null;
+  const node = named(entry);
+  if (node.kind === 'dir') node.children = (children || []).map((e) => (e.kind === 'dir' ? { ...named(e), children: [] } : named(e))).sort(compareEntries);
+  return node;
+}
+
 /** Whether a path is hidden: one of its parts starts with '.' (.obsidian/app.json, Docs/.order). */
 export const isHiddenPath = (path) => String(path || '').split('/').some((p) => p.startsWith('.'));
 

@@ -2277,6 +2277,9 @@ ROUTES = {
     # The vault as a graph: its items and docs, and every link between them (tm/graph.py). The page filters it.
     ('GET', '/api/graph'): lambda s, q, b: s.graph(),
     ('GET', '/api/files'): lambda s, q, b: s.files(hidden=q.get('hidden') == '1'),
+    # One path on its own, from the disk: what an address (#/files/<path>, #/docs/<path>) asks for when the list the
+    # page holds has not caught up with it, or when the vault has more entries than one /api/files answer carries.
+    ('GET', '/api/files/entry'): lambda s, q, b: s.file_entry(q.get('path')),
     ('POST', '/api/files/mkdir'): lambda s, q, b: s.make_folder(b.get('path'), parents=bool(b.get('parents'))),
     ('GET', '/api/docs/roots'): lambda s, q, b: {'containers': s.docs_roots()},
     ('GET', '/api/canvases'): lambda s, q, b: s.canvases(q.get('host')),

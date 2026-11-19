@@ -4,6 +4,16 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A vault of more than 5,000 files no longer loses the rest.** The list the Explorer and Docs draw stopped at 5,000
+  entries, and it stopped *before* sorting, so what went missing was whatever the vault's walk reached last — a whole
+  project's documents, in a vault of 5,700. Those files said *This file is not in the vault any more* when opened,
+  *Search in files* answered *Nothing found* for text that is in them, and *Linked from* left them out with no sign
+  at all. Now nothing caps what is read: a search and a backlink list go through every file of the vault, one answer
+  of the file list carries 20,000 entries (the tail by name, if ever it is more, and both trees say so), and a
+  `#/files/<path>` or `#/docs/<path>` the list does not hold is asked of the server on its own — so a file written in
+  Obsidian a moment ago opens too, before the tree has caught up.
+- **`GET /api/files/entry?path=…`** answers one path: its entry, and a folder's contents one level down.
+
 - **Add item stays clear of the Mac app's window buttons.** In Safari's desktop app (*Add to Dock*), scrolling the
   sidebar slid Add item up under close · minimise · zoom, where a click did not reach it; the band under the buttons
   no longer scrolls. A window opened in full screen also gets that band when it leaves full screen.

@@ -1,10 +1,6 @@
 > [!owner] What this project is
 > One paragraph: what is being built, for whom, and what "production" means here.
 
-## Board
-
-![[{{project}}.base#Open]]
-
 ## Execution order
 
 The order in which approved work runs. Human decision, not computed.
@@ -17,7 +13,7 @@ What the system does today: one spec per capability in this project's `Specs/` f
 requirements (`### Requirement:` with SHALL / MUST, a `#### Scenario:` with WHEN and THEN). A story's Spec delta is
 merged into them when it ships.
 
-- Path: `Specs/` (`living_specs`)
+- Path: `Specs/`
 
 ## Rules for agents working on this project
 

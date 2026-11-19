@@ -8,7 +8,7 @@
 // treepane.js's, as in the Explorer; here each folder also keeps the order its entries are dragged in (.order).
 import { api } from '../api.js';
 import { today } from '../dates.js';
-import { fileTree, loadFiles, onFiles } from '../explorer.js';
+import { fileTree, filesCut, loadFiles, onFiles } from '../explorer.js';
 import { docText, docsGroupOf, docsGroups, docsHref, findNode, pathOfParam } from '../filetree.js';
 import { pref, setPref } from '../prefs.js';
 import { cssWidth, wireResizer } from '../resizer.js';
@@ -60,6 +60,7 @@ function head(g) {
 
 const pane = treePane({
   box: () => panel, tree: fileTree, openKey: 'docs.open', label: 'Docs', rootDrop: false, href: docsHref, current: () => shown, ordered: true,
+  cut: filesCut, // the same list as the Explorer's: it says here too when the vault has more than it carries
   reload: () => load(),
   empty: 'No Docs yet: “+” on a section starts a doc or a folder.',
   sections: (t) => (groups || []).map((g) => ({ id: g.path, path: g.path, head: head(g), node: folded().has(g.path) ? null : findNode(t, g.path) })),

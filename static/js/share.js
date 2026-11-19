@@ -10,11 +10,28 @@
 
 const KEYS = ['share_title', 'share_text', 'share_url', 'share_file', 'share_name'];
 
+export const SUBJECT_MAX = 120; // what the server keeps of a title (tm/structures/ticketing/codec.py safe_title)
+
+/** Text too long for a Subject (past SUBJECT_MAX once its lines are joined): `{ subject, body }` — a Subject from its
+ *  first line with words in it (markup such as ``` or # aside, cut at a word with …), and the whole text, its lines
+ *  kept, for the item's description. null when it fits in a Subject. */
+export function longText(text, max = SUBJECT_MAX) {
+  const all = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (all.replace(/\s+/g, ' ').length <= max) return null;
+  const first = all.split('\n').map((l) => l.replace(/^[\s`#>*_~-]+/, '').replace(/\s+/g, ' ').trim()).find(Boolean) || '';
+  const cut = first.length > 80 ? `${first.slice(0, 80).replace(/\s+\S*$/, '')}…` : first;
+  return { subject: cut, body: all };
+}
+
 /** What was shared, apart: `text`, its title (or its text, or both: "title — text") with its address taken out, and
- *  `url`, its address ('' for none). The capture box writes the text in its Subject and keeps the address as a chip. */
+ *  `url`, its address ('' for none). The capture box writes the text in its Subject and keeps the address as a chip.
+ *  A text too long for a Subject (longText) comes whole as `body`, for the item's description, and its first line (or
+ *  the title) is the Subject. */
 export function shareParts({ title = '', text = '', url = '' } = {}) {
   const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
   const t = clean(title);
+  const long = longText(text);
+  if (long) return { text: t || long.subject, url: clean(url), body: long.body };
   const body = clean(text);
   let u = clean(url);
   const found = !u && body.match(/(?:https?:\/\/|www\.)\S+/i); // Android often puts the address in the text
@@ -32,6 +49,7 @@ export function shareText(shared = {}) {
 }
 
 const partsIn = (q) => shareParts({ title: q.get('share_title'), text: q.get('share_text'), url: q.get('share_url') });
+// (shareText, and sharedIn with it, leave a long text's `body` out: they are the one line the capture box opens with)
 
 /** What `search` (a page address's query) shares as text, or null ('' for a picture alone). */
 export function sharedIn(search) {

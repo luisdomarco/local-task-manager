@@ -1249,12 +1249,24 @@ ROWS_MAX = 5000
 _NAMESPACES = {'file', 'note', 'formula', 'this', 'value', 'index', 'acc'}
 
 
+def describe_empty(error=None):
+    """describe()'s shape with nothing read from a base — what the vault's guide says about one it cannot read
+    (tm/store._bases_info). The shape lives here only, so a new bucket reaches every caller."""
+    return {'views': [], 'properties': {}, 'folders': [], 'tags': [],
+            'excludes': {'folders': [], 'tags': [], 'properties': []},
+            'group_by': [], 'shows': [], 'error': error}
+
+
 def describe(data):
     """What decides which notes a base lists and what it shows, read from its YAML (no vault needed), for the vault's
-    guide (tm/agentsmd.py): {views, properties: {name: [values it is compared with]}, folders, tags, group_by, shows,
-    error}. A filter it cannot read is skipped: this says what a note needs, it does not judge one."""
-    out = {'views': [], 'properties': {}, 'folders': [], 'tags': [], 'group_by': [], 'shows': [], 'error': None}
+    guide (tm/agentsmd.py): {views, properties: {name: [values it is compared with]}, folders, tags,
+    excludes: {folders, tags, properties}, group_by, shows, error}. A filter it cannot read is skipped: this says what a
+    note needs, it does not judge one."""
+    out = describe_empty()
     admits = [True]  # the base's own filters admit a note; a view's only choose among those (no values, no folders)
+    # Inside a negated expression (`!file.inFolder("x")`, a `not:` filter group): what it names keeps a note OUT. The
+    # polarity lives above the predicate, so it is carried down the walk — reading the leaf alone says the opposite.
+    denies = [False]
 
     def add(seq, v):
         if v not in seq:
@@ -1266,7 +1278,7 @@ def describe(data):
                 out['shows'].append(name)
             return
         got = out['properties'].setdefault(name, [])
-        if value is not None and value not in got:
+        if value is not None and not denies[0] and value not in got:
             got.append(value)
 
     def lit(node):
@@ -1285,16 +1297,24 @@ def describe(data):
     def walk(node):
         if not isinstance(node, tuple) or not node:
             return
+        if node[0] == 'not':
+            denies[0] = not denies[0]
+            [walk(part) for part in node[1:] if isinstance(part, tuple)]
+            denies[0] = not denies[0]
+            return
         if node[0] == 'call' and node[1] == ('name', 'file'):
             args = [lit(a) for a in node[3]]
-            if node[2] == 'hasProperty':
+            keeps = out['excludes'] if denies[0] else out  # `!file.inFolder("x")` is not a way in, it is a way out
+            if node[2] == 'hasProperty' and not denies[0]:
                 [prop(str(a)) for a in args if a is not None]
             elif not admits[0]:
                 pass
+            elif node[2] == 'hasProperty':
+                [add(out['excludes']['properties'], str(a)) for a in args if a is not None]
             elif node[2] == 'inFolder':
-                [add(out['folders'], str(a)) for a in args if a is not None]
+                [add(keeps['folders'], str(a)) for a in args if a is not None]
             elif node[2] == 'hasTag':
-                [add(out['tags'], str(a)) for a in args if a is not None]
+                [add(keeps['tags'], str(a)) for a in args if a is not None]
         if node[0] == 'bin' and node[1] in ('==', '!=', '<', '>', '<=', '>='):
             for a, b in ((node[2], node[3]), (node[3], node[2])):
                 if named(a) is not None:
@@ -1319,7 +1339,13 @@ def describe(data):
         elif isinstance(f, list):
             [filters(x) for x in f]
         elif isinstance(f, dict):
-            [filters(x) for x in f.values()]
+            for key, value in f.items():
+                if str(key).strip().lower() == 'not':  # "none of the following are true" (see Base.matches)
+                    denies[0] = not denies[0]
+                    filters(value)
+                    denies[0] = not denies[0]
+                else:
+                    filters(value)
 
     if not isinstance(data, dict):
         out['error'] = 'not a base'

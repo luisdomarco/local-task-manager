@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, noteSection, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
+  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, nodeOf, noteSection, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -24,6 +24,25 @@ describe('filetree', () => {
     assert.equal(findNode(tree, 'Tasks/TSK-1 Primera.md').item.key, 'TSK-1');
     assert.equal(findNode(tree, 'Tasks/nope.md'), null);
     assert.equal(findNode(tree, ''), tree);
+  });
+
+  // One path the server answered for on its own (/api/files/entry): what a view draws for a file the loaded list does
+  // not hold — written outside the app a moment ago, or past the cap of one /api/files answer.
+  it('makes a node of one entry the server answered for, a folder with what it holds', () => {
+    const file = nodeOf({ path: 'Ingles/Docs/English Coach/00 Index.md', kind: 'file', size: 9711, mtime: 1 });
+    assert.equal(file.name, '00 Index.md');
+    assert.equal(file.size, 9711);
+    assert.equal(file.children, undefined); // a file holds nothing: the view reads its text
+    const dir = nodeOf({ path: 'Ingles/Docs', kind: 'dir', mtime: 1 }, [
+      { path: 'Ingles/Docs/zeta.md', kind: 'file', size: 2 },
+      { path: 'Ingles/Docs/English Coach', kind: 'dir' },
+      { path: 'Ingles/Docs/00 Index.md', kind: 'file', size: 1 },
+    ]);
+    assert.equal(dir.name, 'Docs');
+    assert.deepEqual(dir.children.map((c) => c.name), ['00 Index.md', 'English Coach', 'zeta.md']); // compareEntries
+    assert.deepEqual(findNode(dir, 'English Coach').children, []); // one level: asked for in its turn
+    assert.deepEqual(nodeOf({ path: 'P', kind: 'dir' }).children, []);
+    assert.equal(nodeOf(null), null);
   });
 
   it('reads a folder top to bottom: its 00 index file, the folders, then the files, numbers as numbers', () => {

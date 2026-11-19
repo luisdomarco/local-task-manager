@@ -1,6 +1,7 @@
 // Item 10: what another app shares, as the Inbox's capture text (static/js/share.js).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { pendingSharedFiles, sharedFile, sharedIn, shareText, takeShare } from '../../static/js/share.js';
 
 test('title, then the address', () => {
@@ -80,4 +81,32 @@ test('TSK-128: takeShare keeps the share apart for the Inbox', async () => {
     delete globalThis.location;
     delete globalThis.history;
   }
+});
+
+// A text too long for a Subject (the server keeps 120 characters of a title) was cut, and what came after was lost: a
+// log block shared from Claude, an article's paragraph. Now it comes whole as the description.
+test('a long shared text: its first line in the Subject, all of it, lines kept, as the description', async () => {
+  const { longText, shareParts, SUBJECT_MAX } = await import('../../static/js/share.js');
+  assert.equal(longText('short'), null);
+  assert.equal(longText('x'.repeat(SUBJECT_MAX)), null);
+  const block = '```eng-log\n{"date":"2026-11-22","skills":["Speaking"],"minutes":30,"notes":"' + 'y'.repeat(150) + '"}\n```';
+  const long = longText(block);
+  assert.equal(long.subject, 'eng-log', 'markup aside');
+  assert.equal(long.body, block, 'whole, its lines kept');
+  const words = 'word '.repeat(40).trim();
+  assert.equal(longText(words).subject, `${'word '.repeat(16).trim()}…`, 'cut at a word');
+  const p = shareParts({ text: `Read this\n${'z '.repeat(80)}`, url: 'https://x.io/a' });
+  assert.equal(p.text, 'Read this');
+  assert.equal(p.url, 'https://x.io/a');
+  assert.ok(p.body.startsWith('Read this\nz z'));
+  assert.equal(shareParts({ title: 'A page', text: words }).text, 'A page', 'a title wins the Subject');
+  assert.equal(shareParts({ text: 'Two\nlines' }).body, undefined, 'one that fits is one line, as before');
+});
+
+test('the capture box keeps a long paste or share as the description, and sends it', () => {
+  const js = readFileSync(new URL('../../static/js/quickadd.js', import.meta.url), 'utf8');
+  assert.match(js, /const long = longText\(e\.clipboardData\?\.getData\('text\/plain'\) \|\| ''\);/, 'a paste is checked first');
+  assert.match(js, /createItem\(p\.type, p\.title, p\.values, desc \|\| null\)/, 'the description goes with the item');
+  const inbox = readFileSync(new URL('../../static/js/views/inbox.js', import.meta.url), 'utf8');
+  assert.match(inbox, /body: shared\?\.body \|\| ''/, 'a share\'s long text reaches the box');
 });

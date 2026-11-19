@@ -87,6 +87,15 @@ class FormatsTest(GuideBase):
                       '`related_tool` |', text)
         self.assertRegex(text, r'\| `Docs/Links/Broken.base` \| — \| \(cannot be read: .+\) \| — \| — \|')
 
+    def test_a_negated_filter_is_drawn_as_what_keeps_a_note_out(self):
+        os.makedirs(self.path('Docs/Systems'))
+        self.write('Docs/Systems/Systems.base', 'filters:\n  and:\n    - file.inFolder("Docs/Systems")\n'
+                   '    - \'!file.inFolder("Docs/Systems/_template")\'\n'
+                   'views:\n  - type: table\n    name: All\n    order: [file.name]\n')
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('| `Docs/Systems/Systems.base` | All | in `Docs/Systems` · '
+                      'not in `Docs/Systems/_template` | — | — |', text)
+
     def test_architectures_and_entities_come_from_the_structure(self):
         text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
         self.assertIn('## Agentic systems: architectures and entities', text)

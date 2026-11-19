@@ -28,6 +28,10 @@ TEMPLATES = os.path.join(HERE, 'templates')  # a new file's frontmatter, per fil
 # What a new item's body starts as when a vault has not set its own yet (Store.default_text): seeded into the vault once
 # (.task-manager/templates/<type>.md), where Settings → Vaults → Item types edits it. A type with no file starts empty.
 DEFAULT_TEXTS = os.path.join(HERE, 'default_texts')
+# The {{names}} a template or a default text may use: `new_file` fills every one of them, and `fill` leaves anything
+# else exactly as it is. So a name outside this list reaches the vault unsubstituted, as `{{living_specs}}` did in the
+# project notes written before 2026-10-20 (tests/test_project_template.py keeps the shipped texts to this list).
+TEMPLATE_VARIABLES = ('id', 'ref', 'key', 'project', 'title', 'date', 'slug', 'item_ref', 'item_title')
 STATUS_RE = re.compile(r'^\s*\d+\.\s*(.+?)\s*$')
 DATE_PREFIX_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}) (.+)$')
 # A template's link to its project's note, in its body (a plan's "[[00 {{project}}#Rules for agents…]]").

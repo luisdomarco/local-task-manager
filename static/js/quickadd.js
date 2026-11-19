@@ -17,6 +17,7 @@ import { withMic } from './dictation.js';
 import { isPhone, isTouch } from './phone.js';
 import { refOf } from './shownid.js';
 import { siteName } from './sitename.js';
+import { longText } from './share.js';
 
 // '/task' → 'task': each type of the vault's structure brings its own tokens (none for a type that has none).
 let TYPE_TOKENS = {};
@@ -128,8 +129,11 @@ function preview(p, kept = [], drop = () => {}) {
  * picture shared from the iPhone's Photos, fetched from the app).
  * A link pasted or shared never stays in the Subject: it waits as a chip (×: leave it out) and becomes the item's url,
  * and an empty Subject starts with its site's name ("X — ") for the rest to be written after it.
+ * A text too long for a Subject (share.js longText), pasted or shared (`body`), is not cut: it waits whole as a
+ * *Description* chip (×: leave it out) and becomes the item's description, its lines kept; its first line starts the
+ * Subject.
  */
-export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '', links = [], attach = null } = {}) {
+export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onCreated, mic = true, files = false, value = '', links = [], attach = null, body = '' } = {}) {
   const prev = h('div', { class: 'chips qa-preview' });
   const phone = isPhone();
   const hint = placeholder || 'Add a task…  #INI-0001  !high  @today  due:fri  +label  https://…  /note';
@@ -141,6 +145,7 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
   const opening = splitLinks(value);
   const kept = [...new Set([...links.filter(Boolean), ...opening.urls])]; // links kept apart, as chips
   input.value = opening.rest || (kept.length ? linkSubject(kept[0]) : '');
+  let desc = body || ''; // a long text pasted or shared: the description of what Enter creates
   const waiting = []; // files to attach to what Enter creates
   const filesRow = files ? h('div', { class: 'chips qa-files' }) : null;
   const drawFiles = () => filesRow?.replaceChildren(...waiting.map((f, i) => h('span', { class: 'chip qa-file', title: f.name },
@@ -159,14 +164,28 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
     if (!kept.length && input.value === linkSubject(url)) input.value = ''; // the Subject it started, untouched
     refresh();
   };
+  const descChip = () => h('span', { class: 'chip qa-file qa-desc', title: desc.slice(0, 400) },
+    icon('text', 12), h('span', { class: 'qa-file-name' }, `Description · ${desc.length.toLocaleString()} characters`),
+    h('button', { type: 'button', class: 'btn icon qa-file-x', 'aria-label': 'Leave out the description',
+      onclick: () => { desc = ''; refresh(); input.focus(); } }, icon('x', 12)));
   const refresh = () => {
-    prev.replaceChildren(...(input.value.trim() || kept.length ? preview(withKept(parseQuick(input.value, defaults), kept), kept, drop) : []));
+    prev.replaceChildren(...(input.value.trim() || kept.length ? preview(withKept(parseQuick(input.value, defaults), kept), kept, drop) : []),
+      ...(desc ? [descChip()] : []));
   };
   input.addEventListener('input', refresh);
   // Text pasted with a link in it: the link goes to the chips, the rest where the cursor is. A Subject left empty
   // starts with the link's site.
   input.addEventListener('paste', (e) => {
     if (e.clipboardData?.files?.length) return; // a file: the Inbox's own paste (files) takes it
+    const long = longText(e.clipboardData?.getData('text/plain') || '');
+    if (long) { // too long for a Subject: kept whole as the description, its first line in the Subject when empty
+      e.preventDefault();
+      desc = long.body;
+      if (!input.value.trim()) input.value = splitLinks(long.subject).rest;
+      input.setSelectionRange(input.value.length, input.value.length);
+      refresh();
+      return;
+    }
     const { rest, urls } = splitLinks(e.clipboardData?.getData('text/plain') || '');
     if (!urls.length) return;
     e.preventDefault();
@@ -178,14 +197,15 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
   });
   const submit = async () => {
     const text = input.value.trim() || (waiting.length ? waiting[0].name.replace(/\.[^.]+$/, '') : '');
-    const p = withKept(parseQuick(text, defaults), kept);
+    const p = withKept(parseQuick(text || (desc ? 'Pasted text' : ''), defaults), kept);
     if (!p.title && !p.values.url) return; // a link alone has its site's name (withKept); one with none, no subject
     if (p.errors.length) return toast(p.errors[0], true);
     let item;
-    try { item = await createItem(p.type, p.title, p.values); } catch { return; } // already toasted
+    try { item = await createItem(p.type, p.title, p.values, desc || null); } catch { return; } // already toasted
     toast(`Created ${refOf(item)}`);
     input.value = '';
     kept.length = 0;
+    desc = '';
     refresh();
     if (waiting.length) {
       const sent = waiting.splice(0);
@@ -226,7 +246,7 @@ export function quickAddBar(defaults = {}, { placeholder, autofocus = false, onC
       take([...e.dataTransfer.files]);
     });
   }
-  if (value || kept.length) setTimeout(refresh, 0);
+  if (value || kept.length || desc) setTimeout(refresh, 0);
   // Not focused: on a phone that would raise the keyboard over the picture you came to see (autofocus decides).
   if (files && attach) Promise.resolve(attach).then((list) => { if (list?.length) take(list, { focus: false }); });
   return box;

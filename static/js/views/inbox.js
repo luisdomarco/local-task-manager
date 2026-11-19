@@ -53,11 +53,11 @@ function triage(item, rerender) {
 
 export function mount(root) {
   const list = h('div', { class: 'plan-list inbox-list' });
-  const shared = pendingShare(); // its words in the Subject, its address apart as a chip
+  const shared = pendingShare(); // its words in the Subject, its address apart as a chip, a long text as the description
   root.replaceChildren(
     h('header', { class: 'view-head' }, h('h1', {}, 'Inbox')),
     // A link typed or pasted goes in the item's url; a picture pasted, dropped, picked or shared is attached to it.
-    quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: shared?.text || '', links: shared?.url ? [shared.url] : [],
+    quickAddBar({ type: 'inbox' }, { autofocus: true, files: true, value: shared?.text || '', links: shared?.url ? [shared.url] : [], body: shared?.body || '',
       attach: pendingSharedFiles({ onError: (msg) => toast(msg, true) }),
       placeholder: 'Capture anything…  a link, a picture  (/task, /note… to file it straight away)' }),
     list);

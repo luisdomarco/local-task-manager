@@ -141,6 +141,11 @@ PROPS = {
                 P(key=LEGACY_KIND_KEY, label='Kind of its initiatives', kind='readonly',
                   options=[[k.id, k.label] for k in KINDS.values()]),
                 P(key='execution_mode', label='Execution', kind='select', options=_opts(*EXECUTION_MODES)),
+                # How old a verified premise may be before the Backlog→ToDo gate of this project's initiatives asks for
+                # it again (rules.py `_check_premise`; 14 when the note says none). Written by the template since the
+                # structure was born, declared here since TSKM SUP-391: until then nothing could edit it but Obsidian,
+                # because allowed_values() drops a value for a key no type declares.
+                P(key='premise_max_age_days', label='Premise max age (days)', kind='number'),
                 P(key='support_due_days', label='Support due days', kind='map', keys=list(LEVELS), number=True),
                 P(key='repo', label='Repo', kind='text', placeholder='~/github/…'),
                 P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'), *IN_GOAL),
@@ -229,7 +234,7 @@ PROPS = {
 # carried out (execution and git), drawn in its Settings tab after its own; 'settings', a project's settings (a section of the page's own, above its area and
 # objective, its kind, types, execution, support due days and where its code lives). Links go to Relations on their own.
 TABS = {
-    'project': {'settings': (LEGACY_KIND_KEY, 'execution_mode', 'support_due_days', 'repo', 'managed_by'),
+    'project': {'settings': (LEGACY_KIND_KEY, 'execution_mode', 'premise_max_age_days', 'support_due_days', 'repo', 'managed_by'),
                 'hidden': ('project_key',)},  # its key heads its page
     # Its PRD and plan are in their own tabs of its page (what hangs from it), not again in Relations; what it depends
     # on is the "Blocked by" kind of its relations (relations.py).
@@ -255,7 +260,7 @@ DELIVERY_GROUPS = (
 # A project's Settings, the same way: Global (its execution, and the kind its initiatives read when they say none),
 # where its code lives and who works it, then its support due days.
 SETTINGS_GROUPS = (
-    ('Global', 'settings', (LEGACY_KIND_KEY, 'execution_mode')),
+    ('Global', 'settings', (LEGACY_KIND_KEY, 'execution_mode', 'premise_max_age_days')),
     ('Code', 'code', ('repo', 'managed_by')),
     ('Support due days', 'clock', ('support_due_days',)),
 )
