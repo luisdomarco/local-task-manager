@@ -47,13 +47,22 @@ export function startsIn(time, now) {
 
 const nowHM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
-/** What a row or card says of an item, after its subject: its status, its priority (bars and name), how late, its due
- *  day, when it was done. */
-export function planMeta(item, { late = true, due = true, done = true, priority = true, status = true } = {}) {
+/** When an item planned for a day at a time starts, as a row says it: "13:30" today, "Tomorrow 09:00", "Tue 20 · 13:30";
+ *  '' without a time. */
+export function plannedAt(f) {
+  if (!f.plan_day || !f.plan_time) return '';
+  return f.plan_day === today() ? f.plan_time : `${relDay(f.plan_day)} ${f.plan_time}`;
+}
+
+/** What a row or card says of an item, after its subject: its status, its priority (bars and name), the time it is
+ *  planned at, how late, its due day, when it was done. */
+export function planMeta(item, { late = true, due = true, done = true, priority = true, status = true, time = true } = {}) {
   const f = item.fields;
   const out = [];
   if (status && f.status) out.push(statusChip(f.status));
   if (priority && f.priority) out.push(priorityChip(f.priority));
+  const at = time && !isDone(item) ? plannedAt(f) : '';
+  if (at) out.push(h('span', { class: 'plan-at', title: `Planned for ${f.plan_day} at ${f.plan_time}${f.plan_duration ? `, ${f.plan_duration}` : ''}` }, icon('clock', 12), at));
   const l = late && !isDone(item) ? lateBy(f) : null;
   if (l) out.push(h('span', { class: 'late-text', title: `Planned for ${l.since}` }, l.text));
   if (due && f.due && !isDone(item)) {

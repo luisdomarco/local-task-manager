@@ -25,6 +25,7 @@ from . import frontmatter as fm
 from . import graph as tm_graph
 from . import history
 from . import people
+from . import reminders
 from . import versions
 from . import vaultsettings
 from .fsutil import VaultBusy, atomic_write, vault_lock
@@ -228,7 +229,25 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
         if raw and not TIME_RE.match(raw):
             raise StoreError(400, 'duration must be HH:MM (for example 00:45)')
         values['duration'] = normalize_time(raw) if raw else None
-    tracker = structure.external_ref.get('tracker_key')  # the external ticket's tracker (Story, Epic…)
+    if 'plan_time' in values:  # when a task planned for a day starts, HH:MM on a 24 h clock; blank means "any time that day"
+        raw = str(values['plan_time'] if values['plan_time'] is not None else '').strip()
+        m = TIME_RE.match(raw)
+        if raw and not (m and int(m.group(1)) < 24):
+            raise StoreError(400, 'plan_time must be HH:MM, from 00:00 to 23:59 (for example 13:30)')
+        values['plan_time'] = normalize_time(raw) if raw else None
+    if 'plan_duration' in values:  # how long it takes, HH:MM; blank means the vault's default (Settings → Reminders)
+        raw = str(values['plan_duration'] if values['plan_duration'] is not None else '').strip()
+        if raw and not (TIME_RE.match(raw) and normalize_time(raw) != '00:00'):
+            raise StoreError(400, 'plan_duration must be HH:MM, longer than 00:00 (for example 00:45)')
+        values['plan_duration'] = normalize_time(raw) if raw else None
+    if 'reminders' in values:  # before when it starts (tm/reminders.py OFFSETS); none = the vault's default, [] = no reminder
+        try:
+            values['reminders'] = reminders.clean_offsets(values['reminders'])
+        except ValueError as e:
+            raise StoreError(400, str(e)) from None
+    if 'reminder_urgent' in values:  # rings as an alarm; none = the vault's default
+        values['reminder_urgent'] = None if values['reminder_urgent'] in (None, '') else bool(values['reminder_urgent'])
+    tracker =structure.external_ref.get('tracker_key')  # the external ticket's tracker (Story, Epic…)
     for key in ('resolution', 'session_name', 'url_label', 'event_id', 'priority_reason', *([tracker] if tracker else [])):  # free text: blank means "none"
         if key in values:
             values[key] = (str(values[key]).strip() if values[key] is not None else '') or None
@@ -1828,6 +1847,9 @@ class Store:
             # Moving the day resets its Today column: each day starts in Uncategorized (Today's board file).
             if 'plan_day' in values and values['plan_day'] != it['fields'].get('plan_day'):
                 self._unplace('today', it['id'])
+            # A time is a time of its planned day: planned for a week, a month or nothing, it has none.
+            if 'plan_day' in values and not values['plan_day'] and it['fields'].get('plan_time') and 'plan_time' not in values:
+                values['plan_time'] = None
             values['updated_at'] = stamp
             self._remember_people(values)
             self._remember_labels(values.get('labels'))

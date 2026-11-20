@@ -8,7 +8,7 @@ A Ticketing item's frontmatter is not derived from the schema: it is a text file
   in the ones from after 2026-11-07.
 * A key the template writes but no type declares is write-only: `allowed_values` (tm/store.py) drops a value for any
   key outside `Structure.allowed_fields`, so neither the app nor the CLI can ever set it — only Obsidian, by hand.
-  `premise_max_age_days` was one, and the Backlog→ToDo gate reads it (`rules._check_premise`).
+  `premise_max_age_days` was one, and the readiness gate reads it (`rules._check_premise`).
 
 So these tests pin three things: the template writes only keys the type declares, only placeholders `new_file` fills,
 and every path that makes a project (the HTTP route's `Store.create`, `tools/vault.py new`, and

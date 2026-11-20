@@ -141,7 +141,7 @@ PROPS = {
                 P(key=LEGACY_KIND_KEY, label='Kind of its initiatives', kind='readonly',
                   options=[[k.id, k.label] for k in KINDS.values()]),
                 P(key='execution_mode', label='Execution', kind='select', options=_opts(*EXECUTION_MODES)),
-                # How old a verified premise may be before the Backlog→ToDo gate of this project's initiatives asks for
+                # How old a verified premise may be before the readiness gate of this project's initiatives asks for
                 # it again (rules.py `_check_premise`; 14 when the note says none). Written by the template since the
                 # structure was born, declared here since TSKM SUP-391: until then nothing could edit it but Obsidian,
                 # because allowed_values() drops a value for a key no type declares.

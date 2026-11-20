@@ -20,6 +20,7 @@ import sys
 import tempfile
 import traceback
 import uuid
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -28,7 +29,7 @@ import errno
 import queue
 import signal
 
-from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, runchanges, runworktree, schedules, vaultsettings
+from tm import agentfiles, agentlinks, agentruns, agentsmd, attachments, commands, export, journal, reminders, runchanges, runworktree, schedules, vaultsettings
 from tm.launchd import activated_sockets
 from tm.fsutil import atomic_write, download_on_read
 from tm.index import ACTOR as INDEX_ACTOR
@@ -453,16 +454,22 @@ class App:
             if not isinstance(changes['disabled_types'], list):
                 raise StoreError(400, 'disabled_types must be a list of types')
             out['disabled_types'] = check_types_off(vault['name'], vault['structure'], changes['disabled_types'])
+        if 'reminders' in changes:
+            try:
+                out['reminders'] = reminders.clean_settings(changes['reminders'])
+            except ValueError as e:
+                raise StoreError(400, str(e)) from None
         if 'disabled_features' in changes:
             out['disabled_features'] = check_features_off(vault['name'], vault['structure'],
                                                           out.get('disabled_types', vault.get('disabled_types')), changes['disabled_features'])
         elif 'disabled_types' in out:
             check_features_off(vault['name'], vault['structure'], out['disabled_types'], vault.get('disabled_features') or [])
         if not out:
-            raise StoreError(400, 'nothing to save: send disabled_types or disabled_features')
+            raise StoreError(400, 'nothing to save: send disabled_types, disabled_features or reminders')
         saved = self.store_for(vault_id).save_vault_settings(out)
-        self._reload_vault(vault_id)
-        return {'vault': vault_id, 'settings': saved}
+        if set(out) - {'reminders'}:  # what the vault shows changed: opened again; its reminders are read at each look
+            self._reload_vault(vault_id)
+        return {'vault': vault_id, 'settings': saved, 'reminders': reminders.settings_of(saved)}
 
     def _reload_vault(self, vault_id):
         """config.json read again (a vault's settings are part of how it is opened), and that vault's store opened
@@ -487,6 +494,37 @@ class App:
         items = len(store.items())
         files = sum(1 for e in store.index.entries().values() if e.kind == 'file')
         return {'vault': vault_id, 'items': items, 'files': files, 'ms': round((time.perf_counter() - started) * 1000)}
+
+    def reminders_between(self, since, until):
+        """Every open vault's reminders that ring in (since, until], local datetimes, oldest first (tm/reminders.py). A
+        vault whose folder is gone, or that cannot be read now, is left out: the others still ring. So is one that
+        turned Reminders or Notifications off (Settings → Vaults → Features, RINGS_WITH): nothing of it rings, on the
+        Mac or on the iPhone, which schedules what GET /api/reminders lists."""
+        out = []
+        for v in list(self.config['vaults']):
+            try:
+                if not os.path.isdir(resolve_root(v['path'])):
+                    continue
+                store = self.store_for(v['id'])
+                if RINGS_WITH & set(getattr(store, 'features_off', ())):
+                    continue
+                closed = lambda it, st=store: it['fields'].get('status') in st.structure.closed_of(it['type'])  # noqa: E731
+                out += reminders.upcoming(store.items(), reminders.settings_of(store.vault_settings()), since, until,
+                                          closed, vault=v['id'])
+            except Exception:  # noqa: BLE001 — one vault that cannot be read leaves the others ringing
+                continue
+        return sorted(out, key=lambda r: r['at'])
+
+    def reminders_payload(self, hours=None):
+        """GET /api/reminders: what rings from now to `hours` ahead (72 by default, at most two weeks), every vault: the
+        iPhone app hands them to iOS (its Reminders.swift)."""
+        try:
+            span = min(max(float(hours), 1), 14 * 24) if hours not in (None, '') else 72
+        except ValueError:
+            raise StoreError(400, 'hours must be a number') from None
+        now = datetime.now().replace(second=0, microsecond=0)
+        return {'now': now.isoformat(timespec='minutes'), 'hours': span,
+                'reminders': self.reminders_between(now, now + timedelta(hours=span))}
 
     def move_settings_into_vault(self, vault):
         """Once per vault, before serving: the types it turned off move from this device's config.json into the vault,
@@ -1000,10 +1038,29 @@ def open_in_editor(store, path):
     return {'opened': rel, 'app': app}
 
 
+# ── every call to osascript (the folder dialog, the opener probe, a reminder's ring) ────────────────────────────────
+def osascript_cmd(opts, args):
+    """`osascript` with its own flags and script (`opts`), then `args` — vault text it must read as values, never as
+    options.
+
+    Why the `--`: osascript parses its options with BSD getopt, so an *argument* that starts with `-` is read as an
+    option instead of as a value for the script's `on run argv` (or JXA's `run(argv)`). A title of exactly `-e` makes
+    the next argument another `-e`: in AppleScript another line of the same script, and under `-l JavaScript` an
+    expression that is *evaluated* — and JXA reaches ObjC and `doShellScript`. A title is not always written here:
+    the iOS Share extension and the Inbox take a shared page's title, so treat it as text from outside.
+
+    `--` ends the options, and the script does not see it: measured on macOS 26.7 (`argv`'s count is the same with
+    and without it, and a value of `-e` arrives as the string `-e`). Drop this only once osascript stops reading a
+    leading `-` in an argument as an option — not merely because today's values look harmless.
+    """
+    return ['osascript', *opts, '--', *args]
+
+
 # ── a folder chosen in macOS's own dialog (Settings → Vaults, Claude and Agents folders; the Agents "Add folder") ──
 # A page cannot learn a folder's absolute path (a browser's folder picker gives names, never where they are), so the
-# server opens the dialog itself and answers the path. The prompt and the starting folder go in as argv, never
-# inside the script; app.activate() brings the dialog in front of the browser.
+# server opens the dialog itself and answers the path. The prompt and the starting folder go in as argv (through
+# `osascript_cmd`, so neither is read as an option), never inside the script; app.activate() brings the dialog in
+# front of the browser.
 _PICK_FOLDER_JXA = """function run(argv) {
   const app = Application.currentApplication();
   app.includeStandardAdditions = true;
@@ -1033,7 +1090,7 @@ def pick_folder(start='', prompt=''):
     if not _pick_folder_lock.acquire(blocking=False):
         raise StoreError(409, 'a folder dialog is already open: look for it behind this window')
     try:
-        out = subprocess.run(['osascript', '-l', 'JavaScript', '-e', _PICK_FOLDER_JXA, prompt, where],
+        out = subprocess.run(osascript_cmd(['-l', 'JavaScript', '-e', _PICK_FOLDER_JXA], [prompt, where]),
                              capture_output=True, text=True, timeout=PICK_FOLDER_TIMEOUT)
     except subprocess.TimeoutExpired:
         return {'cancelled': True}
@@ -1109,7 +1166,7 @@ def default_app(full):
     if ext and ext in _opener_cache:
         return _opener_cache[ext]
     try:
-        out = subprocess.run(['osascript', '-l', 'JavaScript', '-e', _OPENER_JXA, full],
+        out = subprocess.run(osascript_cmd(['-l', 'JavaScript', '-e', _OPENER_JXA], [full]),
                              capture_output=True, text=True, timeout=10, check=True).stdout.strip()
     except (subprocess.SubprocessError, OSError):
         return None
@@ -1971,15 +2028,111 @@ def tick(now_ms=None):
 
 
 def start_scheduler(every=SCHEDULER_EVERY):
-    """The scheduler's thread (main(); tests call tick themselves)."""
+    """The scheduler's thread (main(); tests call tick and ring_reminders themselves): the agents' schedules, then the
+    reminders due on this Mac."""
     def loop():
         while True:
-            try:
-                tick()
-            except Exception:  # never the end of the scheduler
-                traceback.print_exc()
+            for look in (tick, ring_reminders):
+                try:
+                    look()
+                except Exception:  # never the end of the scheduler
+                    traceback.print_exc()
             time.sleep(every)
     threading.Thread(target=loop, name='agent-schedules', daemon=True).start()
+
+
+# The features a vault's reminders ring with (tm/vaultsettings.py FEATURES): either one off, none of them rings.
+RINGS_WITH = frozenset(('reminders', 'notifications'))
+
+# ── Reminders: ringing them on this Mac (tm/reminders.py; the iPhone app schedules its own from GET /api/reminders) ──
+REMINDERS_FIRED = 'reminders-fired.json'  # what this Mac has rung, {fired: {id: at}}: this device's, never in a vault
+REMINDERS_NEXT = 'reminders-next.json'    # when the next ones ring, {at: [...]}: tools/agents_wake.py starts the app
+NEXT_SPAN = timedelta(days=14)            # how far ahead REMINDERS_NEXT looks
+NEXT_KEPT = 200                           # and how many instants it keeps
+_ring_lock = threading.Lock()
+
+
+def _beside_config(name):
+    return os.path.join(os.path.dirname(CONFIG_PATH), name)
+
+
+def _json_of(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            out = json.load(f)
+        return out if isinstance(out, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_if_changed(path, data):
+    text = json.dumps(data, indent=1) + '\n'
+    try:
+        with open(path, encoding='utf-8') as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    atomic_write(path, text)
+
+
+def ring_reminders(now=None, ring=None):
+    """The reminders' look, after the schedules' (every SCHEDULER_EVERY seconds, and once as the server starts): each
+    reminder of every vault whose instant came, at most reminders.CATCH_UP ago, and that this Mac has not rung yet rings
+    — marked rung first (REMINDERS_FIRED), so one whose ringing fails is never rung twice. Then the instants still to
+    come go to REMINDERS_NEXT, rewritten only when they change. → the reminders rung."""
+    now = now or datetime.now()
+    with _ring_lock:
+        path = _beside_config(REMINDERS_FIRED)
+        kept = _json_of(path).get('fired')
+        kept = kept if isinstance(kept, dict) else {}
+        fired = reminders.prune(kept, now)
+        due = reminders.to_ring(APP.reminders_between(now - reminders.CATCH_UP, now), fired)
+        fired.update({r['id']: r['at'] for r in due})
+        if due or fired != kept:
+            atomic_write(path, json.dumps({'fired': fired}, indent=1) + '\n')
+        ahead = sorted({r['at'] for r in APP.reminders_between(now, now + NEXT_SPAN)})[:NEXT_KEPT]
+        _write_if_changed(_beside_config(REMINDERS_NEXT), {'at': ahead})
+    for r in due:
+        (ring or ring_on_mac)(r, now)
+    return due
+
+
+# AppleScript gets the words as arguments, never inside its text: a title with a quote is just a title — and
+# `osascript_cmd` puts them behind `--`, so one starting with `-` is a title too and not another `-e`.
+_NOTIFY_AS = """on run argv
+  display notification (item 3 of argv) with title (item 1 of argv) subtitle (item 2 of argv) sound name "Glass"
+end run"""
+_ALERT_AS = """on run argv
+  beep 2
+  display alert (item 1 of argv) message (item 2 of argv) as critical buttons {"OK"} default button "OK" giving up after 3600
+end run"""
+
+
+def _osascript(script, args, timeout):
+    """Runs one AppleScript and says in the log when it failed (notifications off for Script Editor, no GUI session)."""
+    try:
+        out = subprocess.run(osascript_cmd(['-e', script], args), capture_output=True, text=True, timeout=timeout)
+        if out.returncode:
+            print(f'reminder: osascript failed: {out.stderr.strip()}', flush=True)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f'reminder: osascript failed: {e}', flush=True)
+
+
+def ring_on_mac(r, now):
+    """Rings one reminder on this Mac, in a thread of its own (an alert waits for its OK): a notification — macOS shows
+    it as Script Editor's —, or for an urgent one an alert that stays until dismissed (an hour at most) with a sound.
+    Nothing off a Mac."""
+    if sys.platform != 'darwin':
+        return
+    title = r['title'] or r['ref'] or 'Reminder'
+    when = reminders.words(datetime.fromisoformat(r['start']), now)
+    if r['urgent']:
+        job = (_ALERT_AS, [title, f"{when}\n{r['ref']}".strip()], 3700)
+    else:
+        job = (_NOTIFY_AS, [title, when, r['ref'] or ''], 30)
+    print(f"reminder: {r['ref'] or r['key']} {r['offset']} ({'urgent' if r['urgent'] else 'notification'}) at {r['at']}", flush=True)
+    threading.Thread(target=_osascript, args=job, name='reminder', daemon=True).start()
 
 
 def open_agent_file(dir_id, name):
@@ -2262,7 +2415,9 @@ ROUTES = {
     ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on')), APP_DIR),
     ('GET', '/api/vault/changes'): lambda s, q, b: vault_changes(s, q),
     ('POST', '/api/vault/reload'): lambda s, q, b: APP.reload_from_disk(s.vault_id),
-    ('GET', '/api/vault/settings'): lambda s, q, b: {'vault': s.vault_id, 'settings': s.vault_settings()},
+    ('GET', '/api/vault/settings'): lambda s, q, b: {'vault': s.vault_id, 'settings': s.vault_settings(),
+                                                     'reminders': reminders.settings_of(s.vault_settings())},
+    ('GET', '/api/reminders'): lambda s, q, b: APP.reminders_payload(q.get('hours')),
     # The body each type starts with in this vault (Settings → Vaults → Item types; the create form fills it in)
     # A type's text, and per initiative kind (`kinds`: [id, label] in order; `kind_texts`: {type: {kind: text}}, '' its type's).
     ('GET', '/api/vault/default-texts'): lambda s, q, b: {'texts': s.default_texts(), 'editable': s.has_default_texts(),
@@ -2478,7 +2633,7 @@ def feature_refused(store, path):
 
 # The routes that are not about one vault: they get no store and need no X-TM-Vault. Everything else does.
 GLOBAL_ROUTES = {
-    ('GET', '/api/config'), ('POST', '/api/config'), ('POST', '/api/vaults/add'),
+    ('GET', '/api/config'), ('GET', '/api/reminders'), ('POST', '/api/config'), ('POST', '/api/vaults/add'),
     ('GET', '/api/term/list'), ('POST', '/api/term/input'), ('POST', '/api/term/resize'), ('POST', '/api/term/close'),
     ('GET', '/api/chat/list'), ('GET', '/api/chat/files'), ('POST', '/api/chat/send'), ('POST', '/api/chat/permission'),
     ('POST', '/api/chat/interrupt'), ('POST', '/api/chat/control'), ('POST', '/api/chat/close'),

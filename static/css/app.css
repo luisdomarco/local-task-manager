@@ -224,6 +224,8 @@ select option { background: var(--background); color: var(--foreground); }
 :where(:root[data-skin="classic"]) .select-btn:disabled { opacity: 1; pointer-events: auto; } /* Basecoat greys a disabled one out; Classic never did */
 /* Nothing picked (its none row: "— none —", "Search an item…"): the placeholder's grey, as an empty input's. */
 .select-btn.is-empty .select-label { color: var(--muted-foreground); }
+/* An item's Reminders (itemform.js reminderControl): what rings may take two lines on a narrow card, never cut. */
+.select-btn.reminders-select { white-space: normal; height: auto; min-height: var(--control-h); }
 /* select(…, { clearable: true }): the × sits inside the button, just left of the chevron. */
 .select-clearable { position: relative; display: inline-flex; max-width: 100%; min-width: 0; }
 .field .select-clearable { width: 100%; }
@@ -2511,6 +2513,8 @@ code.cp-path { font-family: var(--mono); font-size: var(--fs-xs); background: va
 .vault-type input:disabled + * { opacity: .7; }
 .vault-modal .vault-features { display: flex; flex-direction: column; gap: 12px; }
 .vault-modal .vault-features > p { margin: 0; }
+/* Settings → Reminders: its on/off boxes keep their own size (not .field input's 100%). */
+.reminders-settings .toggle input[type=checkbox] { flex: none; width: 18px; height: 18px; margin: 0; }
 .vault-feature-list { display: flex; flex-direction: column; gap: 10px; }
 .vault-feature { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .vault-feature input { flex: none; margin-top: 2px; } /* its own size: Modern's box is drawn, and width:auto collapsed an unticked one */
@@ -3082,6 +3086,9 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .ref-text > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-text > .icon { flex: none; }
 .late-text { color: var(--destructive); }
+/* The time an item planned for a day starts at (planrows.js plannedAt), before how late or its due day. */
+.plan-at { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-foreground); white-space: nowrap; }
+.plan-at > .icon { flex: none; }
 /* Status and priority stay a click away, but framed only on hover or open (as the row cards' selects). */
 @media (hover: hover) {
   .list-main .grid .select-btn:not([aria-expanded="true"]):not(:hover):not(:focus-visible) { border-color: transparent; background-color: transparent; box-shadow: none; background-image: none; }

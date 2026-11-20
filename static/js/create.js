@@ -43,7 +43,7 @@ const BODY_PLACEHOLDER = { activity: 'Paste the email / Slack message / comment 
 // What is worth saying when it is known, not what every new item needs (by field key). Every property is in view; an
 // optional select starts on none (itemform.js propField: b.optional), so the new file keeps its template's value until
 // one is picked.
-const OPTIONAL = new Set(['priority_reason', 'level_reason', 'planned', 'start', 'size', 'regime', 'origin', 'area', 'affected', 'rollback_plan',
+const OPTIONAL = new Set(['priority_reason', 'level_reason', 'planned', 'plan_time', 'plan_duration', 'start', 'size', 'regime', 'origin', 'area', 'affected', 'rollback_plan',
   'written', 'author', 'local_path']);
 
 /**
@@ -59,7 +59,7 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
   const modal = document.getElementById('modal');
   const form = { type, subject: '', status: values.status || defaultOf('status', 'ToDo'), priority: values.priority || defaultOf('priority', 'Normal'), priority_reason: '',
     project: values.project || null, project_key: '',
-    related_to: values.related_to || null, planned: values.plan || null, start: '', due: '', area: '', objective: '', date: today(), time: '', duration: '', attendees: [], labels: [...(values.labels || [])], body: '',
+    related_to: values.related_to || null, planned: values.plan || null, plan_time: '', plan_duration: '', start: '', due: '', area: '', objective: '', date: today(), time: '', duration: '', attendees: [], labels: [...(values.labels || [])], body: '',
     source: values.source || 'Email', from: [], session_name: values.session_name || '',
     [EXTERNAL_REF.id_key]: '', [EXTERNAL_REF.url_key]: '', ...(EXTERNAL_REF.tracker_key ? { [EXTERNAL_REF.tracker_key]: '' } : {}), local_path: '' };
   // The rest of what the caller gives that is a field of the type (the Goals view's "+": its goal and its place among
@@ -138,6 +138,10 @@ export function openCreateModal(type = 'task', values = {}, { onCreated } = {}) 
       }
       if (form.due) v.due = form.due;
       if (form.start && hasField(form.type, 'start')) v.start = form.start;
+      if (v.plan_day && hasField(form.type, 'plan_time')) { // a time and a duration go with a planned day only
+        if (form.plan_time) v.plan_time = form.plan_time;
+        if (form.plan_duration) v.plan_duration = form.plan_duration;
+      }
     } else if (hasField(form.type, 'status')) {
       v.status = statuses.includes(form.status) ? form.status : statuses[0];
     }

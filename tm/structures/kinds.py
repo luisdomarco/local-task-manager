@@ -25,7 +25,7 @@ INITIATIVE_DELIVERY_TYPES = ('story', 'prd', 'plan')
 PROJECT_DELIVERY_TYPES = ('support', 'hotfix')
 # A project's settings that only a project with delivery work has (a branch per story, support tickets with due dates).
 DELIVERY_SETTINGS = ('execution_mode', 'support_due_days', 'repo', 'managed_by')
-# An initiative's readiness for delivery (its gate to ToDo).
+# An initiative's readiness for delivery (its readiness gate: rules.starting_work).
 READINESS = ('size', 'regime', 'premise', 'premise_verified')
 
 

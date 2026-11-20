@@ -13,7 +13,7 @@ Its own folder, so nothing of this checkout is touched: ~/Library/Application Su
 (copied, never linked: work in progress here never reaches the app until --update) and its own config.json, made once
 from this checkout's with its own port (3200, so both can run at once) and never overwritten after. The vaults stay
 where they are: both see the same files. A second LaunchAgent wakes it for the Agents section's scheduled runs
-(tools/agents_wake.py, every 5 minutes, only when one is due). Logs: ~/Library/Logs/TaskManager/.
+and for reminders (tools/agents_wake.py, every 5 minutes, only when one is due). Logs: ~/Library/Logs/TaskManager/.
 """
 import argparse
 import json
@@ -141,8 +141,8 @@ def agent(python, app, logs, home, port=PORT):
 
 
 def wake_agent(python, app, logs):
-    """The second LaunchAgent: every 5 minutes, tools/agents_wake.py looks at the app's schedules and connects to it —
-    starting it — only when one is due (Settings → Agents → Schedules). With none due it does nothing and the app
+    """The second LaunchAgent: every 5 minutes, tools/agents_wake.py looks at the app's schedules and reminders and
+    connects to it — starting it — only when one is due (Settings → Agents → Schedules, an item's Reminders). With none due it does nothing and the app
     stays off."""
     return {
         'Label': WAKE_LABEL,
@@ -250,7 +250,7 @@ def main(argv=None):
     if a.dry_run:
         what = 'update' if a.update else 'uninstall' if a.uninstall else 'install'
         print(f'Would {what}:\n  code    {where["app"]}\n  agent   {where["plist"]} ({LABEL})\n'
-              f'  wake    {where["wake_plist"]} ({WAKE_LABEL}, every 5 min: scheduled agent runs)\n  logs    {where["logs"]}\n'
+              f'  wake    {where["wake_plist"]} ({WAKE_LABEL}, every 5 min: scheduled agent runs, reminders)\n  logs    {where["logs"]}\n'
               f'  python  {python}\n  url     http://localhost:{a.port}')
         return
     run = subprocess.run

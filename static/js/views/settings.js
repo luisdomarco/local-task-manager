@@ -16,7 +16,9 @@ import { saveConfig, state, assignIds, toast } from '../state.js';
 import { CLAUDE_EFFORTS, claudeModelOptions } from '../claude.js';
 import { keyboardPanel } from './keyboard.js';
 import { groupSections } from '../settingsnav.js';
-import { countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select } from '../ui.js';
+import { checkSelect, countOf, emptyLine, foldHead, formActions, h, icon, loadingLine, pageHead, propRow, renderMarkdown, select } from '../ui.js';
+import { OFFSETS, loadDefaults as loadReminderDefaults, offsetsText, setDefaults as setReminderDefaults, sortOffsets } from '../reminders.js';
+import { cleanTime } from '../worktime.js';
 import { vaultId } from '../vault.js';
 import { hasUnsaved } from '../panel.js';
 import { filesUnsaved } from './files.js';
@@ -25,12 +27,12 @@ import { themesPanel } from './themes.js';
 import { vaultsSection } from './vaults.js';
 import { isTouch } from '../phone.js';
 
-const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'Desktop app'], ['documentation', 'Documentation']];
-// The tabs only a computer has (features.js): a phone shows the others. Keyboard only where there is one to speak of:
-// a touch screen (phone.js) leaves it out.
-const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server' };
+const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['reminders', 'Reminders'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'Desktop app'], ['documentation', 'Documentation']];
+// The tabs only a computer has (features.js): a phone shows the others; Reminders goes with the vault's feature
+// (Settings → Vaults → Features). Keyboard only where there is one to speak of: a touch screen (phone.js) leaves it out.
+const TAB_FEATURE = { claude: 'terminal', agents: 'agents', export: 'export', app: 'server', reminders: 'reminders' };
 const tabs = () => ALL_TABS.filter(([key]) => (!TAB_FEATURE[key] || has(TAB_FEATURE[key])) && !(key === 'keyboard' && isTouch()));
-const NAV_ICONS = { vaults: 'folder', statuses: 'checklist', general: 'sliders', maintenance: 'lifebuoy', themes: 'sun', keyboard: 'text',
+const NAV_ICONS = { vaults: 'folder', statuses: 'checklist', reminders: 'clock', general: 'sliders', maintenance: 'lifebuoy', themes: 'sun', keyboard: 'text',
   claude: 'terminal', agents: 'bot', app: 'monitor', export: 'download', documentation: 'book' };
 const PHONE_NAV = '(max-width: 760px)';
 const onPhone = () => typeof matchMedia === 'function' && matchMedia(PHONE_NAV).matches;
@@ -190,6 +192,7 @@ export function mount(root, param) {
   const guideTab = guidePanel();
   const statusesTab = statusPanel();
   const schedTab = schedulesPanel();
+  const remindersTab = remindersPanel();
   let nav = null;
   // Back (or ‹ Settings) changes the address without a new route when it stays on Settings: follow it here. A phone at
   // #/settings goes back to the list; a computer keeps the section it shows.
@@ -333,7 +336,7 @@ export function mount(root, param) {
       ];
       // Every key the app answers, grouped, with a search: the same list as ? anywhere (views/keyboard.js).
       const keyboard = [h('p', { class: 'muted' }, 'Every key the app answers. ', h('kbd', {}, '?'), ' shows this list on any page.'), keyboardPanel().el];
-      const content = { vaults: vaultsTab, general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
+      const content = { vaults: vaultsTab, reminders: [remindersTab.el], general, claude, agents, maintenance, keyboard, export: [exportsTab.el], app: [appTab.el], statuses: [statusesTab.el],
         themes: [themesPanel().el],
         documentation: [guideTab.el] };
       // The address follows the section without a hashchange (settingsNav): a remount would drop what is being typed.
@@ -345,14 +348,59 @@ export function mount(root, param) {
         if (key === 'statuses') statusesTab.load();
         if (key === 'documentation') guideTab.load();
         if (key === 'agents') schedTab.load();
+        if (key === 'reminders') remindersTab.load();
       }));
       if (tab === 'export') exportsTab.load();
       if (tab === 'app') appTab.load();
       if (tab === 'statuses') statusesTab.load();
       if (tab === 'documentation') guideTab.load();
       if (tab === 'agents') schedTab.load();
+      if (tab === 'reminders') remindersTab.load();
     },
   };
+}
+
+// ── Reminders: the vault's defaults (tm/reminders.py), kept in the vault so every device reads them, saved as they change ──
+function remindersPanel() {
+  const el = h('div', {}, loadingLine('Reading…'));
+  let d = null;
+  // `redraw: false` while a menu is still open on the control (the offsets' ticks): drawn again only if the save fails.
+  const save = async (changes, { redraw = true } = {}) => {
+    try {
+      const out = await api.saveVaultSettings({ reminders: { ...d, ...changes } });
+      d = out.reminders;
+      setReminderDefaults(d);
+      toast('Reminders saved');
+      if (redraw) render();
+    } catch (e) { toast(e.message, true); render(); }
+  };
+  const toggle = (checked, text, onchange) => h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked, onchange: (e) => onchange(e.target.checked) }), text);
+  const render = () => {
+    const offsets = checkSelect(OFFSETS.map(([k, , words]) => [k, words]), d.offsets, (picked) => {
+      if (picked.length) save({ offsets: sortOffsets(picked) }, { redraw: false });
+      else { toast('Pick at least one, or turn reminders off', true); render(); }
+    }, { any: 'None', text: (picked) => offsetsText(sortOffsets(picked)), 'aria-label': 'Default reminders', disabled: !d.on });
+    const duration = h('input', { type: 'text', value: d.duration, placeholder: '00:30', inputmode: 'numeric', 'aria-label': 'Default duration' });
+    duration.addEventListener('change', () => {
+      const clean = cleanTime(duration.value.trim()) ?? duration.value.trim();
+      duration.value = clean;
+      if (clean !== d.duration) save({ duration: clean });
+    });
+    const setRow = (label, control, help) => propRow(label, control, { tag: 'div', help });
+    el.replaceChildren(h('section', { class: 'group reminders-settings' },
+      h('header', {}, h('h3', {}, 'Reminders')),
+      h('p', { class: 'muted' }, 'A task planned for a day at a time — or a meeting at its time — rings before it starts: in the iPhone app, and on this Mac. These are the defaults of this vault, kept inside it so every device reads the same. A task with reminders of its own keeps them; one without follows these, even when they change.'),
+      h('div', { class: 'fields prop-rows' },
+        setRow('Remind by default', toggle(d.on, 'On', (v) => save({ on: v })), 'Off: only a task given reminders of its own rings.'),
+        setRow('When', offsets, 'Before its time; several at once.'),
+        setRow('Urgent', toggle(d.urgent, 'Ring as an alarm', (v) => save({ urgent: v })), 'Full screen on the iPhone, even silent or in a Focus; an alert that stays on the Mac.'),
+        setRow('Duration', duration, 'How long a task with a time takes when it does not say.'))));
+  };
+  const load = async () => {
+    try { d = await loadReminderDefaults(true); } catch (e) { el.replaceChildren(h('p', { class: 'muted small' }, e.message)); return; }
+    render();
+  };
+  return { el, load };
 }
 
 // ── Agents → Scheduled runs: every agent's schedules (agentschedules.js), read apart from the save above ──

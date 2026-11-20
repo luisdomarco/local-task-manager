@@ -8,6 +8,7 @@
 // loaded the first time a terminal opens.
 import { api } from './api.js';
 import { chatView, statusLabel, statusTone } from './chat.js';
+import { has } from './features.js';
 import { sessionStatus } from './chat-model.js';
 import { pref, setPref } from './prefs.js';
 import { wireResizer } from './resizer.js';
@@ -376,7 +377,7 @@ function ended(t, code) {
 // ── telling you: a session that needs you, or finished its turn, while you look elsewhere ──
 let asked = false; // the browser's permission to notify: asked once per page, with the first chat
 function askToNotify() {
-  if (asked || typeof Notification === 'undefined' || Notification.permission !== 'default') return;
+  if (asked || !has('notifications') || typeof Notification === 'undefined' || Notification.permission !== 'default') return;
   asked = true;
   Notification.requestPermission().catch(() => {});
 }
@@ -398,12 +399,13 @@ function tell(t, st, prev) {
 
 /** Tells you that `label` (a session, a run) `what` ("needs you", "finished", "failed"): the tab's title says so until
  *  you come back, and a toast with Open while you look at the page, else a notification of the system (if allowed) that
- *  opens it when clicked. `id` keeps one notification per session. Also for the agent runs not in the dock
+ *  opens it when clicked — unless the vault turned Notifications off (Settings → Vaults → Features): then the title
+ *  and the toast only. `id` keeps one notification per session. Also for the agent runs not in the dock
  *  (agentactivity.js). */
 export function notify(label, what, id, open) {
   setAlertTitle(`${label} ${what}`);
   if (!document.hidden) { toast(`Claude · ${label} ${what}`, false, open ? { label: 'Open', run: open } : null); return; }
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!has('notifications') || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   const n = new Notification(`Claude ${what}`, { body: label, tag: `tm-chat-${id}` });
   n.onclick = () => {
     window.focus();

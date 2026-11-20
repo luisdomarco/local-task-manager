@@ -163,12 +163,13 @@
 
   /* ── collections (phase 3): lists, tables, Inbox, boards, planning ── */
   /* A list's row (app.css's two-line row, from 760 on a phone): the subject in full on up to two lines; the box to tick
-     and the status's dot each a finger's target (list.js wraps the box in .pick-hit) */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 44px 36px minmax(0, 1fr); column-gap: 0; min-height: 64px; padding: 8px 4px 8px 0; }
-  /* The tick box and the dot (44px targets) down every line, so neither stretches the first: the subject and the lines
-     under it sit together (no gap), the whole centred in the row. A row is 60px with a one-line subject and one line
-     under it — a list app's row on a phone, not a card — and grows with each line more */
-  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick dot subject" "pick dot meta";
+     a finger's target (list.js wraps the box in .pick-hit), the text right beside it — the status's dot is in the line
+     under the subject (viewmodel.js phoneLines), not a column of its own */
+  .list-main .grid tbody tr:not(.group-head) { grid-template-columns: 44px minmax(0, 1fr); column-gap: 2px; min-height: 64px; padding: 8px 4px 8px 0; }
+  /* The tick box (a 44px target) down every line, so it does not stretch the first: the subject and the lines under it
+     sit together (no gap), the whole centred in the row. A row is 60px with a one-line subject and one line under it —
+     a list app's row on a phone, not a card — and grows with each line more */
+  .list-main .grid tbody tr:not(.group-head) { grid-template-areas: "pick subject" "pick meta";
     align-content: center; row-gap: 1px; min-height: 60px; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) { font-size: var(--fs-base); line-height: 1.3; white-space: normal; }
   .list-main .grid tbody tr:not(.group-head) > td:is(.c-subject, .c-title) .item-link { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: normal; }

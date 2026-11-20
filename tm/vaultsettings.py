@@ -2,7 +2,8 @@
 opens the same folder — the Mac app, the iPhone app over iCloud Drive — sees the same vault. What only one device
 knows (the vault's name in this app, its path here, whether it is the default) stays in that device's config.json.
 
-It holds `disabled_types` (Settings → Vaults → Item types) and `disabled_features` (→ Features: FEATURES below). The
+It holds `disabled_types` (Settings → Vaults → Item types), `disabled_features` (→ Features: FEATURES below) and
+`reminders` (Settings → Reminders: the default every item without reminders of its own follows, tm/reminders.py). The
 file is read on its own, with no Store, because
 config.json is loaded before any store is opened; it is written only through Store.save_vault_settings (the vault's
 lock, atomic)."""
@@ -11,7 +12,7 @@ import os
 
 DIR = '.task-manager'
 FILE = 'settings.json'
-KEYS = ('disabled_types', 'disabled_features')  # what the file may hold; anything else in it is kept as it is, never read
+KEYS = ('disabled_types', 'disabled_features', 'reminders')  # what the file may hold; anything else in it is kept as it is, never read
 
 # What a vault may turn off as a whole (Settings → Vaults → Features): its id (what features.js has() asks), its name,
 # what it hides, and the item types that go with it (turned off with it, as Item types turns them off). With
@@ -36,6 +37,12 @@ FEATURES = (
      'hides': 'the Work log page, an item’s Time tab and the minutes in Today'},
     {'id': 'contacts', 'label': 'Contacts', 'types': (), 'follows_types': False,
      'hides': 'the Contacts page, @ mentions and an item’s watchers (attendees stay, as plain names)'},
+    {'id': 'reminders', 'label': 'Reminders', 'types': (), 'follows_types': False,
+     'hides': 'an item’s Reminders row and Settings → Reminders, and nothing of this vault rings on any device (a '
+              'planned time and duration stay)'},
+    {'id': 'notifications', 'label': 'Notifications', 'types': (), 'follows_types': False,
+     'hides': 'the system’s notifications: no reminder of this vault rings on the Mac or the iPhone, and Claude’s '
+              'sessions and agent runs no longer tell you when you look elsewhere (the toast on the page stays)'},
 )
 FEATURE_IDS = tuple(f['id'] for f in FEATURES)
 

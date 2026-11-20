@@ -285,6 +285,14 @@ of its own.
   `blocksOf` + `breakBlocks` (`PROP_BLOCKS`: priority · dates · labels; the outside ticket last). A prop with `slot:
   'lead'` (an initiative's Kind) is drawn first, a block of its own above the priority (`.prop-lead`), on the card, the
   page and the create form alike; `slot: 'priority'` is the priority's own row.
+- **A planned day's time** (`itemform.js`): under *Planned*, rows that show only while it is a specific day
+  (`isPlannedDay`) — **Time** (`<input type=time>`, as a meeting's), **Duration** (`durationInput`, its placeholder
+  the vault's default) and **Reminders**. They sit in the dates block (`PROP_BLOCKS`), never a block of their own.
+- **Reminders** is `reminderControl(b, timed)`: a `selectButton` (`.reminders-select`, which wraps onto a second line
+  instead of cutting *· Urgent*) whose words are `reminders.js summary` — *Default · 10 min before* while it follows the
+  vault, *None*, *Needs a time* (`is-empty`) without a time — and a `dropdown()` titled *Remind me*: the offsets as
+  `menu-check` rows, *Urgent* below a line, and *Use the default (…)* with the `reset` icon. Settings → Reminders is
+  plain Settings rows (`.reminders-settings`: a checkbox toggle, `checkSelect` for the offsets, the duration field).
 - Section heading over them: small caps grey (*PROPERTIES*), not a bold title.
 - **A note's frontmatter** (Explorer, Docs: `views/files.js` `propRowsOf`) is the same rows, read only, as Obsidian
   draws them: `propRows` (`props.js`) gives each its type — text · list · tags · number · checkbox · date · datetime —
@@ -491,6 +499,9 @@ Properties · Activity · AI Sessions · Relations · Time, last.
   `planCard` shows the status left of the priority too · the move of a carried-over one (→). Consecutive empty days
   are one line (`emptySlot`: *Tue 10 · Wed 11 … Nothing planned*), each day a drop target and a click to open it.
   Closed ones wait behind *N done today · Show*. Week ends with *Next week W47 · 0 planned, 7 days free ›*.
+- **A time** an item is planned at (`plan_time`) shows in `planMeta` after the priority: `.plan-at`, the clock icon and
+  *13:30* (another day's *Tomorrow 13:30*, `plannedAt`), muted, gone once it is done. Rows keep the page's order (Today's
+  is by hand); the time never sorts them.
 - **Boards** are the lists' (`boardOf`) with `planCard` cards (the board card without its id): Week's days (past and
   empty ones folded into strips, today's column wider and scrolled to), Month's horizons, Today's own columns with a
   Meetings column first (folded last on a day with none). A column takes a `lead` (meetings above the cards, not

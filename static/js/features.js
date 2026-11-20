@@ -1,7 +1,7 @@
 // What this page has: what the platform has (server.py features(): every feature on a computer, none of the
 // desktop-only ones on a phone — agents, terminal, canvas, open_in, reveal, export, server) AND what the vault it shows
 // keeps on (Settings → Vaults → Features, tm/vaultsettings.py FEATURES: agents, canvas, inbox, activity, goals, graph,
-// meetings, worklog, contacts — the server sends each vault's `features_off`). A control that needs one carries
+// meetings, worklog, contacts, reminders, notifications — the server sends each vault's `features_off`). A control that needs one carries
 // data-feature="<name>" and app.css hides it while <html data-off> names that feature; a route, a shortcut or a
 // Settings tab asks has() instead. state.js reload() hands each config it loads, and the vault picked, to setFeatures().
 

@@ -9,7 +9,7 @@ from datetime import date
 
 from tm import frontmatter as fm
 from tm.store import Store, StoreError
-from tm.structures.ticketing import specs, wikilinks
+from tm.structures.ticketing import rules, specs, wikilinks
 
 ROOT_FOLDERS = ('Tasks', 'Notes', 'Meetings', 'Inbox', 'Activities', 'Work log')
 
@@ -337,6 +337,27 @@ class RulesTest(TicketingBase):
             self.s.update(story['id'], {'status': 'ToDo'}, by='agent')  # its gate: no scenario, no spec impact
         self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'}, by='owner')['fields']['status'], 'ToDo')
 
+    def test_the_readiness_gate_is_not_walked_around_through_onhold(self):
+        """SUP-392: the gate was written on one edge (Backlog → ToDo), so Backlog → OnHold → InProgress started the
+        work with none of it. It is a condition of the status reached, so every way into work asks for it."""
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})  # product: size, regime, premise, a story
+        self.s.create('story', 'Pay', {'project': 'ECD', 'related_to': ini['id']})
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(ini['id'], {'status': 'ToDo'})
+        self.assertIn('an initiative is ready (ToDo) only with its premise verified', str(cm.exception))
+        held = self.s.update(ini['id'], {'status': 'OnHold', 'on_hold': {'by': 'me', 'why': 'any reason at all'}})
+        self.assertEqual(held['fields']['status'], 'OnHold')  # a pause still asks only for its reason
+        for status in ('InProgress', 'ToDo', 'Review'):  # and every way out of it asks what Backlog → ToDo asks
+            with self.assertRaises(StoreError) as cm:
+                self.s.update(ini['id'], {'status': status})
+            self.assertIn(f'an initiative is ready ({status}) only with its premise verified', str(cm.exception))
+        self.assertEqual(self.s.read(ini['id'])['fields']['status'], 'OnHold')  # refused, and nothing written
+        # The honest path is no harder: once verified and fresh, a pause resumes with no second verification.
+        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123'})
+        self.assertEqual(self.s.update(ini['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
+        self.s.update(ini['id'], {'status': 'OnHold', 'on_hold': {'by': 'me', 'why': 'waiting on CI'}})
+        self.assertEqual(self.s.update(ini['id'], {'status': 'InProgress'})['fields']['status'], 'InProgress')
+
     def test_promote_and_close_with_what_it_became(self):
         sup = self.s.create('support', 'Algo serio', {'project': 'ECD', 'level': 'C1'})
         out = self.s.item_action('promote', sup['id'])
@@ -431,6 +452,19 @@ class RulesTest(TicketingBase):
         self.assertTrue(self.s.check()['ok'], self.s.check())
 
 
+class StartingWorkTest(unittest.TestCase):
+    """The gate's condition on its own (rules.starting_work): which moves begin work and so ask for readiness."""
+
+    def test_every_way_into_work_asks_and_a_status_that_passed_does_not(self):
+        for new in rules.WORK:
+            for old in ('Backlog', 'OnHold', 'Discarded'):
+                self.assertTrue(rules.starting_work(old, new), (old, new))
+            for old in rules.PASSED:  # ToDo, InProgress, Review, Done: it was asked on the way in
+                self.assertFalse(rules.starting_work(old, new), (old, new))
+        for new in ('Backlog', 'OnHold', 'Done', 'Discarded'):  # no work starts there
+            self.assertFalse(rules.starting_work('Backlog', new), new)
+
+
 class StoryTest(TicketingBase):
     """Stories deliver an initiative: it starts with the first, closes with the last, and a serial project counts them."""
 
@@ -493,6 +527,27 @@ class StoryTest(TicketingBase):
         with self.assertRaises(StoreError) as cm:  # …it is ready only once it has one
             self.s.update(loose['id'], {'status': 'ToDo'})
         self.assertIn('only with its initiative', str(cm.exception))
+
+    def test_a_story_does_not_start_under_an_initiative_that_is_only_paused(self):
+        """SUP-392's shape one level down: "its initiative approved" was written as "not Backlog, not Discarded", so
+        moving the initiative to OnHold was enough for its stories to start under one never approved."""
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        story = self.s.create('story', 'Pay', {'project': 'ECD', 'related_to': ini['id'], **READY}, READY_BODY)
+        self.s.update(ini['id'], {'status': 'OnHold', 'on_hold': {'by': 'me', 'why': 'any reason at all'}})
+        with self.assertRaises(StoreError) as cm:
+            self.s.update(story['id'], {'status': 'ToDo'})
+        self.assertIn('a story is ready (ToDo) only with its initiative approved (ECD-INI-001 is in OnHold)', str(cm.exception))
+        self.s.update(story['id'], {'status': 'OnHold', 'on_hold': {'by': 'me', 'why': 'its initiative is paused'}})
+        for status in ('ToDo', 'InProgress'):  # and not out of its own pause either
+            with self.assertRaises(StoreError) as cm:
+                self.s.update(story['id'], {'status': status})
+            self.assertIn(f'a story is ready ({status}) only with its initiative approved', str(cm.exception))
+        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123',
+                                  'status': 'ToDo'})  # approved at last: its story starts
+        self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
+        self.s.update(story['id'], {'status': 'InProgress'})
+        self.s.update(story['id'], {'status': 'OnHold', 'on_hold': {'by': 'me', 'why': 'waiting on review'}})
+        self.assertEqual(self.s.update(story['id'], {'status': 'InProgress'})['fields']['status'], 'InProgress')
 
     def test_the_initiative_follows_its_stories(self):
         ini, (a, b) = self.ready_initiative(stories=2)

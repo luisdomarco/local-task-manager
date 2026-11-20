@@ -4,6 +4,34 @@ All notable changes to this project are written down here. Versions follow [Sema
 
 ## [Unreleased]
 
+- **A task planned for a day can take a time, a duration and reminders.** Under *Planned*, a specific day adds
+  **Time** (when the work starts), **Duration** (30 min unless you say otherwise) and **Reminders**: at the time,
+  10 or 30 minutes, 1 or 2 hours or a day before — any of them —, and **Urgent** to ring as an alarm. Meetings have
+  Reminders too, before their time. Rows on Today and Planning show the time (*🕑 13:30*).
+- **Settings → Reminders**: whether items ring by default, when, whether as an alarm, and the default duration. Kept in
+  the vault, so every device reads the same; an item with no reminders of its own follows them live.
+- **`GET /api/reminders?hours=72`** lists what is due to ring in every vault, for the Mac and the iPhone to ring it.
+- **Reminders ring on the Mac**: a notification, or for an Urgent one an alert that stays until its OK. Once per Mac,
+  within 15 minutes when it was asleep; the installed app is woken for them as for scheduled agent runs.
+- **A title that begins with a dash is a title, not an instruction.** Everything the Mac is handed to ring a reminder,
+  to open the folder dialog or to ask which app opens a file now goes behind a `--`, so a value such as `-e` is read as
+  text and never as another piece of script. An item titled `-e` kept its reminder from ringing at all; a dialog prompt
+  shaped the same way could have run something.
+- **Reminders and Notifications are features a vault can turn off** (Settings → Vaults → Features). Reminders off takes
+  the Reminders row and Settings → Reminders with it; Notifications off keeps them but no system notification comes
+  from the vault — no reminder rings on the Mac or the iPhone, and Claude's sessions and agent runs tell you only on the
+  page.
+
+- **A pause is no longer a way around a readiness gate.** An initiative's gate (its size, regime, a verified premise
+  and at least one story) was asked for on one move only, Backlog → ToDo, so *Backlog → OnHold → In progress* started
+  the work with none of it: an agent put it on hold with any reason at all and resumed it into In progress, premise
+  unverified and no story, and the vault still checked clean. A gate is now a condition of the status reached — ToDo,
+  In progress and Review all ask for it, from Backlog and out of OnHold alike — while a status that already passed it
+  (ToDo or later, Done included) is not asked again, so resuming paused work needs nothing new. The same shape is
+  fixed one level down: *its initiative approved* was written as *not Backlog and not Discarded*, so moving an
+  initiative to OnHold was enough for its stories to start under one that was never approved. As before, the gates
+  bind an agent's change; in the app you move a status anywhere.
+
 - **A vault of more than 5,000 files no longer loses the rest.** The list the Explorer and Docs draw stopped at 5,000
   entries, and it stopped *before* sorting, so what went missing was whatever the vault's walk reached last — a whole
   project's documents, in a vault of 5,700. Those files said *This file is not in the vault any more* when opened,

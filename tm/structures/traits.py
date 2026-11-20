@@ -8,11 +8,12 @@ a type looks and behaves the same in every vault (the field matrix, tools/field_
     discussed   worked on and talked about: comments, Claude sessions (every item but a prompt, which is only read)
     child       hangs from a parent (`related_to`) and, in a structure with projects, lives in one (`project`)
     related     linked to equals (`relations` + `relation_kinds`, tm/structures/relations.py); needs an id
-    work        planned and worked: status, priority, due, Today / Week / Month, watchers, docs
+    work        planned and worked: status, priority, due, Today / Week / Month (a planned day may take a time and a
+                duration, and reminders before it), watchers, docs
     tracked     points at an outside ticket and a local folder (the structure's `external_ref` keys + local_path)
     stateful    a status of its own, not planned (an agent's, an error's, a spec's)
     prioritized a priority without being planned (an agent, an activity)
-    event       happens at a time (a meeting)
+    event       happens at a time (a meeting), with reminders before it
     container   holds work (a project): its key; with `work`, it is planned like what it holds
     spanned     runs from a start to its due (a project, an initiative): a start date, beside Planned and Due
     aimed       has an aim (a project, an initiative): its area and its objective, a section of their own above the
@@ -26,12 +27,12 @@ TRAITS = {
     'discussed': ('session_name', 'comments', 'claude_sessions'),
     'child': ('related_to', 'project'),
     'related': ('relations', 'relation_kinds'),
-    'work': ('status', 'priority', 'priority_reason', 'due', 'plan_week', 'plan_day', 'plan_month', 'today_list', 'plan_order',
-             'week_list', 'week_order', 'completed_at', 'docs', 'watchers'),
+    'work': ('status', 'priority', 'priority_reason', 'due', 'plan_week', 'plan_day', 'plan_time', 'plan_duration', 'plan_month',
+             'reminders', 'reminder_urgent', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'docs', 'watchers'),
     'tracked': ('ticket_id', 'tracker', 'ticket_url', 'local_path'),
     'stateful': ('status',),
     'prioritized': ('priority', 'priority_reason'),
-    'event': ('date', 'time', 'duration', 'attendees', 'event_id'),
+    'event': ('date', 'time', 'duration', 'reminders', 'reminder_urgent', 'attendees', 'event_id'),
     'container': ('project_key',),
     'spanned': ('start',),
     'aimed': ('area', 'objective'),
@@ -79,7 +80,7 @@ OWN = {
 ORDER = ('project_key', 'source', 'from', 'date', 'time', 'duration', 'status', 'priority', 'priority_reason', 'area', 'objective', '__own__',
          'related_to', 'project', 'relations', 'relation_kinds', 'url', 'url_label', 'links', 'archived', 'session_name',
          'sidebar', 'list', 'order', 'ticket_id', 'tracker', 'ticket_url', 'local_path', 'start', 'due', 'plan_week', 'plan_day',
-         'plan_month', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'resolution', 'resolved_at',
+         'plan_time', 'plan_duration', 'plan_month', 'reminders', 'reminder_urgent', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'resolution', 'resolved_at',
          'attendees', 'event_id', 'labels', 'docs', 'watchers', 'comments', 'claude_sessions')
 
 # A key of a folder-per-type file under its first name, read as its new one (and renamed on the next save or by
@@ -95,8 +96,9 @@ SECTIONS = ('Header', 'Properties', 'Settings', 'Settings · Global', 'Settings 
             'Hidden (shown elsewhere)', 'Stored, not shown')
 SECTION_OF = {
     'subject': 'Header', 'id': 'Header',
-    **{k: 'Properties' for k in ('status', 'priority', 'priority_reason', 'start', 'due', 'plan_week', 'plan_day', 'plan_month', 'labels',
-                                 'date', 'time', 'duration', 'attendees', 'source', 'from', 'resolution')},
+    **{k: 'Properties' for k in ('status', 'priority', 'priority_reason', 'start', 'due', 'plan_week', 'plan_day', 'plan_time',
+                                 'plan_duration', 'plan_month', 'reminders', 'reminder_urgent', 'labels', 'date', 'time', 'duration',
+                                 'attendees', 'source', 'from', 'resolution')},
     'area': 'Area and objective', 'objective': 'Area and objective',
     'body': 'Description', 'attachments': 'Attachments',
     **{k: 'Details · Ticket & local' for k in ('ticket_id', 'ticket_url', 'tracker', 'local_path')},

@@ -3,7 +3,7 @@
 
 /** The groups, in order: what the vault holds, how the app looks and is driven, Claude, the app itself. */
 export const NAV_GROUPS = [
-  ['Workspace', ['vaults', 'statuses', 'general', 'maintenance']],
+  ['Workspace', ['vaults', 'statuses', 'reminders', 'general', 'maintenance']],
   ['Appearance', ['themes', 'keyboard']],
   ['Claude & agents', ['claude', 'agents']],
   ['The app', ['app', 'export', 'documentation']],

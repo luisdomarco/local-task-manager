@@ -22,6 +22,11 @@ from .definition import CLOSED, EXECUTION_MODES, LEVELS
 DEFAULT_DUE_DAYS = {'C1': 0, 'C2': 7, 'C3': 30}
 LEVEL_PRIORITY = {'C1': 'P0', 'C2': 'P1', 'C3': 'P2'}  # a promoted support ticket's initiative
 OPEN = ('Backlog', 'ToDo', 'OnHold', 'InProgress', 'Review')
+# A readiness gate is a condition of the status reached, never a property of one edge into it: every way into a status
+# where the work happens asks for it, unless it comes from one that already passed it. So OnHold, which returns to
+# every open status, is no way around the gate, and resuming work after a pause is not asked to verify again.
+WORK = ('ToDo', 'InProgress', 'Review')
+PASSED = frozenset({'ToDo', 'InProgress', 'Review', 'Done'})  # Done is only reached through Review
 WHEN_RE = re.compile(r'^\s*[-*]\s*\*\*WHEN\*\*\s*(.*)$')  # a scenario's "- **WHEN** …" line
 # Allowed moves (09-ciclo-de-vida). OnHold is allowed from any open status (with why), and back to where work
 # can resume; Done → InProgress and Discarded → Backlog reopen.
@@ -229,6 +234,13 @@ def _project_settings(values):
     return values
 
 
+def starting_work(old, new):
+    """Whether this move is the start of work and so asks for the type's readiness: `new` is a status where work
+    happens and `old` is not one that already passed the gate (SUP-392: asking "does it go Backlog → ToDo?" let
+    Backlog → OnHold → InProgress through, since OnHold is a status the gate was never written for)."""
+    return new in WORK and old not in PASSED
+
+
 def _check_transition(store, it, new, f, r):
     t, old = it['type'], it['fields'].get('status') or 'Backlog'
     allowed = TRANSITIONS[t].get(old, set())
@@ -245,22 +257,22 @@ def _check_transition(store, it, new, f, r):
         raise _err('a hotfix needs its rollback plan before work starts')
     if t == 'hotfix' and new == 'Done' and not f.get('postmortem'):
         raise _err('a hotfix closes with its post-mortem: link the error record (Post-mortem)')
-    if t == 'initiative' and old == 'Backlog' and new == 'ToDo':  # what its kind has of it: a simple one, nothing
+    if t == 'initiative' and starting_work(old, new):  # what its kind has of it: a simple one, nothing
         kind = _kind(r, f)
         missing = [key for key in ('size', 'regime') if not kind.hides('initiative', key) and not f.get(key)]
         if kind.delivers and not stories_of(store, it['key']):
             missing.append('at least one story')
         if missing:
-            raise _err(f"an initiative is ready (ToDo) only with {', '.join(missing)}")
+            raise _err(f"an initiative is ready ({new}) only with {', '.join(missing)}")
         if not kind.hides('initiative', 'premise'):
-            _check_premise(f, r)
+            _check_premise(f, r, new)
     if t == 'initiative' and new in ('Review', 'Done'):
         open_ = [s['key'] for s in stories_of(store, it['key']) if s['fields'].get('status') not in CLOSED]
         if open_:
             raise _err(f"an initiative closes with its stories: {', '.join(open_)} still open")
-    if t == 'story' and old == 'Backlog' and new == 'ToDo':
+    if t == 'story' and starting_work(old, new):
         ini = next((i for i in store.items() if i['key'] == f.get('related_to') and i['type'] == 'initiative'), None)
-        _check_story_ready(f, ini, store.read(it['key'])['body'])  # the body as saved: a status changes on its own
+        _check_story_ready(f, ini, store.read(it['key'])['body'], new)  # the body as saved: a status changes on its own
     if new == 'InProgress' and t in SERIAL:
         p = _project(r, f.get('project'))
         if p.get('execution_mode') == 'serial' and delivers(store, r, f.get('project')):
@@ -275,21 +287,22 @@ def stories_of(store, ini_key, items=None):
     return [i for i in (items if items is not None else store.items()) if i['type'] == 'story' and i['fields'].get('related_to') == ini_key]
 
 
-def _check_story_ready(f, ini, body):
-    """Backlog → ToDo of a story: is it ready to be built? `f` is the story's fields as they will be (its own and the
-    change), `ini` its initiative (an item, or None when it hangs from nothing), `body` the story's Markdown text.
+def _check_story_ready(f, ini, body, new='ToDo'):
+    """A story's first move into work (`new`, usually ToDo): is it ready to be built? `f` is the story's fields as they
+    will be (its own and the change), `ini` its initiative (an item, or None when it hangs from nothing), `body` the
+    story's Markdown text.
     Ready: its initiative approved (ToDo or later), at least one acceptance scenario written, its spec impact declared."""
     missing = []
     if not ini:
         missing.append('its initiative')
-    elif ini['fields'].get('status') in ('Backlog', 'Discarded'):
+    elif ini['fields'].get('status') not in PASSED:  # approved is a condition, not "anything but Backlog": OnHold counts
         missing.append(f"its initiative approved ({ini['key']} is in {ini['fields'].get('status')})")
     if not _written_scenarios(body):
         missing.append('a written acceptance scenario (- **WHEN** …)')
     if not str(f.get('spec_impact') or '').strip():
         missing.append('its spec impact (the specs it changes, or "none: <why>")')
     if missing:
-        raise _err(f"a story is ready (ToDo) only with {', '.join(missing)}")
+        raise _err(f"a story is ready ({new}) only with {', '.join(missing)}")
 
 
 def _written_scenarios(body):
@@ -303,9 +316,9 @@ def _written_scenarios(body):
     return [m.group(1) for m in whens if m and m.group(1).strip(' .…<>')]
 
 
-def _check_premise(f, r):
+def _check_premise(f, r, new='ToDo'):
     if f.get('premise') != 'verified':
-        raise _err('an initiative is ready (ToDo) only with its premise verified')
+        raise _err(f'an initiative is ready ({new}) only with its premise verified')
     max_age = _project(r, f.get('project')).get('premise_max_age_days') or 14
     when = str(f.get('premise_verified') or '')[:10]
     try:

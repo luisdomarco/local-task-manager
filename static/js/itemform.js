@@ -32,7 +32,8 @@ import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
 import { has } from './features.js';
 import { allContacts, allLabels, state } from './state.js';
-import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
+import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, selectButton, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
+import { OFFSETS, defaults as reminderDefaults, effective as reminderRings, loadDefaults as loadReminderDefaults, offsetsText, sortOffsets, summary as reminderSummary } from './reminders.js';
 import { refOf } from './shownid.js';
 
 /** What hides a binding's item's fields (Ticketing, rules.js kindFor): an initiative's kind (its own, else its project's
@@ -292,26 +293,32 @@ export function itemFields(b) {
   if (type !== 'prompt' && !aside('session_name')) out.push(propRow('Session', text('session_name', { placeholder: 'Claude session handling this' })));
 
   // When, on one row: Planned (Today / This week / Next week / This month, or a day through the date picker), Start (a
-  // project's) and Due.
+  // project's) and Due. A planned day may take a time (when it starts) and a duration, and then rings before it
+  // (Reminders): rows right under Planned, shown only while it is a day and following it as it changes (the create
+  // form is not drawn again).
+  const dayRows = [];
+  const showDayRows = () => { for (const row of dayRows) row.hidden = !isPlannedDay(b.get('planned')); };
+  if (plannable && hasField(type, 'plan_time')) {
+    const time = h('input', { type: 'time', value: b.get('plan_time') || '', 'data-fk': 'plan_time', 'aria-label': 'Time' });
+    time.addEventListener('change', () => b.set('plan_time', time.value));
+    dayRows.push(propRow('Time', time, { cls: 'plan-time' }),
+      propRow('Duration', durationInput(b, 'plan_duration', reminderDefaults().duration), { cls: 'plan-duration' }));
+    if (hasField(type, 'reminders') && has('reminders') && !b.creating) dayRows.push(propRow('Reminders', reminderControl(b, () => Boolean(b.get('plan_time')))));
+  }
+  const planned = plannable ? propRow('Planned', planControl(() => b.get('planned'), (v) => { b.set('planned', v); showDayRows(); }, { 'data-fk': 'planned' }), { cls: 'plan-field' }) : null;
   const when = [
-    plannable ? propRow('Planned', planControl(() => b.get('planned'), (v) => b.set('planned', v), { 'data-fk': 'planned' }), { cls: 'plan-field' }) : null,
+    planned,
     hasField(type, 'start') ? propRow('Start', date('start')) : null,
     hasField(type, 'due') ? propRow('Due', date('due')) : null,
   ].filter(Boolean);
-  if (when.length && b.propList) out.push(...when); // one row each in the list of properties
-  else if (when.length) out.push(h('div', { class: `field-row${when.length > 2 ? ' cols-3' : ''}` }, when));
+  if (when.length && b.propList) out.push(planned, ...dayRows, ...when.filter((r) => r !== planned)); // one row each in the list of properties
+  else if (when.length) out.push(h('div', { class: `field-row${when.length > 2 ? ' cols-3' : ''}` }, when), ...dayRows);
+  showDayRows();
 
   if (type === 'meeting') {
     dateTime();
-    // How long it lasts, as HH:MM, typed as loosely as a work-log time ("130" → 01:30, a bare "2" is hours); blank is "not known".
-    const duration = h('input', { type: 'text', value: b.get('duration') || '', placeholder: 'HH:MM', inputmode: 'numeric', 'data-fk': 'duration' });
-    duration.addEventListener('change', () => {
-      const v = duration.value.trim();
-      const clean = v ? cleanTime(v) ?? v : ''; // not a time: sent as typed, and the server says why it is refused
-      duration.value = clean;
-      b.set('duration', clean);
-    });
-    out.push(propRow('Duration', duration));
+    out.push(propRow('Duration', durationInput(b, 'duration', 'HH:MM')));
+    if (hasField(type, 'reminders') && has('reminders') && !b.creating) out.push(propRow('Reminders', reminderControl(b, () => Boolean(b.get('date') && b.get('time')))));
     out.push(person('Attendees', 'attendees'));
   }
   out.push(propRow('Labels', labelInput(b.get('labels') || [], (labels) => b.set('labels', labels), { suggest: allLabels }), { tag: 'div', cls: 'span2' }));
@@ -330,9 +337,73 @@ export function itemFields(b) {
   return h('div', { class: 'fields' }, out);
 }
 
+// ── time, duration and reminders ─────────────────────────────────────────────
+
+/** Whether a Planned key is one day (Today, or a day picked in the calendar): only a day takes a time. */
+export const isPlannedDay = (plan) => plan === 'today' || DAY_RE.test(plan || '');
+
+/** How long it lasts, HH:MM, typed as loosely as a work-log time ("130" → 01:30, a bare "2" is hours); blank is the
+ *  placeholder's (a meeting: "not known"; a planned task: the vault's default, Settings → Reminders). */
+function durationInput(b, key, placeholder) {
+  const el = h('input', { type: 'text', value: b.get(key) || '', placeholder, inputmode: 'numeric', 'data-fk': key, 'aria-label': 'Duration' });
+  el.addEventListener('change', () => {
+    const v = el.value.trim();
+    const clean = v ? cleanTime(v) ?? v : ''; // not a time: sent as typed, and the server says why it is refused
+    el.value = clean;
+    b.set(key, clean);
+  });
+  return el;
+}
+
+/**
+ * An item's Reminders (tm/reminders.py): a select-like button saying what rings ("Default · 10 min before", "1 h before ·
+ * Urgent", "None") that opens ticks for the offsets, Urgent, and "Use the default". Ticking makes them the item's own
+ * (`reminders`, `reminder_urgent`); the default is the vault's, Settings → Reminders, and is followed live. `timed()`:
+ * whether it has a time to ring before — without one the button says so and opens nothing.
+ */
+export function reminderControl(b, timed) {
+  const fields = () => ({ reminders: b.get('reminders'), reminder_urgent: b.get('reminder_urgent') });
+  const face = h('span', { class: 'select-label' });
+  const btn = selectButton(face, { class: 'reminders-select', 'data-fk': 'reminders', 'aria-label': 'Reminders' });
+  const label = () => {
+    const on = timed();
+    face.textContent = on ? reminderSummary(fields()) : 'Needs a time';
+    btn.classList.toggle('is-empty', !on);
+    btn.title = on ? '' : 'Reminders ring before its time: give it one first';
+  };
+  label();
+  loadReminderDefaults().then(label); // the vault's default, once read
+  btn.addEventListener('click', () => {
+    if (!timed()) return;
+    const rings = reminderRings(fields());
+    const ticked = new Set(rings.offsets);
+    let urgent = rings.urgent;
+    // One save after another: two at once would race on the same file.
+    const commit = async (pairs) => { for (const [k, v] of pairs) await b.set(k, v); label(); };
+    const own = (withUrgent) => commit([['reminders', sortOffsets([...ticked])], ...(withUrgent ? [['reminder_urgent', urgent]] : [])]);
+    const rows = OFFSETS.map(([k, , words]) => {
+      const box = h('input', { type: 'checkbox', checked: ticked.has(k), onchange: () => {
+        if (box.checked) ticked.add(k); else ticked.delete(k);
+        own(false);
+      } });
+      return h('label', { class: 'menu-item menu-check' }, box, words);
+    });
+    const urgentBox = h('input', { type: 'checkbox', checked: urgent, onchange: () => { urgent = urgentBox.checked; own(true); } });
+    const d = reminderDefaults();
+    const items = [{ heading: 'Remind me' }, ...rows, '-',
+      h('label', { class: 'menu-item menu-check', title: 'Rings as an alarm: full screen on the iPhone, an alert on the Mac' }, urgentBox, 'Urgent')];
+    if (!rings.inherited || (fields().reminder_urgent ?? null) !== null) {
+      items.push('-', { label: `Use the default (${d.on ? offsetsText(sortOffsets(d.offsets)) : 'none'}${d.on && d.urgent ? ' · Urgent' : ''})`, icon: 'reset',
+        onSelect: () => commit([['reminders', null], ['reminder_urgent', null]]) });
+    }
+    dropdown(btn, items, { width: Math.max(btn.offsetWidth, 220) });
+  });
+  return btn;
+}
+
 // The properties in blocks, a line between one and the next: its priority, its dates, its labels (by field key); then its
 // outside ticket and local path, and its watchers. Any other field of its type goes with the one before it.
-export const PROP_BLOCKS = [['priority', 'priority_reason', 'level', 'level_reason'], ['planned', 'start', 'due'], ['labels']];
+export const PROP_BLOCKS = [['priority', 'priority_reason', 'level', 'level_reason'], ['planned', 'plan_time', 'plan_duration', 'reminders', 'start', 'due'], ['labels']];
 
 /** Marks the first row of each block after the first (`prop-break`, app.css draws the line). `rows`: [row, its block number],
  *  in order. */
