@@ -10,7 +10,7 @@ import { fileUrl, api } from '../api.js';
 import { has } from '../features.js';
 import { fileViewer } from '../attachments.js';
 import { dropTarget, fileTree, loadFiles, onFiles } from '../explorer.js';
-import { codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, isBase, isDrawio, linkWikilinks, nodeOf, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
+import { absolutePath, codeLanguage, docsGroupOf, docsGroups, fileKind, itemsLinking, filesHref, findNode, headingIndex, headingOfParam, isBase, isDrawio, linkWikilinks, nodeOf, parseTable, pathOfParam, splitFrontmatter, tableKind, wikiTarget } from '../filetree.js';
 import { highlight } from '../highlight.js';
 import { itemHref, pageHref } from '../links.js';
 import { mdEditor } from '../mdeditor.js';
@@ -98,7 +98,8 @@ function headMenu(node, { url = null } = {}) {
     !isDir && has('open_in') ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
     !isDir && url ? { label: 'Download', icon: 'download', onSelect: download } : null,
     '-',
-    path ? { label: 'Copy path', icon: 'copy', onSelect: () => copy(path, 'Path copied') } : null,
+    path ? { label: 'Copy path', icon: 'copy', title: 'From the vault\'s folder', onSelect: () => copy(path, 'Path copied') } : null,
+    path && root ? { label: 'Copy absolute path', icon: 'copy', title: absolutePath(root, path), onSelect: () => copy(absolutePath(root, path), 'Absolute path copied') } : null,
     !isDir && /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => { const l = `[[${node.name.replace(/\.md$/i, '')}]]`; copy(l, `${l} copied`); } } : null,
     '-',
     { label: wide ? 'Fit to a column' : 'Use the full width', icon: wide ? 'restore' : 'maximize', title: 'Themes → Reading',

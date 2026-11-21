@@ -631,13 +631,31 @@ h3 .count, .h3 .count { margin-left: 8px; }
 .canvas-row:hover { background: var(--sidebar-hover); color: var(--foreground); }
 .canvas-row.active { background: var(--accent); color: var(--foreground); font-weight: 550; }
 .canvas-none { margin: 0; padding: 2px 8px 4px 26px; }
-.canvases-main { min-width: 0; height: calc(100vh - 47px); position: sticky; top: 47px; display: flex; padding: 12px 16px 16px; }
-.canvases-main > .canvas-view { flex: 1; }
+/* The canvas's own room decides its column (a container, not the window: the list can be dragged up to 520 px): under
+   760 px the Shapes · Items column goes above the whiteboard, as on a phone. */
+.canvases-main { min-width: 0; height: calc(100vh - 47px); position: sticky; top: 47px; display: flex; flex-direction: column; padding: 12px 16px 16px; }
+.canvases-board { flex: 1; min-width: 0; min-height: 0; display: flex; container: canvasboard / inline-size; }
+.canvases-board > .canvas-view { flex: 1; }
 .canvases-main > .docs-empty { flex: 1; align-content: start; }
+@container canvasboard (max-width: 760px) {
+  /* .canvases-board before each: the layout's own rules come later in this file */
+  .canvases-board .canvas-view, .canvases-board .canvas-view.side-off { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
+  .canvases-board .canvas-side { max-height: 236px; } /* the tabs, the search and two rows of shapes */
+}
 .canvas-name-fixed { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; font-weight: 600; font-size: var(--fs-sm); }
 .canvas-name-fixed > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A window too narrow for the list beside a canvas (1100 − sidebar − list ≈ 580 px left) shows one at a time, as Docs
+   does on a phone: the list (no canvas picked), or the canvas with "‹ Canvas" over it, the whole height. */
+@media (max-width: 1100px) {
+  .canvases-page { grid-template-columns: minmax(0, 1fr); }
+  .canvases-page .docs-resizer { display: none; }
+  .canvases-page .docs-panel { position: static; height: auto; min-height: calc(100dvh - 47px); border-right: 0; }
+  .canvases-page.has-doc .docs-panel, .canvases-page.no-doc .canvases-main { display: none; }
+  .canvases-page .docs-back { display: inline-flex; }
+  .canvases-main { height: calc(100dvh - 47px); }
+}
 @media (max-width: 760px) {
-  .canvases-main { position: static; height: 75vh; padding: 12px; }
+  .canvases-main { padding: 8px 12px 12px; }
 }
 .docs-head { display: flex; align-items: center; gap: 4px; margin-top: 6px; padding: 0 2px 0 4px; }
 .docs-head:first-child { margin-top: 0; }
@@ -3594,6 +3612,10 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
   .plan-row .plan-meta .pm-status { display: none; }                                  /* no status, the priority's bars only */
   .plan-row .plan-meta .chip.prio { font-size: 0; gap: 0; }
   .plan-sec { padding: 0 4px; }
+  /* A goal's head carries a title, its progress, a count, the priority and two buttons: on a phone they do not fit one
+     row without the title shrinking to a letter or two, so the title takes a row and the rest sits under it. */
+  .goal-block .plan-sec { flex-wrap: wrap; row-gap: 2px; padding-block: 6px; }
+  .goal-block .plan-sec h3 { flex: 1 1 100%; }
   .plan-empty { align-items: flex-start; padding: 8px 4px; }
   .plan-quick { padding-left: 26px; }
 }

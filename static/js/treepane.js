@@ -6,7 +6,7 @@
 // lock, never opened, only Show in Finder and Copy path.
 import { api } from './api.js';
 import { has } from './features.js';
-import { ancestorPaths, dropOrder, fileKind, filesHref, filterTree, findNode, isHiddenPath, orderedChildren, pathOfParam } from './filetree.js';
+import { absolutePath, ancestorPaths, dropOrder, fileKind, filesHref, filterTree, findNode, isHiddenPath, orderedChildren, pathOfParam } from './filetree.js';
 import { pref, setPref } from './prefs.js';
 import { findByPageRef } from './rules.js';
 import { createFile, deletePath, duplicateFile, makeFolder, movePath, renamePath, state, toast, updateItem, uploadFiles } from './state.js';
@@ -247,9 +247,12 @@ export function treePane(cfg) {
     }
     const root = state.vault?.root;
     const isDir = node.kind === 'dir';
-    const copyPath = { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) };
+    const copyPath = { label: 'Copy path', icon: 'copy', title: 'From the vault\'s folder', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) };
+    // The same, as a full path on disk (an item's file too): for a terminal, an editor, another app.
+    const full = absolutePath(root, node.path);
+    const copyFull = full ? { label: 'Copy absolute path', icon: 'copy', title: full, onSelect: () => navigator.clipboard.writeText(full).then(() => toast('Absolute path copied'), () => toast('Could not copy', true)) } : null;
     if (node.sealed) {
-      dropdown(anchor, [root && has('reveal') ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null, copyPath].filter(Boolean), { width: 210 });
+      dropdown(anchor, [root && has('reveal') ? { label: 'Show in Finder', icon: 'external', onSelect: () => api.openPath(`${root}/${node.path}`).catch((e) => toast(e.message, true)) } : null, copyPath, copyFull].filter(Boolean), { width: 210 });
       return;
     }
     const renameLabel = node.item?.rename === 'title' ? 'Rename (its title)' : 'Rename';
@@ -265,6 +268,7 @@ export function treePane(cfg) {
       has('open_in') ? { label: `Open in ${state.config.editor_app || 'Cursor'}`, icon: 'code', onSelect: () => api.openInEditor(node.path).catch((e) => toast(e.message, true)) } : null,
       !isDir && has('open_in') ? { label: 'Open in its app', icon: 'external', onSelect: () => api.openDefault(node.path).then((r) => toast(`Opened in ${r.app}`), (e) => toast(e.message, true)) } : null,
       copyPath,
+      copyFull,
       // A Markdown file, as another note links to it (by its name, as Obsidian resolves it).
       !isDir && /\.md$/i.test(node.name) ? { label: 'Copy [[wikilink]]', icon: 'link', onSelect: () => {
         const link = `[[${node.name.replace(/\.md$/i, '')}]]`;

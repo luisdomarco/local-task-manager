@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, nodeOf, noteSection, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
+  absolutePath, ancestorPaths, buildTree, isHiddenPath, codeLanguage, codeLanguages, compareEntries, fenceLanguage, fileKind, filesHref, filterTree, findNode, headingIndex, headingOfParam, linkWikilinks, nodeOf, noteSection, pathOfParam, relativeTarget, resolveRelative, splitFrontmatter, wikiTarget,
   ZOOM_MAX, ZOOM_MIN, fitScale, zoomScroll, zoomStep, parseTable, tableKind,
 } from '../../static/js/filetree.js';
 
@@ -324,5 +324,17 @@ describe('an embed alone on its line', () => {
       'see <img class="md-embed" src="/raw/Docs/shot.png" alt="shot.png"> here\nnext');
     assert.match(linkWikilinks('![[shot.png]]\n\nnext', pathOf, { src }), />\n\nnext$/);
     assert.match(linkWikilinks('text\n![[shot.png]]', pathOf, { src }), /alt="shot.png">$/);
+  });
+});
+
+describe('absolutePath', () => {
+  it('puts a vault path under the folder of the vault shown', () => {
+    assert.equal(absolutePath('/Users/me/Vaults/Work', 'Docs/Guide.md'), '/Users/me/Vaults/Work/Docs/Guide.md');
+    assert.equal(absolutePath('/Users/me/Vaults/Work/', '/Docs/Guide.md'), '/Users/me/Vaults/Work/Docs/Guide.md');
+  });
+  it('is the folder itself for the vault, and nothing without a folder', () => {
+    assert.equal(absolutePath('/Users/me/Vaults/Work', ''), '/Users/me/Vaults/Work');
+    assert.equal(absolutePath('', 'Docs/Guide.md'), '');
+    assert.equal(absolutePath(undefined, 'Docs/Guide.md'), '');
   });
 });

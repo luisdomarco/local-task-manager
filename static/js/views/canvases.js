@@ -126,16 +126,20 @@ onChange(() => { if (panel) paint(); }); // an item renamed: its section's title
 export function mount(root, param) {
   shown = pathOfParam(param);
   panel = h('nav', { class: 'docs-tree canvases-list', 'aria-label': 'Canvases' });
+  // A window too narrow for the list beside the canvas shows one at a time, as Docs on a phone: the list (no canvas
+  // picked), or the canvas with "‹ Canvas" over it (app.css, ≤1100 px).
+  const back = h('a', { class: 'docs-back', href: '#/canvas' }, icon('back', 16), 'Canvas');
   const main = h('div', { class: 'canvases-main' });
+  const body = (...parts) => main.replaceChildren(back, ...parts);
   const grip = h('div', { class: 'docs-resizer', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Resize the Canvas panel', title: 'Drag to resize · double-click to reset' });
   width.apply();
   wireResizer(grip, { ...width, cls: 'docs-resizing' });
-  root.replaceChildren(h('div', { class: 'docs-page canvases-page' },
+  root.replaceChildren(h('div', { class: `docs-page canvases-page ${shown ? 'has-doc' : 'no-doc'}` },
     h('aside', { class: 'docs-panel', 'aria-label': 'Canvas' }, h('h2', { class: 'docs-panel-title' }, icon('canvas', 16), 'Canvas'), panel),
     grip, main));
   let view = null;
   let gone = false;
-  const empty = (text) => main.replaceChildren(h('div', { class: 'docs-empty' }, emptyState(text),
+  const empty = (text) => body(h('div', { class: 'docs-empty' }, emptyState(text),
     secondaryButton('New canvas', { ico: 'plus', title: 'A whiteboard, saved in Docs/Canvases: it opens in Obsidian\'s Excalidraw too',
       onclick: (e) => create(e.currentTarget, FREE) })));
   load().then(() => {
@@ -143,7 +147,9 @@ export function mount(root, param) {
     const c = shown && all?.canvases.find((x) => x.path === shown);
     if (!c) { empty(shown ? 'That canvas is not there any more: pick one on the left.' : 'Pick a canvas on the left, or start one.'); return; }
     const host = hostOf(c.host);
-    view = mountCanvasView(main, {
+    const host_ = h('div', { class: 'canvases-board' });
+    body(host_);
+    view = mountCanvasView(host_, {
       host: c.host, path: c.path, fixed: true,
       provider: providerOf(host, () => load()), // created, renamed or deleted from its ⋯: the list again
       // Its ⋯ opened another (a new one, a rename) or none (the last deleted): the address follows.

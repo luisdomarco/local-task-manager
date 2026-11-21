@@ -397,6 +397,14 @@ export const filesHref = (path, heading = null) => routeOf('files', path, headin
 /** A doc's address in Docs (views/docs.js): its tree beside it. */
 export const docsHref = (path, heading = null) => routeOf('docs', path, heading);
 /** The path of a #/files/… route's parameter (without its ?heading=). */
+/** A vault path (`Docs/Guide.md`, '' the vault itself) as a full path on disk, under the vault's folder `root`
+ *  (state.vault.root: the vault shown, never the default one). '' when the root is not known. */
+export function absolutePath(root, path) {
+  const base = String(root || '').replace(/\/+$/, '');
+  if (!base) return '';
+  const rel = String(path || '').replace(/^\/+/, '');
+  return rel ? `${base}/${rel}` : base;
+}
 export const pathOfParam = (param) => (param ? param.replace(/\?.*$/, '').split('/').map((p) => { try { return decodeURIComponent(p); } catch { return p; } }).join('/') : '');
 /** The heading a #/files/… route's parameter asks to open at, or null. */
 export function headingOfParam(param) {

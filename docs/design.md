@@ -569,7 +569,10 @@ its type has `start`). The page's box takes the window's height (`board-layout`,
   (`canvas/itemcanvas.js canvasHost`) — and `.canvas-row` links, and on its right the host's layout with
   `{ path, fixed: true }`: the canvas named instead of picked (`.canvas-name-fixed`), the page's list being the picker.
   `onOpen(c)` keeps the address on the canvas shown (a rename, a new one from ⋯); `actions(c, anchor)` adds
-  **Move to an item…** to ⋯ (`itemPicker` over the types with `canvas`, then `api.movePath`).
+  **Move to an item…** to ⋯ (`itemPicker` over the types with `canvas`, then `api.movePath`). Up to 1100 px of
+  window it is one at a time, as Docs on a phone (`.has-doc` / `.no-doc`, `.docs-back` **‹ Canvas**), and the layout
+  sits in `.canvases-board`, a container (`canvasboard`): under 760 px of it the column goes above the whiteboard —
+  the canvas's own width decides, not the window's, since the list can be dragged wider.
 - **The layout**: as a board, it takes the height left (`.canvas-view`, `board-layout` on `#view`). A 220 px column, the
   picker (`select`) and ⋯ on top, then a `.seg` of two tabs, **Shapes** and the provider's label (`canvas.<host>.side`,
   Shapes first), and a ⟨sidebar⟩ button folds it to a 32 px rail (`canvas.<host>.folded`). The whiteboard sits in a soft frame (`--border`, `--radius`). Filter, Display and the chips

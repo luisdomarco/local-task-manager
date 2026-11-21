@@ -15,7 +15,7 @@ import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
 import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
-import { docChoices, docsGroups, docsHref, docsSubtrees, resolveDocs } from './filetree.js';
+import { absolutePath, docChoices, docsGroups, docsHref, docsSubtrees, resolveDocs } from './filetree.js';
 import { treePane } from './treepane.js';
 import { itemHref, opener, pageHref } from './links.js';
 import { mdBlock } from './mdblock.js';
@@ -132,12 +132,14 @@ function aiTab(item) {
   ];
 }
 
-/** Copies the item file's full path on disk (the vault's folder + the item's own path): Copy path, in its ⋯ menu. */
-async function copyPath(item) {
-  const full = `${String(state.config.root_resolved || '').replace(/\/+$/, '')}/${item.path}`;
+/** Copies an item's file path, from the vault's folder (Copy path) or as a full path on disk under the folder of the
+ *  vault shown (Copy absolute path), as the Explorer's ⋯ does: its ⋯ menu, and a row of its Docs tab. */
+async function copyPath(path, { absolute = false } = {}) {
+  const text = absolute ? absolutePath(state.vault?.root, path) : path;
   try {
-    await navigator.clipboard.writeText(full);
-    toast(`Copied ${full}`);
+    if (!text) throw new Error('no path');
+    await navigator.clipboard.writeText(text);
+    toast(absolute ? 'Absolute path copied' : 'Path copied');
   } catch {
     toast('Could not copy the path', true);
   }
@@ -270,7 +272,8 @@ function docsTree(key, paths, { linked = new Map(), unlink = null, open = [] } =
         const link = `[[${node.name.replace(/\.md$/i, '')}]]`;
         navigator.clipboard.writeText(link).then(() => toast(`${link} copied`), () => toast('Could not copy', true));
       } } : null,
-      { label: 'Copy path', icon: 'copy', onSelect: () => navigator.clipboard.writeText(node.path).then(() => toast('Path copied'), () => toast('Could not copy', true)) },
+      { label: 'Copy path', icon: 'copy', title: 'From the vault\'s folder', onSelect: () => copyPath(node.path) },
+      state.vault?.root ? { label: 'Copy absolute path', icon: 'copy', title: absolutePath(state.vault.root, node.path), onSelect: () => copyPath(node.path, { absolute: true }) } : null,
     ],
   });
   pane.render();
@@ -1549,7 +1552,8 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
         pinBtn ? { label: pinBtn.title, icon: 'pin', onSelect: () => pinBtn.click() } : null,
         minBtn ? { label: 'Minimize to the top bar', icon: 'minimize', onSelect: () => minBtn.click() } : null,
         pinBtn || minBtn ? '-' : null,
-        item.path ? { label: 'Copy path', icon: 'copy', title: 'Copy the full path of this item', onSelect: () => copyPath(item) } : null,
+        item.path ? { label: 'Copy path', icon: 'copy', title: 'From the vault\'s folder', onSelect: () => copyPath(item.path) } : null,
+        item.path && state.vault?.root ? { label: 'Copy absolute path', icon: 'copy', title: absolutePath(state.vault.root, item.path), onSelect: () => copyPath(item.path, { absolute: true }) } : null,
         onCard ? expandAction() : null,
         item.path || onCard ? '-' : null,
         { label: f.archived ? 'Unarchive' : 'Archive', icon: 'archive', onSelect: () => setArchived(item, !f.archived).catch(() => {}) },
