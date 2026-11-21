@@ -789,7 +789,8 @@ function boardCard(item, { onOpen, projectName = (k) => k, shows = (k) => CARD_O
   const ref = shows('extref') && EXTERNAL_REF.id_key ? item.fields[EXTERNAL_REF.id_key] : null;
   const piece = {
     status: () => ((status ?? shows('status')) && item.fields.status ? statusChip(item.fields.status) : null),
-    priority: () => (shows('priority') && item.fields.priority ? priorityChip(item.fields.priority) : null),
+    // Not on a phone, where its done box is drawn in its colour (checkbox) and says it.
+    priority: () => (shows('priority') && item.fields.priority && !isPhone() ? priorityChip(item.fields.priority) : null),
     plan: () => (showPlan && shows('plan') && PLANNABLE.has(item.type) && !plan.none ? h('span', { class: plan.late ? 'late-text' : '', title: plan.late ? `Planned ${plan.since}` : null }, plan.text) : null),
     due: () => (shows('due') && item.fields.due ? h('span', { class: isOverdue(item) ? 'late-text' : '', title: `Due ${item.fields.due}` }, `Due ${relDay(item.fields.due)}`) : null),
     meta: () => meta,

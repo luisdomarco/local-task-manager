@@ -1122,7 +1122,10 @@ button.status-select .select-text::before { content: ""; width: 8px; height: 8px
 /* Board lists: only the dot carries the colour, the header stays quiet. */
 .board-col[class*=" s-"] .list-head { padding-left: 10px; margin-bottom: 6px; }
 .check:is(.pr-urgent, .pr-p0) { border-color: var(--pr-ink-1); border-width: 2.5px; }
+/* A tick is drawn in its priority's colour, every level (the same ink as its bars) */
 .check:is(.pr-high, .pr-p1) { border-color: var(--pr-ink-2); }
+.check:is(.pr-normal, .pr-p2) { border-color: var(--pr-ink-3); }
+.check:is(.pr-low, .pr-p3) { border-color: var(--pr-ink-4); }
 
 /* item types: tinted icon, card accent, chip */
 .t-initiative { --t: var(--t-initiative); } .t-task { --t: var(--t-task); } .t-note { --t: var(--t-note); }
@@ -1218,9 +1221,9 @@ button.chip.kind:hover { background: var(--accent); }
 .card-parent .icon { flex: none; }
 
 @media (max-width: 640px), (max-width: 760px) and (pointer: coarse) {
-  /* the card's head on a phone: one row — Pin and Minimize are in its ⋯ (panel.js) */
+  /* the card's head on a phone: one row — Minimize is in its ⋯ (panel.js) */
   #item-modal .im-head { flex-wrap: nowrap; }
-  #item-modal .im-head > .btn.pin, #item-modal .im-head > .btn.minimize { display: none; }
+  #item-modal .im-head > .btn.minimize { display: none; }
   #item-modal .im-head > .im-in { display: none; } /* its parent is in the card itself, under Relations */
   #item-modal .im-head > .mono { white-space: nowrap; flex: none; }
   .create-keys { display: none; } /* keyboard hints: no keyboard to speak of on a phone, and they squeezed the buttons */
@@ -3576,6 +3579,7 @@ button.row-link { border: 0; background: none; font-family: inherit; color: inhe
 .plan-meta.cols { display: grid; grid-template-columns: 96px 56px 84px; justify-content: end; justify-items: start; column-gap: 10px; }
 .plan-meta.cols > span { min-width: 0; max-width: 100%; display: inline-flex; gap: 8px; overflow: hidden; text-overflow: ellipsis; }
 .plan-meta.cols .chip { max-width: 100%; }
+.plan-meta.cols > :is(.pm-plan, .pm-due) { display: none; } /* a phone's two lines (phone.css) */
 .plan-act { display: inline-flex; justify-content: center; }
 .plan-move.btn.icon { width: 28px; height: 28px; color: var(--muted-foreground); }
 .plan-move.btn.icon:hover { color: var(--foreground); }

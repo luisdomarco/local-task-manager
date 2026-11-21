@@ -181,6 +181,11 @@
   .list-main .grid tbody tr:not(.group-head) > td.c-pick { overflow: visible; justify-self: center; justify-content: center; }
   .pick-hit { display: flex; align-items: center; justify-content: center; flex: none; width: var(--tap); height: var(--tap); margin: 0 -12px; cursor: pointer; }
   .pick-hit .row-pick { width: 22px; height: 22px; margin: 0; }
+  /* …drawn in its item's priority colour, as a tick is (list.js; the row shows no priority chip) */
+  .pick-hit .row-pick:is(.pr-urgent, .pr-p0):not(:checked) { border-color: var(--pr-ink-1); border-width: 2.5px; }
+  .pick-hit .row-pick:is(.pr-high, .pr-p1):not(:checked) { border-color: var(--pr-ink-2); }
+  .pick-hit .row-pick:is(.pr-normal, .pr-p2):not(:checked) { border-color: var(--pr-ink-3); }
+  .pick-hit .row-pick:is(.pr-low, .pr-p3):not(:checked) { border-color: var(--pr-ink-4); }
   .list-main tr.group-head > td { height: var(--tap); }
   .group-toggle { height: var(--tap); }
   .group-add { width: var(--tap); height: var(--tap); }
@@ -213,6 +218,13 @@
   .plan-row > .plan-meta { grid-area: meta; justify-content: flex-start; max-width: none; font-size: var(--fs-2xs); }
   .plan-row > .plan-meta.cols { display: flex; gap: 8px; }
   .plan-row > .plan-meta.cols > span:empty { display: none; }
+  /* …its two lines: its status and when it is planned (its time too), then its due day or when it was done. The tick
+     says the priority in its colour, so the bars and the computer's Date column step aside. */
+  .plan-row > .plan-meta.cols { flex-wrap: wrap; row-gap: 2px; column-gap: 12px; }
+  .plan-row > .plan-meta.cols > :is(.pm-prio, .pm-when) { display: none; }
+  .plan-row > .plan-meta.cols > :is(.pm-status, .pm-plan, .pm-due) { display: inline-flex; align-items: center; gap: 4px; }
+  .plan-row > .plan-meta.cols > .pm-due { flex-basis: 100%; }
+  .plan-row > .plan-meta.cols > :is(.pm-status, .pm-plan, .pm-due):empty { display: none; }
   .plan-row > .plan-act { grid-area: act; }
   .plan-row:not(:has(> .plan-act > *)) { grid-template-columns: 32px minmax(0, 1fr); grid-template-areas: "tick subject" "tick meta"; padding-right: 4px; }
   .plan-row:not(:has(> .plan-act > *)) > .plan-act { display: none; }
@@ -323,13 +335,25 @@
   #item-modal:not(.is-prompt) { height: var(--vvh, 100dvh); max-height: none; border: 0; border-radius: 0; box-shadow: none; padding-top: env(safe-area-inset-top); }
   #item-modal .im-body { overscroll-behavior: contain; }
   /* Its head: one row, the type and ref, ⋯ and × always there (panel.js puts its own actions under its title) */
-  #item-modal .im-head { gap: 4px; padding: 4px 4px 4px 12px; }
+  /* An item's page has the same head (panel.js pageLayout: no crumbs), its band out to the screen's edges under the app bar */
+  :is(#item-modal .im-head, .crumbs.page-head) { gap: 4px; padding: 4px 4px 4px 12px; }
+  .crumbs.page-head { margin: -20px -16px 0; min-height: 53px; border-bottom: 1px solid var(--border); background: var(--popover); font-size: var(--fs-base); }
   /* …and a drag down from it closes the card (phone.js swipeDown): the finger's, not a scroll's */
   #item-modal:not(.is-prompt) .im-head { touch-action: none; }
-  #item-modal .im-head > :is(.btn, .chip, .mono) { flex: none; }
-  #item-modal .im-head > .btn.icon { width: var(--tap); height: var(--tap); }
+  :is(#item-modal .im-head, .crumbs.page-head) > :is(.btn, .chip, .mono) { flex: none; }
+  :is(#item-modal .im-head, .crumbs.page-head) > .btn.icon { width: var(--tap); height: var(--tap); }
+  :is(#item-modal .im-head, .crumbs.page-head) > .btn.icon > .icon { width: 20px; height: 20px; } /* ★, Pin, ⋯ and ×: a size a thumb reads */
   #item-modal .im-head > .im-back { flex: 0 1 auto; max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .im-title { flex-wrap: wrap; row-gap: 10px; }
+  .im-title > .type-ico { display: none; } /* the head's type chip says it already: the title takes the width */
+  /* A card's subject and status above Detail | Properties | Activity (itemform.js modalFrame titleOnTop): in sight on every pane */
+  .im-top { flex: none; padding: 12px 16px; background: var(--popover); }
+  /* …and an item's page alike, the same band out to the screen's edges, right on Detail | Properties | Activity */
+  .page:has(> .im-top) { gap: 0; }
+  .page > .im-top { margin: 0 -16px; }
+  .page > .im-top .title-input { line-height: 1.25; }
+  .crumbs.page-head { flex-wrap: nowrap; }
+  .crumbs.page-head > .mono { white-space: nowrap; }
   .im-title-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
   .im-title-acts .btn { min-height: var(--tap); }
   /* The status pill as clear of the subject above it as of the tabs below it (it sat close under the subject with
@@ -342,19 +366,37 @@
   /* Detail | Properties | Activity, and every tab bar inside: a finger's height */
   .pane-switch .seg .btn { height: 40px; }
   :is(#item-modal, .page) :is(.tabs-bar .tab-btn, .tab-btn) { min-height: var(--tap); }
+  /* A card's second row of tabs, Detail's (Overview, Files…) and Activity's (Activity, Relations, Time), drawn alike:
+     16px clear of the pane picker and of the sides, one line under them, each tab as wide as its name */
+  #item-modal .switched > .im-side.tabbed > .tabs-bar { margin: 16px 16px 0; padding: 0; gap: 2px; box-shadow: none; border-bottom: 1px solid var(--border); }
+  #item-modal :is(.item-tabs, .im-side.tabbed) > .tabs-bar > .tab-btn { flex: none; min-width: 0; padding: 0 10px; margin-bottom: -1px; }
   /* Properties: the computer's rows — the name left, its quiet value right — a finger's height each */
   :is(#item-modal, .page) .prop-rows .field { grid-template-columns: 112px minmax(0, 1fr); column-gap: 8px; min-height: var(--tap); padding: 0; }
   /* A label's or a watcher's ×: a bigger target than the chip it sits in, spilling over its edge */
   .x-btn.x-chip { min-width: 32px; min-height: 32px; margin: -8px -8px -8px -4px; opacity: .8; }
   .x-btn.x-row { width: 36px; height: 36px; }
   .label-input input { height: 36px; }
-  /* The description: Copy and Full screen on a row above the box (mdblock.js; a tap on the text edits), Done under it */
-  .body-wrap.in-tab:not(.full) > .body-tabs { position: static; justify-content: flex-end; gap: 4px; margin-bottom: 0; padding: 4px 4px 0; }
+  /* The description in a tab: no row of Copy and Full screen over it — a tap on the text opens it in full screen,
+     ready to edit, where Copy is; Close or Done saves and comes back (mdblock.js startEdit, leaveFull) */
+  .body-wrap.in-tab:not(.full) > .body-tabs { display: none; }
   /* …alike: a finger's height, their icons one size */
   .body-tabs .btn .icon { width: 18px; height: 18px; }
   .body-wrap.in-tab:not(.full) > :is(.md-wrap, .body-empty) { padding-right: 14px; }
   .body-wrap.in-tab:not(.full) > .mde .mde-bar { padding-right: 0; }
   .body-tabs .btn.icon, .body-wrap.in-tab:not(.full) > .body-tabs .btn.icon { width: var(--tap); height: var(--tap); }
+  /* …and in full screen, no box: one row of Copy · Close (the card's title is right behind it, so not repeated), then
+     the text from edge to edge — no frame, no ring, no side margin — and Done under it. A grid, not the computer's
+     column, so Copy (in .body-tabs) and Close (in .body-full-head) share the first row; row 2 is a save conflict's notice */
+  .body-wrap.full { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto;
+    gap: 0; padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+  .body-wrap.full > .body-tabs { grid-area: 1 / 1; justify-content: flex-end; margin: 0; padding: 0; }
+  .body-wrap.full > .body-tabs > h4, .body-full-head h2 { display: none; }
+  .body-wrap.full > .body-full-head { grid-area: 1 / 2; padding: 0 8px 0 4px; }
+  .body-wrap.full > .body-conflict { grid-row: 2; grid-column: 1 / -1; margin: 8px 16px 0; }
+  .body-wrap.full > :is(.mde, .md-wrap, .body-empty) { grid-row: 3; grid-column: 1 / -1; margin-top: 8px;
+    border: 0; border-radius: 0; box-shadow: none; }
+  .body-wrap.full > .md-wrap { padding: 4px 16px; }
+  .body-wrap.full > .body-actions { grid-row: 4; grid-column: 1 / -1; margin-top: 8px; padding: 0 16px; }
   .body-actions { justify-content: flex-end; }
   .body-actions .body-done { min-height: var(--tap); padding: 0 22px; }
   .md-wrap { cursor: auto; }

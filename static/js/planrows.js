@@ -15,7 +15,7 @@ import { pref, setPref } from './prefs.js';
 import { PLANNABLE, isDone, isEnabled, isOverdue } from './rules.js';
 import { state } from './state.js';
 import { checkbox, countOf, h, icon, itemCard, priorityChip, statusChip, typeIcon } from './ui.js';
-import { fresh } from './viewmodel.js';
+import { fresh, plannedFor } from './viewmodel.js';
 
 /** Where an item belongs, for its row or card: its parent (initiative, story…), else its project. */
 function whereOf(item) {
@@ -72,15 +72,22 @@ export function planMeta(item, { late = true, due = true, done = true, priority 
   return out;
 }
 
-/** A row's meta as three columns of fixed width — Status · Priority · Date (how late, its due day, when it was done) —,
- *  each there even when empty, so they line up from row to row as the Overview's work rows do (app.css .plan-meta). */
+/** A row's meta. On a computer, three columns of fixed width — Status · Priority · Date (how late, its due day, when it
+ *  was done) —, each there even when empty, so they line up from row to row as the Overview's work rows do (app.css
+ *  .plan-meta). On a phone (phone.css), the tick's colour says the priority, and the meta is two lines: its status and
+ *  when it is planned (`.pm-plan`), then its due day or when it was done (`.pm-due`). */
 function rowMeta(item) {
   const f = item.fields;
   const when = planMeta(item, { status: false, priority: false });
+  const plan = isDone(item) ? { text: '' } : plannedFor(f);
+  const due = planMeta(item, { status: false, priority: false, late: false, time: false });
   return [
     h('span', { class: 'pm-status' }, f.status ? statusChip(f.status) : null),
     h('span', { class: 'pm-prio' }, f.priority ? priorityChip(f.priority) : null),
     h('span', { class: 'pm-when' }, ...when),
+    h('span', { class: `pm-plan ${plan.late ? 'late-text' : ''}`, title: plan.text ? `Planned: ${plan.text}` : null },
+      ...(plan.text ? [icon(f.plan_time ? 'clock' : 'calendar', 12), plan.text] : [])),
+    h('span', { class: 'pm-due' }, ...due),
   ];
 }
 

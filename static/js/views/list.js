@@ -20,7 +20,7 @@ import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
 import { countOf, cssKey, h, icon, lowerName, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
-import { CUSTOM, cardShows, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
+import { CUSTOM, cardShows, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneExtraOrder, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
 import { addList, boardOf, customColumns, editLists, listHead } from '../boardview.js';
 import { applyOrder, reorderColumns } from '../colorder.js';
@@ -114,7 +114,8 @@ function propPiece(c, i, named) {
  */
 function phoneColumns(cols, stack) {
   const lead = cols.filter((c) => c.key === 'pick' || c.key === 'title' || /^subject/.test(c.key));
-  const rest = cols.filter((c) => !lead.includes(c));
+  // On a phone no priority: the box's colour says it (phone.css .row-pick.pr-*). A narrow computer window keeps it.
+  const rest = cols.filter((c) => !lead.includes(c) && !(c.key === 'priority' && isPhone()));
   const byKey = new Map(rest.map((c) => [c.key, c]));
   const lines = phoneLines(rest.map((c) => c.key));
   const piece = (i, k, named) => propPiece(byKey.get(k), i, named);
@@ -124,7 +125,7 @@ function phoneColumns(cols, stack) {
       const where = lines.where.map((k) => piece(i, k)).find(Boolean);
       const when = lines.when.find((k) => piece(i, k)); // the first date with a value stands beside the priority
       const main = [...lines.main, when].filter(Boolean).map((k) => piece(i, k)).filter(Boolean);
-      const extra = rest.map((c) => c.key).filter((k) => lines.extra.includes(k) || (lines.when.includes(k) && k !== when))
+      const extra = phoneExtraOrder(rest.map((c) => c.key).filter((k) => lines.extra.includes(k) || (lines.when.includes(k) && k !== when)))
         .map((k) => piece(i, k, stack === 'lines')).filter(Boolean);
       return h('div', { class: `pm stack-${stack}` },
         where ? h('div', { class: 'pm-line pm-where' }, where) : null,
@@ -625,7 +626,9 @@ export function listView(type, { page = null } = {}) {
           allBox.indeterminate = picked.size > 0 && picked.size < rows.length;
           const pickCol = { key: 'pick', label: allBox, get: (i) => (picked.has(i.key) ? 0 : 1),
             cell: (i) => {
-              const box = h('input', { type: 'checkbox', class: 'row-pick', checked: picked.has(i.key), 'aria-label': `Select ${refOf(i) || i.title}`,
+              // On a phone the box is drawn in the item's priority colour (phone.css), as a tick is: its priority chip is left out.
+              const prio = isPhone() && hasField(i.type, 'priority') ? ` pr-${cssKey(i.fields.priority || 'Normal')}` : '';
+              const box = h('input', { type: 'checkbox', class: `row-pick${prio}`, checked: picked.has(i.key), 'aria-label': `Select ${refOf(i) || i.title}`,
                 onclick: (e) => e.stopPropagation(), onchange: (e) => tick([i.key], e.target.checked) });
               // A finger's target around the box (phone.css); a tap on it ticks, it never opens the row.
               return isPhone() ? h('label', { class: 'pick-hit', onclick: (e) => e.stopPropagation() }, box) : box;

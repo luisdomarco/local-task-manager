@@ -110,13 +110,17 @@ export function paneSwitch(body, { current = 'main', onPick = () => {} } = {}) {
 /**
  * Header + two columns. Every part is a list of nodes; null entries are skipped. The right column folds (sideFold).
  * With `pane` (an item's card), a narrow screen shows one column at a time, picked under the header (paneSwitch).
+ * `titleOnTop` (a card on a phone): the title row goes above that pick, out of the columns, so the subject and its
+ * status stay in sight whichever pane is shown.
  */
-export function modalFrame({ head = [], title, main = [], side = [], sideClass = '', foot = null, pane = null }) {
+export function modalFrame({ head = [], title, main = [], side = [], sideClass = '', foot = null, pane = null, titleOnTop = false }) {
   const solo = !side.some(Boolean); // nothing for a side column (a prompt): one column, and no button to fold it
-  const body = h('div', { class: `im-body ${solo ? 'solo' : ''}` }, h('div', { class: 'im-main' }, title, ...main));
+  const top = titleOnTop && pane && !solo;
+  const body = h('div', { class: `im-body ${solo ? 'solo' : ''}` }, h('div', { class: 'im-main' }, top ? null : title, ...main));
   if (!solo) body.append(h('aside', { class: `im-side ${sideClass}` }, sideFold(body, MODAL_SIDE_KEY), ...side));
   return [
     h('header', { class: 'im-head' }, ...head.filter(Boolean)),
+    top ? h('div', { class: 'im-top' }, title) : null,
     pane && !solo ? paneSwitch(body, pane) : null,
     body,
     foot ? h('footer', { class: 'im-foot' }, ...foot) : null, // pinned under both columns

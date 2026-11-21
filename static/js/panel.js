@@ -908,6 +908,7 @@ function itemTabs(item, c, { work = [], groups = [] } = {}, current = null, onPi
     settings ? { key: 'settings', label: 'Settings', content: settings } : null,
     // Its attachments and its links, a tab each (the tab names them). Counts as numbers: a 0 shows none, as the side panel's.
     { key: 'files', label: 'Files', count: files, content: h('section', { class: 'files-group' }, attachmentsBody(item)) },
+    isPhone() ? relationsTab(item, c.rerender) : null, // on a phone its Relations are here, not beside Activity
     { key: 'links', label: 'Links', count: linked, content: links(item, c.rerender) },
     docsTab(item, c.rerender), // the docs it links and those that mention it
   ].filter(Boolean).map((t) => ({ ...t, own: true }));
@@ -1194,14 +1195,14 @@ const NARROW = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)
  *   Time · its work log, last
  * On a narrow screen Properties sits under the title instead (app.css), so the first tab there is Activity.
  */
-function sideTabs(item, rerender, current, onPick) {
+function sideTabs(item, rerender, current, onPick, { relations = true } = {}) {
   const f = item.fields;
   // Activity and Time are features a vault may turn off (Settings → Vaults → Features): then they are no tab.
   const tabs = [
     { key: 'properties', label: 'Properties', content: [propertiesSection(item)] },
     has('activity') ? { key: 'activity', label: 'Activity', count: commentCount(item), fill: true, content: activity(item, { heading: false, rerender }) } : null,
     has('terminal') ? { key: 'ai', label: 'AI Sessions', count: (f.claude_sessions || []).length, content: aiTab(item) } : null, // Claude runs in a terminal
-    relationsTab(item, rerender),
+    relations ? relationsTab(item, rerender) : null, // on a phone it is a tab of Detail instead (itemTabs)
     versionsTab(item, rerender), // a definition's (an architecture, an entity): tm/versions.py
     // The time logged on it, last.
     item.id && has('worklog') ? { key: 'details', label: 'Time', content: [workLog(item, rerender)] } : null,
@@ -1544,14 +1545,12 @@ function createEditor({ host, layout, onGone, editorMinHeight = '320px', onTitle
     // Copy path, Expand (on a card, not a prompt's: a page has none), Archive (and a note's Convert to doc…), Delete.
     more.addEventListener('click', () => {
       const onCard = modal().contains(more) && !modal().classList.contains('is-prompt'); // the card, not a page
-      // On a phone the head keeps Claude, ⋯ and × only: Pin and Minimize move in here.
+      // On a phone the head keeps Claude, ★, Pin, ⋯ and ×: Minimize moves in here.
       const phone = typeof matchMedia === 'function' && matchMedia(PHONE).matches;
-      const pinBtn = phone ? more.parentElement?.querySelector('.btn.pin') : null;
       const minBtn = phone ? more.parentElement?.querySelector('.btn.minimize') : null;
       dropdown(more, [
-        pinBtn ? { label: pinBtn.title, icon: 'pin', onSelect: () => pinBtn.click() } : null,
         minBtn ? { label: 'Minimize to the top bar', icon: 'minimize', onSelect: () => minBtn.click() } : null,
-        pinBtn || minBtn ? '-' : null,
+        minBtn ? '-' : null,
         item.path ? { label: 'Copy path', icon: 'copy', title: 'From the vault\'s folder', onSelect: () => copyPath(item.path) } : null,
         item.path && state.vault?.root ? { label: 'Copy absolute path', icon: 'copy', title: absolutePath(state.vault.root, item.path), onSelect: () => copyPath(item.path, { absolute: true }) } : null,
         onCard ? expandAction() : null,
@@ -1718,11 +1717,11 @@ function modalLayout(item, c) {
       // An inbox item's Convert to and an activity's Mark resolved first, then Claude, left of the rest (on the page too,
       // with the Favourites star right after Claude).
       // On a phone they go under the title instead (own).
-      phone ? null : item.type === 'inbox' ? convertButton(item) : resolveButton(item), c.claude, ...(phone ? [] : ticketActions(item)), c.pin, c.minimize, c.more,
+      phone ? null : item.type === 'inbox' ? convertButton(item) : resolveButton(item), c.claude, ...(phone ? [c.sidebar] : ticketActions(item)), c.pin, c.minimize, c.more,
       h('button', { class: 'btn icon im-close', title: 'Close (Esc)', onclick: closeItem }, icon('x', 16)),
     ],
     title: modalTitle(item.type, c.subject, item.type === 'prompt' ? null
-      : phone ? h('div', { class: 'im-title-acts' }, statusSelect(editBinding(item)), ...own())
+      : phone ? titleActs(statusSelect(editBinding(item)), ...own())
         : statusSelect(editBinding(item))),
     main: [
       // A prompt keeps its few fields here (it has no side column); everything else has them at the top of its side.
@@ -1734,8 +1733,9 @@ function modalLayout(item, c) {
     ],
     sideClass: 'tabbed',
     // A prompt has no links, work or comments: one column.
-    side: item.type === 'prompt' ? [] : sideTabs(item, c.rerender, sideTab, (key) => { sideTab = key; }),
+    side: item.type === 'prompt' ? [] : sideTabs(item, c.rerender, sideTab, (key) => { sideTab = key; }, { relations: !phone }),
     pane: { current: cardPane, onPick: (value) => { cardPane = value; } },
+    titleOnTop: phone, // its subject and status above Detail | Properties | Activity
   });
 }
 
@@ -1892,6 +1892,13 @@ const SIDE_KEY = 'tm.iniSidePanel'; // its side panel folded or not: one choice 
  * two panels. Left, everything about the item and a table of each kind that hangs from it; right, the same tabbed
  * panel as its card (sideTabs), which can be folded away. Same blocks, same components as the card.
  */
+/** On a phone, what sits under an item's subject (its status, an inbox item's Convert to…), or null when it has
+ *  none: a type with no status leaves no empty row above Detail | Properties | Activity. */
+function titleActs(...parts) {
+  const shown = parts.flat().filter(Boolean);
+  return shown.length ? h('div', { class: 'im-title-acts' }, ...shown) : null;
+}
+
 function pageLayout(item, c, rerender) {
   const f = item.fields;
   const def = TYPE_DEFS[item.type] || {};
@@ -1899,10 +1906,13 @@ function pageLayout(item, c, rerender) {
   const project = hasProject(item.type) ? projectOf(item, state.all) : null;
   const up = parent || project; // where the crumbs lead: its parent, else the project it lives in
   const body = h('div', { class: 'page-body' });
-  const crumbs = h('nav', { class: 'crumbs' },
-    h('a', { href: `#/${def.route || 'today'}` }, def.plural || item.type),
-    up ? [icon('right', 13), h('a', { href: itemHref(up) }, up.title)] : null,
-    icon('right', 13),
+  const phone = isPhone();
+  // On a phone its head is a card's: its type and id, then its actions (no crumbs: the sidebar and Back lead back).
+  const crumbs = h('nav', { class: `crumbs ${phone ? 'page-head' : ''}` },
+    ...(phone ? [h('span', { class: `chip t-${item.type}` }, typeIcon(item.type, 12), def.label || item.type)] : [
+      h('a', { href: `#/${def.route || 'today'}` }, def.plural || item.type),
+      up ? [icon('right', 13), h('a', { href: itemHref(up) }, up.title)] : null,
+      icon('right', 13)]),
     h('span', { class: 'mono' }, refOf(item) || pageRef(item) || 'no id'),
     versionChip(item, rerender),
     f.archived ? h('span', { class: 'chip warn' }, 'archived') : null,
@@ -1913,18 +1923,21 @@ function pageLayout(item, c, rerender) {
   // issues in tabs of their groups (Initiatives, Issues, Briefs, Records), its work and records in Overview under its description (splitChildren). Every other link
   // (sub-initiatives, its PRD, its plan…) lives in the Relations tab of the side panel.
   const kids = splitChildren(pageTables(item, rerender), { flat: item.type === 'goal' });
+  // On a phone its title is a card's (modalTitle, titleActs): one look for the top of every item.
+  const title = phone ? modalTitle(item.type, c.subject, titleActs(statusSelect(editBinding(item))))
+    : h('div', { class: 'page-title' }, c.subject, statusSelect(editBinding(item)));
   const main = [
-    h('div', { class: 'page-title' }, c.subject, statusSelect(editBinding(item))), // its properties are in the side column
+    phone ? null : title, // its properties are in the side column; on a phone it is above Detail | Properties | Activity
     archNotice(item), // an architecture's AP-1, or a harness that usually comes out as another one
     propertiesSection(item, { inline: true }), // …or here, on a narrow screen
     itemTabs(item, c, kids, pageMainTab, (k) => { pageMainTab = k; }), // its own sections in one tab bar, its children among them
     c.foot,
   ];
-  const side = sideTabs(item, rerender, pageTab, (key) => { pageTab = key; });
+  const side = sideTabs(item, rerender, pageTab, (key) => { pageTab = key; }, { relations: !isPhone() });
   body.append(h('div', { class: 'page-main' }, ...main), h('aside', { class: 'page-side im-side tabbed' }, sideFold(body, SIDE_KEY), ...[side].flat()));
   // Narrow: Detail | Activity under the crumbs, one column at a time (as on its card)
   const pane = paneSwitch(body, { current: pagePane, onPick: (value) => { pagePane = value; document.getElementById('main')?.scrollTo?.(0, 0); } }); // the page scrolls, not its body
-  return [crumbs, pane, body];
+  return [crumbs, phone ? h('div', { class: 'im-top' }, title) : null, pane, body].filter(Boolean);
 }
 
 /** An editor that renders an item as a full page inside `container`. */

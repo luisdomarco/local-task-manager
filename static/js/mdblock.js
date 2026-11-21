@@ -109,6 +109,12 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
     if (focus) (el.querySelector('textarea') || el.querySelector(on ? '.body-full-close' : '.full-btn'))?.focus({ preventScroll: true });
   };
 
+  // Close: on a phone, where the text is only edited in full screen, it is Done as well — saved, back to reading.
+  const leaveFull = () => {
+    if (!(editing && isPhone())) { setFull(false); return; }
+    blk.flush().then((ok) => { if (ok) { editing = false; setFull(false, false); blk.render(); } });
+  };
+
   const setStatus = (text) => { const s = el.querySelector('.unsaved'); if (s) s.textContent = text; };
   const blk = {
     el,
@@ -165,6 +171,8 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
       // the pointer. Without it (an empty block) the editor opens at the top.
       const startEdit = (at = null) => {
         editing = true;
+        // On a phone the text is only edited in full screen: the tap that opens the editor opens that too.
+        if (isPhone()) setFull(true, false);
         blk.render();
         if (!mde) return;
         // The click's offset is in the text as saved; the editor counts a CRLF line break as one character.
@@ -224,7 +232,7 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
         h('button', { class: 'btn icon full-btn', title: 'Full screen', onmousedown: (e) => e.preventDefault(), onclick: () => setFull(true) }, icon('maximize', 14)));
       // Shown only in full screen (CSS): the item's title and the way back.
       const fullHead = h('div', { class: 'body-full-head' }, h('h2', {}, cfg.title || cfg.label),
-        h('button', { class: 'btn ghost body-full-close', title: 'Exit full screen (Esc)', onmousedown: (e) => e.preventDefault(), onclick: () => setFull(false) },
+        h('button', { class: 'btn ghost body-full-close', title: 'Exit full screen (Esc)', onmousedown: (e) => e.preventDefault(), onclick: () => leaveFull() },
           'Close', icon('restore', 14)));
       if (!open) { el.replaceChildren(fullHead, toggle); return; }
       let content;
@@ -248,7 +256,8 @@ export function mdBlock({ fk, minHeight, write, fetchTheirs = null, heading = nu
           if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'Enter')) { e.preventDefault(); done(); }
         });
         // Everything typed is already saved (or about to be): leaving saves what is pending and closes the editor.
-        const done = () => blk.flush().then((ok) => { if (ok) { editing = false; blk.render(); } });
+        // On a phone, where editing is full screen only, leaving the editor leaves full screen too.
+        const done = () => blk.flush().then((ok) => { if (ok) { editing = false; if (isPhone()) setFull(false, false); blk.render(); } });
         // A press outside the block (not in full screen, where the block is all there is) saves and leaves the
         // editor, back to the text as it reads. A save that needs a choice (changed on disk) keeps it open.
         watchOutside((e) => {

@@ -279,9 +279,13 @@ export function phoneLines(keys) {
   const where = WHERE_KEYS.filter((k) => keys.includes(k));
   const main = ['status', 'priority'].filter((k) => keys.includes(k));
   const when = WHEN_KEYS.filter((k) => keys.includes(k));
-  const extra = keys.filter((k) => !where.includes(k) && !main.includes(k) && !when.includes(k));
+  const extra = phoneExtraOrder(keys.filter((k) => !where.includes(k) && !main.includes(k) && !when.includes(k)));
   return { where, main, when, extra };
 }
+
+/** A phone row's last line (`keys`) in the one order of every list (columnOrder): its other dates, a type's own, progress,
+ *  labels, where it comes from, then Created and Updated — whatever order its list's columns came in. */
+export const phoneExtraOrder = (keys) => columnOrder(keys.map((key) => ({ key }))).map((c) => c.key);
 /** The dates that may stand beside the priority, the first with a value winning: Planned, else Due, else (a meeting)
  *  its Date. The others with a value go with the rest. */
 export const WHEN_KEYS = ['plan', 'due', 'date'];
@@ -312,22 +316,23 @@ export function hiddenColumns(columns, width, { subjectMin = SUBJECT_MIN } = {})
 
 /**
  * The one order of an item's properties (TSK-128, docs/design.md §3), whatever order the structure lists them: a list's
- * columns, a phone's row, a board's card and Display's pills all follow it. The box and the Subject first; then Status,
- * the priority (or a level), where it hangs (Project, Initiative, its parent, a meeting, a goal), Planned, Due (a
- * meeting's Date, Time, Duration), Labels; then a type's own columns (Size, Severity…) in the structure's order;
- * Resolved, Created and Updated; the ID and the Type last. Sorting is stable, so two of a rank keep theirs.
+ * columns, a phone's row, a board's card and Display's pills all follow it, for every type. The box and the Subject
+ * first; then Status, the priority (or a level), where it hangs (Project, Initiative, its parent, a meeting, a goal),
+ * its dates (Planned, Start, Due; a meeting's Date, Time, Duration); then a type's own columns (Kind, Size, Severity…)
+ * in the structure's order; how far along it is, Labels, who and what it comes from (Attendees, Source, From), its
+ * outside ticket; Resolved, Created and Updated; the ID and the Type last. Sorting is stable, so two of a rank keep theirs.
  */
 const COLUMN_RANK = ['pick', 'subject', 'subjectPlain', 'status', 'state', 'priority', 'prop:level', 'project', 'initiative', 'parent', 'meetingOf', 'goal',
-  'plan', 'start', 'due', 'date', 'time', 'duration', 'attendees', 'source', 'from', 'labels'];
-const COLUMN_LAST = ['resolved', 'created_at', 'updated_at', 'id', 'extref', 'type']; // after a type's own columns, in every list
+  'plan', 'start', 'due', 'date', 'time', 'duration'];
+const COLUMN_LAST = ['progress', 'labels', 'attendees', 'source', 'from', 'extref', 'resolved', 'created_at', 'updated_at', 'id', 'type']; // after a type's own columns, in every list
+const columnRank = (key) => {
+  const r = COLUMN_RANK.indexOf(key);
+  if (r >= 0) return r;
+  const last = COLUMN_LAST.indexOf(key);
+  return last >= 0 ? COLUMN_RANK.length + 1 + last : COLUMN_RANK.length;
+};
 export function columnOrder(columns) {
-  const rank = (c) => {
-    const r = COLUMN_RANK.indexOf(c.key);
-    if (r >= 0) return r;
-    const last = COLUMN_LAST.indexOf(c.key);
-    return last >= 0 ? COLUMN_RANK.length + 1 + last : COLUMN_RANK.length;
-  };
-  return columns.map((c, n) => [c, n]).sort(([a, x], [b, y]) => rank(a) - rank(b) || x - y).map(([c]) => c);
+  return columns.map((c, n) => [c, n]).sort(([a, x], [b, y]) => columnRank(a.key) - columnRank(b.key) || x - y).map(([c]) => c);
 }
 
 /**
@@ -359,6 +364,18 @@ export function planText(fields = {}) {
   if (week) return { text: week === thisWeek() ? 'This week' : week.split('-')[1], late: false };
   if (month) return { text: monthLabel(month, true), late: false };
   return { text: 'Not planned', late: false, none: true };
+}
+
+/** When an item is planned, as a phone's agenda row says it beside its status (planrows.js): its day, week or month
+ *  as planText says them, its time after its day ("Today 13:30"), and when it is past, the day it was planned for and
+ *  how late ("Sep 26 · 19 d late", `late` true). '' when it is not planned. */
+export function plannedFor(fields = {}) {
+  const late = lateBy(fields);
+  const plan = late ? null : planText(fields); // not past: its day, week or month (planText says how late otherwise)
+  if (plan?.none) return { text: '', late: false };
+  const when = late ? late.since : plan.text;
+  const at = fields.plan_day && fields.plan_time ? `${when} ${fields.plan_time}` : when;
+  return { text: late ? `${at} · ${late.text}` : at, late: !!late };
 }
 
 // ── a saved view of before (filters panel and Open / Closed / All) ───────────

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { NONE } from '../../static/js/grouping.js';
 import {
-  cardShows, closedLast, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, phoneLines, planText, sortColumn, stackOf, valueCounts,
+  cardShows, closedLast, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, filterText, fitView, groupItems, groupOptions, hiddenColumns, matches, migrateView, phoneExtraOrder, phoneLines, planText, plannedFor, sortColumn, stackOf, valueCounts,
 } from '../../static/js/viewmodel.js';
 import { freezeDate, unfreezeDate } from './helpers.mjs';
 
@@ -184,9 +184,11 @@ describe('viewmodel', () => {
     assert.deepEqual(keys(['pick', 'id', 'subject']), ['pick', 'subject', 'id']); // the box and the Subject first
     assert.deepEqual(keys(['subjectPlain', 'prop:kind', 'project']), ['subjectPlain', 'project', 'prop:kind']);
     assert.deepEqual(keys(['id', 'subject', 'status', 'type', 'updated_at']), ['subject', 'status', 'updated_at', 'id', 'type']); // the List page's Type, last
-    // a type's own columns between the common ones and Created / Updated, ID and Type, which close every list
+    // a type's own columns right after the dates, then Progress, Labels, its sources, Created / Updated, ID and Type
     assert.deepEqual(keys(['id', 'subject', 'labels', 'project', 'created_at', 'updated_at', 'prop:size', 'date']),
-      ['subject', 'project', 'date', 'labels', 'prop:size', 'created_at', 'updated_at', 'id']);
+      ['subject', 'project', 'date', 'prop:size', 'labels', 'created_at', 'updated_at', 'id']);
+    assert.deepEqual(keys(['subject', 'source', 'from', 'priority', 'labels', 'date', 'resolved', 'extref', 'progress']),
+      ['subject', 'priority', 'date', 'progress', 'labels', 'source', 'from', 'extref', 'resolved']);
   });
 
   it('sorts by the sort\'s column even when it is not shown, never by the ticks', () => {
@@ -198,6 +200,21 @@ describe('viewmodel', () => {
     // a sort by a column that is gone: the first one the list has, not the ticks drawn first
     assert.equal(sortColumn({ col: 'redmine', dir: 1 }, all).key, 'id');
     assert.equal(sortColumn(undefined, all).key, 'id');
+  });
+
+  describe('a phone\'s agenda row: when it is planned', () => {
+    // freezeDate: Thursday 2026-10-15, week 2026-W42
+    it('its day, week or month, with its time after a day', () => {
+      assert.deepEqual(plannedFor({ plan_day: '2026-10-15' }), { text: 'Today', late: false });
+      assert.deepEqual(plannedFor({ plan_day: '2026-10-15', plan_time: '13:30' }), { text: 'Today 13:30', late: false });
+      assert.deepEqual(plannedFor({ plan_day: '2026-10-20', plan_time: '09:00' }), { text: 'Tue 20 09:00', late: false });
+      assert.deepEqual(plannedFor({ plan_week: '2026-W42' }), { text: 'This week', late: false });
+      assert.deepEqual(plannedFor({}), { text: '', late: false });
+    });
+    it('past it, the day it was for and how late', () => {
+      assert.deepEqual(plannedFor({ plan_day: '2026-09-26' }), { text: 'Sep 26 · 19 d late', late: true });
+      assert.deepEqual(plannedFor({ plan_day: '2026-10-14', plan_time: '07:43' }), { text: 'Oct 14 07:43 · Yesterday', late: true });
+    });
   });
 
   describe('a row\'s Planned', () => {
@@ -285,6 +302,13 @@ describe("a phone's row", () => {
   it('offers a meeting its Date, and nothing for nothing', () => {
     assert.deepEqual(phoneLines(['date', 'parent']), { where: ['parent'], main: [], when: ['date'], extra: [] });
     assert.deepEqual(phoneLines([]), { where: [], main: [], when: [], extra: [] });
+  });
+  it("orders a phone row's last line alike for every type: dates, the type's own, progress, labels, sources, then made and changed", () => {
+    assert.deepEqual(phoneExtraOrder(['labels', 'prop:size', 'progress', 'updated_at', 'due']), ['due', 'prop:size', 'progress', 'labels', 'updated_at']);
+    assert.deepEqual(phoneExtraOrder(['source', 'from', 'labels', 'time', 'resolved', 'updated_at', 'created_at']),
+      ['time', 'labels', 'source', 'from', 'resolved', 'created_at', 'updated_at']);
+    assert.deepEqual(phoneExtraOrder(['extref', 'labels', 'prop:initiative_kind', 'progress']), ['prop:initiative_kind', 'progress', 'labels', 'extref']);
+    assert.deepEqual(phoneExtraOrder(['prop:severity', 'prop:impact', 'updated_at']), ['prop:severity', 'prop:impact', 'updated_at']);
   });
 
   it('starts with the ID off on a phone only, and keeps what was picked', () => {
