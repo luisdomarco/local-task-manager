@@ -15,7 +15,7 @@ import { TYPES, TYPE_ICON, TYPE_LABEL } from './create.js';
 import { aimFields, blocksOf, breakBlocks, PROP_BLOCKS, deliveryBody, quietBlanks, itemFields, settingsBody, linkLabelControl, modalFrame, modalTitle, paneSwitch, planKey, sideFold, statusSelect } from './itemform.js';
 import { ancestorsOf } from './grouping.js';
 import { fileTree, loadFiles } from './explorer.js';
-import { absolutePath, docChoices, docsGroups, docsHref, docsSubtrees, resolveDocs } from './filetree.js';
+import { absolutePath, docChoices, docsGroups, docsHref, docsSubtrees, filesBelow, ownDocsGroup, resolveDocs } from './filetree.js';
 import { treePane } from './treepane.js';
 import { itemHref, opener, pageHref } from './links.js';
 import { mdBlock } from './mdblock.js';
@@ -242,22 +242,26 @@ function relationsTab(item, rerender) {
 // it. Both drawn as the Docs page draws its tree (treepane.js, read-only): its sections, cut to the branches that lead to
 // them (filetree.js docsSubtrees), a linked folder whole and open, the rest folded with how many it holds. A link whose
 // doc or folder is gone (moved or deleted outside the app) says so under the tree and is never dropped by itself.
+// A project's tab opens with its own Docs folder (<Project>/Docs, filetree.js ownDocsGroup) whole, without linking it:
+// what it links in there has its link mark in that tree, and a doc in there is never drawn again under Linked or
+// Mentioned in.
 let docGroups = null;  // docsGroups of /api/docs/roots, asked once
 const mentions = new Map(); // item key → { rev, paths }: the docs that link it, asked once per version of it
 
-/** One of the tab's two trees: `paths` cut out of the Docs sections; `linked` (path → its value in the item's `docs`)
- *  marks what the item links itself, with its × (`unlink`). Its folds are kept per item and tree (`key`). */
-function docsTree(key, paths, { linked = new Map(), unlink = null, open = [] } = {}) {
+/** One of the tab's trees: `paths` cut out of the Docs sections; `linked` (path → its value in the item's `docs`)
+ *  marks what the item links itself, with its × (`unlink`). A folder's number is how many of `paths` it holds, or
+ *  `count(path)`'s. Its folds are kept per item and tree (`key`). */
+function docsTree(key, paths, { linked = new Map(), unlink = null, open = [], count = null, label = linked.size ? 'Linked docs' : 'Docs that mention it' } = {}) {
   const box = h('div', { class: 'docs-tab-tree' });
   let cut = { sections: [], counts: new Map() }; // the last cut, worked out once per drawing (its sections, then its rows)
   const pane = treePane({
-    box: () => box, tree: fileTree, openKey: key, label: linked.size ? 'Linked docs' : 'Docs that mention it', readonly: true,
+    box: () => box, tree: fileTree, openKey: key, label, readonly: true,
     filter: false, foldInPlace: true, ordered: true, href: docsHref, current: () => null, defaultOpen: () => open, empty: '',
     sections: (tree) => (cut = docsSubtrees(tree, docGroups, paths)).sections.map((s) => ({ id: s.group.path, path: s.group.path, node: s.node,
       head: h('div', { class: 'docs-head' }, h('span', { class: 'docs-title docs-tab-title', title: s.group.path || 'Outside the Docs folders' }, s.group.title)) })),
     decorate: (node, row) => {
       const more = row.querySelector('.tree-more');
-      const n = node.kind === 'dir' ? cut.counts.get(node.path) : 0;
+      const n = node.kind === 'dir' ? (count ? count(node.path) : cut.counts.get(node.path)) : 0;
       if (n) more.before(countOf(n, { plain: true, cls: 'docs-tab-count' }));
       const value = linked.get(node.path);
       if (!value) return;
@@ -292,13 +296,18 @@ function docsTab(item, rerender) {
   const entries = resolveDocs(docs, fileTree(), docGroups);
   const unlink = (value) => relink(() => updateItem(item.key, { docs: docs.filter((x) => x !== value) }),
     () => updateItem(item.key, { docs }), `${value} unlinked from ${name}`);
-  const found = entries.filter((d) => d.path);
+  // A project's own Docs folder, whole: what it links inside it is marked there (its own tree), the rest under Linked.
+  const own = item.type === 'project' ? ownDocsGroup(docGroups, item.path) : null;
+  const ownCount = own ? filesBelow(fileTree(), own.path) : 0;
+  const inOwn = (p) => !!(ownCount && p && (p === own.path || p.startsWith(`${own.path}/`)));
+  const found = entries.filter((d) => d.path && !inOwn(d.path));
+  const ownLinked = entries.filter((d) => inOwn(d.path));
   // What is linked but gone: a row each, as before, under the tree.
   const lost = entries.filter((d) => !d.path).map((d) => rowItem({
     ico: icon(d.kind === 'folder' ? 'folder' : 'note', 14), text: `${d.value} · not found`, tip: 'Not found: moved or deleted outside the app',
     actions: rowAction('x', `Unlink ${d.value}`, () => unlink(d.value)),
   }));
-  const choices = docChoices(fileTree(), docGroups).filter((c) => !docs.includes(c.value));
+  const choices = docChoices(fileTree(), docGroups).filter((c) => !docs.includes(c.value) && !(ownCount && c.path === own.path));
   // "+ Link a doc" at the top right, as Links' and Files' "+ Add": it opens the list of docs and folders to search.
   const pick = choices.length
     ? select(choices.map((c) => [c.value, c.kind === 'folder' ? `${c.path}/` : c.path, c.kind === 'folder' ? 'folder' : 'note']),
@@ -316,18 +325,26 @@ function docsTab(item, rerender) {
       if (paths.length || seen?.paths?.length) rerender();
     }, () => {});
   }
-  const mentioned = mentions.get(item.key).paths;
+  const mentioned = mentions.get(item.key).paths.filter((p) => !inOwn(p));
+  const ownTree = ownCount && fileTree() ? docsTree(`docs.tab.${item.key}.own`, [own.path], {
+    label: 'Docs in this project', linked: new Map(ownLinked.map((d) => [d.path, d.value])), unlink,
+    count: (path) => filesBelow(fileTree(), path), // each folder with how many files it holds
+    open: ownLinked.filter((d) => d.kind === 'folder').map((d) => d.path),
+  }) : null;
   const linkedTree = found.length && fileTree() ? docsTree(`docs.tab.${item.key}.linked`, found.map((d) => d.path), {
     linked: new Map(found.map((d) => [d.path, d.value])), unlink,
     open: found.filter((d) => d.kind === 'folder').map((d) => d.path), // a linked folder starts open, the way to it folded
   }) : null;
   const linkedBody = linkedTree || lost.length ? h('div', {}, linkedTree, lost.length ? rowList(lost) : null) : null;
   // As Relations (ui.js stackGroup): each group its name above its rows, "+ Link a doc" on the first's line.
-  // The linked ones need no name unless the docs that mention it follow (the tab already says Docs).
+  // The linked ones need no name unless another group is there (the tab already says Docs); with the project's own
+  // folder first, Linked shows only when something outside it is linked.
   const none = choices.length ? 'No docs linked yet' : 'No docs to link yet'; // on the button's line, as a group's name
-  return { key: 'docs', label: 'Docs', count: docs.length, // a number: 0 hides the badge (ui.js tabPanels)
+  return { key: 'docs', label: 'Docs', count: ownCount + entries.length - ownLinked.length, // a number: 0 hides the badge (ui.js tabPanels)
     content: [h('section', { class: 'panel-section relations quiet docs-links' },
-    stackGroup(mentioned.length ? 'Linked' : linkedBody ? null : none, linkedBody || (mentioned.length ? emptyLine(none, { cls: 'rel-none' }) : null), { aside: pick }),
+    ownTree ? stackGroup('In this project', ownTree, { aside: pick }) : null,
+    ownTree ? (linkedBody ? stackGroup('Linked', linkedBody) : null)
+      : stackGroup(mentioned.length ? 'Linked' : linkedBody ? null : none, linkedBody || (mentioned.length ? emptyLine(none, { cls: 'rel-none' }) : null), { aside: pick }),
     mentioned.length && fileTree() ? stackGroup('Mentioned in', docsTree(`docs.tab.${item.key}.mentioned`, mentioned)) : null)] };
 }
 

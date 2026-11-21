@@ -511,13 +511,14 @@ const stemOf = (path) => path.split('/').pop().replace(/\.md$/i, '');
 const inGroups = (groups, path) => (groups || []).some((g) => path === g.path || path.startsWith(`${g.path}/`));
 
 /** Every Markdown file and folder in the Docs folders (`groups`, docsGroups) of `tree` → [{ path, kind, value }], a
- *  doc's value its [[name]], a folder's its path and "/": what an item's `docs` can link. By path. */
+ *  doc's value its [[name]], a folder's its path and "/": what an item's `docs` can link — a Docs folder whole too (a
+ *  project's, for an initiative that works from all of it). By path. */
 export function docChoices(tree, groups) {
   const out = [];
   const walk = (n) => (n.children || []).forEach((c) => {
     if (!inGroups(groups, c.path)) { if (c.kind === 'dir') walk(c); return; }
     if (c.kind === 'dir') {
-      if (!groups.some((g) => g.path === c.path)) out.push({ path: c.path, kind: 'folder', value: `${c.path}/` });
+      out.push({ path: c.path, kind: 'folder', value: `${c.path}/` });
       walk(c);
     } else if (/\.md$/i.test(c.name)) out.push({ path: c.path, kind: 'doc', value: `[[${stemOf(c.path)}]]` });
   });
@@ -543,6 +544,22 @@ export function resolveDocs(docs, tree, groups) {
     const folder = value.replace(/\/+$/, '');
     return { value, kind: 'folder', path: tree && findNode(tree, folder)?.kind === 'dir' ? folder : null, name: folder.split('/').pop() };
   });
+}
+
+const dirOf = (path) => (String(path).includes('/') ? String(path).slice(0, String(path).lastIndexOf('/')) : '');
+
+/** The Docs folder an item keeps itself (`groups`, docsGroups): a project's `<Project>/Docs`, the section whose folder
+ *  sits beside its note — never the vault's own, at the top. Null when there is none, or it is not there yet. */
+export function ownDocsGroup(groups, itemPath) {
+  const dir = dirOf(itemPath || '');
+  return dir ? (groups || []).find((g) => g.exists && dirOf(g.path) === dir) || null : null;
+}
+
+/** How many files are below the folder at `path` in `tree` (in its subfolders too; a hidden one not): the docs it holds. */
+export function filesBelow(tree, path) {
+  const count = (n) => (n.children || []).reduce((sum, c) => sum + (c.name.startsWith('.') ? 0 : c.kind === 'dir' ? count(c) : 1), 0);
+  const node = tree ? findNode(tree, path) : null;
+  return node?.kind === 'dir' ? count(node) : 0;
 }
 
 /** The items whose `docs` link `path` — the doc itself by its name, or a folder that holds it (or is it). */

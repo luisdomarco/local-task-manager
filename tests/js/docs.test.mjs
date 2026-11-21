@@ -63,14 +63,34 @@ test('dropping a name before another, or at the end, from inside the folder or f
   assert.deepEqual(dropOrder(['A', 'B'], 'X', 'gone'), ['A', 'B', 'X']);
 });
 
-test('what an item can link: the docs and folders inside the Docs folders, not the Docs folders themselves', async () => {
+test('what an item can link: the docs and folders inside the Docs folders, and a Docs folder whole', async () => {
   const { buildTree, docChoices } = await import('../../static/js/filetree.js');
   const tree = buildTree([
     { path: 'Docs', kind: 'dir' }, { path: 'Docs/Producto', kind: 'dir' }, { path: 'Docs/Producto/Visión.md', kind: 'file' },
     { path: 'Docs/Producto/diagrama.png', kind: 'file' }, { path: 'Tasks', kind: 'dir' }, { path: 'Tasks/TSK-001 X.md', kind: 'file' },
+    { path: 'Orbit/Docs', kind: 'dir' }, { path: 'Orbit/Docs/plan.md', kind: 'file' },
   ]);
-  assert.deepEqual(docChoices(tree, [{ path: 'Docs' }]).map((c) => [c.kind, c.value]),
-    [['folder', 'Docs/Producto/'], ['doc', '[[Visión]]']]);
+  assert.deepEqual(docChoices(tree, [{ path: 'Orbit/Docs' }, { path: 'Docs' }]).map((c) => [c.kind, c.value]),
+    [['folder', 'Docs/'], ['folder', 'Docs/Producto/'], ['doc', '[[Visión]]'], ['folder', 'Orbit/Docs/'], ['doc', '[[plan]]']]);
+});
+
+test("a project's own Docs folder: the section beside its note, never the vault's own; what it holds counted", async () => {
+  const { buildTree, filesBelow, ownDocsGroup } = await import('../../static/js/filetree.js');
+  const groups = docsGroups([c('ORB', 'Orbit', 'Orbit/Docs'), c('NEW', 'New', 'New/Docs', { exists: false }), c(null, '', 'Docs')]);
+  assert.equal(ownDocsGroup(groups, 'Orbit/00 Orbit.md')?.path, 'Orbit/Docs');
+  assert.equal(ownDocsGroup(groups, 'New/00 New.md'), null); // not there yet: the tab looks as it did
+  assert.equal(ownDocsGroup(groups, 'Orbit/Initiatives/INI-1 X.md'), null); // an initiative's note sits elsewhere
+  assert.equal(ownDocsGroup(groups, '00 Top.md'), null); // at the vault's top: not the vault's own Docs
+  const tree = buildTree([
+    { path: 'Orbit/Docs', kind: 'dir' }, { path: 'Orbit/Docs/plan.md', kind: 'file' }, { path: 'Orbit/Docs/.order', kind: 'file' },
+    { path: 'Orbit/Docs/old', kind: 'dir' }, { path: 'Orbit/Docs/old/a.md', kind: 'file' }, { path: 'Orbit/Docs/old/b.drawio', kind: 'file' },
+    { path: 'Orbit/Docs/empty', kind: 'dir' },
+  ]);
+  assert.equal(filesBelow(tree, 'Orbit/Docs'), 3); // .order is not a doc
+  assert.equal(filesBelow(tree, 'Orbit/Docs/empty'), 0);
+  assert.equal(filesBelow(tree, 'Orbit/Docs/plan.md'), 0);
+  assert.equal(filesBelow(tree, 'Gone/Docs'), 0);
+  assert.equal(filesBelow(null, 'Orbit/Docs'), 0);
 });
 
 test('an item\'s links resolve to a path, or say they are not found; the items that link a doc are found back', async () => {
