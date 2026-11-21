@@ -652,8 +652,13 @@ its type has `start`). The page's box takes the window's height (`board-layout`,
   - `anchors.js` (pure) says which shape is under a point (`targetAt`: a shape, a free text, a card's frame or a
     figure's box, never a card's parts nor a figure's ink) and where its dots are; `snapArrows` puts an end drawn elsewhere on the nearest side's middle when
     the pointer is up, and routes again an elbow that comes into its side the wrong way (an end moved to another side
-    keeps the segments you dragged). An elbow keeps the side as its `fixedPoint`, and Excalidraw's own router
-    (`mutateElement` with new binding objects, on an elbow in the scene) draws its path around the shapes. A rotated shape is left as Excalidraw binds it.
+    keeps the segments you dragged), or has a leg on a slant (Excalidraw turns an arrow into an elbow as its two ends
+    and leaves it unrouted). An elbow keeps the side as its `fixedPoint`, and Excalidraw's own router
+    (`mutateElement` with new binding objects, on an elbow in the scene) draws its path around the shapes. A curved
+    arrow that is only its two ends (Excalidraw draws it straight) gets `curveRoute`'s bend, three points of a cubic
+    curve that leaves and meets each bound side square, marked `customData.tmBend`: while its points are the ones put
+    there it follows its ends, and Sharp (which keeps a curve's points) makes it straight again; a bend dragged is the
+    user's and loses the mark. `snap` runs on pointer up, on ⌘Z / ⌘Y and when a canvas opens. A rotated shape is left as Excalidraw binds it.
 - **Opening an item** from a canvas is `openItemCard`: a modal even for a type with a page, so closing it leaves you on
   the canvas.
 - **Saving**: debounced 800 ms, only when the drawing changes (`getSceneVersion`), against the file's rev. A 409 reads

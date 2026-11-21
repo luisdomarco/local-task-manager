@@ -34,8 +34,77 @@ describe('anchors', () => {
     assert.deepEqual([patch.startBinding.fixedPoint, patch.endBinding.fixedPoint], [[1, 0.5], [0.5, 0]]);
     const pts = abs({ ...arr, ...patch });
     for (let i = 1; i < pts.length; i += 1) assert.ok(pts[i][0] === pts[i - 1][0] || pts[i][1] === pts[i - 1][1], 'every leg straight across or down');
-    // Excalidraw routes it from there on: with its fixed points at the middles, it is left alone.
-    assert.deepEqual(snapArrows([a, b, { ...arr, ...patch, points: [[0, 0], [1, 1]] }]), []);
+    // Excalidraw routes it from there on: with its fixed points at the middles and its legs square, it is left alone.
+    assert.deepEqual(snapArrows([a, b, { ...arr, ...patch, points: [[0, 0], [1, 0], [1, 1]] }]), []);
+  });
+
+  it('routes an arrow just turned into an elbow: its two ends on a slant, though at the middles (SUP-412)', () => {
+    const a = box('a', 0, 0); const b = box('b', 300, 200);
+    // As Excalidraw leaves it: cut to its two ends, bound at the middles (its own 0.5001), no route.
+    const arr = arrow('e', [100, 30], [300, 230], { elbowed: true, startBinding: { elementId: 'a', fixedPoint: [1, 0.5001] }, endBinding: { elementId: 'b', fixedPoint: [0, 0.5001] } });
+    const [{ patch }] = snapArrows([a, b, arr]);
+    const pts = abs({ ...arr, ...patch });
+    assert.ok(pts.length > 2);
+    for (let i = 1; i < pts.length; i += 1) assert.ok(pts[i][0] === pts[i - 1][0] || pts[i][1] === pts[i - 1][1], 'every leg straight across or down');
+    assert.deepEqual([pts[0], pts[pts.length - 1]], [anchor(a, 'right'), anchor(b, 'left')]);
+    assert.equal(patch.fixedSegments, null);
+    // Bound to nothing too: an L from one end to the other.
+    const [{ patch: free }] = snapArrows([arrow('f', [0, 0], [100, 50], { elbowed: true })]);
+    assert.deepEqual(free.points, [[0, 0], [100, 0], [100, 50]]);
+  });
+
+  it('bends a curved arrow that is only its two ends, out of its sides, and then leaves it alone (SUP-412)', () => {
+    const a = box('a', 0, 0); const b = box('b', 300, 200);
+    const arr = arrow('c', anchor(a, 'right'), anchor(b, 'left'), { roundness: { type: 2 }, startBinding: { elementId: 'a' }, endBinding: { elementId: 'b' } });
+    const [{ patch }] = snapArrows([a, b, arr]);
+    const pts = abs({ ...arr, ...patch });
+    assert.equal(pts.length, 5);
+    assert.deepEqual(pts[0], anchor(a, 'right'));
+    assert.deepEqual(pts[4], anchor(b, 'left'));
+    const slope = (p, q) => Math.abs(q[1] - p[1]) / (q[0] - p[0]);
+    assert.ok(pts[1][0] > pts[0][0] && slope(pts[0], pts[1]) < 0.5, 'it leaves the right side to the right');
+    assert.ok(pts[3][0] < pts[4][0] && slope(pts[3], pts[4]) < 0.5, 'it comes into the left side from the left');
+    assert.ok(pts.every((p, i) => i === 0 || p[1] >= pts[i - 1][1]), 'and never dips back on the way');
+    assert.deepEqual(patch.customData.tmBend.pts, pts.slice(1, 4));
+    const bent = { ...arr, ...patch };
+    assert.deepEqual(snapArrows([a, b, bent]), []); // once bent, nothing to do
+    // Bound to nothing: a bow off the middle, to one side.
+    const [{ patch: free }] = snapArrows([arrow('f', [0, 0], [120, 0], { roundness: { type: 2 } })]);
+    assert.deepEqual(free.points, [[0, 0], [60, -20], [120, 0]]);
+    // A sharp or elbow arrow of two points is not bent.
+    assert.deepEqual(snapArrows([arrow('s', [0, 0], [120, 0])]), []);
+  });
+
+  it('keeps the app\'s bend with its ends, gives a dragged one to you, and straightens it again for Sharp (SUP-412)', () => {
+    const a = box('a', 0, 0); const b = box('b', 300, 200);
+    const arr = arrow('c', anchor(a, 'right'), anchor(b, 'left'), { roundness: { type: 2 }, startBinding: { elementId: 'a' }, endBinding: { elementId: 'b' } });
+    const bent = { ...arr, ...snapArrows([a, b, arr])[0].patch };
+    // Its end shape moves (Excalidraw moves just that end): the bend is drawn anew for the new ends.
+    const b2 = { ...b, y: 400 };
+    const moved = { ...bent, points: bent.points.map((p, i) => (i === 4 ? [p[0], p[1] + 200] : p)) };
+    const [{ patch: again }] = snapArrows([a, b2, moved]);
+    const pts = abs({ ...moved, ...again });
+    assert.deepEqual(pts[4], anchor(b2, 'left'));
+    assert.deepEqual(again.customData.tmBend.pts, pts.slice(1, 4));
+    // The whole arrow moved with its shapes: still the app's, the same points; only its mark follows it there, so a
+    // shape moved after that is still told from a bend you dragged.
+    const a3 = { ...a, x: 50 }; const b3 = { ...b, x: 350 };
+    const whole = { ...bent, x: bent.x + 50 };
+    const [{ patch: follow }] = snapArrows([a3, b3, whole]);
+    assert.deepEqual(follow.points, bent.points);
+    assert.deepEqual(follow.customData.tmBend.at, [bent.customData.tmBend.at[0] + 50, bent.customData.tmBend.at[1]]);
+    assert.deepEqual(snapArrows([a3, b3, { ...whole, ...follow }]), []);
+    // Sharp again: the straight line between its ends, and the mark gone.
+    const [{ patch: sharp }] = snapArrows([a, b, { ...bent, roundness: null }]);
+    assert.equal(sharp.points.length, 2);
+    assert.deepEqual(abs({ ...bent, ...sharp }), [anchor(a, 'right'), anchor(b, 'left')]);
+    assert.equal(sharp.customData.tmBend, undefined);
+    // A bend you dragged is yours: kept as it is, curved or Sharp, only the mark goes.
+    const yours = { ...bent, points: bent.points.map((p, i) => (i === 1 ? [p[0], p[1] - 40] : p)) };
+    const [{ patch: given }] = snapArrows([a, b, { ...yours, roundness: null }]);
+    assert.deepEqual(given.points, yours.points);
+    assert.equal(given.customData.tmBend, undefined);
+    assert.deepEqual(snapArrows([a, b, { ...yours, roundness: null, customData: {} }]), []);
   });
 
   it('draws a right-angled path without repeated or needless points', () => {

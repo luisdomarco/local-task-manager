@@ -345,6 +345,9 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     reroute(new Set(changes.keys()));
   };
   const onPointerUp = () => { setTimeout(snap, 60); };
+  // Undo and redo too (a curve undone to Sharp keeps the app's bend until then): on the key going down, as a Mac sends
+  // no keyup for a key pressed with ⌘.
+  const onKeyDown = (ev) => { if ((ev.metaKey || ev.ctrlKey) && /^[zy]$/i.test(ev.key)) setTimeout(snap, 60); };
 
   /**
    * A click on a shape's dot: the arrow that leaves or meets it there is selected, its ends then Excalidraw's handles
@@ -403,6 +406,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
     reroute(new Set([arrow.id]));
   }
   el.addEventListener('pointerup', onPointerUp, true);
+  el.addEventListener('keydown', onKeyDown, true);
 
   // ── fonts ──
   // A text is measured in the font it is drawn in, and Excalidraw cuts it at that width: one measured before its font
@@ -516,6 +520,7 @@ export function mountWhiteboard(el, { path, host, name, provider, onCards = () =
       el.removeEventListener('drop', onDrop, true);
       el.removeEventListener('dblclick', onDblClick, true);
       el.removeEventListener('pointerup', onPointerUp, true);
+      el.removeEventListener('keydown', onKeyDown, true);
       dots?.destroy();
       dots = null;
       themeObs.disconnect();
