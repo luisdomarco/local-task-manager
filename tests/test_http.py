@@ -810,6 +810,29 @@ class ConfigTest(unittest.TestCase):
             json.dump({'root': self.a, 'claude_cwd': self.b}, f)
         self.assertEqual(server.load_config()['claude_paths'], [self.b])
 
+    def test_a_saved_folder_that_goes_does_not_block_a_save(self):
+        # Another tool removed a saved folder: the next save of anything else still goes through (it was refused
+        # whole, so a new vault could not be added), the folder is kept and Settings is told it is gone.
+        app = server.App()
+        gone_claude, gone_agents = os.path.join(self.a, 'gone-work'), os.path.join(self.b, 'gone-agents')
+        for d in (gone_claude, gone_agents):
+            os.makedirs(d)
+        app.set_config({'claude_paths': [self.a, gone_claude], 'agent_dirs': [gone_agents]})
+        for d in (gone_claude, gone_agents):
+            os.rmdir(d)
+        self.assertEqual(app.public_config()['missing_dirs'], [gone_claude, gone_agents])
+        app.set_config({'claude_effort': 'high'})
+        self.assertEqual(app.config['claude_paths'], [self.a, gone_claude])
+        self.assertEqual(app.config['agent_dirs'], [gone_agents])
+        app.set_config({'claude_paths': [self.a]})  # removing it is a save too
+        self.assertEqual(app.public_config()['missing_dirs'], [gone_agents])
+        # Adding it back while it is gone is refused, and the error names the tab it is in.
+        for key, tab in (('claude_paths', 'Claude'), ('agent_dirs', 'Agents')):
+            with self.assertRaises(server.StoreError) as cm:
+                app.set_config({key: [os.path.join(self.a, 'never-there')]})
+            self.assertEqual(cm.exception.status, 400)
+            self.assertIn(f'Settings → {tab}: not a directory', str(cm.exception))
+
     def test_reopens_only_when_root_or_folders_change(self):
         app = server.App()
         self.assertEqual(self.stories(app.store), [])  # building the app (on import) migrates nothing

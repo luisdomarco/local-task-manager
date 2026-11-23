@@ -10,6 +10,8 @@ a type looks and behaves the same in every vault (the field matrix, tools/field_
     related     linked to equals (`relations` + `relation_kinds`, tm/structures/relations.py); needs an id
     work        planned and worked: status, priority, due, Today / Week / Month (a planned day may take a time and a
                 duration, and reminders before it), watchers, docs
+    assigned    handed to somebody: who is responsible for it, one person of the vault's Contacts (ASSIGNED_TYPES).
+                The work that is given out, never what it hangs from (an initiative, a PRD, a project, a goal)
     tracked     points at an outside ticket and a local folder (the structure's `external_ref` keys + local_path)
     stateful    a status of its own, not planned (an agent's, an error's, a spec's)
     prioritized a priority without being planned (an agent, an activity)
@@ -30,6 +32,7 @@ TRAITS = {
     'work': ('status', 'priority', 'priority_reason', 'due', 'plan_week', 'plan_day', 'plan_time', 'plan_duration', 'plan_month',
              'reminders', 'reminder_urgent', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'docs', 'watchers'),
     'tracked': ('ticket_id', 'tracker', 'ticket_url', 'local_path'),
+    'assigned': ('responsible',),
     'stateful': ('status',),
     'prioritized': ('priority', 'priority_reason'),
     'event': ('date', 'time', 'duration', 'reminders', 'reminder_urgent', 'attendees', 'event_id'),
@@ -44,10 +47,13 @@ PROJECT_STATUSES = ('Backlog', 'ToDo', 'OnHold', 'InProgress', 'Done', 'Discarde
 PROJECT_CLOSED = frozenset({'Done', 'Discarded'})
 
 WORK_TYPES = ('initiative', 'story', 'task', 'support', 'hotfix', 'prd')
+# The work that is handed to somebody, and so carries a responsible: what gets done, not what it hangs from.
+ASSIGNED_TYPES = ('story', 'task', 'support', 'hotfix')
 
 # What each kind of item is made of, whatever the structure that has it.
 KINDS = {
-    **{t: ('base', 'discussed', 'child', 'related', 'work', 'tracked') for t in WORK_TYPES},
+    **{t: ('base', 'discussed', 'child', 'related', 'work', 'tracked', *(('assigned',) if t in ASSIGNED_TYPES else ()))
+       for t in WORK_TYPES},
     'initiative': ('base', 'discussed', 'child', 'related', 'work', 'tracked', 'aimed', 'spanned'),
     'project': ('base', 'discussed', 'related', 'container', 'work', 'tracked', 'aimed', 'spanned'),
     'goal': ('base', 'discussed', 'related', 'work', 'spanned'),  # across projects: no parent, no project
@@ -77,7 +83,7 @@ OWN = {
 
 # The order fields are written in (a folder-per-type file's keys on creation) and listed in: a type's own props go
 # right before the hierarchy (`related_to`).
-ORDER = ('project_key', 'source', 'from', 'date', 'time', 'duration', 'status', 'priority', 'priority_reason', 'area', 'objective', '__own__',
+ORDER = ('project_key', 'source', 'from', 'date', 'time', 'duration', 'status', 'priority', 'priority_reason', 'responsible', 'area', 'objective', '__own__',
          'related_to', 'project', 'relations', 'relation_kinds', 'url', 'url_label', 'links', 'archived', 'session_name',
          'sidebar', 'list', 'order', 'ticket_id', 'tracker', 'ticket_url', 'local_path', 'start', 'due', 'plan_week', 'plan_day',
          'plan_time', 'plan_duration', 'plan_month', 'reminders', 'reminder_urgent', 'today_list', 'plan_order', 'week_list', 'week_order', 'completed_at', 'resolution', 'resolved_at',
@@ -96,7 +102,7 @@ SECTIONS = ('Header', 'Properties', 'Settings', 'Settings · Global', 'Settings 
             'Hidden (shown elsewhere)', 'Stored, not shown')
 SECTION_OF = {
     'subject': 'Header', 'id': 'Header',
-    **{k: 'Properties' for k in ('status', 'priority', 'priority_reason', 'start', 'due', 'plan_week', 'plan_day', 'plan_time',
+    **{k: 'Properties' for k in ('status', 'priority', 'priority_reason', 'responsible', 'start', 'due', 'plan_week', 'plan_day', 'plan_time',
                                  'plan_duration', 'plan_month', 'reminders', 'reminder_urgent', 'labels', 'date', 'time', 'duration',
                                  'attendees', 'source', 'from', 'resolution')},
     'area': 'Area and objective', 'objective': 'Area and objective',

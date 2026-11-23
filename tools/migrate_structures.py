@@ -18,7 +18,6 @@ The source is read through the app's own Store; the new files are written throug
 what the app would have written. Python stdlib only. It never reads config.json: the caller passes the vault.
 """
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -32,11 +31,13 @@ from tm import attachments, frontmatter as fm  # noqa: E402
 from tm.fsutil import atomic_write  # noqa: E402
 from tm.store import META_DIR, Store  # noqa: E402
 from tm.structures import REGISTRY  # noqa: E402
-from tm.structures.check import PLACEHOLDER_RE  # noqa: E402
 from tm.structures.kinds import KINDS  # noqa: E402
 from tm.structures.ticketing import codec as tcodec  # noqa: E402
-from tm.structures.ticketing.definition import (DOCS_FOLDER, OPTIONAL_ROOT_FOLDERS, PROJECT_KEY_RE, ROOT_FOLDERS,  # noqa: E402
-                                                SPEC, WORKLOG_FOLDER)
+from tm.structures.ticketing.definition import (DOCS_FOLDER, PROJECT_KEY_RE, ROOT_FOLDERS, SPEC,  # noqa: E402
+                                                WORKLOG_FOLDER)
+from tools._migration_common import (IGNORED, LINK_TARGET_RE, OLD_ID_RE, RESERVED_NAMES,  # noqa: E402,F401
+                                     WIKILINK_RE, PlanError, counts, digest, key_for, links_to,
+                                     placeholders, relink, replace_ids, write_once as _write)
 
 PLAN_VERSION = 1
 TARGET = 'ticketing'
@@ -53,20 +54,6 @@ GENERAL = {'key': 'GEN', 'name': 'General'}
 # What --apply never carries over from .task-manager: the trash (old files; their ids still count) and backups.
 META_SKIPPED = ('trash', 'backup')
 META_ID_LISTS = ('pins.md', 'sidebar.md')
-IGNORED = {'.DS_Store', 'Icon\r', '.gitkeep'}
-# An id as text: not inside a longer one (WEB-INI-0001 holds INI-0001, which is not an old id there).
-OLD_ID_RE = re.compile(r'(?<![\w-])([A-Z]+)-(\d+)\b')
-# A wikilink's target: [[Target]], [[Target|alias]], [[Target#heading]] (Obsidian names a note by its file name).
-LINK_TARGET_RE = re.compile(r'\[\[([^\]|#\n]+)(?=[\]|#])')
-WIKILINK_RE = re.compile(r'\[\[[^\]\n]*\]\]')
-# Top-level folders of a Projects vault: no project may be named as one (its folder would be that one).
-RESERVED_NAMES = {n.casefold() for n in (*ROOT_FOLDERS.values(), *OPTIONAL_ROOT_FOLDERS.values(), DOCS_FOLDER, WORKLOG_FOLDER,
-                                         attachments.DIR, META_DIR)}
-
-
-class PlanError(Exception):
-    """Something the plan or the folders do not allow: said to the user as it is, exit 2."""
-
 
 # ── reading the source ───────────────────────────────────────────────────────
 
@@ -78,30 +65,6 @@ def body_of(store, it):
     return store._read(store.abs(it['path']))[1]
 
 
-def digest(root):
-    """A hash of every file under `root` (path and bytes): --apply and --check refuse a source that changed."""
-    h = hashlib.sha256()
-    for here, dirs, files in os.walk(root):
-        dirs.sort()
-        for name in sorted(files):
-            if name in IGNORED:
-                continue
-            full = os.path.join(here, name)
-            h.update(os.path.relpath(full, root).encode('utf-8') + b'\0')
-            with open(full, 'rb') as f:
-                for chunk in iter(lambda: f.read(1 << 16), b''):
-                    h.update(chunk)
-    return h.hexdigest()
-
-
-def placeholders(root):
-    """iCloud files not downloaded yet (`.name.icloud`), anywhere under `root`, hidden folders too: copied as they are,
-    they would be stubs in the new vault (an attachment lost, an ids.json read as empty)."""
-    out = []
-    for here, dirs, files in os.walk(root):
-        dirs.sort()
-        out += [os.path.relpath(os.path.join(here, f), root) for f in sorted(files) if PLACEHOLDER_RE.search(f)]
-    return out
 
 
 def old_stem(it):
@@ -109,14 +72,6 @@ def old_stem(it):
     return os.path.splitext(os.path.basename(it['path']))[0]
 
 
-def relink(text, stems):
-    """`text` with every wikilink to a file SOURCE renames pointing at its new name (`stems`: {old: new})."""
-    return LINK_TARGET_RE.sub(lambda m: '[[' + stems.get(m.group(1), m.group(1)), text)
-
-
-def links_to(text, stems):
-    """The old names `text` links to."""
-    return sorted({m.group(1) for m in LINK_TARGET_RE.finditer(text) if m.group(1) in stems})
 
 
 def high_water(store, items, days):
@@ -154,24 +109,6 @@ def loose_files(store, items, days, structure):
 
 
 # ── the plan ─────────────────────────────────────────────────────────────────
-
-def key_for(name, taken):
-    """2-4 capital letters for a project named `name`, not in `taken`: its words' initials, else its first letters."""
-    words = [w for w in re.findall(r'[A-Za-z]+', name.upper())]
-    tries = []
-    if len(words) >= 2:
-        tries.append(''.join(w[0] for w in words)[:4])
-    if words:
-        tries += [words[0][:n] for n in (3, 4, 2)]
-    tries.append('PRJ')
-    for k in tries:
-        if PROJECT_KEY_RE.match(k) and k not in taken:
-            return k
-    for a in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-        for b in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-            if f'P{a}{b}' not in taken:
-                return f'P{a}{b}'
-    raise PlanError('no project key left')
 
 
 def ancestors(it, by_id):
@@ -317,12 +254,6 @@ def make_plan(source, structure, target=None, folders=None):
     return plan
 
 
-def counts(items):
-    out = {}
-    for it in items:
-        out[it['type']] = out.get(it['type'], 0) + 1
-    return dict(sorted(out.items()))
-
 
 def new_id(old, item_type, project):
     """INI-0001 → WEB-INI-0001, US-0003 → WEB-STY-0003 (the number kept, the key put in front); others unchanged."""
@@ -345,13 +276,6 @@ def id_map(plan, items):
             out[it['id']] = new_id(it['id'], it['type'], plan['assign'].get(it['id']))
     return {k: v for k, v in sorted(out.items()) if k != v}
 
-
-def replace_ids(text, ids):
-    """`text` with every old id (whole word) as its new one, outside wikilinks (relink renames those by file name)."""
-    parts = WIKILINK_RE.split(text)
-    links = WIKILINK_RE.findall(text)
-    out = [OLD_ID_RE.sub(lambda m: ids.get(m.group(0), m.group(0)), part) for part in parts]
-    return ''.join(x for pair in zip(out, [*links, '']) for x in pair)
 
 
 def mentions(store, items, ids):
@@ -586,6 +510,10 @@ def _apply(plan, store, items, days, by_id, target, rewrite_bodies):
         vals = item_values(it, ids, project_of(it), tasks_projects, by_id, smap)
         if t == 'initiative' and project_of(it) in projects:  # what it is: its project's kind, as the plan says it
             vals['initiative_kind'] = projects[project_of(it)]['kind']
+        if 'sidebar' in REGISTRY[TARGET].types[t].fields:
+            # Written here because this does not go through `Store.create` (tm/store.py `_create_coded`): a file
+            # without the key is a favourite, and a vault that has just been migrated must not fill the sidebar.
+            vals.setdefault('sidebar', False)
         rel, text = codec.new_file(t, it['title'], vals, '', r, nid, it['fields'].get('created_at') or stamp)
         body = text_of(body_of(store, it))
         head = text[:len(text) - len(fm.split(text)[1])]
@@ -625,14 +553,6 @@ def _project_ids(items, ids):
     """A Tasks project named by its id in the work log (PRJ-0001) is named by its key there."""
     return {it['id']: ids.get(it['id'], it['id']) for it in items if it['type'] == 'project' and it['id']}
 
-
-def _write(root, rel, text):
-    full = os.path.join(root, rel)
-    if os.path.exists(full):
-        raise PlanError(f'two items would be written to {rel}: rename one in the source first')
-    os.makedirs(os.path.dirname(full), exist_ok=True)
-    atomic_write(full, text)
-    return 1
 
 
 def _meta(source, target, plan, items, ids):

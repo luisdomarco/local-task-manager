@@ -8,7 +8,7 @@ const URL_MAX = 40;
 function fieldName(field, ext = {}) {
   const label = ext.label || 'Ticket';
   const names = {
-    status: 'Status', priority: 'Priority', start: 'Start', due: 'Due', planned: 'Planned', local_path: 'Local path',
+    status: 'Status', priority: 'Priority', responsible: 'Responsible', start: 'Start', due: 'Due', planned: 'Planned', local_path: 'Local path',
     [ext.tracker_key || 'tracker']: 'Tracker', [ext.id_key || 'ticket_id']: `${label} ID`, [ext.url_key || 'ticket_url']: `${label} URL`,
   };
   return names[field] || field;

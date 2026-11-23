@@ -62,6 +62,15 @@ class RenderTest(GuideBase):
         self.assertEqual(a, agentsmd.render(self.s.agents_info(), '/Apps/TM'))
         self.assertIsNone(re.search(r'20\d\d-\d\d-\d\d', a))
 
+    def test_who_work_is_handed_to_is_told_only_where_the_vault_has_it(self):
+        """Responsible starts off in every vault: the guide says nothing about it until the owner turns it on."""
+        self.assertNotIn('--set responsible=', agentsmd.render(self.s.agents_info(), '/Apps/TM'))
+        self.s.save_vault_settings({'enabled_features': ['responsible']})
+        text = agentsmd.render(self.s.agents_info(), '/Apps/TM')
+        self.assertIn('--set responsible="<name>"', text)
+        self.s.save_vault_settings({'disabled_features': ['contacts']})  # it names a contact: off with Contacts
+        self.assertNotIn('--set responsible=', agentsmd.render(self.s.agents_info(), '/Apps/TM'))
+
     def test_a_path_with_spaces_is_quoted_for_the_shell(self):
         self.assertIn("python3 '/Apps/Task Manager/tools/vault.py' check", agentsmd.render(self.s.agents_info(), '/Apps/Task Manager'))
 

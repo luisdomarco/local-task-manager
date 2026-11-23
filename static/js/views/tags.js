@@ -7,8 +7,11 @@
 // Redmine and Slack users (either may be empty), and notes and when to use them (what an agent reads).
 // A group is people reached as one: an email list, a Slack channel…, with its members, notes and when to use it.
 import {
-  addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, personToGroup, renameLabel, state, updateGroup, updatePerson,
+  addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, personToGroup, reload, renameLabel, state, toast,
+  updateGroup, updatePerson, vaultMe,
 } from '../state.js';
+import { api as apiCalls } from '../api.js';
+import { has } from '../features.js';
 import { LIST_PAGE, fixedColumns, paged } from '../datatable.js';
 import { saveSort, savedSort } from '../prefs.js';
 import { isPhone } from '../phone.js';
@@ -77,7 +80,8 @@ function openAddModal(cfg) {
 
 /**
  * One screen: a header with the "Add …" button (a dialog), a filter and a sortable table whose rows open for editing or deleting.
- * cfg.extra: more columns after the name, [{ key, label, cell(row), text(row) }] (text: to sort and filter by).
+ * cfg.extra: more columns after the name, [{ key, label, cell(row), text(row), when?() }] (text: to sort and filter
+ * by; `when()`, read at each draw, keeps a column out while it says so — a feature of the vault turned off).
  * cfg.fields: what the edit row edits besides the name, [{ key, label, value(row), placeholder, kind, options, initial }] (fieldInput);
  * cfg.save(row, { name, ...fields }) saves them (without it, cfg.rename(old, new) renames).
  * cfg.convert: { label, title, icon, run(row) } — one more button in the edit row (People: make it a group).
@@ -85,10 +89,17 @@ function openAddModal(cfg) {
  * Without tabs the head's count is N plural.
  */
 function tagScreen(cfg) {
-  const extra = cfg.extra || [];
-  const span = 3 + extra.length;
+  // The columns this draw has (a `when()` may leave one out) and what follows from them: read again at each draw.
+  const columnsNow = () => (cfg.extra || []).filter((c) => !c.when || c.when());
+  let extra = columnsNow();
+  let span = 3 + extra.length;
   // The shared column widths; the name takes what is left (less than a subject needs when there are more columns).
-  const FIXED = fixedColumns([extra.length ? 'name' : 'subject', ...extra.map((c) => c.key), 'count', 'edit'].map((key) => ({ key })));
+  let FIXED = fixedColumns([extra.length ? 'name' : 'subject', ...extra.map((c) => c.key), 'count', 'edit'].map((key) => ({ key })));
+  const measure = () => {
+    extra = columnsNow();
+    span = 3 + extra.length;
+    FIXED = fixedColumns([extra.length ? 'name' : 'subject', ...extra.map((c) => c.key), 'count', 'edit'].map((key) => ({ key })));
+  };
   const sort = savedSort(`tags.${cfg.plural}`, { col: 'count', dir: -1 });
   let search = '';
   let open = null; // { name, mode: 'edit' | 'delete' } — the row that is open
@@ -175,6 +186,7 @@ function tagScreen(cfg) {
 
       const api = {
         update() {
+          measure(); // a feature turned on or off since the last draw changes which columns there are
           const total = cfg.rows().length;
           if (subtitle) subtitle.textContent = `${total} ${total === 1 ? cfg.singular : cfg.plural}`;
           const byCol = extra.find((c) => c.key === sort.col);
@@ -242,6 +254,7 @@ const peopleScreen = tagScreen({
     { key: 'redmine', label: 'Redmine', text: (r) => r.redmine || '', cell: (r) => (r.redmine ? h('span', { class: 'mono small' }, r.redmine) : dash()) },
     { key: 'slack', label: 'Slack', text: (r) => r.slack || '', cell: (r) => (r.slack ? h('span', { class: 'mono small' }, r.slack) : dash()) },
     WHEN_COLUMN,
+    { key: 'me', label: 'You', when: () => has('responsible'), text: (r) => (isMe(r.name) ? 'you' : ''), cell: youCell },
   ],
   fields: [
     { key: 'calendar_name', label: 'Name in Google Calendar', value: (r) => r.calendar_name || '', placeholder: 'As Calendar shows it' },
@@ -258,9 +271,31 @@ const peopleScreen = tagScreen({
     run: async (r) => { await personToGroup(r.name); location.hash = '#/contacts/groups'; } },
   breakdown: (r) => usedAs(r),
 });
-/** Where a contact is named: "3 activities as sender · 2 meetings as attendee · watching 1 item". */
+/**
+ * Contacts → **You**: which of these people you are, kept in the vault (`me`), one at a time. It is what lets a list
+ * show the work handed to you (Responsible), so the column is only there while that feature is on.
+ */
+const isMe = (name) => !!vaultMe() && vaultMe().toLowerCase() === String(name).toLowerCase();
+function youCell(r) {
+  const mine = isMe(r.name);
+  return h('button', {
+    type: 'button', class: `btn small ${mine ? '' : 'ghost quiet'}`,
+    title: mine ? `${r.name} is you — click to say they are not` : `Say that ${r.name} is you`,
+    'aria-pressed': String(mine),
+    onclick: async (e) => {
+      e.stopPropagation();
+      try {
+        await apiCalls.saveVaultSettings({ me: mine ? '' : r.name });
+        await reload({ status: false });
+        toast(mine ? 'This vault no longer knows who you are' : `You are ${r.name} in this vault`);
+      } catch { /* toasted */ }  // reload() tells the screens: the column redraws itself
+    },
+  }, mine ? [icon('check', 13), 'You'] : 'This is you');
+}
+
+/** Where a contact is named: "3 activities as sender · 2 meetings as attendee · watching 1 item · responsible for 2". */
 function usedAs(r) {
-  return [r.sender ? `${plural(r.sender, 'activity')} as sender`.replace('activitys', 'activities') : '', r.attendee ? `${plural(r.attendee, 'meeting')} as attendee` : '', r.watcher ? `watching ${plural(r.watcher, 'item')}` : ''].filter(Boolean).join(' · ');
+  return [r.sender ? `${plural(r.sender, 'activity')} as sender`.replace('activitys', 'activities') : '', r.attendee ? `${plural(r.attendee, 'meeting')} as attendee` : '', r.watcher ? `watching ${plural(r.watcher, 'item')}` : '', r.responsible ? `responsible for ${plural(r.responsible, 'item')}` : ''].filter(Boolean).join(' · ');
 }
 
 const CHANNELS = [['email', 'Email list'], ['slack', 'Slack channel'], ['other', 'Other']];

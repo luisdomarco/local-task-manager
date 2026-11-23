@@ -23,6 +23,7 @@ related_errors: []
 related_learnings: []
 on_hold: {}                            # {by, why, resume_when}
 discard_reason: ""
+sidebar: false                         # starred in the sidebar’s Favourites (the app writes it)
 url: ""
 tags: []
 creation_date: {{date}}

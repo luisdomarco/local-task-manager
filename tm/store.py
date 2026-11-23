@@ -54,7 +54,9 @@ DEFAULT_LISTS = [{'id': s.lower(), 'name': s, 'status': s} for s in STATUSES]
 ACTIVITY_SOURCES = ['Email', 'Slack', 'Comment', 'Other']
 # `sidebar`: a favourite (listed under Favourites). A new or converted item is not one until starred; an initiative's
 # file without the key, from before, still is (the page reads `sidebar !== false`); a project's is not (projects got
-# the star later: `sidebar === true`, static/js/favourites.js).
+# the star later: `sidebar === true`, static/js/favourites.js). So the key is never left out of a new item: here for a
+# folder-per-type structure (every declared field takes its default) and in `_create_coded` for one with a codec,
+# which writes only the keys it is given — creation and conversion alike go through that one.
 FIELD_DEFAULTS = {'status': 'Backlog', 'priority': 'Normal', 'links': [], 'relations': [], 'archived': False, 'sidebar': False,
                   'labels': [], 'attendees': [], 'comments': []}
 # Comments: [{at: 'YYYY-MM-DDTHH:MM', text}] in the frontmatter, oldest first.
@@ -218,6 +220,9 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
                 raw = raw.split(',')
             names = clean_people(raw)
             values[key] = names if names or key != 'from' else None
+    if 'responsible' in values:  # who the work is handed to: one person of Contacts, by name; blank for nobody
+        names = clean_people(values['responsible'])
+        values['responsible'] = names[0] if names else ''
     if 'time' in values:  # when a meeting starts or an activity came, HH:MM on a 24 h clock; blank means "not known"
         raw = str(values['time'] if values['time'] is not None else '').strip()
         m = TIME_RE.match(raw)
@@ -707,7 +712,11 @@ class Store:
                      'folder': os.path.dirname(it['path']) if scoped else ''}
                     for it in items if it['type'] == 'project']
         bases_list, bases_count = self._bases_info()
+        own = self.vault_settings()
+        features_off = vaultsettings.features_off(own.get('disabled_features'), own.get('disabled_types'),
+                                                  list(self.full_structure.types), own.get('enabled_features'))
         return {'structure': self.structure.id, 'label': self.structure.label, 'types': types, 'projects': projects,
+                'responsible': 'responsible' not in features_off,
                 'project_scoped': sorted(scoped), 'relation_kinds': self.structure.extras.get('relation_kinds') or {},
                 'docs': [r['path'] for r in self.docs_roots() if r.get('exists')], 'default_texts': self.has_default_texts(),
                 'bases': bases_list, 'bases_count': bases_count, 'boards': self._boards_info(),
@@ -1195,23 +1204,54 @@ class Store:
         wanted = set(types)
         return [self._resolved(it, memo) for it in memo['items'] if it['type'] in wanted], memo['walk']
 
+    @staticmethod
+    def _sole_alias(it, clash):
+        """An alias of `it` that no other item answers to — the prefixed form a migration writes
+        (`ACME/ERR-001`) — or None when every one of its aliases is shared."""
+        return next((a for a in it['aliases'] if a not in clash), None)
+
     def find(self, key):
         """The item of `key`: its id or path (its key); else its ref as drawn (TSK-482), else one of its old ids
-        (aliases: ACME-INI-001). A ref whose prefix is not its type's is a 404 that names the right one."""
+        (aliases: ACME-INI-001). A ref whose prefix is not its type's is a 404 that names the right one.
+
+        That order is the precedence, and each step of it is a decision, not an accident of lookup:
+
+        - an id or a path is exact;
+        - a **live ref wins over an old id**. A vault that absorbed several id series has items whose ref is
+          another item's former name (`INI-7` can be an initiative of its own AND what a story used to be
+          called): the thing that is called that today answers;
+        - an old id answers **only when it names one item**. Folding several series into one vault makes old
+          ids collide — `ERR-001` was both `ACME/ERR-001` and `OTHER/ERR-001` — and there the table used to keep
+          whichever item the walk reached first. That answered confidently with an arbitrary item, which is
+          worse than not answering: nobody checks an answer. So a shared old id raises 409 and lists the
+          candidates by a name that is unique.
+        """
         memo = self._items_memo()
         if 'by_key' not in memo:  # the three passes find always made, each a lookup: the first item to claim a key keeps it
-            exact, refs, olds = {}, {}, {}
+            exact, refs, olds, clash = {}, {}, {}, {}
             for it in memo['items']:
-                for name, table in ((it['id'], exact), (it['path'], exact), (it['ref'], refs), *((a, olds) for a in it['aliases'])):
+                for name, table in ((it['id'], exact), (it['path'], exact), (it['ref'], refs)):
                     if name is not None:
                         table.setdefault(name, it)
-            memo['by_key'] = (exact, refs, olds)
-        exact, refs, olds = memo['by_key']
+                for name in it['aliases']:  # an old id is the one key two items can legitimately carry
+                    if name is None:
+                        continue
+                    first = olds.setdefault(name, it)
+                    if first is not it:
+                        clash.setdefault(name, [first]).append(it)
+            memo['by_key'] = (exact, refs, olds, clash)
+        exact, refs, olds, clash = memo['by_key']
         k = str(key or '').strip()
         try:
-            it = exact.get(key) or refs.get(k) or olds.get(k)  # its id or path as given; else its ref; else an old id
+            it = exact.get(key) or refs.get(k)  # its id or path as given; else its ref
         except TypeError:  # a key that is no string (a list from a request): no item has it
             it = None
+        if it is None and k in clash:
+            raise StoreError(409, f'{k} is an old id that {len(clash[k])} items answer to: '
+                                  + '; '.join(f"{c['ref']} (as {self._sole_alias(c, clash) or c['ref']})"
+                                              for c in clash[k])
+                                  + '. Name one of those: an old id that means two things cannot pick for you.')
+        it = it or olds.get(k)  # else an old id, when it names a single item
         if it:
             return self._resolved(it, memo)
         number = self.structure.number_of(k)
@@ -1348,10 +1388,6 @@ class Store:
         # ref (Projects).
         if not subject and not (self.structure.codec and str(values.get('url') or '').strip()):
             raise StoreError(400, 'subject is required')
-        if 'sidebar' in self.structure.types[item_type].fields:
-            # Written either way, never left out: a file without the key is a favourite (one from before the default
-            # changed), and a structure with a codec writes only the keys it is given.
-            values.setdefault('sidebar', False)
         if self.structure.codec:
             return self._first_version(self._create_coded(item_type, subject, values, body, given))
         with self._lock:
@@ -1394,6 +1430,11 @@ class Store:
         tdef = self.structure.types[item_type]
         with self._lock:
             r = self._resolver()
+            if 'sidebar' in tdef.fields:
+                # Written either way, never left out: a file without the key is a favourite (one from before the
+                # default changed, store.py FIELD_DEFAULTS), and a codec writes only the keys it is given. Here rather
+                # than in `create`, so that every way in is covered: an inbox item converted (`_convert_coded`) too.
+                values = {'sidebar': False, **values}
             if item_type == 'project':
                 return self._create_project(subject, given or {}, r, body, values)
             project = values.get('project') or None
@@ -4355,9 +4396,10 @@ class Store:
             self._save_registry(kind, known + fresh)
 
     def _remember_people(self, fields):
-        """The names `fields` gives (from, attendees, watchers) that are not a group: each is remembered as a person."""
+        """The names `fields` gives (from, attendees, watchers, responsible) that are not a group: each is remembered
+        as a person."""
         groups = self._group_names()
-        self._remember('people', [n for k in ('from', 'attendees', 'watchers') for n in clean_people(fields.get(k))
+        self._remember('people', [n for k in ('from', 'attendees', 'watchers', 'responsible') for n in clean_people(fields.get(k))
                                   if n.lower() not in groups])
 
     def _group_names(self):
@@ -4420,23 +4462,33 @@ class Store:
                 out.append(n)
         self._patch_fields(it, {field: out if out or field != 'from' else None})
 
+    def _retarget_one(self, it, field, key, new):
+        """`field` of item `it` (one name, not a list) with the name `key` (lower case) made `new`, or cleared."""
+        name = ' '.join(str(it['fields'].get(field) or '').split())
+        if name.lower() == key:
+            self._patch_fields(it, {field: new or ''})
+
     def _retarget_contact(self, key, new):
         """A person or a group renamed (new) or removed (None): every activity that has them as sender, every meeting
-        that has them as attendee and every item that they watch (TSK-051) follows."""
+        that has them as attendee, every item that they watch (TSK-051) and every item they are responsible for
+        follows."""
         for it in self.items():
             field = self._people_field(it)
             if field:
                 self._retarget_name(it, field, key, new)
             if it['fields'].get('watchers'):
                 self._retarget_name(it, 'watchers', key, new)
+            if it['fields'].get('responsible'):
+                self._retarget_one(it, 'responsible', key, new)
 
     def _named(self):
-        """How many items name each contact (lower case), by how: {'sender': {…}, 'attendee': {…}, 'watcher': {…}}."""
-        counts = {'sender': {}, 'attendee': {}, 'watcher': {}}
+        """How many items name each contact (lower case), by how: sender, attendee, watcher, responsible."""
+        counts = {'sender': {}, 'attendee': {}, 'watcher': {}, 'responsible': {}}
         for it in self.items():
             field = self._people_field(it)
             for how, names in ((('sender' if field == 'from' else 'attendee'), clean_people(it['fields'].get(field)) if field else []),
-                               ('watcher', clean_people(it['fields'].get('watchers')))):
+                               ('watcher', clean_people(it['fields'].get('watchers'))),
+                               ('responsible', clean_people(it['fields'].get('responsible')))):
                 for n in names:
                     counts[how][n.lower()] = counts[how].get(n.lower(), 0) + 1
         return counts
@@ -4803,10 +4855,11 @@ class Store:
         for k in groups:
             display.pop(k, None)
         named = self._named()
-        sender, attendee, watcher = named['sender'], named['attendee'], named['watcher']
+        sender, attendee, watcher, resp = named['sender'], named['attendee'], named['watcher'], named['responsible']
         records = {r['name'].lower(): r for r in self._people_records()}
-        out = [{'name': display[k], 'count': sender.get(k, 0) + attendee.get(k, 0) + watcher.get(k, 0),
+        out = [{'name': display[k], 'count': sender.get(k, 0) + attendee.get(k, 0) + watcher.get(k, 0) + resp.get(k, 0),
                 'sender': sender.get(k, 0), 'attendee': attendee.get(k, 0), 'watcher': watcher.get(k, 0),
+                'responsible': resp.get(k, 0),
                 'calendar_name': records.get(k, {}).get('calendar_name', ''), 'emails': records.get(k, {}).get('emails', []),
                 'redmine': records.get(k, {}).get('redmine', ''), 'slack': records.get(k, {}).get('slack', ''),
                 'notes': records.get(k, {}).get('notes', ''), 'when_to_use': records.get(k, {}).get('when_to_use', '')}

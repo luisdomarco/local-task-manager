@@ -35,6 +35,15 @@ class HistoryTest(unittest.TestCase):
         at = self.s.item_history(self.t['key'])[0]['at']  # to the second: a comment in the same minute keeps its place
         self.assertTrue(at.startswith(first['fields']['updated_at']) and len(at) == 19, at)
 
+    def test_who_it_is_handed_to_is_followed_too(self):
+        """The point of the field: you can see in Activity that an agent put your name on it, and when."""
+        self.s.update(self.t['key'], {'responsible': 'Luis'}, by='agent')
+        self.s.update(self.t['key'], {'responsible': ''}, by='owner')
+        self.assertEqual(self.fields(self.s.item_history(self.t['key'])), [
+            ('responsible', None, 'Luis', 'agent'),
+            ('responsible', 'Luis', None, 'owner'),
+        ])
+
     def test_a_change_and_a_comment_in_one_minute_keep_their_order(self):
         seconds = iter(['2026-10-23T09:42:05', '2026-10-23T09:42:20', '2026-10-23T09:42:41'])
         with mock.patch('tm.store.now_moment', side_effect=lambda: next(seconds)):

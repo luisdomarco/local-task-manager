@@ -137,6 +137,19 @@ export function filterFields(types, ctx = {}) {
       of: (i) => { const v = i.fields[p]; const vs = Array.isArray(v) ? v : v == null || v === '' ? [] : [String(v)]; return vs.length ? vs : [NONE]; },
     });
   }
+  if (any('responsible')) { // who the work is handed to: you first (Contacts → You), then the rest, then Nobody
+    out.push({
+      key: 'responsible', label: 'Responsible', kind: 'person',
+      values: (c, its = []) => {
+        const me = c.me || '';
+        const rest = uniq([...(c.people || []), ...its.map((i) => i.fields.responsible).filter(Boolean)])
+          .filter((n) => n.toLowerCase() !== me.toLowerCase()).sort((a, b) => a.localeCompare(b));
+        return [...(me ? [{ value: me, label: `${me} (you)` }] : []), ...rest.map((n) => ({ value: n, label: n })),
+          { value: NONE, label: 'Nobody' }];
+      },
+      of: (i) => [i.fields.responsible || NONE],
+    });
+  }
   if (any('labels')) {
     out.push({
       key: 'labels', label: 'Labels', kind: 'label',
@@ -292,10 +305,10 @@ export const WHEN_KEYS = ['plan', 'due', 'date'];
 
 // ── columns on a narrow window ───────────────────────────────────────────────
 // Never a sideways scroll: as the table narrows, its columns give way — first any beyond the core set, the right-most
-// first, then Due, a parent (or meeting), Labels, Project, Initiative, Planned and Type. ID, Subject, Status and Priority
-// always stay.
+// first, then Due, a parent (or meeting), Labels, Project, Initiative, Responsible, Planned and Type. ID, Subject,
+// Status and Priority always stay. Responsible goes late: a vault that turned it on wants to see whose work it is.
 const CORE = new Set(['pick', 'id', 'subject', 'subjectPlain', 'status', 'priority']);
-const LATE = [['goal'], ['start'], ['due'], ['parent', 'meetingOf'], ['labels'], ['project'], ['initiative'], ['plan'], ['type']];
+const LATE = [['goal'], ['start'], ['due'], ['parent', 'meetingOf'], ['labels'], ['project'], ['initiative'], ['responsible'], ['plan'], ['type']];
 export const SUBJECT_MIN = 220;
 
 /** The keys of the columns to hide so the rest fit `width`: columns [{ key, width }] (the subject's is its least). */
@@ -391,7 +404,7 @@ const withoutTomorrow = (filters) => filters
  */
 // ── what a board's cards show (Display → Show properties, on a board) ─────────
 /** On on a fresh board: the card stays short (its status, priority, plan and where it hangs; Display turns the rest on). */
-export const CARD_ON = new Set(['status', 'priority', 'plan', 'parent', 'initiative']);
+export const CARD_ON = new Set(['status', 'priority', 'responsible', 'plan', 'parent', 'initiative']);
 
 /** Whether a board's cards show `key`: what the view says (view.cards), else its default. */
 export const cardShows = (view, key) => (view?.cards && key in view.cards ? !!view.cards[key] : CARD_ON.has(key));

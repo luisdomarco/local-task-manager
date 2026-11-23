@@ -1,7 +1,7 @@
 """What a new project's file is made of, and that every path writes the same one.
 
 A Ticketing item's frontmatter is not derived from the schema: it is a text file (`templates/<file class>.md`) with
-`{{…}}` filled in (codec `template` → `fill`). Two things follow, and both bit the owner's vault (TSKM SUP-391):
+`{{…}}` filled in (codec `template` → `fill`). Two things follow, and both bit the owner's vault (SUP-391):
 
 * Editing that template forks the population. The files already on disk are never revisited, so the vault's projects
   split by the date each was created — `enabled_types` in the ones from before 2026-11-14, `area` and `objective` only
@@ -32,7 +32,7 @@ PLACEHOLDER_RE = re.compile(r'\{\{([^}]*)\}\}')
 EMBED_RE = re.compile(r'!\[\[([^\]|#]+)')
 
 # Keys a type's template writes that the type does not declare: the same defect as the project's, type by type, left
-# visible here instead of silently drifting (TSKM SUP-391 lists them; the owner decides each). A key leaves this table
+# visible here instead of silently drifting (SUP-391 lists them; the owner decides each). A key leaves this table
 # when it is declared or dropped — never by adding another one.
 UNDECLARED = {
     'entity': ('priority',),                                   # an entity is not `prioritized` (tm/structures/traits.py)
@@ -140,7 +140,7 @@ class NewProjectTest(unittest.TestCase):
         self.assertNotIn('{{', self.text(it['path']))
 
     def test_a_new_project_embeds_no_file_that_does_not_exist(self):
-        # Its note promised `![[<Project>.base#Open]]` until TSKM SUP-391: nobody writes a `.base` (tm/bases.py only
+        # Its note promised `![[<Project>.base#Open]]` until SUP-391: nobody writes a `.base` (tm/bases.py only
         # reads one, and the vault's AGENTS.md tells agents never to touch one), so the embed was always dead.
         it = self.s.create('project', 'Alpha One', {'project_key': 'ALP'})
         stems = {os.path.splitext(f)[0] for _, _, files in os.walk(self.root) for f in files}

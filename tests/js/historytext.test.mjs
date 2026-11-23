@@ -20,6 +20,11 @@ describe('historyText', () => {
     assert.equal(historyText({ field: 'local_path', from: '~/work', to: null, by: 'owner' }, EXT), 'Local path cleared (was ~/work)');
   });
 
+  it('names who the work was handed to, and says when an agent did it', () => {
+    assert.equal(historyText({ field: 'responsible', from: null, to: 'Ana', by: 'agent' }, EXT), 'Responsible set to Ana · by an agent');
+    assert.equal(historyText({ field: 'responsible', from: 'Ana', to: 'Luis', by: 'owner' }, EXT), 'Responsible: Ana → Luis');
+  });
+
   it('names the outside ticket by the structure, cuts a long URL and says who when it was not you', () => {
     assert.equal(historyText({ field: 'ticket_url', from: null, to: 'https://redmine.example.com/issues/4521?tab=history', by: 'agent' },
       { ...EXT, label: 'Redmine' }), 'Redmine URL set to https://redmine.example.com/issues/4521… · by an agent');

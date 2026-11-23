@@ -112,8 +112,10 @@ export function openVaultEditor(vault) {
   const isNew = !vault;
   const v = vault ? { ...plain(vault), missing: vault.missing } : { id: '', name: '', path: '', structure: fresh, folders: {}, disabled_types: [] };
   v.disabled_features = [...(vault?.disabled_features || [])]; // the vault's own (.task-manager/settings.json), never config.json
+  v.enabled_features = [...(vault?.enabled_features || [])]; // the same file: the features that start off and it asked for
   const typesBefore = JSON.stringify(v.disabled_types);
   const featuresBefore = JSON.stringify(v.disabled_features);
+  const enabledBefore = JSON.stringify(v.enabled_features);
   const FEATURES = c.vault_features || [];
   const structureBefore = v.structure; // its default texts are of the structure it is saved with
   let isDefault = isNew ? false : c.default_vault === v.id;
@@ -189,11 +191,13 @@ export function openVaultEditor(vault) {
 
   // Features: what the vault turns off as a whole, each with what it hides and the types that go with it. One the
   // platform has none of (a phone: AI Agents, Canvas) is off here whatever the vault says, and is left as it is:
-  // changing it on a phone would change the Mac too.
+  // changing it on a phone would change the Mac too. One that starts off (`default_off`, tm/vaultsettings.py) is
+  // ticked from the other list, `enabled_features`: for it, saying nothing means off.
   const featuresPane = h('div', { class: 'vault-features' });
   const drawFeatures = () => {
     const types = new Map(((c.structure_types || {})[v.structure] || { types: [] }).types);
     const off = new Set(v.disabled_features);
+    const asked = new Set(v.enabled_features || []);
     featuresPane.replaceChildren(
       h('p', { class: 'muted small' }, 'A feature turned off leaves every screen of this vault, with the item types that go with it. Nothing is deleted: turn it on again and everything is back. Kept in the vault, so every device that opens it shows the same.'),
       h('div', { class: 'vault-feature-list' }, FEATURES.map((f) => {
@@ -201,15 +205,25 @@ export function openVaultEditor(vault) {
         const mine = f.types.filter((t) => types.has(t));
         // Off already because Item types turned all its types off (the Activity tab goes with the Activity type)
         const byTypes = f.follows_types && mine.length > 0 && mine.every((t) => v.disabled_types.includes(t));
+        // What it rests on is off (Responsible without Contacts): off with it, and not to be ticked until it is back
+        const needs = f.needs && (off.has(f.needs) || (FEATURES.find((x) => x.id === f.needs)?.default_off
+          && !asked.has(f.needs))) ? FEATURES.find((x) => x.id === f.needs) : null;
         // Not on this device: the box shows what the vault keeps (the Mac's), and stays as it is
-        const on = !off.has(f.id) && !byTypes;
-        const why = !here ? 'Not on this device' : byTypes ? 'Off: its types are off in Item types' : null;
+        const on = (f.default_off ? asked.has(f.id) : !off.has(f.id)) && !byTypes && !needs;
+        const why = !here ? 'Not on this device' : byTypes ? 'Off: its types are off in Item types'
+          : needs ? `Off: ${needs.label} is off` : f.default_off && !on ? 'Off until you turn it on' : null;
         return h('label', { class: 'vault-feature', 'data-feature-id': f.id },
-          h('input', { type: 'checkbox', checked: on, disabled: !here || byTypes, 'aria-label': f.label,
+          h('input', { type: 'checkbox', checked: on, disabled: !here || byTypes || !!needs, 'aria-label': f.label,
             onchange: (e) => {
-              const now = new Set(v.disabled_features);
-              if (e.target.checked) now.delete(f.id); else now.add(f.id);
-              v.disabled_features = FEATURES.map((x) => x.id).filter((x) => now.has(x));
+              if (f.default_off) {  // the other list: for it, absence means off
+                const want = new Set(v.enabled_features || []);
+                if (e.target.checked) want.add(f.id); else want.delete(f.id);
+                v.enabled_features = FEATURES.filter((x) => x.default_off && want.has(x.id)).map((x) => x.id);
+              } else {
+                const now = new Set(v.disabled_features);
+                if (e.target.checked) now.delete(f.id); else now.add(f.id);
+                v.disabled_features = FEATURES.map((x) => x.id).filter((x) => now.has(x));
+              }
               drawFeatures();
               drawTypes();
               drawTexts();
@@ -313,6 +327,7 @@ export function openVaultEditor(vault) {
       const changes = {};
       if (JSON.stringify(v.disabled_types) !== typesBefore || (isNew && v.disabled_types.length)) changes.disabled_types = v.disabled_types;
       if (JSON.stringify(v.disabled_features) !== featuresBefore || (isNew && v.disabled_features.length)) changes.disabled_features = v.disabled_features;
+      if (JSON.stringify(v.enabled_features) !== enabledBefore || (isNew && v.enabled_features.length)) changes.enabled_features = v.enabled_features;
       if (Object.keys(changes).length) await api.saveVaultSettings(changes, v.id);
       close(true);
       await reload(); // the page reads the config again

@@ -31,7 +31,7 @@ import { LINK_LABELS } from './linkgroups.js';
 import { peopleOf } from './people.js';
 import { cleanTime } from './worktime.js';
 import { has } from './features.js';
-import { allContacts, allLabels, state } from './state.js';
+import { allContacts, allLabels, allPeople, state } from './state.js';
 import { checkSelect, dropdown, h, icon, labelInput, parentOptions, propRow, seg, select, selectButton, tagInput, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { OFFSETS, defaults as reminderDefaults, effective as reminderRings, loadDefaults as loadReminderDefaults, offsetsText, sortOffsets, summary as reminderSummary } from './reminders.js';
 import { refOf } from './shownid.js';
@@ -201,7 +201,8 @@ export function planControl(get, set, attrs = {}, { short = false } = {}) {
 /**
  * The property fields, two per row (Labels takes the whole row), always in this order (a type skips the ones
  * that do not apply to it):
- *   [activity: source · from · date · time] · status · priority · priority reason (whole row) · related to · session
+ *   [activity: source · from · date · time] · status · priority · priority reason (whole row) · responsible
+ *   · related to · session
  *   · planned · due · [meeting: date · time · duration · attendees] · labels
  */
 export function itemFields(b) {
@@ -237,6 +238,17 @@ export function itemFields(b) {
   // priority's slot (`slot: 'priority'`: a Ticketing support ticket's level and why) shows those there instead.
   let prioritized = false;
   const slotted = props.filter((p) => p.slot === 'priority');
+  // Who the work is handed to (the Responsible feature, off until a vault asks for it): one person of Contacts, by
+  // name, on the types that are given out (traits.ASSIGNED_TYPES). A name the vault no longer knows is still offered,
+  // so opening an item never drops what it says.
+  const responsibleRow = () => {
+    if (!hasField(type, 'responsible') || !has('responsible')) return;
+    const now = b.get('responsible') || '';
+    const names = [...new Set([...allPeople(), ...(now ? [now] : [])])].sort((a, x) => a.localeCompare(x));
+    out.push(propRow('Responsible', select([['', 'Nobody'], ...names.map((n) => [n, n])], now, (v) => b.set('responsible', v),
+      { 'aria-label': 'Responsible', 'data-fk': 'responsible', search: names.length > 7 })));
+  };
+
   const priorityFields = () => {
     if (prioritized) return;
     if (slotted.length) {
@@ -291,6 +303,7 @@ export function itemFields(b) {
     if (hasField(type, 'priority')) priorityFields(); // an agent's, as a task's: Status · Priority, then why
   }
   priorityFields(); // a type with a priority and no status
+  responsibleRow(); // who it is handed to, right after what it is and how urgent
 
   if (PARENT_TYPES[type].length && !aside('related_to')) out.push(propRow(relatedLabel(type), relatedControl(b)));
 

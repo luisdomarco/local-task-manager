@@ -28,7 +28,7 @@ LABELS = {
     'labels': 'Labels', 'date': 'Date', 'time': 'Time', 'duration': 'Duration', 'attendees': 'Attendees',
     'event_id': 'Calendar event id', 'source': 'Source', 'from': 'From', 'resolution': 'Resolution',
     'body': 'Description (body)', 'attachments': 'Attachments (Attachments/ folder)', 'ticket_id': 'Ticket id',
-    'ticket_url': 'Ticket URL', 'tracker': 'Tracker', 'local_path': 'Local path', 'watchers': 'Watchers',
+    'ticket_url': 'Ticket URL', 'tracker': 'Tracker', 'local_path': 'Local path', 'watchers': 'Watchers', 'responsible': 'Responsible',
     'worklog': 'Log work (work log files)', 'url': 'Main link', 'url_label': 'Main link label', 'links': 'Other links',
     'project': 'Project', 'related_to': 'Parent', 'relations': 'Related items', 'relation_kinds': 'Kind of each relation',
     'docs': 'Linked docs and folders', 'comments': 'Comments', 'claude_sessions': 'Claude sessions', 'list': 'Board list',

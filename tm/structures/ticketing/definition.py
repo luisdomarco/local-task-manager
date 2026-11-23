@@ -120,7 +120,10 @@ LEGACY_PARENT = {'prd': 'umbrella'}
 
 
 def _opts(*values):
-    return [[v, v] for v in values]
+    # The value is the datum; the LABEL is always a string. A numeric domain (`impact`)
+    # would otherwise hand the page a number where it calls `.toLowerCase()` on the label
+    # while searching (`static/js/ui.js`). For a string value `str(v)` is a no-op.
+    return [[v, str(v)] for v in values]
 
 
 # The fields shown on an item's card beyond the app's own (status, priority, plan, due, labels…), in order.
@@ -143,7 +146,7 @@ PROPS = {
                 P(key='execution_mode', label='Execution', kind='select', options=_opts(*EXECUTION_MODES)),
                 # How old a verified premise may be before the readiness gate of this project's initiatives asks for
                 # it again (rules.py `_check_premise`; 14 when the note says none). Written by the template since the
-                # structure was born, declared here since TSKM SUP-391: until then nothing could edit it but Obsidian,
+                # structure was born, declared here since SUP-391: until then nothing could edit it but Obsidian,
                 # because allowed_values() drops a value for a key no type declares.
                 P(key='premise_max_age_days', label='Premise max age (days)', kind='number'),
                 P(key='support_due_days', label='Support due days', kind='map', keys=list(LEVELS), number=True),
@@ -219,11 +222,18 @@ PROPS = {
     'analysis': (P(key='kind', label='Kind', kind='select', options=_opts('diagnosis', 'decision', 'review', 'research', 'retro', 'ux', 'brief', 'report')),
                  P(key='base', label='Base', kind='text', placeholder='<branch> @ <sha>'), P(key='author', label='Author', kind='text', placeholder='Who wrote it'),
                  P(key='supersedes', label='Supersedes', kind='link', types=['analysis'])),
+    # `impact` is a NUMBER, 1-5, because that is what the disk already says: the templates
+    # write `impact: 3` unquoted (`templates/Ticket Error.md`, `Ticket Learning.md`) and
+    # `tools/_roadmap_dialects.py` `_int_or_text` keeps it an int, as
+    # `tests/test_roadmap_dashboard.py` asserts. Declared as strings it ALSO broke the page:
+    # `static/js/ui.js` matches a select's current value with `===`, so an int never matched
+    # a string option and the field rendered EMPTY — no label, no tick in the menu — in
+    # every error and learning note. Measured 2026-11-22 over 628 notes of the owner's vault.
     'error': (P(key='severity', label='Severity', kind='select', options=_opts('low', 'medium', 'high', 'critical')),
-              P(key='impact', label='Impact', kind='select', options=_opts('1', '2', '3', '4', '5'), default='3'),
+              P(key='impact', label='Impact', kind='select', options=_opts(1, 2, 3, 4, 5), default=3),
               P(key='area', label='Area', kind='text'),
               P(key='fixed_by', label='Fixed by', kind='link', types=['initiative', 'support', 'hotfix'])),
-    'learning': (P(key='impact', label='Impact', kind='select', options=_opts('1', '2', '3', '4', '5'), default='3'),
+    'learning': (P(key='impact', label='Impact', kind='select', options=_opts(1, 2, 3, 4, 5), default=3),
                  P(key='applies_to', label='Applies to', kind='select', options=_opts('project', 'all-projects')),
                  P(key='area', label='Area', kind='text')),
     'agent': agents.PROPS,
@@ -360,16 +370,17 @@ LISTS = {
                                'project', 'goal', 'updated'],
                    'group_by': ['project', 'status', 'priority', 'plan', 'goal']},
     'story': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
-              'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'prop:size:Size', 'labels', 'progress', 'project', 'parent:Initiative', 'goal', 'updated'],
-              'group_by': ['initiative', 'project', 'status', 'priority', 'plan', 'goal']},
+              'columns': [*LIST_COLS, 'priority', 'responsible', 'plan', 'due', 'prop:size:Size', 'labels', 'progress', 'project', 'parent:Initiative', 'goal', 'updated'],
+              'group_by': ['initiative', 'project', 'status', 'priority', 'responsible', 'plan', 'goal']},
     'spec': {'sort': {'col': 'subject', 'dir': 1}, 'relation': None, 'scopes': 'status',
              'columns': [*LIST_COLS, 'prop:capability:Capability', 'prop:synced_date:Synced', 'labels', 'project', 'updated'],
              'group_by': ['project', 'status']},
     'support': {'sort': {'col': 'due', 'dir': 1}, 'relation': None, 'scopes': 'status',
-                'columns': [*LIST_COLS, 'prop:level:Level', 'plan', 'due', 'prop:origin:Origin', 'prop:occurrences:×', 'prop:disposition:Disposition', 'labels', 'project', 'updated'],
-                'group_by': ['project', 'status', 'plan']},
+                'columns': [*LIST_COLS, 'prop:level:Level', 'responsible', 'plan', 'due', 'prop:origin:Origin', 'prop:occurrences:×', 'prop:disposition:Disposition', 'labels', 'project', 'updated'],
+                'group_by': ['project', 'status', 'responsible', 'plan']},
     'hotfix': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['support'], 'scopes': 'status',
-               'columns': [*LIST_COLS, 'prop:severity:Severity', 'plan', 'due', 'labels', 'project', 'parent:Origin', 'updated'], 'group_by': ['project', 'status']},
+               'columns': [*LIST_COLS, 'prop:severity:Severity', 'responsible', 'plan', 'due', 'labels', 'project', 'parent:Origin', 'updated'],
+               'group_by': ['project', 'status', 'responsible']},
     'prd': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative'], 'scopes': 'status',
             'columns': [*LIST_COLS, 'labels', 'project', 'parent:Initiative', 'updated'], 'group_by': ['initiative', 'project', 'status']},
     'plan': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support'], 'scopes': None,
@@ -382,8 +393,8 @@ LISTS = {
                  'columns': ['id', 'subject', 'prop:impact:Impact', 'prop:applies_to:Applies to', 'project', 'initiative', 'related:From', 'created'], 'group_by': ['initiative', 'project']},
     'task': {'sort': {'col': 'status', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd'], 'scopes': 'status',
              'relation_label': 'Ticket', 'relation_any': 'Any ticket',
-             'columns': [*LIST_COLS, 'priority', 'plan', 'due', 'labels', 'project', 'initiative', 'related:Related to', 'goal', 'updated'],
-             'group_by': ['initiative', 'project', 'status', 'priority', 'plan', 'goal']},
+             'columns': [*LIST_COLS, 'priority', 'responsible', 'plan', 'due', 'labels', 'project', 'initiative', 'related:Related to', 'goal', 'updated'],
+             'group_by': ['initiative', 'project', 'status', 'priority', 'responsible', 'plan', 'goal']},
     'note': {'sort': {'col': 'updated_at', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task'], 'scopes': None,
              'columns': ['id', 'subject', 'labels', 'project', 'initiative', 'related:Related to', 'created', 'updated'], 'group_by': ['initiative', 'project']},
     'meeting': {'sort': {'col': 'date', 'dir': -1}, 'relation': ['initiative', 'story', 'support', 'hotfix', 'prd', 'task'], 'scopes': 'date',

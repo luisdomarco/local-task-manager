@@ -291,6 +291,30 @@ class WatchersTest(unittest.TestCase):
         self.s.delete_person('Ana García')
         self.assertEqual(self.watchers(task['key']), [])
 
+    def responsible(self, key):
+        return self.s.read(key)['fields'].get('responsible')
+
+    def test_only_the_work_that_is_handed_out_takes_a_responsible(self):
+        for t in ('story', 'task'):
+            self.assertIn('responsible', self.s.structure.allowed_fields(t), t)
+        for t in ('initiative', 'note', 'meeting', 'activity'):
+            self.assertNotIn('responsible', self.s.structure.allowed_fields(t), t)
+
+    def test_it_is_one_clean_name_and_a_new_one_becomes_a_person(self):
+        task = self.s.create('task', 'T', {'responsible': '  Jan   Novak '})
+        self.assertEqual(self.responsible(task['key']), 'Jan Novak')
+        self.assertIn('Jan Novak', [p['name'] for p in self.s.people()['people']])
+        self.assertEqual(next(p for p in self.s.people()['people'] if p['name'] == 'Jan Novak')['responsible'], 1)
+        self.s.update(task['key'], {'responsible': ''})  # nobody
+        self.assertEqual(self.responsible(task['key']), '')
+
+    def test_renaming_or_deleting_a_contact_reaches_who_is_responsible(self):
+        task = self.s.create('task', 'T', {'responsible': 'Ana'})
+        self.s.update_person('Ana', {'name': 'Ana García'})
+        self.assertEqual(self.responsible(task['key']), 'Ana García')
+        self.s.delete_person('Ana García')
+        self.assertEqual(self.responsible(task['key']), '')
+
     def test_the_claude_prompt_lists_the_watchers_and_how_to_reach_them(self):
         task = self.s.create('task', 'T', {'watchers': ['Ana', 'Ops']})
         prompt = self.s.claude_prompt(task['key'])

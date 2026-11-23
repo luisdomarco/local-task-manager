@@ -46,6 +46,18 @@ describe('viewmodel', () => {
       assert.ok(!sup.some((f) => f.key === 'priority'), 'a support has a level, no priority');
     });
 
+    it('a responsible filter offers the vault\'s people and the names on the rows, Nobody last', () => {
+      const f = fields.find((x) => x.key === 'responsible');
+      const rows = [task('TSK-9', { responsible: 'Zoe' }), task('TSK-8')];
+      assert.deepEqual(f.values({ ...ctx, people: ['Ana', 'Luis'] }, rows).map((v) => v.label), ['Ana', 'Luis', 'Zoe', 'Nobody']);
+      // Contacts → You: your own name comes first, said so
+      assert.deepEqual(f.values({ ...ctx, people: ['Ana', 'Luis'], me: 'Luis' }, rows).map((v) => v.label),
+        ['Luis (you)', 'Ana', 'Zoe', 'Nobody']);
+      assert.deepEqual(f.of(rows[0]), ['Zoe']);
+      assert.deepEqual(f.of(rows[1]), [NONE]);
+      assert.ok(!filterFields(['initiative'], ctx).some((x) => x.key === 'responsible'), 'an initiative is handed to nobody');
+    });
+
     it('an initiative filter takes in what hangs from it at any depth', () => {
       const f = fields.find((x) => x.key === 'initiative');
       assert.deepEqual(f.of(a, ctx), ['INI-1']); // task → story → initiative

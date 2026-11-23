@@ -106,6 +106,8 @@ export const GROUPS = {
     by: (i) => i.fields.priority || 'Normal',
     order: (a, b) => (PRIORITY_RANK[a] || 9) - (PRIORITY_RANK[b] || 9),
   },
+  // Who the work is handed to: a group per person, by name, with the rows nobody has last.
+  responsible: { label: 'Responsible', by: (i) => i.fields.responsible || NONE, order: byName((k) => k) },
   plan: { label: 'Planned', by: (i) => planBucket(i), order: (a, b) => planRank(a) - planRank(b) },
 };
 

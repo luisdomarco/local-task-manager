@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bring a Projects vault's project notes to the shape a project created today has (TSKM SUP-391).
+"""Bring a Projects vault's project notes to the shape a project created today has (SUP-391).
 docs/migrate-project-keys.md is the guide.
 
     python3 tools/migrate_project_keys.py --plan VAULT
@@ -208,7 +208,7 @@ def _base_exists(root, embed):
 
 
 def main(argv=None, out=sys.stdout):
-    p = argparse.ArgumentParser(description='Bring a Projects vault\'s project notes to today\'s shape (TSKM SUP-391).')
+    p = argparse.ArgumentParser(description='Bring a Projects vault\'s project notes to today\'s shape (SUP-391).')
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument('--plan', metavar='VAULT', help='say what would change, and its digest; write nothing')
     g.add_argument('--apply', metavar='VAULT', help='write it (needs --digest)')

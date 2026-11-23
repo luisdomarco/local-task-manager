@@ -288,7 +288,7 @@ Every field is optional.
 | `work_kinds` | The kinds of work a work-log entry can have. | Settings → General |
 | `editor_app` | What *Open in …* in the Explorer uses: Cursor, Visual Studio Code, Zed, Sublime Text, BBEdit or TextEdit. | Settings → General |
 | `claude_command` | How Claude Code is started (`claude`; extra flags allowed). Give the full path if the server's PATH does not have it. | Settings → Claude |
-| `claude_paths`, `claude_cwd`, `claude_path_names` | The saved folders Claude may start in (a closed list: the browser picks one, never types one), the default among them (`""` = this app's folder) and a display name for each. | Settings → Claude |
+| `claude_paths`, `claude_cwd`, `claude_path_names` | The saved folders Claude may start in (a closed list: the browser picks one, never types one), the default among them (`""` = this app's folder) and a display name for each. A folder must exist when it is added; one that is moved or deleted later stays saved, marked *Folder not found* in Settings, and never blocks saving the rest of Settings. | Settings → Claude |
 | `claude_model`, `claude_effort` | Default model and effort for a launch (`""` = Claude's own default). | Settings → Claude |
 | `terminal` | `Terminal` or `iTerm`, for *Open in Terminal*. | Settings → Claude |
 | `agent_dirs`, `agent_dir_names` | The agent folders of the sidebar's Agents mode (absolute, existing; a closed list, apart from `claude_paths`: the page names a folder by its id, never by its path) and the name the sidebar shows for each. | Settings → Agents, or **+** in the sidebar's Agents mode |
@@ -1454,8 +1454,14 @@ nothing on disk is touched: turned on again, everything is back.
 | **Meetings & transcription** | Meeting, Transcription | Meetings and Transcriptions, and their place in Today and the month |
 | **Work log** | — | The Work log page, an item's **Time** tab |
 | **Contacts** | — | The Contacts page, @ mentions, an item's watchers |
+| **Responsible** | — | Who a story, a task, a support ticket or a hotfix is handed to: its **Responsible** row, the column, the filter and the grouping in the lists, the chip on its card, Contacts' **You** column and ⌘K's *Assigned to me*. **It starts off**: a vault shows it only once it is turned on, and what an item already says is left on disk |
 | **Reminders** | — | An item's **Reminders** row and **Settings → Reminders**; nothing of the vault rings, on the Mac or the iPhone (Time and Duration stay, and the reminders an item keeps are left on disk) |
 | **Notifications** | — | The system's notifications: no reminder of the vault rings on the Mac or the iPhone, and Claude's sessions and agent runs stop notifying while you look elsewhere (the tab's title and the toast on the page stay). Reminders can still be set |
+
+**Responsible is the one feature that starts off**, in a vault from before as in a new one: every other is on until
+you turn it off (the vault keeps `disabled_features`), and this one is off until you turn it on (`enabled_features`,
+the same file). It rests on **Contacts**, where its names come from: with Contacts off it is off too, and its box says
+so. Nothing of what items already say is touched either way.
 
 A feature with types is off too once Item types turns all of them off: the Activity type off takes the Activity tab
 with it, and the box says *Off: its types are off in Item types*. A type a feature took shows in Item types ticked off
@@ -1779,6 +1785,7 @@ can be renamed or moved freely.
 | `status` | | ✓ | ✓ | | | Backlog · ToDo · OnHold · Blocked · InProgress · Review · Done · Discarded |
 | `priority` | | ✓ | ✓ | | | Urgent · High · Normal · Low |
 | `priority_reason` | | ✓ | ✓ | | | Why it has that priority. Free text (blank: none); stories have it too. |
+| `responsible` | | ✓ | | | | Who the work is handed to: **one** person of Contacts, by the name they are known by there (blank: nobody). Stories, support tickets and hotfixes have it too; what work hangs from — an initiative, a PRD, a project, a goal — does not. Renaming or deleting that contact reaches it, as it reaches a watcher, and its changes are in the item's Activity (*Responsible: — → Ana*, *by an agent* when a command set it). Only where the vault's **Responsible** feature is on (*Features per vault*); the file keeps it either way. |
 | `date`, `attendees` | | | | ✓ | | |
 | `time` | | | | ✓ | | When it starts, `HH:MM` on a 24 h clock (blank: not known, or all day). A calendar import can write it. |
 | `duration` | | | | ✓ | | How long it lasts, `HH:MM` (blank: not known). |
@@ -1813,7 +1820,9 @@ fields and back, writing only the keys that changed.
 A kind of item carries the same fields, in the same places, whatever its vault (`tm/structures/traits.py`):
 
 - **Work** — initiatives, stories, tasks, support tickets, hotfixes and PRDs — has Status · Priority · Planned · Due ·
-  Labels in its properties, then its own fields, its ticket, local path and watchers; *Log work* in the Time tab; Docs; Today,
+  Labels in its properties, then its own fields, its ticket, local path and watchers; a **Responsible** right after the
+  priority on the kinds that are handed to somebody (a story, a task, a support ticket, a hotfix) — in their lists a
+  column, a filter and a way of grouping, and a chip on their board cards — where the vault has that feature on; *Log work* in the Time tab; Docs; Today,
   Week and the Board. A Projects support ticket shows its **Level** and why in Priority's place (each vault keeps its
   own priority values: Urgent… in Initiatives and Tasks, P0–P3 in Projects).
 - **A project**, in Tasks or Projects, has Status (Backlog · ToDo · OnHold · InProgress · Done · Discarded) · Priority,
@@ -1961,6 +1970,11 @@ their `updated_at` (`/api/labels`, `/api/people`, each with `/rename` and `/dele
 `<root>/.task-manager/groups.md` (`/api/groups`, with `/update` and `/delete`): `{name, channel, address, members, notes,
 when_to_use}`, `channel` one of email · slack · other; the same in both structures. An initiative, a user story or a task names
 its **watchers** (TSK-051) in `watchers`, a list of names of people or groups; renaming or deleting a contact reaches it.
+Contacts' People tab has a **You** column while the vault has **Responsible** on: one click says which of them you
+are, and another takes it back. It is kept in the vault (`.task-manager/settings.json`, `me`), never in `config.json`,
+so the Mac and the iPhone agree on who you are there; a vault says nobody until you say it. What it buys: your name
+comes first in the Responsible filter, said so (*Luis (you)*), and ⌘K's **Assigned to me** opens the List page with
+that filter on.
 `from` and `attendees` take a group's name too: a name on an item is the group's when a group has it, else a person's
 (it is never remembered in `people.md`). `/api/people/to-group` makes a person a group under the same name, their
 first email its address; the items that name them stay as they are. The calendar sync names an attendee by the group
@@ -2310,7 +2324,8 @@ Ideas, each one command:
   (also *Add folder* on the Home): its absolute path (typed, or on a Mac picked with *Choose…* in a Finder
   dialog) and, if you like, the name the sidebar shows for it. They
   are listed in **Settings → Agents** (`agent_dirs`), where they are renamed and removed; removing one leaves its files
-  as they are. A folder that is gone stays listed, dimmed (*not found*), until you remove it.
+  as they are. A folder that is gone stays listed, dimmed (*not found*), until you remove it; Settings → Agents marks it
+  *Folder not found*, and it never blocks saving the rest of Settings.
 - **Every command in its `.claude/commands` is an agent** — nothing to register: write the `.md` and it is there
   (**⟳** reads every folder again). It is named as Claude Code names it: `dev/start.md` is `/dev:start`, under a
   `dev` folder in the tree. A `.claude/commands` that is a link (an app linking the commands of the system that builds

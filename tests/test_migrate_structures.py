@@ -113,6 +113,18 @@ class InitiativesVaultTest(Base):
         self.assertTrue(os.path.isdir(os.path.join(self.dst, 'Pricing', 'Stories')))
         self.assertTrue(os.path.isfile(os.path.join(self.dst, 'Docs', 'Handbook', 'Pricing principles.md')))
 
+    def test_a_migrated_initiative_does_not_land_in_the_owners_favourites(self):
+        """The items are written through the codec, not `Store.create`, and an initiative whose file has no `sidebar`
+        reads as a favourite: a vault just migrated would fill the sidebar with every initiative it holds."""
+        rel = os.path.join('initiatives', 'INI-0002-onboarding-emails.md')
+        unstarred = read(self.src, rel).replace('sidebar: true\n', '')  # as a vault from before the key has it
+        with open(os.path.join(self.src, rel), 'w', encoding='utf-8') as f:
+            f.write(unstarred)
+        plan = confirm(self.plan(), GEN={'name': 'Pricing'})
+        self.apply(plan)
+        self.assertIs(head(self.dst, find(self.dst, 'GEN-INI-0002'))['sidebar'], False)
+        self.assertIs(head(self.dst, find(self.dst, 'GEN-INI-0001'))['sidebar'], True)  # starred: it keeps its star
+
     def test_the_work_log_and_the_ids_follow_the_id_map(self):
         plan = confirm(self.plan())
         self.apply(plan)

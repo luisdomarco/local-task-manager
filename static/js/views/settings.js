@@ -212,6 +212,9 @@ export function mount(root, param) {
       const kinds = h('input', { type: 'text', class: 'wide', 'aria-label': 'Work kinds', value: (c.work_kinds || []).join(', ') });
       // Saved folders: as many as you like, one of them the default (or none: the project folder of this app).
       const paths = [...(c.claude_paths || [])];
+      // A saved folder that is gone (moved or deleted outside the app) stays listed, marked, to be removed or kept.
+      const gone = new Set(c.missing_dirs || []);
+      const goneChip = (p) => gone.has(p) ? h('span', { class: 'chip warn', title: 'Moved or deleted outside the app: remove it, or put the folder back' }, 'Folder not found') : null;
       const names = { ...(c.claude_path_names || {}) }; // path → its public name: what the Claude dialog shows instead of the path
       let defaultPath = c.claude_cwd || '';
       const pathsBox = h('div', { class: 'claude-paths' });
@@ -232,7 +235,7 @@ export function mount(root, param) {
       const renderPaths = () => pathsBox.replaceChildren(
         h('div', { class: 'cp-row' }, radio('', 'Default'), nameInput('', 'the project folder'), h('span', { class: 'cp-path muted' }, 'The project folder of this app')),
         ...paths.map((p, i) => h('div', { class: 'cp-row' }, radio(p, 'Default'), nameInput(p, p),
-          h('code', { class: 'cp-path', title: p }, p),
+          h('code', { class: 'cp-path', title: p }, p), goneChip(p),
           h('button', { class: 'btn icon row-action', title: `Remove ${p}`, onclick: () => { paths.splice(i, 1); delete names[p]; if (defaultPath === p) defaultPath = ''; renderPaths(); } }, icon('x', 14)))),
         h('div', { class: 'cp-add' }, addInput, folderButton(addInput, { prompt: 'Choose a folder Claude can start in', onPick: addPath }),
           h('button', { class: 'btn small ghost', onclick: addPath }, icon('plus', 13), 'Add')));
@@ -256,7 +259,7 @@ export function mount(root, param) {
         ...agentPaths.map((p, i) => h('div', { class: 'cp-row agents-dir-row' },
           h('input', { type: 'text', class: 'cp-name', value: agentNames[p] || '', placeholder: p.split('/').pop() || 'Name', 'aria-label': `Name of ${p}`,
             title: 'What the sidebar shows for this folder (empty: its last part)', oninput: (e) => { agentNames[p] = e.target.value; } }),
-          h('code', { class: 'cp-path', title: p }, p),
+          h('code', { class: 'cp-path', title: p }, p), goneChip(p),
           h('button', { class: 'btn icon row-action', title: `Remove ${p} (its files stay as they are)`, onclick: () => { agentPaths.splice(i, 1); delete agentNames[p]; renderAgentPaths(); } }, icon('x', 14)))),
         h('div', { class: 'cp-add' }, agentInput, folderButton(agentInput, { prompt: 'Choose a folder whose .claude/commands holds agents', onPick: addAgentPath }),
           h('button', { class: 'btn small ghost', onclick: addAgentPath }, icon('plus', 13), 'Add')));

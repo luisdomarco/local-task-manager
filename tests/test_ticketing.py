@@ -734,14 +734,58 @@ class WikilinksTest(unittest.TestCase):
 
 
 class FavouritesTest(TicketingBase):
+    """An initiative is a favourite unless its file says `sidebar: false` (favourites.js reads `!== false`), so no way
+    of making one may leave the key out: the template carries it and `_create_coded` writes it whatever it is given."""
+
+    def says_not_a_favourite(self, it):
+        """The key is on its line on disk (with the template's comment after it, as every key there) and reads false."""
+        lines = read(self.root, it['path']).split('\n')
+        self.assertTrue(any(l.startswith('sidebar: false') for l in lines), [l for l in lines if 'sidebar' in l])
+        self.assertIs(self.s.read(it['path'])['fields']['sidebar'], False)
+
     def test_a_new_initiative_says_it_is_not_a_favourite(self):
         # The codec writes only the keys it is given; a file without `sidebar` would read as a favourite
-        ini = self.s.create('initiative', 'New one', {'project': 'HB'})
-        with open(os.path.join(self.root, ini['path']), encoding='utf-8') as f:
-            self.assertIn('\nsidebar: false\n', f.read())
-        self.assertIs(self.s.read(ini['path'])['fields']['sidebar'], False)
+        self.says_not_a_favourite(self.s.create('initiative', 'New one', {'project': 'HB'}))
         starred = self.s.create('initiative', 'Starred', {'project': 'HB', 'sidebar': True})
         self.assertIs(starred['fields']['sidebar'], True)
+        self.assertTrue(any(l.startswith('sidebar: true') for l in read(self.root, starred['path']).split('\n')))
+
+    def test_an_inbox_item_converted_into_an_initiative_is_not_a_favourite_either(self):
+        # Conversion never goes through `create`: the key is written in `_create_coded`, which both go through.
+        inb = self.s.create('inbox', 'Rethink pricing', {}, body='Ask Ana first.')
+        self.says_not_a_favourite(self.s.convert(inb['key'], 'initiative', {'project': 'HB'}))
+
+    def test_a_project_says_it_too_although_it_needs_the_key_least(self):
+        # A project is a favourite only with `sidebar: true`, so absence would do; its note has said false since
+        # before this and keeps saying it (tests/test_project_template.py pins a project's keys).
+        self.says_not_a_favourite(self.hb)
+
+
+class ResponsibleTest(TicketingBase):
+    """Who the work is handed to: one name of Contacts on a story, a task, a support ticket and a hotfix, written
+    into the file under its own key and nothing else."""
+
+    def test_it_is_written_as_one_key_and_read_back(self):
+        task = self.s.create('task', 'Measure it', {'project': 'HB'})
+        before = read(self.root, task['path'])
+        out = self.s.update(task['key'], {'responsible': 'Sofia'})
+        after = read(self.root, task['path'])
+        self.assertEqual(out['fields']['responsible'], 'Sofia')
+        self.assertEqual(self.changed_keys(before, after) - {'updated_date'}, {'responsible'})
+        self.assertIn('\nresponsible: Sofia', after)
+        self.assertEqual(self.s.read(task['key'])['fields']['responsible'], 'Sofia')
+
+    def test_what_it_hangs_from_has_none(self):
+        for t in ('initiative', 'prd', 'project', 'goal', 'note'):
+            self.assertNotIn('responsible', self.s.structure.types[t].fields, t)
+        for t in ('story', 'task', 'support', 'hotfix'):
+            self.assertIn('responsible', self.s.structure.types[t].fields, t)
+
+    def test_a_new_item_is_written_without_the_key(self):
+        # Nobody is nobody: the codec writes only the keys it is given, and the templates do not name this one.
+        task = self.s.create('task', 'Nobody yet', {'project': 'HB'})
+        self.assertNotIn('responsible:', read(self.root, task['path']))
+        self.assertIsNone(self.s.read(task['key'])['fields'].get('responsible'))
 
 
 class ProjectStatusTest(TicketingBase):

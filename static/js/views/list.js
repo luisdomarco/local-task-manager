@@ -13,12 +13,12 @@ import {
 } from '../rules.js';
 import { KIDS, withKids } from '../timeline.js';
 import { paintTimeline } from '../timelineview.js';
-import { byType, deleteMany, listOf, moveToList, state, toast, updateItem, updateMany } from '../state.js';
+import { byType, deleteMany, listOf, moveToList, state, toast, updateItem, updateMany, vaultMe } from '../state.js';
 import { bulkPatches } from '../bulk.js';
 import { saveView, viewsChanged } from '../savedviews.js';
 import { planValues } from '../itemform.js';
 import { sectionHead } from '../sections.js';
-import { countOf, cssKey, h, icon, lowerName, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
+import { countOf, cssKey, h, icon, lowerName, personChip, priorityChip, select, statusChip, statusLabel, typeIcon } from '../ui.js';
 import { nextGoalOrder } from '../goals.js';
 import { CUSTOM, cardShows, closedShown, columnOn, columnOrder, displayProps, emptyKeys, filterFields, fitView, fresh, groupItems, groupOptions as groupsOf, hiddenColumns, matches, migrateView, phoneExtraOrder, phoneLines, sortColumn, stackOf } from '../viewmodel.js';
 import { viewBar } from '../viewbar.js';
@@ -26,6 +26,7 @@ import { addList, boardOf, customColumns, editLists, listHead } from '../boardvi
 import { applyOrder, reorderColumns } from '../colorder.js';
 import { idMatches, idTip, refOf, shownId } from '../shownid.js';
 import { PHONE_TOUCH, isPhone } from '../phone.js';
+import { has as featureOn } from '../features.js';
 
 // How a type's open and closed items are called (the subtitle: "3 open · 2 closed").
 const SCOPE_NAMES = {
@@ -40,7 +41,8 @@ export function listConfig(type) {
   return {
     title: t.plural, noun: l.noun || t.label, sort: l.sort, relation: l.relation, groupKey: l.group_key,
     relationLabel: l.relation_label || 'Related to', relationAny: l.relation_any || 'Related to anything',
-    scopes: l.scopes || null, columns: l.columns.map(columnOf), groupOptions: l.group_by || [],
+    scopes: l.scopes || null, columns: l.columns.map(columnOf).filter((c) => keyOn(c.key)),
+    groupOptions: (l.group_by || []).filter(keyOn),
   };
 }
 
@@ -48,6 +50,11 @@ export function listConfig(type) {
 export const listTypes = () => Object.keys(TYPE_DEFS).filter((t) => TYPE_DEFS[t].list);
 /** The types the Board page can show: those with a status. */
 export const boardTypes = () => listTypes().filter((t) => hasField(t, 'status'));
+
+// What a feature turned off takes out of a list: its column, its filter and the way of grouping by it, by key
+// (features.js has(); the field itself stays on the item and on disk).
+const KEY_FEATURE = { responsible: 'responsible' };
+const keyOn = (key) => !KEY_FEATURE[key] || featureOn(KEY_FEATURE[key]);
 
 // A column of the List page, blank on a row whose type does not have that field (a note's status).
 const only = (has, c) => ({ ...c, cell: (i) => (has(i) ? c.cell(i) : '') });
@@ -62,6 +69,7 @@ function itemsConfig(types) {
   return {
     title: 'Items', noun: 'item', sort: { col: 'updated_at', dir: -1 }, scopes: 'status', groupOptions: [],
     columns: [COL.id, COL.subject, TYPE_COLUMN, only(has('status'), COL.status), only(has('priority'), COL.priority),
+      any('responsible') && keyOn('responsible') ? only(has('responsible'), COL.responsible) : null,
       any('project') ? only(has('project'), COL.project) : null, COL.parent('Related to'),
       only((i) => PLANNABLE.has(i.type), COL.plan), only(has('due'), COL.due), any('labels') ? COL.labels : null, COL.updated].filter(Boolean),
   };
@@ -80,6 +88,20 @@ function loadView(type, key, page) {
   const cfg = listConfig(type);
   try { legacy = localStorage.getItem(cfg.groupKey || `tm.group.${type}`) === 'on'; } catch { /* none */ }
   return { ...fresh(), groupBy: legacy && cfg.groupOptions.includes('initiative') ? 'initiative' : null };
+}
+
+/**
+ * The List page, showing what has been handed to `name` (the ⌘K command "Assigned to me", Contacts → You): its view
+ * with that one filter on, grouped by nothing, and the page opened. Everything else of the view (its columns, how
+ * it is ordered) is left as the owner last had it.
+ */
+export function openAssignedTo(name) {
+  const key = 'list.items';
+  const view = { ...(pref(key, null) ? migrateView(pref(key, null)) : fresh()), groupBy: null };
+  view.filters = [...(view.filters || []).filter((f) => f.field !== 'responsible'), { field: 'responsible', op: 'is', values: [name] }];
+  setPref(key, view);
+  viewsChanged();
+  location.hash = '#/table';
 }
 
 // A list's columns (quiet rows, design.md §3): one width per column in every list, so going from one list to another
@@ -140,6 +162,8 @@ function phoneColumns(cols, stack) {
 export const vaultCtx = () => ({
   byId: state.byId,
   labels: (state.labels || []).map((l) => l.name),
+  people: (state.people || []).map((p) => p.name),
+  me: vaultMe(),
   projects: state.all.filter((i) => i.type === 'project' && i.fields.project_key).map((p) => p.fields.project_key),
   projectName,
 });
@@ -163,7 +187,7 @@ export function listView(type, { page = null } = {}) {
   const scopes = SCOPE_NAMES[cfg.scopes] || SCOPE_NAMES.status;
   const label = many ? 'Item' : TYPE_LABEL[type];
   const lower = lowerName; // "Add task", but "Add PRD", "3 PRDs" and "Add AI agent"
-  const groups = groupsOf(types); // the structure's, and Label
+  const groups = groupsOf(types).filter(keyOn); // the structure's, and Label
   // A type that runs from a start to a due date (a goal, a project, an initiative) is also a Timeline (timelineview.js),
   // with what hangs from its items (KIDS) to show under them.
   const spanned = !many && !asBoard && hasField(type, 'start');
@@ -175,7 +199,7 @@ export function listView(type, { page = null } = {}) {
     if (out.groupBy === CUSTOM && out.layout !== 'board' && !asBoard) out.groupBy = null; // a list never groups by it
     return out;
   };
-  const fields = () => filterFields(types, vaultCtx());
+  const fields = () => filterFields(types, vaultCtx()).filter((f) => keyOn(f.key));
   const key = asBoard ? `list.board.${type}` : many ? 'list.items' : `list.${type}`;
   const sortKey = asBoard ? `board.${type}` : many ? 'items' : `list.${type}`;
   const view = fitted(loadView(type, key, page));
@@ -408,6 +432,7 @@ export function listView(type, { page = null } = {}) {
         : by === 'initiative' ? (k === NONE ? 'No initiative' : state.byId.get(k)?.title || k)
           : by === 'goal' ? (k === NONE ? 'No goal' : state.byId.get(k)?.title || k)
           : by === 'project' ? (k === NONE ? 'No project' : projectName(k))
+            : by === 'responsible' ? (k === NONE ? 'Nobody' : k)
             : by === 'label' ? (k === NONE ? 'No labels' : k) : planLabel(k));
       /** A group's face (design.md §3): its dot or icon and its name. */
       const groupFace = (by, k) => {
@@ -417,6 +442,7 @@ export function listView(type, { page = null } = {}) {
             : by === 'initiative' ? named(typeIcon('initiative', 14), k === NONE ? null : refOf(state.byId.get(k)))
             : by === 'goal' ? named(typeIcon('goal', 14), k === NONE ? null : refOf(state.byId.get(k)))
               : by === 'project' ? named(typeIcon('project', 14), k === NONE ? null : k)
+                : by === 'responsible' ? (k === NONE ? named(icon('user', 14)) : [personChip(k)])
                 : by === 'label' ? named(icon('tag', 14))
                   : named(icon('calendar', 14));
       };

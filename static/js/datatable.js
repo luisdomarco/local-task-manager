@@ -9,7 +9,7 @@ import { pref, setPref } from './prefs.js';
 import { planControl, planKey, planValues } from './itemform.js';
 import { noMonth, progressOf, setStatus, state, updateItem } from './state.js';
 import { itemHref, opener, wantsNewTab } from './links.js';
-import { cssKey, foldHead, h, icon, labelChip, select, typeIcon } from './ui.js';
+import { cssKey, foldHead, h, icon, labelChip, personChip, select, typeIcon } from './ui.js';
 import { planText, sortColumn } from './viewmodel.js';
 
 export { pageHref } from './links.js'; // the types with a page (rules.js hasPage); everything else opens as a card modal
@@ -22,10 +22,10 @@ const WIDTH = {
   goal: 160,
   check: 44, pick: 40, id: 100, type: 130, status: 136, priority: 112, labels: 170, parent: 220, related: 220, initiative: 220,
   progress: 150, plan: 150, start: 108, due: 108, session: 160, project: 180,
-  created_at: 108, updated_at: 108, date: 108, duration: 96, attendees: 220, source: 180,
+  created_at: 108, updated_at: 108, date: 108, duration: 96, attendees: 220, source: 180, responsible: 150,
   resolved: 116, state: 100,
   deleted_at: 108, path: 260, unlinked: 96, count: 96, edit: 96, actions: 150,
-  day: 84, time: 72, kind: 116, item: 320,
+  day: 84, time: 72, kind: 116, item: 320, me: 116,  // `me`: Contacts → You, the button that says which of them you are
   exported: 140, vault: 160, host: 150, version: 230, size: 90, calendar_name: 220, emails: 280, redmine: 140, extref: 140, tracker: 120, slack: 160,
   started: 140, when: 96, folder: 140, model: 80, effort: 80, cs_actions: 196, cs_actions_compact: 108, last: 140, last_short: 96, // Claude sessions (claude.js)
 };
@@ -342,6 +342,12 @@ export const COL = {
   duration: {
     key: 'duration', label: 'Duration', cls: 'num', get: (i) => i.fields.duration || '',
     cell: (i) => i.fields.duration || '',
+  },
+  // Who the work is handed to: the person as a chip, tinted by name as a watcher's is. Blank for nobody, which sorts
+  // last (`~`), so a list ordered by it reads as "whose it is" first.
+  responsible: {
+    key: 'responsible', label: 'Responsible', get: (i) => (i.fields.responsible || '~').toLowerCase(),
+    cell: (i) => (i.fields.responsible ? personChip(i.fields.responsible) : ''),
   },
   attendees: {
     key: 'attendees', label: 'Attendees', get: (i) => (i.fields.attendees || []).join(', ').toLowerCase(),

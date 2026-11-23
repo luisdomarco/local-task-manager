@@ -46,6 +46,11 @@ class Base(unittest.TestCase):
     def vault(self):
         return self.app.public_config()['vaults'][0]
 
+    def off(self):
+        """The features this vault turned off, leaving out the ones that start off in every vault (DEFAULT_OFF):
+        those have a test of their own (DefaultOffTest)."""
+        return [f for f in self.vault()['features_off'] if f not in vaultsettings.DEFAULT_OFF]
+
 
 class SaveTest(Base):
     def test_kept_in_the_vault_and_its_types_go_with_it(self):
@@ -56,7 +61,7 @@ class SaveTest(Base):
         self.assertNotIn('meeting', types)
         self.assertNotIn('transcription', types)
         self.assertEqual(self.vault()['disabled_types'], [])  # Item types keeps its own list: the feature hides them
-        self.assertEqual(self.vault()['features_off'], ['graph', 'meetings'])
+        self.assertEqual(self.off(), ['graph', 'meetings'])
         with open(self.cfg, encoding='utf-8') as f:
             self.assertNotIn('disabled_features', json.dumps(json.load(f)))  # never config.json
 
@@ -74,7 +79,7 @@ class SaveTest(Base):
             text = f.read()
         self.assertNotIn('disabled_features', text)
         self.assertNotIn('features_off', text)
-        self.assertEqual(self.vault()['features_off'], ['contacts'])
+        self.assertEqual(self.off(), ['contacts'])
 
     def test_a_feature_follows_its_types_when_all_are_off(self):
         self.app.set_vault_settings('a', {'disabled_types': ['activity']})
@@ -98,8 +103,76 @@ class SaveTest(Base):
             json.dump({'root': self.a, 'vaults': [{'id': 'p', 'name': 'P', 'path': self.a, 'structure': 'folders'}],
                        'default_vault': 'p'}, f)
         with mock.patch.object(server, 'CONFIG_PATH', phone):
-            self.assertEqual(server.App().public_config()['vaults'][0]['features_off'], ['inbox'])
+            off = server.App().public_config()['vaults'][0]['features_off']
+            self.assertEqual([f for f in off if f not in vaultsettings.DEFAULT_OFF], ['inbox'])
 
+
+
+class DefaultOffTest(Base):
+    """A feature that starts off (vaultsettings.DEFAULT_OFF): for it the vault keeps the other list,
+    `enabled_features`, because saying nothing means off — in a vault from before as in a new one."""
+    structure = 'ticketing'
+
+    def test_it_is_off_in_a_vault_that_has_never_been_asked(self):
+        self.assertFalse(os.path.exists(vaultsettings.path(self.a)))  # no settings file at all
+        self.assertEqual([f for f in self.vault()['features_off'] if f in vaultsettings.DEFAULT_OFF],
+                         list(vaultsettings.DEFAULT_OFF))
+
+    def test_asking_for_it_turns_it_on_and_every_device_sees_it(self):
+        out = self.app.set_vault_settings('a', {'enabled_features': ['responsible']})
+        self.assertEqual(out['settings']['enabled_features'], ['responsible'])
+        self.assertEqual(self.saved()['enabled_features'], ['responsible'])
+        self.assertNotIn('responsible', self.vault()['features_off'])
+        phone = os.path.join(self.tmp, 'phone.json')
+        with open(phone, 'w', encoding='utf-8') as f:
+            json.dump({'root': self.a, 'vaults': [{'id': 'p', 'name': 'P', 'path': self.a, 'structure': 'ticketing'}],
+                       'default_vault': 'p'}, f)
+        with mock.patch.object(server, 'CONFIG_PATH', phone):
+            self.assertNotIn('responsible', server.App().public_config()['vaults'][0]['features_off'])
+        self.app.set_vault_settings('a', {'enabled_features': []})  # and off again
+        self.assertIn('responsible', self.vault()['features_off'])
+
+    def test_it_goes_off_with_what_it_rests_on(self):
+        self.app.set_vault_settings('a', {'enabled_features': ['responsible']})
+        self.app.set_vault_settings('a', {'disabled_features': ['contacts']})  # Responsible names a contact
+        self.assertIn('responsible', self.vault()['features_off'])
+        self.app.set_vault_settings('a', {'disabled_features': []})
+        self.assertNotIn('responsible', self.vault()['features_off'])
+
+    def test_only_a_feature_that_starts_off_can_be_asked_for(self):
+        for bad in (['graph'], ['nope'], 'responsible'):
+            with self.subTest(bad), self.assertRaises(StoreError):
+                self.app.set_vault_settings('a', {'enabled_features': bad})
+        self.assertFalse(os.path.exists(vaultsettings.path(self.a)))
+
+    def test_it_is_never_in_config_json(self):
+        self.app.set_vault_settings('a', {'enabled_features': ['responsible']})
+        self.app.set_config({'vaults': self.app.config['vaults'], 'default_vault': 'a'})
+        with open(self.cfg, encoding='utf-8') as f:
+            self.assertNotIn('enabled_features', f.read())
+
+
+class WhoYouAreTest(Base):
+    """Which of a vault's contacts you are (Contacts → You, `me`): kept in the vault, so what has been handed to you
+    is the same on every device, and never in config.json."""
+    structure = 'ticketing'
+
+    def test_it_is_one_contact_name_kept_in_the_vault(self):
+        self.assertEqual(self.vault()['me'], '')  # a vault says nothing until you say it
+        out = self.app.set_vault_settings('a', {'me': '  Luis   Domarco '})
+        self.assertEqual(out['settings']['me'], 'Luis Domarco')  # one clean name
+        self.assertEqual(self.saved()['me'], 'Luis Domarco')
+        self.assertEqual(self.vault()['me'], 'Luis Domarco')
+        self.app.set_vault_settings('a', {'me': ''})  # and nobody again
+        self.assertEqual(self.vault()['me'], '')
+
+    def test_it_is_refused_unless_it_is_text_and_never_lands_in_config_json(self):
+        with self.assertRaises(StoreError):
+            self.app.set_vault_settings('a', {'me': ['Luis']})
+        self.app.set_vault_settings('a', {'me': 'Luis'})
+        self.app.set_config({'vaults': self.app.config['vaults'], 'default_vault': 'a'})
+        with open(self.cfg, encoding='utf-8') as f:
+            self.assertNotIn('Luis', f.read())
 
 
 class RouteTest(Base):

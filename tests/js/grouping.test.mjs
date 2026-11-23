@@ -34,6 +34,13 @@ describe('grouping', () => {
     assert.deepEqual([NONE, 'INI-2', 'INI-3'].sort((a, b) => GROUPS.initiative.order(a, b, two)), ['INI-3', 'INI-2', NONE]);
   });
 
+  it('groups by who the work is handed to, by name, with nobody last', () => {
+    const of = (name) => GROUPS.responsible.by({ fields: name ? { responsible: name } : {} });
+    assert.equal(of('Ana'), 'Ana');
+    assert.equal(of(), NONE);
+    assert.deepEqual([NONE, 'Luis', 'Ana'].sort(GROUPS.responsible.order), ['Ana', 'Luis', NONE]);
+  });
+
   it('orders status groups as the list\'s own type lists them, whatever another type says', () => {
     // A goal starts at ToDo, a project at Backlog: in Projects, Backlog goes first.
     const inList = (types) => (a, b) => GROUPS.status.order(a, b, new Map(), undefined, types);

@@ -77,6 +77,10 @@ def render(info, app_dir, python='python3'):
         lines += ['- Without `--body`, a new item starts with its type\'s default text in this vault (`.task-manager/templates/<type>.md`;',
                   '  an initiative, and a story, PRD or plan of one, `<type>.<initiative kind>.md` when it has one; set by the owner in',
                   '  Settings → Vaults): fill in its sections with `set <REF> --body -`. Never put the title in the body.']
+    if info.get('responsible'):
+        lines += ['- This vault says who each story, task, support ticket and hotfix is handed to: `--set responsible="<name>"`,',
+                  '  one person of its Contacts, by the name they are known by there (`show <REF>` prints it). Put the owner\'s',
+                  '  name on what you are handing back to them, and your own on nothing: an agent is not a contact.']
     if info['projects'] and any(p['folder'] for p in info['projects']):
         lines += ['', '## Projects', '', 'Each project is a folder; its items live in it. A ticket in no project lives in its type\'s '
                   'folder at the top of the vault (see Item types).', '',

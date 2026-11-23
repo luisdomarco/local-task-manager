@@ -106,7 +106,7 @@ DEFAULT_CONFIG = {
     'folders': DEFAULT_FOLDERS,
     'work_kinds': DEFAULT_WORK_KINDS,
     'claude_cwd': '',          # the default among claude_paths: where Claude starts when the item (and its parents) has no Local path; '' = this project's folder
-    'claude_paths': [],        # saved folders the dialog offers to start Claude in (absolute, existing). A closed list: the browser picks one, never types one.
+    'claude_paths': [],        # saved folders the dialog offers to start Claude in (absolute; existing when added). A closed list: the browser picks one, never types one.
     'claude_path_names': {},   # saved folder → its public name, what the dialog shows instead of the path (none: the path); '' = this project's folder
     'claude_command': 'claude',
     'terminal': 'Terminal',    # Terminal | iTerm
@@ -155,10 +155,12 @@ def load_config():
     cfg['vaults'] = [{**v, 'structure': v.get('structure') or UNNAMED_STRUCTURE} for v in cfg['vaults'] if isinstance(v, dict)]
     cfg['vaults'] = [{**v, 'folders': vault_folders(v['structure'], v.get('folders')),
                       'disabled_types': vault_disabled(v['structure'], vault_types_off(v)),
-                      'disabled_features': vault_features_off(v)}
+                      'disabled_features': vault_features_off(v), 'enabled_features': vault_features_on(v),
+                      'me': vault_me(v)}
                      for v in cfg['vaults']]
     cfg['vaults'] = [{**v, 'features_off': vaultsettings.features_off(v['disabled_features'], v['disabled_types'],
-                                                                       list(REGISTRY[v['structure']].types) if v['structure'] in REGISTRY else [])}
+                                                                       list(REGISTRY[v['structure']].types) if v['structure'] in REGISTRY else [],
+                                                                       v['enabled_features'])}
                      for v in cfg['vaults']]
     if cfg.get('default_vault') not in {v.get('id') for v in cfg['vaults']}:
         cfg['default_vault'] = cfg['vaults'][0].get('id')
@@ -193,6 +195,20 @@ def vault_features_off(vault):
     return [f for f in vaultsettings.FEATURE_IDS if isinstance(off, list) and f in off]
 
 
+def vault_features_on(vault):
+    """The features a vault asked for: only those that start off (vaultsettings.DEFAULT_OFF), for which absence of
+    the id means off. Any other id there means nothing and is dropped."""
+    own = vaultsettings.read(resolve_root(vault.get('path') or '')) or {}
+    on = own.get('enabled_features')
+    return [f for f in vaultsettings.DEFAULT_OFF if isinstance(on, list) and f in on]
+
+
+def vault_me(vault):
+    """Which of the vault's contacts you are (Contacts → You), by name: '' where it says nothing."""
+    own = vaultsettings.read(resolve_root(vault.get('path') or '')) or {}
+    return ' '.join(str(own.get('me') or '').split())
+
+
 def hidden_types(vault):
     """The types a vault's store hides: those Item types turned off, and those of the features it turned off."""
     s = REGISTRY.get(vault.get('structure') or DEFAULT_STRUCTURE)
@@ -214,6 +230,18 @@ def check_features_off(name, structure, disabled_types, disabled_features):
     if not set(s.types) - set(disabled_types or ()) - set(vaultsettings.feature_types(disabled_features, s.types)):
         raise StoreError(400, f'the vault "{name}" needs at least one type turned on')
     return [f for f in vaultsettings.FEATURE_IDS if f in disabled_features]
+
+
+def check_features_on(name, enabled_features):
+    """The features a vault asks for, checked: only the ones that start off can be asked for; the rest are on unless
+    `disabled_features` says otherwise, so naming them here would mean nothing. → the list, in FEATURES' order."""
+    if not isinstance(enabled_features, list):
+        raise StoreError(400, 'enabled_features must be a list of features')
+    for f in enabled_features:
+        if f not in vaultsettings.DEFAULT_OFF:
+            raise StoreError(400, f'the vault "{name}": {f} is not a feature that starts off '
+                                  f'(there are: {", ".join(vaultsettings.DEFAULT_OFF)}) — turn the others off with disabled_features')
+    return [f for f in vaultsettings.DEFAULT_OFF if f in enabled_features]
 
 
 # What a default text may say, filled in when the item is made (tm/structures/ticketing/codec.py new_file).
@@ -343,7 +371,7 @@ def _tidy_path(p):
 
 def clean_paths(paths, default=''):
     """The saved folders, tidy: expanded, stripped, no repeats, in the order given, plus the default when it is
-    not among them (a config written before the list existed only had claude_cwd). Existence is checked on save."""
+    not among them (a config written before the list existed only had claude_cwd). A new one must exist (on save)."""
     out = []
     for p in [*(paths if isinstance(paths, list) else []), default]:
         p = _tidy_path(p)
@@ -395,7 +423,8 @@ def require_feature(store, feature):
     off = getattr(store, 'features_off', None)
     if off is None:
         own = vaultsettings.read(store.root) or {}
-        off = vaultsettings.features_off(own.get('disabled_features'), own.get('disabled_types'), list(store.full_structure.types))
+        off = vaultsettings.features_off(own.get('disabled_features'), own.get('disabled_types'), list(store.full_structure.types),
+                                         own.get('enabled_features'))
     if feature in off:
         label = next(f['label'] for f in vaultsettings.FEATURES if f['id'] == feature)
         raise ValueError(f'{label} is turned off in the vault at {store.root} (Settings → Vaults → Features): nothing to do')
@@ -464,8 +493,15 @@ class App:
                                                           out.get('disabled_types', vault.get('disabled_types')), changes['disabled_features'])
         elif 'disabled_types' in out:
             check_features_off(vault['name'], vault['structure'], out['disabled_types'], vault.get('disabled_features') or [])
+        if 'enabled_features' in changes:
+            out['enabled_features'] = check_features_on(vault['name'], changes['enabled_features'])
+        if 'me' in changes:  # which contact you are; '' says none. A name, never checked against Contacts: a contact
+            # renamed or deleted elsewhere would otherwise make this unsavable, and a name nobody has simply matches nothing.
+            if not isinstance(changes['me'], str):
+                raise StoreError(400, 'me must be the name of one of this vault\'s contacts, or "" for none')
+            out['me'] = ' '.join(changes['me'].split())
         if not out:
-            raise StoreError(400, 'nothing to save: send disabled_types, disabled_features or reminders')
+            raise StoreError(400, 'nothing to save: send disabled_types, disabled_features, enabled_features, me or reminders')
         saved = self.store_for(vault_id).save_vault_settings(out)
         if set(out) - {'reminders'}:  # what the vault shows changed: opened again; its reminders are read at each look
             self._reload_vault(vault_id)
@@ -597,16 +633,22 @@ class App:
         cfg['claude_path_names'] = clean_names(cfg.get('claude_path_names'), cfg['claude_paths'])
         cfg['agent_dirs'] = clean_paths(cfg.get('agent_dirs'))
         cfg['agent_dir_names'] = clean_names(cfg.get('agent_dir_names'), cfg['agent_dirs'])
-        for folder in [*cfg['claude_paths'], *cfg['agent_dirs']]:
-            if not os.path.isabs(folder) or not os.path.isdir(folder):
-                raise StoreError(400, f'not a directory: {folder}')
+        # A folder added now must be one. One already saved that has gone since (moved or deleted outside the app) is
+        # kept and does not block the save: Settings marks it, and starting Claude or an agent there says it is gone.
+        for key, tab in (('claude_paths', 'Claude'), ('agent_dirs', 'Agents')):
+            saved = self.config.get(key) or []
+            for folder in cfg[key]:
+                if not os.path.isabs(folder) or (not os.path.isdir(folder) and folder not in saved):
+                    raise StoreError(400, f'Settings → {tab}: not a directory: {folder}')
         before = {v['id']: v for v in self.config['vaults']}
         # A vault that keeps its own settings (tm/vaultsettings.py) is the only place its types are: config.json's copy
         # would only go stale. One that keeps none yet still has them here.
         cfg['vaults'] = [{k: x for k, x in v.items() if k != 'disabled_types'} if vaultsettings.read(resolve_root(v['path'])) is not None else v
                          for v in cfg['vaults']]
-        # A vault's features are only ever its own (and features_off is worked out on load): never in config.json.
-        cfg['vaults'] = [{k: x for k, x in v.items() if k not in ('disabled_features', 'features_off')} for v in cfg['vaults']]
+        # A vault's features, and which contact you are in it, are only ever its own (and features_off is worked out
+        # on load): never in config.json.
+        cfg['vaults'] = [{k: x for k, x in v.items() if k not in ('disabled_features', 'enabled_features', 'features_off', 'me')}
+                         for v in cfg['vaults']]
         # Another structure has other types: what the vault turned off in the old one means nothing there.
         for v in cfg['vaults']:
             was = before.get(v['id'])
@@ -698,6 +740,9 @@ class App:
         return {**self.config, 'root_resolved': self.store.root,
                 # each vault, and whether its folder is gone (Settings → Vaults says so; it can still be saved, or removed)
                 'vaults': [{**v, 'missing': not os.path.isdir(resolve_root(v['path']))} for v in self.config['vaults']],
+                # the saved Claude and agent folders that are gone (Settings marks them, to be removed or kept)
+                'missing_dirs': [p for p in dict.fromkeys([*self.config.get('claude_paths', []), *self.config.get('agent_dirs', [])])
+                                 if not os.path.isdir(p)],
                 'structures': {k: v['label'] for k, v in STRUCTURES.items()},
                 # the ones only an existing vault keeps (Settings offers a new vault the default one)
                 'legacy_structures': list(LEGACY_STRUCTURES), 'default_structure': DEFAULT_STRUCTURE,

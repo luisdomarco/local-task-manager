@@ -59,7 +59,7 @@ NAV_LABEL = 'AI Agents'  # the sidebar's link to them
 # Levels (Vocabulario de entidades): each depends only on those below.
 LEVELS = (('N0', 'Harness'), ('N1', 'Context'), ('N2', 'Capabilities'), ('N3', 'Actors'), ('N4', 'Procedures'),
           ('N5', 'Quality'))
-# Every entity type: (id, label, level, canonical, file prefix). The 9 canonical ones are AiAgentArchitect's; the 8
+# Every entity type: (id, label, level, canonical, file prefix). The 9 canonical ones are the generator's; the 8
 # proposed ones are not canon yet (no prefix, no template, no generator emits them).
 ENTITY_TYPES = (
     ('workflow', 'Workflow', 'N4', True, 'wor-'),

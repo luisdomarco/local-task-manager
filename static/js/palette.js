@@ -11,7 +11,8 @@ import { STRUCTURE, TYPE_DEFS, findByPageRef, inSomeProject, isDone } from './ru
 import { bodyHits, groupByType, matches, norm, typeOrder } from './search.js';
 import { fileTree, loadFiles } from './explorer.js';
 import { docChoices, docsGroups, docsHref, filesHref } from './filetree.js';
-import { state } from './state.js';
+import { state, vaultMe } from './state.js';
+import { openAssignedTo } from './views/list.js';
 import { emptyLine, h, icon, lowerName, TYPE_ICON_NAME, typeIcon } from './ui.js';
 import { reloadFromDisk } from './vaultwatch.js';
 import { refOf } from './shownid.js';
@@ -107,6 +108,11 @@ function results(query) {
     }
   }
   if (has('inbox') && (!q || 'capture to inbox'.includes(q))) out.push({ group: 'Create', label: 'Capture to Inbox', icon: 'inbox', kbd: 'Q', run: () => openQuickModal() });
+  // What an agent (or anyone) has handed to you: the List page, filtered by the contact Contacts → You says you are.
+  if (has('responsible') && vaultMe() && (!q || ['assigned to me', 'mine', 'my work', 'responsible'].some((w) => w.includes(q)))) {
+    out.push({ group: 'Go to', label: 'Assigned to me', meta: `what says ${vaultMe()} is responsible`, icon: 'user',
+      run: () => openAssignedTo(vaultMe()) });
+  }
   // Files edited outside the app show by themselves (vaultwatch.js); this reads the whole vault again at once
   if (q && ['reload from disk', 'read the vault again', 'reindex', 'refresh'].some((w) => w.includes(q) || norm(w).includes(q))) {
     out.push({ group: 'Vault', label: 'Reload from disk', meta: 'read every file of the vault again', icon: 'refresh', run: () => reloadFromDisk() });

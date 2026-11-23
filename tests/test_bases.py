@@ -281,7 +281,7 @@ class Evaluate(unittest.TestCase):
 class Describe(unittest.TestCase):
     """What the vault's guide says a base asks of a note (bases.describe, drawn by tm.agentsmd._needs): a filter and its
     negation cannot say the same thing. Reading a predicate without the `not` above it said the opposite — the folder a
-    base leaves out was printed as the way in (TSKM SUP-393). The parser and the evaluator always read it right."""
+    base leaves out was printed as the way in (SUP-393). The parser and the evaluator always read it right."""
 
     def described(self, filters):
         return bases.describe({'filters': filters, 'views': [{'type': 'table', 'name': 'All'}]})

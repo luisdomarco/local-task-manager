@@ -1,4 +1,5 @@
-"""What changed on an item, for its Activity tab: its status, priority, dates, plan, outside ticket and local path.
+"""What changed on an item, for its Activity tab: its status, priority, who is responsible, dates, plan, outside
+ticket and local path.
 
 One Markdown file per item, <vault>/.task-manager/history/<its id>.md: a hidden folder, so neither the item scan nor
 the vault check sees it, and the item's own file never grows with it (it is also edited in Obsidian). Its frontmatter
@@ -25,11 +26,11 @@ _lock = threading.Lock()
 
 
 def tracked(structure):
-    """The fields whose changes are kept, in the order Activity names them: status, priority, start, due, planned,
-    then the outside ticket (tracker, id, url, as the structure names them) and the local path."""
+    """The fields whose changes are kept, in the order Activity names them: status, priority, the responsible, start,
+    due, planned, then the outside ticket (tracker, id, url, as the structure names them) and the local path."""
     ext = getattr(structure, 'external_ref', None) or {}
     outside = [ext.get('tracker_key'), ext.get('id_key'), ext.get('url_key')]
-    return ['status', 'priority', 'start', 'due', 'planned', *[k for k in outside if k], 'local_path']
+    return ['status', 'priority', 'responsible', 'start', 'due', 'planned', *[k for k in outside if k], 'local_path']
 
 
 def _value(fields, key):

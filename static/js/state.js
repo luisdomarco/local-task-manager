@@ -221,6 +221,8 @@ export const allLabels = () => state.labels.map((l) => l.name);
 export const allPeople = () => state.people.map((p) => p.name);
 /** People and groups (Contacts), for a field that takes either: an item's watchers (TSK-051), a meeting's attendees, an activity's sender. */
 export const allContacts = () => [...allPeople(), ...state.groups.map((g) => g.name)];
+/** Which of this vault's contacts you are (Contacts → You, kept in the vault: tm/vaultsettings.py `me`); '' for none. */
+export const vaultMe = () => (state.config?.vaults || []).find((v) => v.id === vaultId())?.me || '';
 export const byType = (type) => state.items.filter((i) => i.type === type);
 export const childrenOf = (id) => state.items.filter((i) => i.fields.related_to === id);
 

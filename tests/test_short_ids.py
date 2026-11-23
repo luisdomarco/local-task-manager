@@ -3,6 +3,7 @@ app draws a number with its type's prefix (TSK-482). A vault with long ids (ACME
 
 import json
 import os
+import re
 import tempfile
 import unittest
 
@@ -130,6 +131,61 @@ class FindTest(ShortIdsBase):
         for key in ('1', 'INI-1', 'ACME-INI-001', 'INI-0001', self.ini['path']):
             self.assertEqual(self.s.find(key)['id'], '1', key)
         self.assertEqual(self.s.read('ACME-INI-001')['aliases'], ['INI-0001', 'ACME-INI-001'])
+
+    def alias(self, it, names):
+        """Writes `names` as the item's old ids, the way a migration does.
+
+        Comprueba que los escribe. La primera versión hacía `replace('aliases: []', …)` y la
+        plantilla de `task` NO declara esa clave, así que no tocaba el fichero — y el caso que
+        dependía de ello pasaba en VACÍO, sin ejercer nada.
+        """
+        path = os.path.join(self.root, it['path'])
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+        listed = 'aliases: [' + ', '.join(f'"{n}"' for n in names) + ']'
+        if 'aliases: []' in text:
+            text = text.replace('aliases: []', listed, 1)
+        else:  # el tipo no declara `aliases` en su plantilla: va tras su `id:`
+            text = re.sub(r'(?m)^(id:.*)$', lambda m: m.group(1) + '\n' + listed, text, count=1)
+        self.assertIn(listed, text, f'el helper no supo dónde poner los alias en {it["path"]}')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text)
+
+    def test_an_old_id_that_two_items_answer_to_is_a_409_that_lists_them(self):
+        # Lo que produce una migración que pliega varias series de id en un vault: el `ERR-001` de un
+        # origen y el de otro son el MISMO nombre viejo. La tabla se quedaba con el primero que el walk
+        # alcanzaba, así que find contestaba con un item arbitrario y sin avisar.
+        self.alias(self.ini, ['ERR-001', 'ACME/ERR-001'])
+        self.alias(self.task, ['ERR-001', 'OTHER/ERR-001'])
+        with self.assertRaises(StoreError) as cm:
+            self.s.find('ERR-001')
+        self.assertEqual(cm.exception.status, 409)
+        msg = str(cm.exception)
+        self.assertIn('2 items answer to', msg)
+        for name in ('ACME/ERR-001', 'OTHER/ERR-001', self.ini['ref'], self.task['ref']):
+            self.assertIn(name, msg)  # cada candidato, por su ref y por el nombre que sí es único
+
+    def test_the_unique_old_id_of_each_candidate_still_reaches_it(self):
+        # El rechazo no puede dejar a ninguno de los dos inalcanzable: el prefijo es la salida.
+        self.alias(self.ini, ['ERR-001', 'ACME/ERR-001'])
+        self.alias(self.task, ['ERR-001', 'OTHER/ERR-001'])
+        self.assertEqual(self.s.find('ACME/ERR-001')['id'], self.ini['id'])
+        self.assertEqual(self.s.find('OTHER/ERR-001')['id'], self.task['id'])
+
+    def test_a_live_ref_wins_over_an_old_id_that_spells_it(self):
+        # Un ref vivo puede ser además el nombre que tuvo otro item de otro
+        # proyecto. Responde la que se llama así HOY, y eso es una decisión, no un empate.
+        self.alias(self.task, [self.ini['ref']])
+        self.assertEqual(self.s.find(self.ini['ref'])['id'], self.ini['id'])
+
+    def test_an_old_id_that_names_one_item_keeps_resolving(self):
+        self.alias(self.task, ['ACME/ERR-009'])
+        self.assertEqual(self.s.find('ACME/ERR-009')['id'], self.task['id'])
+
+    def test_an_item_repeating_the_same_old_id_is_not_a_clash(self):
+        # Un fichero con el alias duplicado no convierte a su único dueño en ambiguo.
+        self.alias(self.ini, ['ERR-001', 'ERR-001'])
+        self.assertEqual(self.s.find('ERR-001')['id'], self.ini['id'])
 
     def test_a_ref_with_another_type_s_prefix_says_the_right_one(self):
         with self.assertRaises(StoreError) as cm:

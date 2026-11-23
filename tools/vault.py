@@ -318,9 +318,14 @@ def cmd_find(store, args):
     out.sort(key=lambda it: str(it['fields'].get('updated_at') or ''), reverse=True)
     total, out = len(out), out[:args.limit]
     hits = store.search_files(args.text)['results'][:args.limit] if args.text_search and args.text else []
-    data = {'total': total, 'items': [{'ref': ref_of(it), 'title': it['title'], 'type': it['type'], 'status': it['fields'].get('status'),
-                                       'project': it['fields'].get('project'), 'path': it['path']} for it in out],
-            'text': hits}
+    found = [{'ref': ref_of(it), 'title': it['title'], 'type': it['type'], 'status': it['fields'].get('status'),
+              'project': it['fields'].get('project'), 'path': it['path']} for it in out]
+    if args.fields:
+        # Every field too, so a script that measures (lead time, cost per initiative) reads the vault in one
+        # call instead of one `show` per item: 500 items would be 500 walks.
+        for row, it in zip(found, out):
+            row['fields'] = it['fields']
+    data = {'total': total, 'items': found, 'text': hits}
     lines = [f'{total} item{"s" * (total != 1)}' + (f' (the first {len(out)})' if total > len(out) else '')]
     if out:
         lines += ['', '| Ref | Title | Type | Status | Project |', '|---|---|---|---|---|']
@@ -646,7 +651,8 @@ def parser():
         (('text',), {'nargs': '?'}), (('--type',), {}), (('--status',), {}), (('--project',), {}),
         (('--open',), {'action': 'store_true'}), (('--closed',), {'action': 'store_true'}),
         (('--text',), {'dest': 'text_search', 'action': 'store_true', 'help': 'also search inside the files'}),
-        (('--limit',), {'type': int, 'default': 50}))
+        (('--limit',), {'type': int, 'default': 50}),
+        (('--fields',), {'action': 'store_true', 'help': 'with --json, every field of each item'}))
     add('show', cmd_show, 'an item with its links', (('ref',), {}), (('--no-body',), {'action': 'store_true'}))
     add('graph', cmd_graph, 'what is around an item', (('ref',), {}), (('--depth',), {'type': int, 'default': 1}),
         (('--kinds',), {'help': ','.join(tm_graph.KINDS)}))

@@ -16,7 +16,8 @@ from tm.structures.ticketing.definition import INSTEAD  # noqa: E402
 STRUCTURES = {sid: get(sid) for sid in REGISTRY}
 # The app's fields a type carries in a way of its own in one structure (a Projects support ticket's level stands in
 # priority's slot): the only differences allowed between structures.
-SAME_EVERYWHERE = set(traits.TRAITS['work']) | {'labels', 'url', 'url_label', 'links', 'archived', 'comments', 'claude_sessions'}
+SAME_EVERYWHERE = (set(traits.TRAITS['work']) | set(traits.TRAITS['assigned'])
+                   | {'labels', 'url', 'url_label', 'links', 'archived', 'comments', 'claude_sessions'})
 
 
 def each_type():
@@ -39,6 +40,13 @@ class TraitsTest(unittest.TestCase):
             first_sid, first = rows[0]
             for sid, mine in rows[1:]:
                 self.assertEqual(mine, first, f'{name}: {sid} and {first_sid} differ')
+
+    def test_only_the_work_that_is_handed_out_has_a_responsible(self):
+        """A story, a task, a support ticket and a hotfix are given to somebody; what they hang from is not."""
+        for sid, _, name, t in each_type():
+            self.assertEqual('responsible' in t.fields, name in traits.ASSIGNED_TYPES, f'{sid}: {name}')
+        for name in traits.ASSIGNED_TYPES:
+            self.assertIn('assigned', traits.KINDS[name], name)
 
     def test_plannable_is_having_the_work_trait(self):
         for sid, _, name, t in each_type():
