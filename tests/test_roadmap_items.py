@@ -84,8 +84,8 @@ class ItemsPhaseTest(unittest.TestCase):
             os.makedirs(os.path.join(self.work, d), exist_ok=True)
         Store(self.vault, structure=REGISTRY['ticketing']).create(
             'project', 'Acme System', {'project_key': 'HB'}, 'x')
-        # Un inventario de PRUEBA, no el del dueño: el suyo no está en este repo, lo carga `--sources`.
-        # Así estos casos ejercitan el mapeo sin pedirle prestados sus dialectos ni sus claves.
+        # Un inventario de PRUEBA: el real no está en este repo, lo carga `--sources`.
+        # Así estos casos ejercitan el mapeo sin pedir prestados dialectos ni claves de nadie.
         self.srcs = types.SimpleNamespace(
             FICHAS=os.path.join('Docs', 'Fichas'),
             PROJECTS={'HB': {'name': 'Acme System', 'kind': 'system', 'repo': '~/x/hb',

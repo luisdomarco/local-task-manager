@@ -13,7 +13,8 @@ Read
     overview                          projects, items by type and state, what changed last
     types [TYPE]                      the vault's item types; with TYPE, its fields, statuses and links
     find [TEXT] [--type T] [--status S] [--project KEY] [--open | --closed] [--text] [--limit N]
-                                      items whose ref or title has TEXT; --text also searches inside the files
+                                      items whose ref or title has TEXT; --text also searches inside the files. It
+                                      answers with 50 rows and says how many it left out: --limit 0 for all of them
     show REF [--no-body]              an item: its fields, every link read from it, its comments and description
     graph REF [--depth N] [--kinds K,K]
                                       what is around an item, N steps out (parent, link, relation, mention; project too
@@ -61,7 +62,7 @@ sys.path.insert(0, APP_DIR)
 from tm import agentsmd, attachments  # noqa: E402
 from tm.fsutil import download_on_read  # noqa: E402
 from tm import graph as tm_graph  # noqa: E402
-from tm.store import META_DIR, Store, StoreError  # noqa: E402
+from tm.store import FIELD_DEFAULTS, META_DIR, Store, StoreError  # noqa: E402
 from tm.structures import REGISTRY  # noqa: E402
 
 # Tried in this order when the vault does not say which it is: Projects is the structure, the other two are legacy.
@@ -121,9 +122,22 @@ def node_of(it):
     return tm_graph.node_id(it)
 
 
-def closed(store, it):
+# The three states an item can be in, as the page reads them (static/js/rules.js `isDone`), and the names the columns
+# and the JSON use. A type closed by a field (an activity, once resolved) goes by that field; one with statuses by its
+# status; a type with neither — an analysis, a learning, a plan, a note — never closes: it is a record, and counting it
+# as open inflated every Open column by the records of its project (SUP-5286).
+STATES = ('open', 'closed', 'no_status')
+
+
+def state_of(store, it):
+    """'open', 'closed' or 'no_status' (a type that cannot close)."""
+    t = store.structure.types.get(it['type'])
+    if t is not None and t.closed_when:
+        return 'closed' if it['fields'].get(t.closed_when) else 'open'
+    if not (t.statuses if t is not None else ()):
+        return 'no_status'
     status = it['fields'].get('status')
-    return bool(status) and status in store.structure.closed_of(it['type'])
+    return 'closed' if status and status in store.structure.closed_of(it['type']) else 'open'
 
 
 def plural(n, word):
@@ -148,23 +162,46 @@ def read_text(value):
 
 # ── values from the command line ─────────────────────────────────────────────
 def link_fields(store, item_type):
-    """{field: 'link' | 'links'} of a type: its link props, its parent, its project and its relations."""
+    """{field: 'link' | 'links'} of a type: its link props, its parent, its project and its relations, plus any link
+    field the structure's codec knows that no prop declares (a type whose spec names it: a support ticket's
+    `caused_by`). Read from the structure, both the field and its kind, so nothing that holds a link reaches the Store
+    without one — without the kind a ref is passed on as text, and a list field written from text is kept one
+    character per element."""
     t = store.structure.types.get(item_type)
     out = {p['key']: p['kind'] for p in (t.props if t else ()) if p.get('kind') in LINK_KINDS}
     fields = store.structure.allowed_fields(item_type) if t else set()
     for key, kind in (('related_to', 'link'), ('project', 'link'), ('relations', 'links')):
         if key in fields:
             out.setdefault(key, kind)
+    codec = store.structure.codec
+    known = getattr(codec, 'link_fields', None)
+    if known:
+        multi = set((getattr(codec, 'multi_link_fields', None) or (lambda _t: ()))(item_type))
+        for key in known(item_type):
+            if key in fields:
+                out.setdefault(key, 'links' if key in multi else 'link')
     return out
 
 
-def to_node(store, value):
-    """A ref, id or key as a link field keeps it (the item's id, a project's key); as given if it names no item (the
-    Store says what is wrong with it)."""
+def list_keys(store, item_type, current=None):
+    """The keys of this type that hold a list, so `KEY=a,b` is split the way a link list is instead of reaching the
+    Store as text — where a list field given a string is written one character per element (`labels=agentic-system`
+    → `tags: ["a", "g", "e", …]`, SUP-5288). Read, never listed here: the link fields the structure declares as a
+    list, the Store's own list defaults, and what the item already holds."""
+    keys = {k for k, kind in link_fields(store, item_type).items() if kind == 'links'}
+    keys |= {k for k, v in FIELD_DEFAULTS.items() if isinstance(v, list)}
+    keys |= {k for k, v in (current or {}).items() if isinstance(v, list)}
+    return keys
+
+
+def to_node(store, value, key):
+    """A ref, id or key as a link field keeps it (the item's id, a project's key). A value that names no item is
+    refused here: the Store writes it as a link to nothing and says `Updated` — `[[NOPE-999]]` on disk — and in a
+    list field nothing says a word about it afterwards, so the data goes and the warning with it (SUP-2064)."""
     try:
         return node_of(store.find(value))
-    except StoreError:
-        return value
+    except StoreError as e:
+        raise CliError(f'{key}={value}: {e}') from None
 
 
 def parse_value(raw):
@@ -177,9 +214,11 @@ def parse_value(raw):
     return raw
 
 
-def parse_values(store, item_type, pairs, creating=False):
-    """KEY=VALUE pairs → the values for Store.create/update, refs in link fields turned into what the file keeps."""
+def parse_values(store, item_type, pairs, creating=False, current=None):
+    """KEY=VALUE pairs → the values for Store.create/update, refs in link fields turned into what the file keeps.
+    `current`: the item's fields when there is one, which say which of its keys hold a list."""
     links = link_fields(store, item_type)
+    lists = list_keys(store, item_type, current)
     allowed = store.structure.allowed_fields(item_type) | {'subject', 'resolved'} | (CREATE_ONLY if creating else set())
     values = {}
     for pair in pairs or ():
@@ -191,12 +230,14 @@ def parse_values(store, item_type, pairs, creating=False):
             raise CliError(f"a {item_type} has no field '{key}' (see: types {item_type})")
         value = parse_value(raw)
         kind = links.get(key)
-        if kind == 'links' and isinstance(value, str):
+        # A list field is handed a list, whatever was typed: one value, or several by comma, as a link list already
+        # took them. `[…]` stays the way out for a value that holds a comma of its own.
+        if isinstance(value, str) and (kind == 'links' or key in lists):
             value = [v.strip() for v in value.split(',') if v.strip()]
         if kind == 'link' and isinstance(value, str):
-            value = to_node(store, value.strip()) if value.strip() else None
+            value = to_node(store, value.strip(), key) if value.strip() else None
         elif kind == 'links' and isinstance(value, list):
-            value = [to_node(store, v) if isinstance(v, str) else v for v in value]
+            value = [to_node(store, v, key) if isinstance(v, str) else v for v in value]
         values[key] = value
     return values
 
@@ -229,15 +270,15 @@ def cmd_overview(store, args):
     projects = [it for it in items if it['type'] == 'project']
     per_project, per_type = {}, {}
     for it in items:
-        state = 'closed' if closed(store, it) else 'open'
-        per_type.setdefault(it['type'], {'open': 0, 'closed': 0})[state] += 1
+        state = state_of(store, it)
+        per_type.setdefault(it['type'], dict.fromkeys(STATES, 0))[state] += 1
         p = it['fields'].get('project')
         if p and it['type'] != 'project':
-            per_project.setdefault(p, {'open': 0, 'closed': 0})[state] += 1
+            per_project.setdefault(p, dict.fromkeys(STATES, 0))[state] += 1
     recent = sorted(items, key=lambda it: str(it['fields'].get('updated_at') or ''), reverse=True)[:RECENT]
     result = store.check()
     data = {'vault': store.root, 'structure': args.structure_id, 'items': len(items), 'check_ok': result['ok'],
-            'projects': [{'key': node_of(p), 'name': p['title'], **per_project.get(node_of(p), {'open': 0, 'closed': 0})} for p in projects],
+            'projects': [{'key': node_of(p), 'name': p['title'], **per_project.get(node_of(p), dict.fromkeys(STATES, 0))} for p in projects],
             'types': [{'type': t, 'label': s.types[t].plural or t, **per_type[t]} for t in s.types if t in per_type],
             'recent': [{'ref': ref_of(it), 'title': it['title'], 'type': it['type'], 'status': it['fields'].get('status'),
                         'updated_at': it['fields'].get('updated_at')} for it in recent]}
@@ -246,10 +287,15 @@ def cmd_overview(store, args):
              + ('matches its structure' if result['ok'] else '**does not match its structure: read-only** (run `check`)'),
              f'Folder: `{store.root}`']
     if data['projects']:
-        lines += ['', '## Projects', '', '| Key | Name | Open | Closed |', '|---|---|---|---|']
-        lines += [f"| {cell(p['key'])} | {cell(p['name'])} | {p['open']} | {p['closed']} |" for p in data['projects']]
-    lines += ['', '## Items by type', '', '| Type | Open | Closed |', '|---|---|---|']
-    lines += [f"| {cell(t['label'])} (`{t['type']}`) | {t['open']} | {t['closed']} |" for t in data['types']]
+        lines += ['', '## Projects', '', '| Key | Name | Open | Closed | No status |', '|---|---|---|---|---|']
+        lines += [f"| {cell(p['key'])} | {cell(p['name'])} | {p['open']} | {p['closed']} | {p['no_status']} |"
+                  for p in data['projects']]
+    lines += ['', '## Items by type', '', '| Type | Open | Closed | No status |', '|---|---|---|---|']
+    lines += [f"| {cell(t['label'])} (`{t['type']}`) | {t['open']} | {t['closed']} | {t['no_status']} |" for t in data['types']]
+    if any(t['no_status'] for t in data['types']):
+        # Said once, where the numbers are: a type with no status never closes, so it is no part of Open.
+        lines += ['', 'No status: a type that has none (an analysis, a learning, a plan, a note) and never closes.'
+                      ' Open and Closed count only what can.']
     lines += ['', '## Changed last', '']
     lines += [f"- {item_line(it, ' · ' + str(it['fields'].get('updated_at') or ''))}" for it in recent]
     return data, lines
@@ -310,14 +356,19 @@ def cmd_find(store, args):
             continue
         if args.project and (f.get('project') or (node_of(it) if it['type'] == 'project' else None)) != args.project:
             continue
-        if (args.open and closed(store, it)) or (args.closed and not closed(store, it)):
+        # --open is "can close and has not", not "is not closed": a type with no status satisfies "not closed"
+        # for ever, and counting those as open is what inflated the column (SUP-5286).
+        state = state_of(store, it)
+        if (args.open and state != 'open') or (args.closed and state != 'closed'):
             continue
         if q and q not in ' '.join(str(x) for x in (ref_of(it), it.get('id'), it['title'])).casefold():
             continue
         out.append(it)
     out.sort(key=lambda it: str(it['fields'].get('updated_at') or ''), reverse=True)
-    total, out = len(out), out[:args.limit]
-    hits = store.search_files(args.text)['results'][:args.limit] if args.text_search and args.text else []
+    cap = args.limit if args.limit > 0 else None  # --limit 0: every one of them
+    total, out = len(out), out[:cap]
+    found_text = store.search_files(args.text) if args.text_search and args.text else {'results': [], 'truncated': False}
+    text_total, hits = len(found_text['results']), found_text['results'][:cap]
     found = [{'ref': ref_of(it), 'title': it['title'], 'type': it['type'], 'status': it['fields'].get('status'),
               'project': it['fields'].get('project'), 'path': it['path']} for it in out]
     if args.fields:
@@ -325,14 +376,25 @@ def cmd_find(store, args):
         # call instead of one `show` per item: 500 items would be 500 walks.
         for row, it in zip(found, out):
             row['fields'] = it['fields']
-    data = {'total': total, 'items': found, 'text': hits}
+    data = {'total': total, 'items': found, 'shown': len(out), 'limit': cap,
+            'text': hits, 'text_total': text_total, 'text_truncated': bool(found_text['truncated'])}
     lines = [f'{total} item{"s" * (total != 1)}' + (f' (the first {len(out)})' if total > len(out) else '')]
     if out:
         lines += ['', '| Ref | Title | Type | Status | Project |', '|---|---|---|---|---|']
         lines += [f"| {cell(r['ref'])} | {cell(r['title'])} | {r['type']} | {cell(r['status'])} | {cell(r['project'])} |" for r in data['items']]
+    # Under the table as well as above it: a count read off the rows of a cut answer is a wrong count, and the row
+    # you stop at is the one you believe (SUP-5287). It says how to ask for the rest, not only that there is one.
+    if total > len(out):
+        lines += ['', f'…and {total - len(out)} more of the {total}: this is `--limit {cap}`. Every one of them:'
+                      ' `--limit 0`.']
     if args.text_search and args.text:
-        lines += ['', f'## In the text ({len(hits)})', '']
+        lines += ['', f'## In the text ({len(hits)}'
+                      + (f' of {text_total}' if text_total > len(hits) else '') + ')', '']
         lines += [f"- `{h['path']}:{h['line']}` {h['text']}" for h in hits]
+        if text_total > len(hits):
+            lines.append(f'…and {text_total - len(hits)} more lines: `--limit 0` for every one of them.')
+        if found_text['truncated']:
+            lines.append('The search itself stopped early: there are more lines than it answers with.')
     return data, lines
 
 
@@ -484,7 +546,7 @@ def cmd_new(store, args):
 
 def cmd_set(store, args):
     it = store.find(args.ref)
-    values = parse_values(store, it['type'], args.pairs)
+    values = parse_values(store, it['type'], args.pairs, current=it['fields'])
     body = read_text(args.body) if args.body is not None else None
     if not values and body is None:
         raise CliError('nothing to set: give KEY=VALUE pairs or --body')
@@ -651,7 +713,7 @@ def parser():
         (('text',), {'nargs': '?'}), (('--type',), {}), (('--status',), {}), (('--project',), {}),
         (('--open',), {'action': 'store_true'}), (('--closed',), {'action': 'store_true'}),
         (('--text',), {'dest': 'text_search', 'action': 'store_true', 'help': 'also search inside the files'}),
-        (('--limit',), {'type': int, 'default': 50}),
+        (('--limit',), {'type': int, 'default': 50, 'help': 'rows (0: every one of them)'}),
         (('--fields',), {'action': 'store_true', 'help': 'with --json, every field of each item'}))
     add('show', cmd_show, 'an item with its links', (('ref',), {}), (('--no-body',), {'action': 'store_true'}))
     add('graph', cmd_graph, 'what is around an item', (('ref',), {}), (('--depth',), {'type': int, 'default': 1}),

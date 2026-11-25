@@ -1896,7 +1896,12 @@ textarea.title-input { display: block; resize: none; overflow: hidden; font-fami
    The hang is the box's own size (Basecoat's, larger on a phone; Classic's 18px) plus the gap, so they line up. */
 .md { --task-box: calc(var(--spacing) * 4); }
 :where(:root[data-skin="classic"]) .md { --task-box: 18px; }
-/* A loose list (a blank line between its items) wraps each item's text in a <p>: its box is then the <p>'s first child. */
+/* A loose list (a blank line between its items) wraps each item's text in a <p>: its box is then the <p>'s first child.
+   A task whose text starts on the line AFTER its `- [ ]` used to leave that <p> empty, with the text in the next one,
+   so the box took a line of its own (TSK-363). That is joined where the HTML is written (mdextras.js `listitem`), NOT
+   here, and it cannot be done here: `<p><input></p>` and `<p><input>text</p>` differ only by a TEXT NODE, which no
+   selector can see — `:only-child` counts elements, so it matches both, and `:empty` neither. Measured on the page
+   2026-11-25: a rule keyed on `p:has(> input:only-child)` also hit every correct loose task. */
 .md li:has(> input[type=checkbox]:first-child, > p:first-child > input[type=checkbox]:first-child) { padding: 4px 0 4px calc(var(--task-box) + 10px); }
 .md :is(li, li > p:first-child) > input[type=checkbox]:first-child {
   display: inline-flex; width: var(--task-box); height: var(--task-box);

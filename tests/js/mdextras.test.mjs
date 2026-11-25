@@ -87,6 +87,38 @@ test('a task\'s box has no space after it, tight or loose; other items are marke
   assert.match(render('- [ ] outer\n  - [ ] inner'), /<li><input disabled="" type="checkbox">outer<ul>\n<li><input disabled="" type="checkbox">inner<\/li>/);
 });
 
+// TSK-363. The text of a task written on the line AFTER its `- [ ]` leaves an empty first line, which marked lexes
+// as a `space` token. In a TIGHT list that token folds away; in a LOOSE one (a blank line between the items) it
+// became a paragraph of its own, so the box took a whole line and the text fell under it — measured in the app on
+// 2026-11-25 as the box's middle 19px ABOVE the top of its text (21px on a phone), against 11px below it for a task
+// that reads right. The same markdown, two different layouts, decided by a blank line somewhere else in the list.
+test('a task whose text starts on the next line keeps its box, loose as well as tight (TSK-363)', () => {
+  const loose = render('- [ ] \n  texto\n\n- [ ] otra');
+  assert.match(loose, /<li><p><input disabled="" type="checkbox">texto<\/p>/, 'the box was left alone in a paragraph of its own');
+  assert.doesNotMatch(loose, /<p>\s*<input[^>]*>\s*<\/p>/, 'no paragraph holds nothing but the box');
+  // The same markdown in a tight list already read right, and still does: one line, box first.
+  assert.match(render('- [ ] \n  texto'), /<li><input disabled="" type="checkbox">texto<\/li>/);
+  // A numbered one, and a ticked one, come the same way.
+  assert.match(render('1. [ ] \n   texto\n\n2. [ ] otra'), /<li><p><input disabled="" type="checkbox">texto<\/p>/);
+  assert.match(render('- [x] \n  texto\n\n- [ ] otra'), /<li><p><input checked="" disabled="" type="checkbox">texto<\/p>/);
+});
+
+// The join is only ever a box's empty paragraph with the paragraph after it. Everything else a task can hold is a
+// block the writer meant, and is left where it is — this is what says the fix did not reach past its case.
+test('nothing else about a task item moves (TSK-363)', () => {
+  // A real second paragraph stays a second paragraph: its first line is not empty, so there is nothing to join.
+  assert.match(render('- [ ] uno\n\n  dos\n\n- [ ] tres'), /<li><p><input disabled="" type="checkbox">uno<\/p>\n<p>dos<\/p>/);
+  // A box with nothing after it stays an empty box — the shape a template line leaves, and common in a real vault.
+  assert.match(render('- [ ] \n\n- [ ] otra'), /<li><p><input disabled="" type="checkbox"><\/p>\n<\/li>/);
+  // A task whose next block is not a paragraph keeps it: a nested list, a quote, a fence.
+  assert.match(render('- [ ] \n  - sub\n\n- [ ] otra'), /<li><p><input disabled="" type="checkbox"><\/p>\n<ul>/);
+  assert.match(render('- [ ] \n  > cita\n\n- [ ] otra'), /<li><p><input disabled="" type="checkbox"><\/p>\n<blockquote>/);
+  // A continuation on the next line was already one paragraph with a <br>, and is untouched.
+  assert.match(render('- [ ] uno\n  dos\n\n- [ ] tres'), /<li><p><input disabled="" type="checkbox">uno<br>dos<\/p>/);
+  // And a list with no tasks is marked's own.
+  assert.match(render('- uno\n\n- dos'), /<li><p>uno<\/p>\n<\/li>/);
+});
+
 test('a click on the n-th box flips the n-th marker, tight or loose, and only that one', () => {
   assert.equal(toggleTask('- [ ] a\n- [ ] b\n- [x] c', 1), '- [ ] a\n- [x] b\n- [x] c');
   assert.equal(toggleTask('- [ ] a\n\n- [ ] b\n\n- [X] c', 2), '- [ ] a\n\n- [ ] b\n\n- [ ] c');

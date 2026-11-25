@@ -227,8 +227,16 @@ export function useExtras(marked, { iconSvg } = {}) {
       blockquote(quote) { return calloutHtml(quote, iconSvg) || false; }, // false: marked's own <blockquote>
       // A task's box with no space after it (marked writes one): the gap is the stylesheet's, so the first line starts
       // where its wrapped lines do (app.css `.md li > input`).
+      // And a task whose text starts on the line AFTER its `- [ ]`: the empty first line is a `space` token, which in
+      // a LOOSE list (a blank line between the items) marked renders as a paragraph of its own — so the box took a
+      // whole line and the text fell under it (TSK-363). The same markdown in a tight list is one line; joining the
+      // box's empty paragraph to the next one makes the loose list agree. Only when the next block is a paragraph:
+      // a task followed by a real block (a nested list, a quote, a fence) keeps it, and a box with nothing after it
+      // stays an empty box.
       listitem(text, task) {
-        return task ? `<li>${text.replace(/^(<p>)?(<input [^>]*>)\s+/, '$1$2')}</li>\n` : false;
+        if (!task) return false;
+        const joined = text.replace(/^<p>(<input [^>]*>)\s*<\/p>\s*<p>/, '<p>$1');
+        return `<li>${joined.replace(/^(<p>)?(<input [^>]*>)\s+/, '$1$2')}</li>\n`;
       },
       // A cell with words to read keeps room for them (.md-cell-mid / -long: a least and a most width), so a table
       // wider than the screen scrolls instead of wrapping its prose a word per line; a short cell is as wide as it is.

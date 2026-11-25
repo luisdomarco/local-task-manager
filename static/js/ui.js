@@ -195,7 +195,7 @@ export const personChip = (name, extra = null) => {
   }
   const p = state.people.find((x) => x.name.toLowerCase() === String(name).toLowerCase());
   const about = [name, p?.calendar_name && p.calendar_name !== name ? `Calendar: ${p.calendar_name}` : null, ...(p?.emails || []),
-    p?.redmine ? `Redmine: ${p.redmine}` : null, p?.slack ? `Slack: ${p.slack}` : null].filter(Boolean);
+    p?.redmine ? `Ticketing tool: ${p.redmine}` : null, p?.slack ? `Slack: ${p.slack}` : null].filter(Boolean);
   return h('span', { class: 'chip person', style: `--h:${labelHue(name.toLowerCase())}`, title: about.join('\n') }, icon('users', 12), name, extra);
 };
 

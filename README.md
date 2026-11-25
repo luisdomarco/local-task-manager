@@ -1973,7 +1973,7 @@ its **watchers** (TSK-051) in `watchers`, a list of names of people or groups; r
 Contacts' People tab has a **You** column while the vault has **Responsible** on: one click says which of them you
 are, and another takes it back. It is kept in the vault (`.task-manager/settings.json`, `me`), never in `config.json`,
 so the Mac and the iPhone agree on who you are there; a vault says nobody until you say it. What it buys: your name
-comes first in the Responsible filter, said so (*Luis (you)*), and ⌘K's **Assigned to me** opens the List page with
+comes first in the Responsible filter, said so (*Ana (you)*), and ⌘K's **Assigned to me** opens the List page with
 that filter on.
 `from` and `attendees` take a group's name too: a name on an item is the group's when a group has it, else a person's
 (it is never remembered in `people.md`). `/api/people/to-group` makes a person a group under the same name, their
@@ -2178,6 +2178,7 @@ change are rewritten (comments, key order and the body stay as they were) — an
 ```bash
 python3 tools/vault.py -C ~/Vaults/Work overview          # projects, items by type and state, what changed last
 python3 tools/vault.py find checkout --type story --open  # items by text, type, status, project; --text searches the files
+python3 tools/vault.py find "" --project ACME --limit 0   # every row, not the first 50
 python3 tools/vault.py show STY-482                       # fields, every link read from it (Blocked by, Parent of…), comments, description
 python3 tools/vault.py graph INI-12 --depth 2             # what is around an item, step by step
 python3 tools/vault.py context STY-482                    # the item as the prompt the app gives Claude
@@ -2204,6 +2205,16 @@ python3 tools/vault.py agents --on                        # the vault's guide fo
   A link field takes refs (`related_to=INI-12`, `depends_on=STY-1,STY-2`) and keeps what the file keeps (the id, as a
   `[[wikilink]]`). A value in `[…]` or `{…}` is JSON. A place (`goal_order`, `plan_order`, `week_order`) is a
   number (`goal_order=1`; `KEY=` with nothing clears a field). A key the type does not have is refused, not dropped.
+  A field that holds a list takes one value or several by comma (`labels=release,api`), never the characters of a
+  word; and a ref that names no item is refused — in a list field as in a single one — instead of being written as a
+  link to nothing.
+- **Open, closed, and what never closes**: a type with no status — an analysis, a learning, a plan, a note — cannot
+  close, so it is neither of the two: `overview` counts those under **No status**, a column of their own, and
+  `find --open` leaves them out (`--closed` too). A type closed by a field rather than a status (an activity, once
+  resolved) goes by that field, as the app reads it.
+- **How many rows**: `find` answers with 50 and says, under the table as well as above it, how many it left out and
+  how to ask for the rest — `--limit N`, or `--limit 0` for every one of them. `--json` says it too (`total`,
+  `shown`, `limit`), so a count is never read off a cut answer.
 - **Every type** is made with `new`. `types` says what each needs beyond a title, read from the structure: a project
   its key (`--set project_key=SAL`, fixed once made), a plan or an entity the item it hangs from (`--set related_to=…`),
   an analysis, an error or a learning a project or an item (`--set project=…` or `related_to=…`). A refusal says it too.

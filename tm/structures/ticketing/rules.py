@@ -186,6 +186,21 @@ def on_update(store, it, values, r, stamp, by='agent'):
         if not widens(old, new):
             raise _err(f'an initiative of kind {old} cannot become {new}: a kind only widens (its stories, PRD and readiness would be left)')
         values[KIND_KEY] = new
+        # Widening is a declaration ("this delivers"), so the gate belongs at the declaration. The readiness gate
+        # fires once, when the initiative enters work, and it asked what the kind it was then had of it — nothing,
+        # for a `simple`. It never fires again, so without this an initiative already in work becomes one that
+        # delivers with none of what that asks. Refused rather than sent backwards: it is being worked on.
+        # Its story is NOT asked here, and cannot be: a story only hangs from an initiative that already delivers
+        # (Store._check_initiative_has), so demanding one before widening would make widening impossible. What is
+        # asked is the readiness that a simple one was excused from and that nothing will ask for again.
+        if by == 'agent' and KINDS[new].delivers and f.get('status') in PASSED:
+            eff = {**f, **values}
+            lacks = [k for k in ('size', 'regime') if not eff.get(k)]
+            if eff.get('premise') != 'verified':
+                lacks.append('its premise verified')
+            if lacks:
+                raise _err(f'an initiative already in work cannot become {new} without {", ".join(lacks)}: '
+                           f'what a {new} delivers was never asked of it')
     if t == 'support' and 'level' in values and values['level'] != f.get('level'):
         new, old, base = _rank(values['level']), _rank(f.get('level')), _rank(f.get('level_base'))
         if new is None:
@@ -257,9 +272,12 @@ def _check_transition(store, it, new, f, r):
         raise _err('a hotfix needs its rollback plan before work starts')
     if t == 'hotfix' and new == 'Done' and not f.get('postmortem'):
         raise _err('a hotfix closes with its post-mortem: link the error record (Post-mortem)')
-    if t == 'initiative' and starting_work(old, new):  # what its kind has of it: a simple one, nothing
+    if t == 'initiative' and starting_work(old, new):  # what its kind has of it: a simple one, only its objective
         kind = _kind(r, f)
-        missing = [key for key in ('size', 'regime') if not kind.hides('initiative', key) and not f.get(key)]
+        # `objective` is asked of every kind, because it is not delivery machinery: it is how the initiative says
+        # when it is over, and that is what tells an initiative from an area. No kind hides it, so the same
+        # comprehension covers all three.
+        missing = [key for key in ('objective', 'size', 'regime') if not kind.hides('initiative', key) and not f.get(key)]
         if kind.delivers and not stories_of(store, it['key']):
             missing.append('at least one story')
         if missing:
@@ -267,9 +285,11 @@ def _check_transition(store, it, new, f, r):
         if not kind.hides('initiative', 'premise'):
             _check_premise(f, r, new)
     if t == 'initiative' and new in ('Review', 'Done'):
-        open_ = [s['key'] for s in stories_of(store, it['key']) if s['fields'].get('status') not in CLOSED]
+        kind = _kind(r, f)
+        open_ = [c['key'] for c in delivery_children_of(store, it['key'], kind) if c['fields'].get('status') not in CLOSED]
         if open_:
-            raise _err(f"an initiative closes with its stories: {', '.join(open_)} still open")
+            what = 'stories' if kind.delivers else 'tasks'
+            raise _err(f"an initiative closes with its {what}: {', '.join(open_)} still open")
     if t == 'story' and starting_work(old, new):
         ini = next((i for i in store.items() if i['key'] == f.get('related_to') and i['type'] == 'initiative'), None)
         _check_story_ready(f, ini, store.read(it['key'])['body'], new)  # the body as saved: a status changes on its own
@@ -285,6 +305,31 @@ def _check_transition(store, it, new, f, r):
 def stories_of(store, ini_key, items=None):
     """The stories of an initiative (its `initiative:` link), closed ones too."""
     return [i for i in (items if items is not None else store.items()) if i['type'] == 'story' and i['fields'].get('related_to') == ini_key]
+
+
+def _kind_of(store, ini, items=None):
+    """The kind of an initiative item without the resolver: `after_update` has no `r` (the Store calls it through
+    `_rule`), so the project's fields are read from the items themselves."""
+    items = items if items is not None else store.items()
+    # Matched on `project_key`, not on the project's own key, which is its note's path: `project` holds the former.
+    # It only shows on an initiative from before kinds moved to initiatives, which reads its project's kind — with
+    # the wrong fields it would read the default instead.
+    pk = ini['fields'].get('project')
+    pf = next((i['fields'] for i in items if i['type'] == 'project' and i['fields'].get('project_key') == pk), {})
+    return initiative_kind_of(ini['fields'], pf)
+
+
+def delivery_children_of(store, ini_key, kind, items=None):
+    """What an initiative delivers through, closed ones too: its **stories** when its kind delivers, its **tasks**
+    when it is `simple`. A `simple` has no stories by design (its kind hides them), so a task is its unit of
+    delivery and its state follows them.
+
+    Only children whose parent link points at this initiative: a task of a support, a hotfix or a prd is not one of
+    these. Separate from `stories_of` on purpose — the readiness gate asks a delivering kind for a *story*, and
+    that must keep meaning story whatever this returns."""
+    t = 'story' if kind.delivers else 'task'
+    return [i for i in (items if items is not None else store.items())
+            if i['type'] == t and i['fields'].get('related_to') == ini_key]
 
 
 def _check_story_ready(f, ini, body, new='ToDo'):
@@ -330,14 +375,24 @@ def _check_premise(f, r, new='ToDo'):
 
 
 def after_update(store, before, values, stamp):
-    """What moves on its own: an initiative starts with its first story and closes with the last (when at least one
-    was done); a support ticket waiting on what it became closes with it."""
+    """What moves on its own, and only ever forward:
+
+    - an initiative follows its delivery children (its stories, or its tasks when it is `simple`): to InProgress
+      with the first that starts, to **Review** when the last closes and one of them was done;
+    - a project follows its initiatives, to InProgress when one of them starts — and never on a close;
+    - a support ticket waiting on what it became closes with it.
+
+    Every one of these fires only from a status that already passed its own gate, which is what keeps a rule from
+    walking around one. And none of them closes anything: closing is a decision.
+    """
     t, f = before['type'], before['fields']
     new_status = values.get('status')
     if not new_status or new_status == f.get('status'):
         return
-    if t == 'story' and f.get('related_to'):
-        _follow_stories(store, f['related_to'], before['key'], new_status, stamp)
+    if t in ('story', 'task') and f.get('related_to'):
+        _follow_children(store, f['related_to'], before, new_status, stamp)
+    if t == 'initiative' and new_status == 'InProgress':
+        _follow_initiatives(store, f.get('project'), stamp)
     if new_status == 'Done' and t in ('initiative', 'hotfix'):
         _close_waiting(store, t, before['key'], stamp)
 
@@ -350,22 +405,57 @@ def _close_waiting(store, t, key, stamp):
             store.close_by_rule(sup, 'Done', stamp)
 
 
-def _follow_stories(store, ini_key, story_key, new_status, stamp):
-    """Its initiative follows a story: ToDo → InProgress when one starts; Done when the last one closes and one of
-    them was done (all discarded: the initiative stays, for the owner to discard or replan)."""
+def _follow_children(store, ini_key, child, new_status, stamp):
+    """An initiative follows its delivery children: **ToDo → InProgress** when one starts; **InProgress → Review**
+    when the last one closes and one of them was done (all discarded: it stays, for the owner to discard or replan).
+
+    It stops at Review on purpose. Closing is a decision, never a rule, and Review is where the owner is told
+    there is something to look at. That is also why nothing is closed here: the support tickets that waited on this
+    initiative (`promoted_to`) close when it reaches **Done**, through `after_update` — a rule's move runs no hooks,
+    so doing it from here would close them before anyone had looked.
+
+    `child` is the item that moved. Only the shape its kind delivers through counts: a task moves a `simple`, a
+    story moves one that delivers, and anything else moves nothing — a task of a support has its own parent, and a
+    story under a `simple` is not its unit of delivery.
+    """
     items = store.items()
     ini = next((i for i in items if i['key'] == ini_key and i['type'] == 'initiative'), None)
     if not ini or ini['fields'].get('status') in CLOSED:
         return
+    kind = _kind_of(store, ini, items)
+    if child['type'] != ('story' if kind.delivers else 'task'):
+        return
+    # Only from ToDo, which already passed the readiness gate. That is what lets the preliminaries of an initiative
+    # still in Backlog — its analysis, its prd, its plan, its research tasks — run without declaring it under way.
     if new_status == 'InProgress' and ini['fields'].get('status') == 'ToDo':
         store.close_by_rule(ini, 'InProgress', stamp)
+        # A rule's move runs no hooks, so the project it just put to work is told from here — the same reason the
+        # support tickets used to be closed inline.
+        _follow_initiatives(store, ini['fields'].get('project'), stamp)
         return
-    if new_status not in CLOSED:
+    if new_status not in CLOSED or ini['fields'].get('status') == 'Review':
         return
-    now = {s['key']: (new_status if s['key'] == story_key else s['fields'].get('status')) for s in stories_of(store, ini_key, items)}
+    now = {c['key']: (new_status if c['key'] == child['key'] else c['fields'].get('status'))
+           for c in delivery_children_of(store, ini_key, kind, items)}
     if all(st in CLOSED for st in now.values()) and 'Done' in now.values():
-        store.close_by_rule(ini, 'Done', stamp)
-        _close_waiting(store, 'initiative', ini_key, stamp)  # a rule's close runs no hooks: what waited on it, here
+        store.close_by_rule(ini, 'Review', stamp)
+
+
+def _follow_initiatives(store, project_key, stamp):
+    """A project follows its initiatives, and only forward: **ToDo → InProgress** when one of them starts.
+
+    Never on a close: a project is a place, not a bet — `SPEC-329` §1b has it closing *"when there is no work left
+    to host"*, which is a decision and not the end of a batch. And never from Backlog or OnHold: parking it was a
+    decision, so waking it is another one.
+    """
+    if not project_key:
+        return
+    # A project is addressed by its own key (its note's path), not by `project_key` — which is what an item's
+    # `project` field holds, so that is what has to be matched.
+    p = next((i for i in store.items()
+              if i['type'] == 'project' and i['fields'].get('project_key') == project_key), None)
+    if p and p['fields'].get('status') == 'ToDo':
+        store.close_by_rule(p, 'InProgress', stamp)
 
 
 # ── promote / escalate ───────────────────────────────────────────────────────

@@ -76,7 +76,7 @@ function weekView({ offset }) {
         checkSelect(WEEKDAYS.map((day, n) => [n, day]), view.days, (picked) => change({ days: picked }),
           { any: 'All days', text: (p) => (p.length <= 3 ? p.map((n) => WEEKDAYS[n].slice(0, 3)).join(', ') : `${p.length} days`), class: 'small', 'aria-label': 'Days shown' }))] : []),
       onReset: () => { view.days = []; },
-      onText: (t) => { text = t; api.update(); },
+      text: () => text, onText: (t) => { text = t; api.update(); },
       onChange: () => api.update(),
     });
     root.replaceChildren(head, vb.bar, vb.chips, body);

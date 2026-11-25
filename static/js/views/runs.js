@@ -161,7 +161,7 @@ function inboxPage(dirs) {
     onDir: (d) => { view.orderDir = d; save(); paint(true); },
     props: INBOX_PROPS,
     layout: { current: () => (isBoard() ? 'board' : 'list'), pick: (l) => { view.layout = l; save(); vb.update(); paint(true); } },
-    placeholder: 'Search runs', onText: (text) => { q = text; paint(true); },
+    placeholder: 'Search runs', text: () => q, onText: (text) => { q = text; paint(true); },
     note: readAll,
     // A board whose columns were moved: Display puts them back in the Inbox's order (Group, where a list's board has it, is not there)
     // Archived runs: Hide (the default) or Show, as Goals' Closed goals; then, a board whose columns were moved puts

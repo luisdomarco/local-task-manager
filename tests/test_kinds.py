@@ -4,6 +4,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from datetime import date
 
 from tm.store import Store, StoreError
 from tm.structures import get
@@ -158,13 +159,139 @@ class KindRulesTest(unittest.TestCase):
             with self.subTest(t):
                 self.refused(t, f'A {t}', {'project': 'MOVE'}, says='takes no new')
 
-    def test_a_simple_initiative_is_ready_with_no_story_size_regime_or_premise(self):
+    def test_a_simple_initiative_is_ready_with_its_objective_and_nothing_else(self):
+        """Its objective is asked of every kind, and of a simple one it is all that is asked: no story, no size, no
+        regime, no premise. The objective is not delivery machinery — it is how an initiative says when it is over,
+        and that is what tells an initiative from an area."""
         ini = self.s.create('initiative', 'New office', {'project': 'MOVE'})
-        self.assertEqual(self.s.update(ini['key'], {'status': 'ToDo'}, by='agent')['fields']['status'], 'ToDo')
-        other = self.s.create('initiative', 'Faster deploys', {'project': 'OPS', 'initiative_kind': 'system'})
+        with self.assertRaises(StoreError) as e:  # not even a simple one leaves Backlog without saying how it ends
+            self.s.update(ini['key'], {'status': 'ToDo'}, by='agent')
+        self.assertIn('an initiative is ready (ToDo) only with objective', str(e.exception))
+        ready = self.s.update(ini['key'], {'objective': 'everyone works from the new office', 'status': 'ToDo'}, by='agent')
+        self.assertEqual(ready['fields']['status'], 'ToDo')
+        other = self.s.create('initiative', 'Faster deploys', {'project': 'OPS', 'initiative_kind': 'system',
+                                                               'objective': 'a deploy takes under two minutes'})
         with self.assertRaises(StoreError) as e:  # a system's still needs its readiness and a story
             self.s.update(other['key'], {'status': 'ToDo'}, by='agent')
         self.assertIn('at least one story', str(e.exception))
+
+    def _simple_in_todo(self, project='MOVE'):
+        """A simple initiative of `project`, approved: what its tasks deliver."""
+        ini = self.s.create('initiative', 'New office', {'project': project})
+        self.s.update(ini['key'], {'objective': 'everyone works from the new office', 'status': 'ToDo'})
+        return ini
+
+    def test_the_first_task_of_a_simple_initiative_starts_it_and_a_preliminary_one_does_not(self):
+        """A task is the unit of delivery of a simple initiative, which has no stories. The rule fires only from
+        ToDo, and that is what lets the preliminaries of one still in Backlog — its analysis, its plan, its research
+        tasks — run without declaring it under way."""
+        ini = self.s.create('initiative', 'New office', {'project': 'MOVE'})
+        early = self.s.create('task', 'Ask three movers for a quote', {'project': 'MOVE', 'related_to': ini['key']})
+        self.s.update(early['key'], {'status': 'InProgress'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'Backlog')  # a preliminary moves nothing
+        self.s.update(ini['key'], {'objective': 'everyone works from the new office', 'status': 'ToDo'})
+        task = self.s.create('task', 'Sign the lease', {'project': 'MOVE', 'related_to': ini['key']})
+        self.s.update(task['key'], {'status': 'InProgress'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')
+        log = self.s.read(ini['key'])['fields']['status_log']
+        self.assertEqual((log[-1]['to'], log[-1]['by']), ('4. InProgress', 'rule'))
+
+    def test_a_task_delivers_only_the_initiative_whose_kind_it_is_the_child_of(self):
+        """Only the shape its kind delivers through counts, and only its own parent. A system initiative delivers
+        through stories, so a task of it moves nothing; and a task of a support has a parent that is not an
+        initiative at all."""
+        ini = self.s.create('initiative', 'Faster deploys', {'project': 'OPS', 'initiative_kind': 'system',
+                                                             'objective': 'a deploy takes under two minutes'})
+        self.s.create('story', 'Cache the build', {'project': 'OPS', 'related_to': ini['key']})
+        self.s.update(ini['key'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123',
+                                   'status': 'ToDo'})
+        task = self.s.create('task', 'Read the build logs', {'project': 'OPS', 'related_to': ini['key']})
+        self.s.update(task['key'], {'status': 'InProgress'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'ToDo')  # a task is not how a system delivers
+        sup = self.s.create('support', 'The runner is slow', {'project': 'OPS'})
+        held = self.s.create('task', 'Ask the provider', {'project': 'OPS', 'related_to': sup['key']})
+        self.s.update(held['key'], {'status': 'InProgress'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'ToDo')  # and a task of a support moves none
+
+    def test_a_simple_initiative_waits_in_review_when_its_last_task_closes(self):
+        """The rule stops at Review: closing is a decision. And because Review is not a closed status, the
+        initiative has no completed_at until the owner gives it for done."""
+        ini = self._simple_in_todo()
+        a = self.s.create('task', 'Sign the lease', {'project': 'MOVE', 'related_to': ini['key']})
+        b = self.s.create('task', 'Move the desks', {'project': 'MOVE', 'related_to': ini['key']})
+        self.s.update(a['key'], {'status': 'InProgress'})
+        self.s.update(a['key'], {'status': 'Done'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')  # b is still open
+        with self.assertRaises(StoreError) as e:  # and not by hand either, while b is open
+            self.s.update(ini['key'], {'status': 'Review'}, by='agent')
+        self.assertIn('an initiative closes with its tasks', str(e.exception))
+        self.s.update(b['key'], {'status': 'Discarded', 'discard_reason': 'the desks stay'})
+        got = self.s.read(ini['key'])['fields']
+        self.assertEqual(got['status'], 'Review')
+        self.assertFalse(got.get('completed_at'))  # Review is not a close
+        self.s.update(ini['key'], {'status': 'Done'})
+        self.assertTrue(self.s.read(ini['key'])['fields'].get('completed_at'))
+
+    def test_a_project_follows_its_initiatives_into_work_and_never_out_of_it(self):
+        """A project is a place, not a bet: it is activated by work starting in it, and it closes only because the
+        owner says there is no work left to host. Parking it was a decision, so waking it is another one."""
+        for key, status, expected in (('PTD', 'ToDo', 'InProgress'), ('PBK', 'Backlog', 'Backlog'),
+                                      ('POH', 'OnHold', 'OnHold')):
+            with self.subTest(status):
+                p = self.s.create('project', f'Place {status}', {'project_key': key})
+                extra = {'on_hold': {'by': 'me', 'why': 'not this quarter'}} if status == 'OnHold' else {}
+                self.s.update(p['key'], {'status': status, **extra})
+                ini = self.s.create('initiative', f'Something {key}', {'project': key, 'objective': 'it is done'})
+                self.s.update(ini['key'], {'status': 'ToDo'})
+                task = self.s.create('task', f'Start {key}', {'project': key, 'related_to': ini['key']})
+                self.s.update(task['key'], {'status': 'InProgress'})
+                self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')
+                self.assertEqual(self.s.read(p['key'])['fields']['status'], expected)
+                self.s.update(task['key'], {'status': 'Done'})  # the rule takes the initiative to Review…
+                self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'Review')
+                self.s.update(ini['key'], {'status': 'Done'})  # …and the owner closes it
+                self.assertEqual(self.s.read(p['key'])['fields']['status'], expected)  # the project does not move
+
+    def test_widening_an_initiative_already_in_work_asks_for_what_the_new_kind_delivers(self):
+        """The readiness gate fires once, when the initiative enters work, and it asks what the kind it was then had
+        of it. Widening is a declaration that it delivers, so the gate belongs at the declaration too — refused
+        rather than sent backwards, because it is being worked on."""
+        ini = self._simple_in_todo()
+        task = self.s.create('task', 'Sign the lease', {'project': 'MOVE', 'related_to': ini['key']})
+        self.s.update(task['key'], {'status': 'InProgress'})
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')
+        with self.assertRaises(StoreError) as e:
+            self.s.update(ini['key'], {'initiative_kind': 'system'}, by='agent')
+        self.assertIn('its premise verified', str(e.exception))
+        self.assertEqual(self.s.read(ini['key'])['fields']['initiative_kind'], 'simple')  # unchanged
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')  # and not sent backwards
+        # Its story is not among what is asked, and must not be: a story only hangs from one that already delivers,
+        # so asking for one first would make widening impossible.
+        self.assertNotIn('story', str(e.exception))
+        self.s.update(ini['key'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123'})
+        widened = self.s.update(ini['key'], {'initiative_kind': 'system'}, by='agent')
+        self.assertEqual(widened['fields']['initiative_kind'], 'system')
+        self.s.create('story', 'Move the servers', {'project': 'MOVE', 'related_to': ini['key']})  # now it may have one
+
+    def test_the_kind_of_an_initiative_matches_its_project_by_project_key(self):
+        """The rules that run after a write have no resolver, so they look the project up in the items themselves —
+        and must match it by `project_key`, because a project's own key is its note's path. It only shows on an
+        initiative from before kinds moved to initiatives, the one that reads its project's kind: matched on the
+        wrong field it would silently read the default instead."""
+        from tm.structures.ticketing.rules import _kind_of
+        proj = {'type': 'project', 'key': 'Internal Tools/00 Internal Tools.md',
+                'fields': {'project_key': 'OPS', 'project_kind': 'system'}}
+        legacy = {'type': 'initiative', 'key': 'INI-9', 'fields': {'project': 'OPS'}}  # no kind of its own
+        self.assertEqual(_kind_of(self.s, legacy, [proj, legacy]).id, 'system')
+        self.assertNotEqual('system', LEGACY_DEFAULT)  # so the assertion above cannot pass by accident
+
+    def test_an_initiative_with_no_children_is_moved_by_no_rule(self):
+        """Nothing delivers it, so nothing reports back: it is closed by a decision or not at all."""
+        ini = self._simple_in_todo()
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'ToDo')
+        self.assertEqual(self.s.update(ini['key'], {'status': 'InProgress'})['fields']['status'], 'InProgress')
+        self.assertEqual(self.s.read(ini['key'])['fields']['status'], 'InProgress')  # no rule takes it further
+        self.assertEqual(self.s.update(ini['key'], {'status': 'Review'})['fields']['status'], 'Review')
 
     def test_a_kind_widens_and_brings_stories_support_and_hotfixes(self):
         ini = self.s.create('initiative', 'Faster deploys', {'project': 'OPS'})

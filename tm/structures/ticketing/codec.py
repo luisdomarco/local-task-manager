@@ -394,6 +394,12 @@ class TicketingCodec:
         return sorted(links_of(item_type) | multi_links_of(item_type))
 
     @staticmethod
+    def multi_link_fields(item_type):
+        """Of those, the ones that hold a list of links (`depends_on`), not one. A caller that writes a link field
+        needs the two apart: a list given a string is written one character per element (tools/vault.py)."""
+        return sorted(multi_links_of(item_type))
+
+    @staticmethod
     def title_is_name(item_type):
         """Whether an item of this type is named after its title: its file follows a change of title (renamed)."""
         return SPEC[item_type]['title'] in ('id', 'date', 'note')

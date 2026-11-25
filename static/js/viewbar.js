@@ -59,7 +59,11 @@ function valueFace(field, v) {
  *                              list's columns (view.props), a board's cards (view.cards), the same set and order
  *   propsOnBoard               true: a board's cards show what `props` picks (a list's board: views/list.js)
  *   saveAs(name)               keeps the view under a name (savedviews.js): "Save as view" by the chips and in Display
- *   placeholder, onText(text)  the search
+ *   placeholder, text(), onText(text)  the search: its box, what it holds now, and what typing in it does. `text()`
+ *                              is what makes a filter that outlives the bar survive a repaint (SUP-5289): the bar
+ *                              draws the box afresh every time the page is mounted, so a page that keeps its text
+ *                              anywhere longer-lived than the box must hand it back here, or the list stays filtered
+ *                              by a word nothing on screen says
  *   layout                     { current() → 'list' | 'board', pick(l), options?, isBoard? }: the List | Board switch
  *                              (`options` [[key, label, icon]] for others: Calendar | Board;
  *                              `isBoard()` when a layout other than 'board' is a board too); none: no switch
@@ -86,6 +90,7 @@ export function viewBar(opts) {
   const search = h('input', {
     type: 'search', class: 'vb-search', placeholder: isPhone() ? 'Filter…' : opts.placeholder || 'Filter by subject or ID…', 'data-filter': '', // a phone's box is narrow: its label says the rest
     'aria-label': opts.placeholder || 'Filter by subject or ID',
+    value: opts.text?.() || '', // the filter already on, as the popover's own box does below (`value: query`)
   });
   search.addEventListener('input', () => opts.onText(search.value));
   const searchBox = opts.search === false ? null : searchBoxOf(search);

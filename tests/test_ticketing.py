@@ -340,7 +340,8 @@ class RulesTest(TicketingBase):
     def test_the_readiness_gate_is_not_walked_around_through_onhold(self):
         """SUP-392: the gate was written on one edge (Backlog → ToDo), so Backlog → OnHold → InProgress started the
         work with none of it. It is a condition of the status reached, so every way into work asks for it."""
-        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})  # product: size, regime, premise, a story
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD',  # product: size, regime, premise, a story
+                                                       'objective': 'checkout takes a card end to end'})
         self.s.create('story', 'Pay', {'project': 'ECD', 'related_to': ini['id']})
         with self.assertRaises(StoreError) as cm:
             self.s.update(ini['id'], {'status': 'ToDo'})
@@ -367,11 +368,14 @@ class RulesTest(TicketingBase):
         with self.assertRaises(StoreError):
             self.s.item_action('escalate', sup['id'])  # already promoted
         story = self.s.create('story', 'Arreglarlo', {'project': 'ECD', 'related_to': ini['id'], **READY}, READY_BODY)
-        self.s.update(ini['id'], {'size': 'S', 'regime': 'standard', 'premise': 'verified',  # the readiness gate, met
+        self.s.update(ini['id'], {'objective': 'the broken thing works again', 'size': 'S', 'regime': 'standard',
+                                  'premise': 'verified',  # the readiness gate, met
                                   'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
         for status in ('ToDo', 'InProgress', 'Review', 'Done'):  # the initiative follows its only story
             self.s.update(story['id'], {'status': status})
-        self.assertEqual(self.s.read(ini['id'])['fields']['status'], 'Done')
+        self.assertEqual(self.s.read(ini['id'])['fields']['status'], 'Review')  # the rule stops here: closing is a decision
+        self.assertEqual(self.s.read(sup['id'])['fields']['status'], 'OnHold')  # so what waited on it still waits
+        self.s.update(ini['id'], {'status': 'Done'})  # and closes when the owner gives the initiative for done
         self.assertEqual(self.s.read(sup['id'])['fields']['status'], 'Done')
         log = fm.parse(fm.split(read(self.root, self.s.read(sup['id'])['path']))[0])['status_log']
         self.assertEqual(log[-1]['by'], 'rule')
@@ -472,7 +476,9 @@ class StoryTest(TicketingBase):
         ini = self.s.create('initiative', 'Checkout', {'project': project})
         made = [self.s.create('story', f'Story {n}', {'project': project, 'related_to': ini['id'], **READY}, READY_BODY)
                 for n in range(stories)]
-        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
+        self.s.update(ini['id'], {'objective': 'checkout takes a card end to end',
+                                  'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123',
+                                  'status': 'ToDo'})
         return ini, made
 
     def status(self, key):
@@ -516,7 +522,8 @@ class StoryTest(TicketingBase):
             self.s.update(story['id'], {'status': 'ToDo'})
         for missing in ('initiative approved (ECD-INI-001 is in Backlog)', 'a written acceptance scenario', 'its spec impact'):
             self.assertIn(missing, str(cm.exception))
-        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
+        self.s.update(ini['id'], {'objective': 'checkout takes a card end to end', 'premise': 'verified',
+                                  'premise_verified': f'{date.today().isoformat()} @ abc123', 'status': 'ToDo'})
         self.s.update(story['id'], {'spec_impact': 'none: a test'}, body=READY_BODY.replace('the cart goes to checkout', '…'))
         with self.assertRaises(StoreError) as cm:
             self.s.update(story['id'], {'status': 'ToDo'})
@@ -542,7 +549,8 @@ class StoryTest(TicketingBase):
             with self.assertRaises(StoreError) as cm:
                 self.s.update(story['id'], {'status': status})
             self.assertIn(f'a story is ready ({status}) only with its initiative approved', str(cm.exception))
-        self.s.update(ini['id'], {'premise': 'verified', 'premise_verified': f'{date.today().isoformat()} @ abc123',
+        self.s.update(ini['id'], {'objective': 'checkout takes a card end to end', 'premise': 'verified',
+                                  'premise_verified': f'{date.today().isoformat()} @ abc123',
                                   'status': 'ToDo'})  # approved at last: its story starts
         self.assertEqual(self.s.update(story['id'], {'status': 'ToDo'})['fields']['status'], 'ToDo')
         self.s.update(story['id'], {'status': 'InProgress'})
@@ -561,9 +569,10 @@ class StoryTest(TicketingBase):
             self.s.update(a['id'], {'status': st})
         self.assertEqual(self.status(ini['id']), 'InProgress')  # b is still open
         self.s.update(b['id'], {'status': 'Discarded', 'discard_reason': 'not needed after a'})
-        self.assertEqual(self.status(ini['id']), 'Done')  # the last one closed, and one was done
+        self.assertEqual(self.status(ini['id']), 'Review')  # the last one closed and one was done: it waits for the owner
         log = fm.parse(fm.split(read(self.root, self.s.read(ini['id'])['path']))[0])['status_log']
-        self.assertEqual([(e['to'], e['by']) for e in log[-2:]], [('4. InProgress', 'rule'), ('6. Done', 'rule')])
+        self.assertEqual([(e['to'], e['by']) for e in log[-2:]], [('4. InProgress', 'rule'), ('5. Review', 'rule')])
+        self.assertEqual(self.s.update(ini['id'], {'status': 'Done'})['fields']['status'], 'Done')  # closing is a decision
 
     def test_every_story_discarded_leaves_the_initiative_to_its_owner(self):
         ini, (a,) = self.ready_initiative()

@@ -61,6 +61,7 @@ Preview servers live in `.claude/launch.json`: `task-manager-sample` (3101) and 
 | What the vault's AGENTS.md says | `tm/agentsmd.py` `render` (from `Store.agents_info`): never text about one vault |
 | A design note of work in progress | `plans/` |
 | A test | `tests/test_<area>.py` (stdlib `unittest`, temp folders) |
+| A line that must not reach the public repo | wrap it in the private-block markers (`CUT_BEGIN` and `CUT_END` in `tools/publish_public.py`): the copy is built without that block. This file cannot quote them |
 
 **How the app looks is in [docs/design.md](docs/design.md)**: read it before touching anything a user sees, and reuse the
 classes and helpers it names (`prop-rows`, `quiet`, `cards rows`, `statusChip`, `select`, `foldEmptyFields`…) before
@@ -91,3 +92,4 @@ system zip goes in `tm/export.py` `INCLUDE`.
 A `feat/<topic>` or `fix/<topic>` branch off `main` (a git worktree for risky work), one or two commits, a PR against
 `main`. Merging is the owner's call: never merge without an explicit OK. Merges are titled `merge: <title> (#N)`.
 Never `git push --force`.
+

@@ -66,7 +66,7 @@ export function mount(root) {
     placeholder: 'Search this month…',
     layout: { current: () => view.layout, pick: (l) => change({ layout: l }), options: LAYOUTS, isBoard: () => view.layout === 'board' },
     boardGroupKeys: [HORIZONS, CUSTOM], groupLabel: (k) => (k === CUSTOM ? 'Custom' : 'Horizons'),
-    onText: (t) => { text = t; api.update(); },
+    text: () => text, onText: (t) => { text = t; api.update(); },
     onChange: () => api.update(),
   });
   root.replaceChildren(head, vb.bar, vb.chips, body);

@@ -4,7 +4,8 @@
 // Contacts (TSK-050) has two tabs, People and Groups (#/contacts, #/contacts/groups; #/people is the first).
 // A person has more than a name (tm/people.py): the public name the items show, the name Google
 // Calendar gives them and their emails, which the calendar sync matches attendees by, their
-// Redmine and Slack users (either may be empty), and notes and when to use them (what an agent reads).
+// Their user in the ticketing tool and in Slack (either may be empty), and notes and when to use them (what an
+// agent reads). The stored key stays `redmine`: it is in every vault's people.md, and the label is what changed.
 // A group is people reached as one: an email list, a Slack channel…, with its members, notes and when to use it.
 import {
   addGroup, addLabel, addPerson, allPeople, deleteGroup, deleteLabel, deletePerson, personToGroup, reload, renameLabel, state, toast,
@@ -246,12 +247,12 @@ const peopleScreen = tagScreen({
   rows: () => state.people,
   chip: (name) => personChip(name),
   nameLabel: 'Public name',
-  filterPlaceholder: 'Filter by name, email, Redmine, Slack or when to use…',
+  filterPlaceholder: 'Filter by name, email, ticketing tool, Slack or when to use…',
   extra: [
     { key: 'calendar_name', label: 'Calendar name', text: (r) => r.calendar_name || '', cell: (r) => r.calendar_name || dash() },
     { key: 'emails', label: 'Email', text: (r) => (r.emails || []).join(', '),
       cell: (r) => ((r.emails || []).length ? h('span', { class: 'mono small' }, r.emails.join(', ')) : dash()) },
-    { key: 'redmine', label: 'Redmine', text: (r) => r.redmine || '', cell: (r) => (r.redmine ? h('span', { class: 'mono small' }, r.redmine) : dash()) },
+    { key: 'redmine', label: 'Ticketing tool', text: (r) => r.redmine || '', cell: (r) => (r.redmine ? h('span', { class: 'mono small' }, r.redmine) : dash()) },
     { key: 'slack', label: 'Slack', text: (r) => r.slack || '', cell: (r) => (r.slack ? h('span', { class: 'mono small' }, r.slack) : dash()) },
     WHEN_COLUMN,
     { key: 'me', label: 'You', when: () => has('responsible'), text: (r) => (isMe(r.name) ? 'you' : ''), cell: youCell },
@@ -259,7 +260,7 @@ const peopleScreen = tagScreen({
   fields: [
     { key: 'calendar_name', label: 'Name in Google Calendar', value: (r) => r.calendar_name || '', placeholder: 'As Calendar shows it' },
     { key: 'emails', label: 'Emails', value: (r) => (r.emails || []).join(', '), placeholder: 'ana@company.com, ana@gmail.com' },
-    { key: 'redmine', label: 'Redmine user', value: (r) => r.redmine || '', placeholder: 'Login or user id — empty if none' },
+    { key: 'redmine', label: 'Ticketing tool user', value: (r) => r.redmine || '', placeholder: 'Login or user id — empty if none' },
     { key: 'slack', label: 'Slack user', value: (r) => r.slack || '', placeholder: '@handle or member id (U…) — empty if none' },
     ...NOTES_FIELDS,
   ],

@@ -228,7 +228,7 @@ PROPS = {
     # `tests/test_roadmap_dashboard.py` asserts. Declared as strings it ALSO broke the page:
     # `static/js/ui.js` matches a select's current value with `===`, so an int never matched
     # a string option and the field rendered EMPTY — no label, no tick in the menu — in
-    # every error and learning note. Measured 2026-11-22 over 628 notes of the owner's vault.
+    # every error and learning note. Measured 2026-11-22 over the error and learning notes of a real vault.
     'error': (P(key='severity', label='Severity', kind='select', options=_opts('low', 'medium', 'high', 'critical')),
               P(key='impact', label='Impact', kind='select', options=_opts(1, 2, 3, 4, 5), default=3),
               P(key='area', label='Area', kind='text'),

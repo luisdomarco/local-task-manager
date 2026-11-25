@@ -1,7 +1,7 @@
 """What a new project's file is made of, and that every path writes the same one.
 
 A Ticketing item's frontmatter is not derived from the schema: it is a text file (`templates/<file class>.md`) with
-`{{…}}` filled in (codec `template` → `fill`). Two things follow, and both bit the owner's vault (SUP-391):
+`{{…}}` filled in (codec `template` → `fill`). Two things follow, and both bit a real vault (SUP-391):
 
 * Editing that template forks the population. The files already on disk are never revisited, so the vault's projects
   split by the date each was created — `enabled_types` in the ones from before 2026-11-14, `area` and `objective` only

@@ -1,9 +1,11 @@
 """tools/vault.py and what it stands on: the vault's lock across processes (tm/fsutil.vault_lock, taken by every Store
 write), relations written where the panel writes them (relations.relation_writes, Store.relate), and each command of
 the CLI on a temp copy of the sample vaults. Never a real vault."""
+import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +19,7 @@ from tm.fsutil import VaultBusy, vault_lock
 from tm.store import META_DIR, Store, StoreError
 from tm.structures import get as get_structure
 from tm.structures.relations import relation_writes
-from tools import vault
+from tools import audit_list_fields, vault
 from tools.serve_sample import copy_sample
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -286,6 +288,42 @@ class ReadCommandsTest(SampleCopy):
         self.assertIn('ACME', {n['id'] for n in self.cli_json('graph', 'STY-5', '--kinds', 'project')['nodes']})
         self.assertIn('unknown kind', self.cli('graph', 'STY-5', '--kinds', 'parents', code=1))
 
+    def test_open_counts_only_what_can_close_and_a_type_with_no_status_is_its_own_column(self):
+        """SUP-5286: a plan, an analysis, a learning and a note have no status and never close. Counting them as open
+        put the records of a project in its Open column (one real vault read 514 where 74 could close)."""
+        data = self.cli_json('overview')
+        kinds = {t['type']: t for t in data['types']}
+        for name in ('plan', 'analysis', 'learning', 'note'):
+            self.assertEqual((kinds[name]['open'], kinds[name]['closed']), (0, 0), f'{name} cannot close')
+            self.assertGreater(kinds[name]['no_status'], 0, f'{name} is counted apart')
+        self.assertGreater(kinds['story']['open'], 0, 'a type with statuses still counts as open')
+        # An activity has no statuses but closes by a field (closed_when: resolved_at): it can close, so it is open.
+        self.assertEqual(kinds['activity']['no_status'], 0)
+        self.assertGreater(kinds['activity']['open'], 0)
+        acme = next(p for p in data['projects'] if p['key'] == 'ACME')
+        self.assertGreater(acme['no_status'], 0)
+        # The three columns hold every item of the project, the project's own note aside (which is no part of it).
+        in_acme = [r for r in self.cli_json('find', '--project', 'ACME', '--limit', '0')['items'] if r['type'] != 'project']
+        self.assertEqual(acme['open'] + acme['closed'] + acme['no_status'], len(in_acme))
+        self.assertIn('| Open | Closed | No status |', self.cli('overview'))
+        # And `find --open` reads the same way: a record is not "open" just because it is not closed.
+        self.assertEqual(self.cli_json('find', '--type', 'note', '--open')['total'], 0)
+        self.assertGreater(self.cli_json('find', '--type', 'note')['total'], 0)
+
+    def test_find_says_under_the_table_what_it_left_out_and_how_to_ask_for_it(self):
+        """SUP-5287: it answers with 50 rows. A count read off the rows of a cut answer is a wrong count, and the row
+        you stop at is the one you believe."""
+        data = self.cli_json('find', '--limit', '3')
+        self.assertEqual((len(data['items']), data['shown'], data['limit']), (3, 3, 3))
+        self.assertGreater(data['total'], 3)
+        out = self.cli('find', '--limit', '3')
+        tail = out.rstrip().splitlines()[-1]
+        self.assertIn(f"…and {data['total'] - 3} more of the {data['total']}", tail)
+        self.assertIn('--limit 0', tail)
+        every = self.cli_json('find', '--limit', '0')
+        self.assertEqual((len(every['items']), every['limit']), (every['total'], None))
+        self.assertNotIn('…and', self.cli('find', '--limit', '0'))
+
     def test_context_is_the_prompt_the_app_gives_claude(self):
         self.assertEqual(self.cli('context', 'STY-5').rstrip(), self.store().claude_prompt('STY-5').rstrip())
 
@@ -306,6 +344,45 @@ class WriteCommandsTest(SampleCopy):
         self.assertIn('initiative: "[[INI-1 Checkout redesign]]"', text)
         self.assertIn('As a shopper I want my card kept.', text)
         self.assertTrue(self.store().check()['ok'])
+
+    def test_a_list_field_given_loose_text_is_kept_as_one_value_not_one_per_character(self):
+        """SUP-5288: `labels=agentic-system` was written `tags: ["a", "g", "e", …]`, and nothing said a word."""
+        self.cli('set', 'STY-5', 'labels=agentic-system')
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'], ['agentic-system'])
+        self.cli('set', 'STY-5', 'labels=one,two three')  # several by comma, as a link list already took them
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'], ['one', 'two three'])
+        self.cli('set', 'STY-5', 'labels=["with, comma"]')  # JSON stays the way out for a value holding a comma
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'], ['with, comma'])
+        self.cli('set', 'STY-5', 'labels=')
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'], [])
+        # On creation too, where the item has no fields to read the shape from.
+        made = self.cli_json('new', 'note', 'A note with a label', '--set', 'labels=one-label')
+        self.assertEqual(made['fields']['labels'], ['one-label'])
+
+    def test_a_link_field_refuses_a_ref_that_names_no_item_instead_of_writing_a_link_to_nothing(self):
+        """SUP-2064: the ref went to disk as `[[NOPE-999]]`, the CLI said `Updated`, and in a list field nothing
+        mentioned it again — `check` stays green because an empty field is valid."""
+        for pair in ('depends_on=NOPE-999', 'origin=NOPE-999', 'related_to=NOPE-999'):
+            out = self.cli('set', 'STY-5', pair, code=1)
+            self.assertIn(pair, out)
+            self.assertIn('item not found: NOPE-999', out)
+        self.assertNotIn('NOPE-999', self.file(self.store().find('STY-5')['path']))
+        self.assertIn('NOPE-999', self.cli('new', 'story', 'Of nothing', '--set', 'depends_on=NOPE-999', code=1))
+        # A ref under an old id of its own (an alias) resolves in a list link field as in a single one — including
+        # one prefixed by a project key the vault no longer has (`XXX/`). That prefix is the variable SUP-2064 turned
+        # on: a real one named a project key the vault no longer has, surviving only inside `aliases`. Measured
+        # 2026-11-25: it resolves and is written, here and on the code from before this fix.
+        path = self.store().find('STY-6')['path']
+        with open(os.path.join(self.root, path), encoding='utf-8') as f:
+            text = f.read()
+        with open(os.path.join(self.root, path), 'w', encoding='utf-8') as f:
+            f.write(text.replace('---\n', '---\naliases: ["ACME/STY-900", "XXX/STY-900"]\n', 1))
+        six = self.store().find('STY-6')['id']
+        for alias in ('ACME/STY-900', 'XXX/STY-900'):  # a live project key, and one of no project of this vault
+            self.cli('set', 'STY-5', f'depends_on={alias}')
+            self.assertEqual(self.store().read('STY-5')['fields']['depends_on'], [six], alias)
+            self.cli('set', 'STY-5', f'origin={alias}')
+            self.assertEqual(self.store().read('STY-5')['fields']['origin'], six, alias)
 
     def test_set_changes_only_the_keys_given_and_refuses_one_the_type_lacks(self):
         path = self.store().find('STY-5')['path']
@@ -419,6 +496,90 @@ class WriteCommandsTest(SampleCopy):
         self.assertFalse(self.store().check()['ok'])
         self.assertIn('does not match', self.cli('overview'))
         self.assertIn('read-only', self.cli('new', 'note', 'Nope', code=1))
+
+
+class AuditListFieldsTest(SampleCopy):
+    """tools/audit_list_fields.py: what the two defects left in a vault, read without writing anything."""
+
+    def damage(self):
+        """The two shapes the CLI used to write, made through the Store the way the CLI used to hand them over: a list
+        field given a string (which the Store still keeps one character per element — nothing below `parse_values`
+        refuses it) and a link field given a ref that names no item."""
+        s = self.store()
+        s.update(s.find('STY-5')['key'], {'labels': 'agentic-system'})
+        s.update(s.find('STY-6')['key'], {'origin': 'NOPE-999', 'depends_on': ['NOPE-998']})
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'][:3], ['a', 'g', 'e'], 'the Store still does it')
+
+    CLI = os.path.join(APP_DIR, 'tools', 'vault.py')
+
+    def test_it_finds_a_chopped_list_and_a_link_to_nothing_and_writes_nothing(self):
+        before = {rel: os.stat(os.path.join(self.root, rel)).st_mtime_ns
+                  for rel in (it['path'] for it in self.store().items())}
+        items, chopped, missing, elsewhere = audit_list_fields.audit(self.CLI, self.root)
+        self.assertEqual((chopped, missing, elsewhere), ([], [], []), 'the sample vault is clean')
+        self.assertEqual(len(items), len(before))
+        self.damage()
+        _, chopped, missing, elsewhere = audit_list_fields.audit(self.CLI, self.root)
+        self.assertEqual([(k, text) for _, k, text in chopped], [('labels', 'agentic-system')])
+        self.assertEqual(sorted((k, name) for _, k, name in missing),
+                         [('depends_on', 'NOPE-998'), ('origin', 'NOPE-999')])
+        self.assertEqual(elsewhere, [], 'a prefix that is no type of the vault names nothing, here or anywhere')
+        # It reads: every file it did not need to change is untouched (the two the damage wrote aside).
+        after = {rel: os.stat(os.path.join(self.root, rel)).st_mtime_ns for rel in before}
+        self.assertEqual({rel for rel in before if before[rel] != after[rel]},
+                         {self.store().find(ref)['path'] for ref in ('STY-5', 'STY-6')})
+
+    # The line a real Projects vault carries, read off the owner's: a link field holds a wikilink, and the stem is
+    # the note's file name — the ref AND its title. A fixture written through the Store instead (`{'goal': 'GOL-331'}`
+    # → `[[GOL-331]]`, the form the Store writes when it cannot resolve it) is a ref with no title, which is exactly
+    # why the first version of this test passed while the real vault came back wrong.
+    GOAL_LINE = 'goal: "[[GOL-900 Grow the team]]"'
+
+    def names_a_goal_of_the_other_vault(self, ref='STY-5'):
+        """`ref` naming a goal that lives in the other vault, written into its frontmatter as the vault has it."""
+        rel = self.store().find(ref)['path']
+        with open(os.path.join(self.root, rel), encoding='utf-8') as f:
+            text = f.read()
+        # Its own goal line if it has one (the sample's STY-5 names a goal of the vault), else a new one.
+        swapped = re.sub(r'(?m)^goal:.*$', self.GOAL_LINE, text, count=1)
+        with open(os.path.join(self.root, rel), 'w', encoding='utf-8') as f:
+            f.write(swapped if swapped != text else text.replace('---\n', f'---\n{self.GOAL_LINE}\n', 1))
+        self.assertIn('GOL-900 Grow the team', str(self.store().read(ref)['fields'].get('goal')))
+
+    def test_a_link_to_a_type_the_vault_holds_none_of_is_the_other_vault_s_not_damage(self):
+        """A vault that keeps all of its goals in another one names them all that way, and no goal of it will ever
+        answer. Telling the owner to put those back would break the rule that keeps them: the link is right, and
+        making a local goal to silence it is the defect."""
+        self.names_a_goal_of_the_other_vault()
+        # While this vault keeps goals of its own, a goal it has not got is one that is missing.
+        _, _, missing, elsewhere = audit_list_fields.audit(self.CLI, self.root)
+        self.assertEqual([(k, name) for _, k, name in missing], [('goal', 'GOL-900 Grow the team')])
+        self.assertEqual(elsewhere, [])
+        for goal in [it for it in self.store().items() if it['type'] == 'goal']:
+            self.store().delete(goal['key'])
+        # With none of its own, the prefix cannot name an item of this vault: it is the other vault's.
+        _, _, missing, elsewhere = audit_list_fields.audit(self.CLI, self.root)
+        self.assertEqual((missing, [(k, name) for _, k, name in elsewhere]),
+                         ([], [('goal', 'GOL-900 Grow the team')]))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(audit_list_fields.main([self.CLI, self.root]), 0)
+        said = printed.getvalue()
+        self.assertIn('nothing to put back: 1', said)
+        self.assertIn('Nothing was written. Nothing to put back.', said)
+        # And where both are true of one field, --outside says so for it.
+        self.store().create('goal', 'A goal of its own')
+        _, _, missing, elsewhere = audit_list_fields.audit(self.CLI, self.root, outside=['goal'])
+        self.assertEqual((missing, [(k, name) for _, k, name in elsewhere]),
+                         ([], [('goal', 'GOL-900 Grow the team')]))
+
+    def test_every_form_a_ref_is_written_in_gives_up_its_type_prefix(self):
+        """The prefix is read from the first word, never anchored at the end of the value: anchoring it is what made
+        5b07721 read nine correct links as damage, since every one carried its goal's title."""
+        self.assertEqual([audit_list_fields.prefix_of(n) for n in
+                          ('GOL-900 Grow the team', 'GOL-331', 'XXX/INI-428', 'XXX/INI-428 Algo',
+                           'ACME-STY-001', 'NOPE-999', 'Not a ref', '')],
+                         ['GOL', 'GOL', 'INI', 'INI', 'STY', 'NOPE', '', ''])
 
 
 class EveryTypeTest(SampleCopy):

@@ -87,7 +87,7 @@ export function mount(root) {
     view, save, fields, ctx, items: () => pool,
     groups: LOG_GROUPS.map(([k]) => k), groupLabel: logGroupLabel,
     props: LOG_PROPS, lead: [rangeBtn], emptyGroups: false,
-    placeholder: 'Filter by item…', onText: (text) => { itemFilter = text.trim().toLowerCase(); api.update(); },
+    placeholder: 'Filter by item…', text: () => itemFilter, onText: (text) => { itemFilter = text.trim().toLowerCase(); api.update(); },
     // Display: suggestions on or off, and the dismissed ones back.
     displayRows: () => [
       h('div', { class: 'vb-row' }, h('span', {}, 'Suggestions'),
@@ -99,7 +99,6 @@ export function mount(root) {
     onReset: () => { view.groupBy = 'day'; view.suggestions = true; view.folded = []; },
     onChange: () => api.update(),
   });
-  vb.search.value = itemFilter;
   const count = pageCount();
   const table = h('div', { class: 'log-table' });
   root.replaceChildren(pageHead({ title: 'Work log', count }), vb.bar, vb.chips, table);

@@ -318,7 +318,9 @@ export function listView(type, { page = null } = {}) {
       const vb = viewBar({
         view, save, fields, ctx: vaultCtx, items: all, groups, boardGroupKeys, closable, layout,
         placeholder: 'Filter by subject or ID…',
-        onText: (t) => { text = t; api.update(); },
+        // `text` outlives the bar: listView is built once (main.js VIEWS) and mounted again on every visit, so the box
+        // has to be told what is still filtered or it comes back blank over a filtered list (SUP-5289).
+        text: () => text, onText: (t) => { text = t; api.update(); },
         onChange: () => api.update(),
         // On a board, Order is its cards' (Manual first, the default); on a list, the rows'.
         orders: cfg.columns.filter((c) => c.label && typeof c.label === 'string').map((c) => [c.key, c.label]),

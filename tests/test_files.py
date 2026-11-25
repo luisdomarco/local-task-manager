@@ -57,7 +57,7 @@ class StoreFilesTest(unittest.TestCase):
         self.store.FILES_MAX = 3
         result = self.store.files()
         # The first three by name, never whatever the index's walk happened to reach last (that dropped a whole
-        # folder of the owner's vault with nothing saying which).
+        # folder of a real vault with nothing saying which).
         self.assertEqual([e['path'] for e in result['entries']], whole[:3])
         self.assertEqual((result['truncated'], result['total']), (True, len(whole)))
 
@@ -110,8 +110,8 @@ SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 class VaultPastTheOldCapTest(unittest.TestCase):
     """A vault with more entries than the 5,000 one answer of /api/files used to carry. Whatever the index's walk
     reached after them vanished — from the Explorer and Docs, from Search in files and from a backlink list, the last
-    two in silence — because both read the capped list. The owner's vault is at 5,700 entries and a whole project's
-    documents went missing that way."""
+    two in silence — because both read the capped list. A real vault past that cap lost a whole project's
+    documents that way."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
