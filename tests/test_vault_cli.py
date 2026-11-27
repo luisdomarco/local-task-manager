@@ -501,14 +501,30 @@ class WriteCommandsTest(SampleCopy):
 class AuditListFieldsTest(SampleCopy):
     """tools/audit_list_fields.py: what the two defects left in a vault, read without writing anything."""
 
+    # The chopped line a vault damaged before SUP-5291 carries, byte for byte as the old code left it: the Store was
+    # handed `labels='agentic-system'` and `list(v)` wrote its fourteen characters.
+    CHOPPED_TAGS = 'tags: ["a", "g", "e", "n", "t", "i", "c", "-", "s", "y", "s", "t", "e", "m"]'
+
     def damage(self):
-        """The two shapes the CLI used to write, made through the Store the way the CLI used to hand them over: a list
-        field given a string (which the Store still keeps one character per element — nothing below `parse_values`
-        refuses it) and a link field given a ref that names no item."""
+        """The two shapes the CLI used to write: a list field kept one character per element, and a link field given a
+        ref that names no item.
+
+        The chopped one is written **straight to the file**, not through the Store. It used to be made through the
+        Store, because the Store did it — SUP-5291 closed that (`store.as_list` + `clean_labels` at the validator,
+        `codec._as_list` behind it), and a fixture that asks the code under test to produce the damage would now
+        quietly test nothing. This is what the audit is for in the first place: damage already on disk, left by a
+        version of the app that is gone."""
         s = self.store()
-        s.update(s.find('STY-5')['key'], {'labels': 'agentic-system'})
+        rel = s.find('STY-5')['path']
+        path = os.path.join(self.root, rel)
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+        swapped = re.sub(r'(?m)^tags:.*$', self.CHOPPED_TAGS, text, count=1)
+        self.assertNotEqual(swapped, text, 'STY-5 carries a tags line to damage')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(swapped)
         s.update(s.find('STY-6')['key'], {'origin': 'NOPE-999', 'depends_on': ['NOPE-998']})
-        self.assertEqual(self.store().read('STY-5')['fields']['labels'][:3], ['a', 'g', 'e'], 'the Store still does it')
+        self.assertEqual(self.store().read('STY-5')['fields']['labels'][:3], ['a', 'g', 'e'], 'the file is damaged')
 
     CLI = os.path.join(APP_DIR, 'tools', 'vault.py')
 

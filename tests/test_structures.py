@@ -220,7 +220,9 @@ class LayoutTest(unittest.TestCase):
         settings = [(p['group'], p['key']) for p in types['project']['props'] if p['tab'] == 'settings']
         self.assertEqual(settings, [('Global', 'project_kind'), ('Global', 'execution_mode'),
                                     ('Global', 'premise_max_age_days'),
-                                    ('Code', 'repo'), ('Code', 'managed_by'), ('Support due days', 'support_due_days')])
+                                    ('Code', 'repo'), ('Code', 'managed_by'), ('Support due days', 'support_due_days'),
+                                    # SUP-408: the same group title the other types' discard reason sits under.
+                                    ('Paused or discarded', 'discard_reason')])
 
     def test_what_a_later_step_writes_is_not_asked_on_create(self):
         from tm.structures.ticketing.definition import LATER

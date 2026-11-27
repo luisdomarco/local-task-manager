@@ -5,7 +5,7 @@ name: "{{slug}}"
 project: "[[00 {{project}}]]"
 initiative: ""                         # "[[INI-<n> …]]" it delivers a part of
 status_ticket: "1. Backlog"
-status_log: []                         # [{date, from, to, by}]
+status_log: []                         # [{date, at, from, to, by}]
 priority: P2                           # P0 · P1 · P2 · P3
 size: S                                # S · M · L — an L is two stories
 spec_impact: ""                        # the specs it changes ("[[SPEC-<n> …]]"), or "none: <why>"

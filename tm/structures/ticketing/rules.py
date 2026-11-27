@@ -178,6 +178,7 @@ def on_update(store, it, values, r, stamp, by='agent'):
         # The kind it said before kinds moved to initiatives is what its initiatives that say none read: kept as it is.
         if LEGACY_KIND_KEY in values and str(values[LEGACY_KIND_KEY] or '').strip() != str(f.get(LEGACY_KIND_KEY) or '').strip():
             raise _err(f'{LEGACY_KIND_KEY} is kept as it is: each initiative says its own kind ({KIND_KEY})')
+        _check_project_discard(values, f, by)
         return _project_settings(values)
     if t == 'initiative' and KIND_KEY in values:  # what it is: only widened (simple → product or system)
         old, new = _kind(r, f).id, str(values[KIND_KEY] or '').strip()
@@ -222,6 +223,28 @@ def on_update(store, it, values, r, stamp, by='agent'):
             values.setdefault('disposition', 'discard')
             values.setdefault('resolution', 'discarded')
     return values
+
+
+def _check_project_discard(values, f, by):
+    """Discarding a project says why (SUP-408), and that is the only gate it gets.
+
+    A project is NOT in `TRANSITIONS`, deliberately, so `_check_transition` — where the same gate lives for every
+    other type — never runs for one. That is why this exists as a check of its own rather than a row in the graph:
+
+    - a project is a place, not a bet (`_follow_initiatives`), so it has no lifecycle to walk and no edges anyone has
+      specified. Putting it in the graph would mean deciding some thirty edges between its six statuses with no
+      requirement driving any of them, and each wrong guess is a refusal an agent meets in the field;
+    - it would also refuse OnHold outright: `_check_transition` lets OnHold through only for `t in HOLDABLE`, and a
+      project declares no `on_hold` map to satisfy that with, so it would fall to `new not in allowed`.
+
+    So the gate is written where the readiness gates already say it belongs: as a condition of the status REACHED,
+    not a property of one edge into it. Agents only, like every other gate here — the owner moves a status freely,
+    and `1 → 2. ToDo` and `→ 7. Discarded` are the owner's calls.
+    """
+    if by != 'agent' or values.get('status') != 'Discarded' or f.get('status') == 'Discarded':
+        return
+    if not str({**f, **values}.get('discard_reason') or '').strip():
+        raise _err('discarding needs a discard reason')
 
 
 def _project_settings(values):

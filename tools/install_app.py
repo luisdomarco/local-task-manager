@@ -27,7 +27,7 @@ import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
-from tm import export  # noqa: E402  (its exclusions: what never travels with the code)
+from tm import export, vaultshim  # noqa: E402  (export's exclusions: what never travels with the code)
 
 LABEL = 'com.taskmanager.app'
 WAKE_LABEL = 'com.taskmanager.app.wake'  # its scheduled agent runs: tools/agents_wake.py every few minutes
@@ -41,9 +41,11 @@ RETIRED_FILES = ('sample-vault-ticketing',)
 
 
 def locations(home):
-    base = os.path.join(home, 'Library', 'Application Support', 'TaskManager')
+    # Where the app goes is tm/vaultshim.APP_REL, not spelled out here: a vault's shim looks for the app there, and
+    # two copies of that path would drift (SUP-407). tests/test_vault_shim.py ties the two together.
+    app = vaultshim.installed_app(home)
     return {
-        'app': os.path.join(base, 'app'),
+        'app': app,
         'plist': os.path.join(home, 'Library', 'LaunchAgents', f'{LABEL}.plist'),
         'wake_plist': os.path.join(home, 'Library', 'LaunchAgents', f'{WAKE_LABEL}.plist'),
         'logs': os.path.join(home, 'Library', 'Logs', 'TaskManager'),

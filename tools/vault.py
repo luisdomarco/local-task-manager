@@ -498,10 +498,10 @@ def cmd_check(store, args):
 
 def cmd_agents(store, args):
     if args.print_it:
-        text = agentsmd.render(store.agents_info(), APP_DIR)
+        text = agentsmd.render(store.agents_info())
         return {'text': text}, [text.rstrip()]
     if args.on or args.off:
-        status = store.set_agents_md(bool(args.on), APP_DIR)
+        status = store.set_agents_md(bool(args.on))
     else:
         status = store.agents_status()
     say = (f"{agentsmd.FILE} keeps the vault's guide for agents; it is written again when the types or projects change."
@@ -760,7 +760,7 @@ def main(argv=None, out=None, err=None):
         store, args.structure_id = open_store(os.path.realpath(os.path.expanduser(vault)), getattr(args, 'structure', None))
         data, lines = args.fn(store, args)
         if args.fn in WRITES:
-            store.refresh_agents_md(APP_DIR)  # a new project, a renamed one: the guide says so
+            store.refresh_agents_md()  # a new project, a renamed one: the guide says so
     except (CliError, StoreError) as e:
         status = getattr(e, 'status', None)
         if as_json:

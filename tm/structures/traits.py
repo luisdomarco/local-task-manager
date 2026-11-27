@@ -95,7 +95,8 @@ RENAMED_KEYS = {'redmine_id': 'ticket_id', 'redmine_url': 'ticket_url'}
 
 # Where an item shows each field of the app's, in the card's and the page's order (the field matrix's sections; a
 # type's own props say theirs with `tab`, tm/structures prop_tab).
-SECTIONS = ('Header', 'Properties', 'Settings', 'Settings · Global', 'Settings · Support due days', 'Settings · Code', 'Area and objective', 'Description',
+SECTIONS = ('Header', 'Properties', 'Settings', 'Settings · Global', 'Settings · Support due days', 'Settings · Code',
+            'Settings · Paused or discarded', 'Area and objective', 'Description',
             'Attachments', 'Links', 'Details · Ticket & local', 'Details · Watchers', 'Details · Log work', 'Activity', 'AI',
             'Delivery · Readiness', 'Delivery · Execution', 'Delivery · Code', 'Delivery · Spec and release', 'Delivery · Triage',
             'Delivery · Paused or discarded', 'Relations', 'Docs', 'Boards and planning', 'Header menus', 'Footer',

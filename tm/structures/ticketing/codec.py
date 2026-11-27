@@ -54,6 +54,35 @@ def multi_links_of(t):
     return set(spec['multi_links']) | MULTI_PROPS.get(t, set())
 
 
+def entry_moment(entry):
+    """When a `status_log` entry happened, as finely as it is recorded: its `at` ('2026-11-25T14:03') when it has
+    one, else its `date` ('2026-11-25').
+
+    Entries written before SUP-2056 carry only `date`, and they stay that way: the time they happened was never
+    recorded, so a migration could only invent it — a day-resolution row answers at day resolution, and a reader
+    measuring a span must say so rather than read 00:00 as a fact. Every reader goes through here so that `at`
+    being the finer key is stated once."""
+    if not isinstance(entry, dict):
+        return None
+    return str(entry.get('at') or entry.get('date') or '') or None
+
+
+def entry_day(entry):
+    """The day of a `status_log` entry, whichever way it was written."""
+    moment = entry_moment(entry)
+    return moment[:10] if moment else None
+
+
+def _as_list(v):
+    """The values of a field written as a list. A `str` is iterable, so `list(v)` and `[f(x) for x in v]` take one
+    apart one character per element (`labels='agentic-system'` → nine tags, `depends_on='STY-1'` → five wikilinks to
+    nothing) without raising. Store.validate guards the door (`as_list`); this keeps the structure's own writer from
+    being a trap for whoever calls `encode` directly."""
+    if not v:  # None, '', []: as `list(v or [])` read them
+        return []
+    return [v] if isinstance(v, str) else list(v)
+
+
 def safe_title(text, limit=120):
     """A title that can be a file name and a wikilink target: no slashes, colons, brackets, pipes or hashes."""
     out = ' '.join(UNSAFE_RE.sub(' ', str(text or '')).split()).strip(' .')
@@ -189,13 +218,17 @@ class TicketingCodec:
         return f
 
     def _closed_at(self, t, log, status):
-        """When it was last closed: the date of the last status_log entry into a closed status (None while open)."""
+        """When it was last closed: the DAY of the last status_log entry into a closed status (None while open).
+
+        A day, still, with `at` on the entry: `completed_at` is read as a date by five modules of the page and
+        compared for equality in one of them, and SUP-2056 asked for the log to carry a time, not for this field to
+        change type. `entry_day` is what makes it tolerant of an entry written either way."""
         closed = OWN_CLOSED.get(t, CLOSED)
         if status not in closed or not isinstance(log, list):
             return None
         for entry in reversed(log):
             if isinstance(entry, dict) and app_status(t, entry.get('to')) in closed:
-                return str(entry.get('date') or '') or None
+                return entry_day(entry)
         return None
 
     def resolve(self, items):
@@ -267,13 +300,13 @@ class TicketingCodec:
                 out[key] = new
                 if app_status(t, old) != v and stamp:
                     log = raw.get('status_log') if isinstance(raw.get('status_log'), list) else []
-                    out['status_log'] = [*log, {'date': stamp[:10], 'from': old or '', 'to': new, 'by': by}]
+                    out['status_log'] = [*log, {'date': stamp[:10], 'at': stamp, 'from': old or '', 'to': new, 'by': by}]
             elif k == 'updated_at':
                 out['updated_date'] = str(v or '')[:10]
             elif k == 'created_at':
                 out['creation_date'] = str(v or '')[:10]
             elif k == 'labels':
-                out['tags'] = list(v or [])
+                out['tags'] = _as_list(v)
             elif k == 'related_to':
                 if spec['parent']:
                     out[spec['parent']] = r.link(v) if v else ''
@@ -285,7 +318,7 @@ class TicketingCodec:
             elif k in links:
                 out[k] = r.link(v) if v else ''
             elif k in multi:
-                out[k] = [r.link(x) for x in (v or [])]
+                out[k] = [r.link(x) for x in _as_list(v)]
             elif k == 'relations':
                 kept = [s if wikilinks.target(s) else wikilinks.link(s) for s in ((current or {}).get('_unresolved_relations') or [])]
                 out[k] = [*(r.link(x) for x in (v or [])), *kept]

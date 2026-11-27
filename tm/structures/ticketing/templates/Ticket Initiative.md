@@ -6,7 +6,7 @@ name: "{{slug}}"
 initiative_kind: simple                # product · system · simple — only widens (tm/structures/kinds.py)
 project: "[[00 {{project}}]]"
 status_ticket: "1. Backlog"            # only via tickets_move
-status_log: []                         # [{date, from, to, by}] — written by the capability
+status_log: []                         # [{date, at, from, to, by}] — written by the capability
 priority: P2                           # P0 · P1 · P2 · P3
 size: M                                # S · M · L
 regime: standard                       # standard (reviewer) · critical (judge with sealed oracle); goes up, never down

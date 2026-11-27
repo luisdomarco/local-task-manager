@@ -525,7 +525,10 @@ labels, links — and no folder: each of its folders is made with its first file
 from its Relations (*Move to another project*) in a vault with short ids, with what hangs from it in that project. Statuses are written `status_ticket: "5. Review"` and their names and order are fixed
 (only colours and the Not started / In progress split can change); priorities P0–P3. A project's note is the same
 container a Tasks project is: Backlog → ToDo → OnHold → InProgress → Done, or Discarded, in `status_project`, a priority,
-an area and an objective, a start and a due date, planned like its work, watchers and docs. The format's rules (support
+an area and an objective, a start and a due date, planned like its work, watchers and docs. Discarding a project asks
+for its **Discard reason**, in its Settings under *Paused or discarded* — the group an initiative's, a story's and a
+support ticket's sits under in Delivery. That is a project's only gate: its other moves are ungated, and **a task has
+no discard reason** — the most numerous type of a vault is left free on purpose. The format's rules (support
 levels and due dates, Promote, Escalate, the readiness gates, discard reasons, hotfix rollback and post-mortem) are enforced
 in `tm/structures/ticketing/rules.py`. **The allowed moves and their gates bind a script or an agent**, which says so
 when it writes (`"by": "agent"` in `POST /api/item/update`); **in the app you move a status anywhere**, and the
@@ -2240,9 +2243,10 @@ python3 tools/vault.py agents --on                        # the vault's guide fo
 
 Turned on in Settings → Vaults (a vault's dialog, **Guide for agents**) or with `tools/vault.py agents --on`,
 a vault keeps an `AGENTS.md` at its top: what any agent opened in its folder — Claude Code, Codex, Cursor — reads first.
-It says what the vault is and how to work with it: the `tools/vault.py` commands (with this app's path in them), the
-projects and their folders, each type (its ref, folder, statuses, parent, link fields), the relation kinds and where
-they are kept, the docs folders, and what to respect when a file is edited by hand. It also teaches the vault's formats:
+It says what the vault is and how to work with it: the CLI's commands (as `python3 .task-manager/vault.py …`, the
+vault's own copy of it — *The CLI inside the vault* below), the projects and their folders, each type (its ref, folder,
+statuses, parent, link fields), the relation kinds and where they are kept, the docs folders, and what to respect when
+a file is edited by hand. It also teaches the vault's formats:
 
 - **Indexes**: each `.base` (up to 30) with its views, what a note needs to be in it (a folder, a tag, `fileClass:
   Bookmarks`, a `category`…, read from its filters: `tm/bases.py describe`), what a negated filter keeps *out* of it
@@ -2255,15 +2259,32 @@ they are kept, the docs folders, and what to respect when a file is edited by ha
  With it an agent answers *what
 blocks INI-12?* or files a story from the vault's folder alone, with the app closed.
 
-- It is **written from the vault** (its structure, its projects, where the app is), never typed by hand, so it says
-  what the app enforces. The app writes it again a few seconds after a change that alters it (a new project, a type
-  turned off, the app moved); `tools/vault.py` does after its own writes. With nothing changed it is not rewritten.
+- It is **written from the vault** (its structure, its projects), never typed by hand, so it says what the app
+  enforces. The app writes it again a few seconds after a change that alters it (a new project, a type turned off);
+  `tools/vault.py` does after its own writes. With nothing changed it is not rewritten — and because nothing in it
+  depends on which copy of the app wrote it, it says the same whoever did.
 - **Your text is kept**: the generated part sits between two `task-manager:agents` markers, and what you write above or
   below them is never touched. An `AGENTS.md` you already had gets the block at its end.
 - Claude Code reads `CLAUDE.md`, not `AGENTS.md`: a vault with no `CLAUDE.md` gets one that says `@AGENTS.md`. One of
   your own is left as it is (add `@AGENTS.md` to it yourself if you want it read).
-- **Off** takes the block away; a file left empty goes to the files' trash, and so does a `CLAUDE.md` that only pointed
-  at it. Both files are known to the vault check: never an item, never a warning.
+- **Off** takes the block away, and the CLI in `.task-manager/` with it; a file left empty goes to the files' trash,
+  and so does a `CLAUDE.md` that only pointed at it. Both files are known to the vault check: never an item, never a
+  warning.
+
+##### The CLI inside the vault
+
+The commands the guide gives name **`.task-manager/vault.py`**, a path relative to the vault, and the app puts that
+file there when the guide is turned on. It is a shim of a few lines that holds no path at all: it finds the app when
+it runs — `$TASK_MANAGER_APP`, else the app installed under your home (`~/Library/Application Support/TaskManager/app`),
+else an iOS bundle, else the checkout a vault inside one sits in — and hands it your arguments, its exit code and its
+output unchanged. Found none, it says every place it looked and how to fix it, and exits 127.
+
+So the same vault works from the Mac, from the iPhone and in a clone, and a vault synced by iCloud never carries one
+machine's layout to another. It used to name the absolute path of whichever copy of the app last wrote the block
+(the installed app, a checkout, a worktree, an iPhone bundle whose folder is a new UUID on every install), so the line
+flipped on every write and the guide could tell an agent to use a copy it should not. A vault made before this adopts
+the shim by itself: the next write the app or `tools/vault.py` makes refreshes the guide, and `vault.py agents --on`
+does it at once.
 
 #### Your own commands, skills and agents
 

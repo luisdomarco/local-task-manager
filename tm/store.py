@@ -28,6 +28,7 @@ from . import people
 from . import reminders
 from . import versions
 from . import vaultsettings
+from . import vaultshim
 from .fsutil import VaultBusy, atomic_write, vault_lock
 from .index import ACTOR, VaultIndex, link_keys
 from .structures.agents import vocabulary as agents_vocabulary
@@ -192,6 +193,29 @@ def number_fields(structure, item_type=None):
     return {'plan_order', 'week_order', 'goal_order'} | {p['key'] for p in (t.props if t else ()) if p.get('kind') == 'number'}
 
 
+def list_fields(structure, item_type=None):
+    """The keys kept as a list of links: the fields `item_type` declares with `kind='links'` (`depends_on`, a spec's
+    `stories`). Read from the structure, never a list of its own, for the same reason as `number_fields`: a type that
+    declares one more is covered the day it declares it."""
+    t = structure.types.get(item_type) if item_type else None
+    return {p['key'] for p in (t.props if t else ()) if p.get('kind') == 'links'}
+
+
+def as_list(v, key):
+    """A list field handed ONE bare value is handed that value, not its characters (SUP-5291). A `str` is iterable,
+    so every `list(v)` and `[f(x) for x in v]` below this point takes a string apart one character per element without
+    ever raising: `labels='agentic-system'` used to reach the disk as nine labels. Guarded here, at the one door every
+    caller goes through (the page, the server, tools/vault.py, a script, a future adapter), and not in the writer that
+    showed the damage — the CLI's own fix left every other caller exposed, which is the ticket.
+
+    Anything that is not a string is left exactly as it was: `None` is not `[]` for every field (`reminders` None means
+    the vault's default, `[]` means no reminder), so coercing it here would change what nothing asked about."""
+    if not isinstance(v, str):
+        return v
+    one = v.strip()
+    return [one] if one else []
+
+
 def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
     """Reject values the app relies on being well-formed; normalize links. Statuses and priorities are the
     structure's (those of `item_type`, when given)."""
@@ -209,6 +233,13 @@ def validate(values, structure=FOLDER_PER_TYPE, item_type=None):
     for key in number_fields(structure, item_type):
         if key in values:
             values[key] = as_number(values[key], key)
+    # The labels and the link lists: a bare string is one value, not its characters (SUP-5291). Wrapped, not cleaned:
+    # `clean_labels` would also strip the commas and the '#' from the value saved, which is a second defect (the label
+    # history already strips them, so the two disagree) and not this one — `labels=["with, comma"]` is the documented
+    # way to keep a comma (tools/vault.py, SUP-5288), and settling that is the owner's call, not a side effect here.
+    for key in {'labels'} | list_fields(structure, item_type):
+        if key in values:
+            values[key] = as_list(values[key], key)
     if 'sidebar' in values:  # whether an initiative or a project is listed under the sidebar's Favourites
         values['sidebar'] = bool(values['sidebar'])
     if 'resolved' in values:  # an action, never stored: see Store.update
@@ -929,10 +960,10 @@ class Store:
         return now
 
     @writes
-    def set_agents_md(self, on, app_dir):
+    def set_agents_md(self, on):
         """Turn the guide on (AGENTS.md gets the generated block, its own text kept; CLAUDE.md gets `@AGENTS.md` when
-        the vault has none) or off (the block goes; a file left empty goes to the files' trash, and so does a CLAUDE.md
-        that only pointed at it). `app_dir` is where tools/vault.py is, written into the guide."""
+        the vault has none, and .task-manager/ gets the CLI's shim the block names) or off (the block goes, and the
+        shim with it; a file left empty goes to the files' trash, and so does a CLAUDE.md that only pointed at it)."""
         path = self._guide_path(agentsmd.FILE)
         if path is None:  # not the vault's own file: on is refused, off has nothing of ours to take away
             if on:
@@ -940,7 +971,8 @@ class Store:
             return self.agents_status()
         existing = self._read_root_file(agentsmd.FILE)
         if on:
-            text = agentsmd.merge(existing, agentsmd.render(self.agents_info(), app_dir))
+            vaultshim.write(self.root)  # the CLI the block names: in the vault, so its path is the same everywhere
+            text = agentsmd.merge(existing, agentsmd.render(self.agents_info()))
             if text != existing:
                 atomic_write(path, text)
             claude = os.path.join(self.root, agentsmd.CLAUDE_FILE)
@@ -959,18 +991,24 @@ class Store:
                 self.delete_path(agentsmd.FILE)
             if self._guide_path(agentsmd.CLAUDE_FILE) and self._read_root_file(agentsmd.CLAUDE_FILE).strip() == agentsmd.CLAUDE_LINE:
                 self.delete_path(agentsmd.CLAUDE_FILE)
+        if not on:
+            vaultshim.remove(self.root)  # of .task-manager/, so not through the files' trash
         return self.agents_status()
 
     @writes
-    def refresh_agents_md(self, app_dir):
-        """Write the guide again when what it says changed (a project, a type, a status, where the app is). Nothing
-        when the vault keeps none, or nothing changed. → whether it wrote."""
+    def refresh_agents_md(self):
+        """Write the guide again when what it says changed (a project, a type, a status). Nothing when the vault keeps
+        none, or nothing changed. → whether it wrote the guide.
+
+        The shim is put back first, whether or not the block changed: that is how a vault written by an older version,
+        or one that lost the file, gets the CLI the block names."""
         path = self._guide_path(agentsmd.FILE)
         existing = self._read_root_file(agentsmd.FILE)
         old = agentsmd.block_of(existing)
         if path is None or old is None:
             return False
-        new = agentsmd.render(self.agents_info(), app_dir)
+        vaultshim.write(self.root)
+        new = agentsmd.render(self.agents_info())
         if new == old:
             return False
         atomic_write(path, agentsmd.merge(existing, new))

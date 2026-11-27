@@ -2,6 +2,10 @@
 Cursor…) what the vault is and how to read and write it — with tools/vault.py, which keeps every rule — so the vault
 works as a second brain without the app running. Opt-in per vault (Settings → Vaults, or `vault.py agents --on`).
 
+The CLI it names is the vault's own shim, at a path relative to the vault (tm/vaultshim.REL), never the absolute path
+of the app that wrote the block: that path answered «which copy ran last» and was resealed on every write, so the
+guide ended up naming a checkout, a worktree or an iPhone bundle (SUP-407). The shim finds the app when it runs.
+
 The generated part sits between two markers; what the owner writes above or below them is never touched. It is made
 from the vault's own structure and projects (Structure.public(), the scan), never from text kept here, so it cannot
 drift from what the app enforces; and it has no date in it, so writing it again with nothing changed changes nothing.
@@ -10,7 +14,8 @@ CLAUDE.md, which Claude Code reads (not AGENTS.md), gets `@AGENTS.md` when the v
 Pure, but for the few file helpers at the end: the Store writes (Store.set_agents_md, refresh_agents_md).
 """
 import os
-import shlex
+
+from . import vaultshim
 
 FILE = 'AGENTS.md'
 CLAUDE_FILE = 'CLAUDE.md'
@@ -35,10 +40,13 @@ def _example_ref(items, type_name, prefix, numbered):
     return f'{prefix}-<n>' if numbered else f'{prefix}-<nnn>'
 
 
-def render(info, app_dir, python='python3'):
+def render(info, python='python3'):
     """The generated block, markers included. `info` is Store.agents_info(): {structure, label, types, projects,
-    relation_kinds, docs, numbered, items}."""
-    cli = f'{python} {shlex.quote(os.path.join(app_dir, "tools", "vault.py"))}'
+    relation_kinds, docs, numbered, items}.
+
+    It takes no app folder on purpose: the CLI is named relative to the vault, so the same text is right on every
+    device and whichever copy of the app wrote it (SUP-407). The Store puts the shim there (tm/vaultshim.write)."""
+    cli = f'{python} {vaultshim.REL}'
     types, scoped = info['types'], set(info.get('project_scoped') or ())
     rk = info.get('relation_kinds') or {}
     lines = [START, '',
@@ -48,7 +56,9 @@ def render(info, app_dir, python='python3'):
              'read and write them **with the CLI below**, which keeps every rule the app keeps (where a file goes, its id,',
              'its links, the allowed statuses and the gates between them). Do not create, rename or move item files by hand.', '',
              '## Read and write it', '',
-             'Run from this folder (or pass `-C <this folder>`). Output is Markdown; add `--json` for data.', '',
+             f'Run from this folder: `{vaultshim.REL}` is this vault\'s own copy of the CLI, put there by the app, and it',
+             'finds the app wherever it is installed. Called from elsewhere by its full path it still works on this vault.',
+             'Output is Markdown; add `--json` for data.', '',
              '```bash',
              f'{cli} overview                  # projects, items by type and state, what changed last',
              f'{cli} find <text> [--type T] [--status S] [--project KEY] [--open] [--text]',
@@ -124,7 +134,7 @@ def render(info, app_dir, python='python3'):
     lines += ['', '## If you must edit a file by hand', '',
               '- Change only the keys you mean to; keep the others, their order and their `#` comments as they are.',
               '- A link is `"[[<file name without .md>]]"`. Never invent or reuse an id: new items only through `new`.',
-              f'- Run `{cli} check` afterwards. `.task-manager/` is the app\'s own: never edit it.', '',
+              f'- Run `{cli} check` afterwards. `.task-manager/` is the app\'s own — the CLI above included: never edit it.', '',
               'This block is written again when the vault\'s types or projects change. Put your own notes outside the markers.',
               '', END]
     return '\n'.join(lines) + '\n'

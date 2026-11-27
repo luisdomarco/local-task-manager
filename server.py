@@ -2392,7 +2392,7 @@ class AgentsRefresh:
         with self._lock:
             self._timers.pop(store.root, None)
         try:
-            store.refresh_agents_md(APP_DIR)
+            store.refresh_agents_md()
         except StoreError as e:  # a vault that stopped matching its structure: the next write after it is fixed refreshes it
             sys.stderr.write(f'AGENTS.md of {store.root} not refreshed: {e}\n')
         except Exception:  # noqa: BLE001 — a guide that cannot be written never breaks the app
@@ -2457,7 +2457,7 @@ ROUTES = {
     ('POST', '/api/item/action'): lambda s, q, b: s.item_action(b.get('action'), b.get('key')),
     ('POST', '/api/vault/create-folders'): lambda s, q, b: {'check': s.create_missing_folders()},
     # The vault's guide for agents (tm/agentsmd.py): AGENTS.md at its top, on or off (Settings → Vaults).
-    ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on')), APP_DIR),
+    ('POST', '/api/vault/agents'): lambda s, q, b: s.set_agents_md(bool(b.get('on'))),
     ('GET', '/api/vault/changes'): lambda s, q, b: vault_changes(s, q),
     ('POST', '/api/vault/reload'): lambda s, q, b: APP.reload_from_disk(s.vault_id),
     ('GET', '/api/vault/settings'): lambda s, q, b: {'vault': s.vault_id, 'settings': s.vault_settings(),

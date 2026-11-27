@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from datetime import date
 
 from tm import frontmatter as fm
@@ -188,7 +189,11 @@ class RoundTripTest(TicketingBase):
         self.assertEqual(out['fields']['status'], 'InProgress')
         f = fm.parse(fm.split(after)[0])
         self.assertEqual(f['status_ticket'], '4. InProgress')
-        self.assertEqual(f['status_log'], [{'date': date.today().isoformat(), 'from': '1. Backlog', 'to': '4. InProgress', 'by': 'owner'}])
+        # `at` carries the minute the move happened (SUP-2056); `date` is still the day.
+        entry, = f['status_log']
+        self.assertEqual(entry['at'][:10], entry['date'])
+        self.assertEqual({k: v for k, v in entry.items() if k != 'at'},
+                         {'date': date.today().isoformat(), 'from': '1. Backlog', 'to': '4. InProgress', 'by': 'owner'})
         self.assertEqual(fm.split(before)[1], fm.split(after)[1])  # the body untouched
 
     def test_a_comment_leaves_its_item_file_as_it_was(self):
@@ -1090,3 +1095,257 @@ class LinkWithoutSubjectTest(TicketingBase):
             self.s.create('inbox', '', {})
         with self.assertRaises(StoreError):
             self.s.create('task', '  ', {'url': '  '})
+
+
+class ListFieldGivenAStringTest(TicketingBase):
+    """SUP-5291: a list field handed ONE bare string keeps that string, not its characters.
+
+    `str` is iterable, so `list(v)` and `[f(x) for x in v]` took a string apart one character per element and never
+    raised. SUP-5288 shut the CLI's own door; the Store stayed open, so the page, the server, a script and any future
+    adapter wrote the same damage. Measured on the sample vault before the fix: `labels` on all 21 types that carry
+    it, plus the two `kind='links'` props (`depends_on` on an initiative and a story, a spec's `stories`). The fields
+    with a shape guard of their own were never exposed — `watchers`/`attendees` split a string on commas,
+    `reminders`/`docs`/`links`/`attachments`/`relations` refuse one — which is why this names the three that were.
+    """
+
+    def tags_line(self, item):
+        return next(l for l in read(self.root, item['path']).split('\n') if l.startswith('tags:'))
+
+    def test_labels_given_a_string_is_one_label(self):
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        self.s.update(task['key'], {'labels': 'agentic-system'})
+        self.assertEqual(self.s.read(task['key'])['fields']['labels'], ['agentic-system'])
+        self.assertEqual(self.tags_line(task), 'tags: ["agentic-system"]')
+
+    def test_labels_on_create_too(self):
+        task = self.s.create('task', 'Crear', {'project': 'HB', 'labels': 'agentic-system'})
+        self.assertEqual(self.s.read(task['key'])['fields']['labels'], ['agentic-system'])
+        self.assertEqual(self.tags_line(task), 'tags: ["agentic-system"]')
+
+    def test_a_link_list_given_a_string_is_one_link(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        other = self.s.create('initiative', 'Billing', {'project': 'ECD'})
+        self.s.update(ini['key'], {'depends_on': other['key']})
+        self.assertEqual(self.s.read(ini['key'])['fields']['depends_on'], [other['key']])
+        line = next(l for l in read(self.root, ini['path']).split('\n') if l.startswith('depends_on:'))
+        self.assertEqual(line.count('[['), 1, line)  # one wikilink, not one per character
+
+    def test_a_spec_s_stories_given_a_string_is_one_story(self):
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        story = self.s.create('story', 'Pay in one page', {'project': 'ECD', 'related_to': ini['key']})
+        spec = self.s.create('spec', 'Checkout', {'project': 'ECD'})
+        self.s.update(spec['key'], {'stories': story['key']})
+        self.assertEqual(self.s.read(spec['key'])['fields']['stories'], [story['key']])
+        line = next(l for l in read(self.root, spec['path']).split('\n') if l.startswith('stories:'))
+        self.assertEqual(line.count('[['), 1, line)
+
+    def test_the_gate_holds_for_every_type_that_carries_the_field(self):
+        """Not one type: the gate is the Store's value validator, so it holds for all of them at once. Asserted
+        there rather than through `create` for each, because half the types need a parent or a project to be
+        created at all and that is not what this is about."""
+        from tm.store import validate
+        st = self.s.structure
+        with_labels = [t for t in sorted(st.types) if 'labels' in st.allowed_fields(t)]
+        self.assertGreaterEqual(len(with_labels), 15, with_labels)
+        for t in with_labels:
+            got = validate({'labels': 'agentic-system'}, st, t)
+            self.assertEqual(got['labels'], ['agentic-system'], t)
+        with_links = [(t, k) for t in sorted(st.types)
+                      for k in sorted(p['key'] for p in st.types[t].props if p.get('kind') == 'links')]
+        self.assertEqual(with_links, [('initiative', 'depends_on'), ('spec', 'stories'), ('story', 'depends_on')])
+        for t, k in with_links:
+            self.assertEqual(validate({k: 'STY-1'}, st, t)[k], ['STY-1'], (t, k))
+
+    def test_the_fields_that_declare_a_list_are_read_from_the_structure(self):
+        """`list_fields` derives them, so a type that declares one more `kind='links'` prop is covered the day it
+        declares it — the reason this is not a list written out in the Store."""
+        from tm.store import list_fields
+        self.assertEqual(list_fields(self.s.structure, 'initiative'), {'depends_on'})
+        self.assertEqual(list_fields(self.s.structure, 'spec'), {'stories'})
+        self.assertEqual(list_fields(self.s.structure, 'task'), set())
+
+    def test_a_list_and_nothing_are_untouched(self):
+        """Only a string is wrapped: `None` is not `[]` for every field (`reminders` None means the vault's default),
+        so nothing else may be coerced here."""
+        from tm.store import as_list
+        for v in (None, [], ['a', 'b'], {'x': 1}, 0, False):
+            self.assertIs(as_list(v, 'k'), v, repr(v))
+        self.assertEqual(as_list('  one  ', 'k'), ['one'])
+        self.assertEqual(as_list('   ', 'k'), [])
+
+    def test_the_codec_alone_does_not_make_characters_either(self):
+        """The validator is the gate; this is the writer behind it, called the way a structure's codec can be."""
+        from tm.structures.ticketing.codec import TicketingCodec
+        c, r = TicketingCodec(), self.s._resolver()
+        self.assertEqual(c.encode('task', {'labels': 'agentic-system'}, {}, r)['tags'], ['agentic-system'])
+        for empty in ('', None, []):
+            self.assertEqual(c.encode('task', {'labels': empty}, {}, r)['tags'], [], repr(empty))
+        out = c.encode('initiative', {'depends_on': 'ECD-INI-001'}, {}, r)
+        self.assertEqual(len(out['depends_on']), 1, out['depends_on'])
+
+
+class StatusLogTimeTest(TicketingBase):
+    """SUP-2056: a `status_log` entry carries the time it happened, not only the day.
+
+    `stamp[:10]` gave the measurement day resolution: an initiative opened and closed on one day measured 0 h, one
+    of two days measured 48 h flat. The shape is additive — `date` keeps meaning a day and a new `at` carries the
+    minute — so the entries already written stay byte for byte, and
+    `completed_at`, which five modules of the page read as a date, does not change type.
+    """
+
+    def log_of(self, item):
+        return fm.parse(fm.split(read(self.root, self.s.read(item['key'])['path']))[0])['status_log']
+
+    def move(self, item, status, at, by='owner'):
+        """A status change at a moment of my choosing: the Store stamps a write from `now_stamp()`."""
+        with unittest.mock.patch('tm.store.now_stamp', return_value=at):
+            self.s.update(item['key'], {'status': status}, by=by)
+
+    def test_a_new_entry_carries_the_minute_and_the_day(self):
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        self.move(task, 'ToDo', '2026-03-04T09:10')
+        entry = self.log_of(task)[-1]
+        self.assertEqual(entry, {'date': '2026-03-04', 'at': '2026-03-04T09:10',
+                                 'from': '1. Backlog', 'to': '2. ToDo', 'by': 'owner'})
+
+    def test_two_moves_on_one_day_are_told_apart(self):
+        """What the ticket is for: the span between two moves, which day resolution reported as zero."""
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        self.move(task, 'ToDo', '2026-03-04T09:10')
+        self.move(task, 'Done', '2026-03-04T16:45')
+        log = self.log_of(task)[-2:]
+        self.assertEqual([e['at'] for e in log], ['2026-03-04T09:10', '2026-03-04T16:45'])
+        self.assertEqual([e['date'] for e in log], ['2026-03-04', '2026-03-04'])
+        from tm.structures.ticketing import codec as tcodec
+        moments = [tcodec.entry_moment(e) for e in log]
+        self.assertEqual(moments, ['2026-03-04T09:10', '2026-03-04T16:45'])
+        self.assertNotEqual(moments[0], moments[1], 'the span the ticket wanted to measure')
+
+    def test_an_entry_from_before_is_read_at_the_resolution_it_has(self):
+        """The tolerant half: a date-only entry answers with a day, and says so by having no `at`."""
+        from tm.structures.ticketing import codec as tcodec
+        old = {'date': '2026-01-02', 'from': '', 'to': '2. ToDo', 'by': 'migration'}
+        new = {'date': '2026-01-02', 'at': '2026-01-02T11:30', 'from': '', 'to': '4. Done', 'by': 'owner'}
+        self.assertEqual((tcodec.entry_moment(old), tcodec.entry_day(old)), ('2026-01-02', '2026-01-02'))
+        self.assertEqual((tcodec.entry_moment(new), tcodec.entry_day(new)), ('2026-01-02T11:30', '2026-01-02'))
+        # An entry a later tool writes with `at` alone still gives a day.
+        self.assertEqual(tcodec.entry_day({'at': '2026-01-02T11:30'}), '2026-01-02')
+        self.assertIsNone(tcodec.entry_moment({}))
+        self.assertIsNone(tcodec.entry_moment('not a dict'))
+
+    def test_an_entry_written_before_is_appended_to_and_gains_no_invented_time(self):
+        """The entries already on disk keep every key and value they had, and no `at`
+        is put on them: the time those moves happened was never recorded, so a migration could only invent it.
+
+        The `status_log` line itself is re-emitted when the app appends to it, as it always has been (`encode`
+        replaces the whole key); what this pins is that the old entry's CONTENT is untouched and that appending
+        reaches no other key."""
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        path = os.path.join(self.root, self.s.read(task['key'])['path'])
+        with open(path, encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('status_log: []\n', text)
+        historic = 'status_log:\n- {date: 2026-01-02, from: "", to: "2. ToDo", by: migration}\n'
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text.replace('status_log: []\n', historic, 1))
+        with open(path, encoding='utf-8') as f:
+            before = f.read()
+        self.move(task, 'Done', '2026-03-04T16:45')
+        log = self.log_of(task)
+        self.assertEqual(len(log), 2)
+        self.assertEqual(log[0], {'date': '2026-01-02', 'from': '', 'to': '2. ToDo', 'by': 'migration'})
+        self.assertNotIn('at', log[0], 'no time is invented for a move that never recorded one')
+        self.assertEqual(log[1]['at'], '2026-03-04T16:45')
+        after = read(self.root, self.s.read(task['key'])['path'])
+        self.assertEqual(self.changed_keys(before, after),
+                         {'status_ticket', 'status_log', 'updated_date', '- {date'})
+
+    def test_completed_at_is_still_a_day(self):
+        """A date, deliberately: `at` on the entry is the new precision, and `completed_at` is read as a date by
+        the page (timeline.js, suggestions.js, planrows.js) and compared for equality in panel.js."""
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        self.move(task, 'Done', '2026-03-04T16:45')
+        self.assertEqual(self.s.read(task['key'])['fields']['completed_at'], '2026-03-04')
+
+    def test_completed_at_of_a_log_that_has_only_days(self):
+        """Tolerance where it is read, not only where it is written: `_closed_at` goes through `entry_day`."""
+        from tm.structures.ticketing.codec import TicketingCodec
+        c = TicketingCodec()
+        log = [{'date': '2026-01-02', 'from': '', 'to': '2. ToDo', 'by': 'migration'},
+               {'date': '2026-01-09', 'from': '2. ToDo', 'to': '4. Done', 'by': 'migration'}]
+        self.assertEqual(c._closed_at('task', log, 'Done'), '2026-01-09')
+        self.assertEqual(c._closed_at('task', [{'at': '2026-01-09T08:00', 'to': '4. Done'}], 'Done'), '2026-01-09')
+        self.assertIsNone(c._closed_at('task', log, 'ToDo'))
+
+
+class ProjectDiscardReasonTest(TicketingBase):
+    """SUP-408: discarding a project says why; a task is deliberately left with no field and no gate.
+
+    `project` and `task` have statuses but are not in `TRANSITIONS`, so `_check_transition` — where the reason gate
+    lives for every other type — never runs for either, and `discard_reason` was declared only by `initiative`,
+    `story` and `support`. The owner settled the shape in the ticket: "Solo a Project, para task no hace falta".
+    """
+
+    def test_a_project_declares_the_field(self):
+        self.assertIn('discard_reason', self.s.structure.allowed_fields('project'))
+        prop = next(p for p in self.s.structure.types['project'].props if p['key'] == 'discard_reason')
+        # In Settings under *Paused or discarded*, the group the other types' sits under in Delivery — a project
+        # shows none of its own fields in Properties. And `later`, so the create form does not ask for it.
+        self.assertEqual((prop['label'], prop['kind'], prop['tab'], prop['group'], prop.get('later')),
+                         ('Discard reason', 'text', 'settings', 'Paused or discarded', True))
+
+    def test_an_agent_cannot_discard_a_project_without_one(self):
+        with self.assertRaises(StoreError) as caught:
+            self.s.update(self.hb['key'], {'status': 'Discarded'})
+        self.assertEqual(caught.exception.status, 400)
+        self.assertIn('discard reason', str(caught.exception))
+        self.assertNotEqual(self.s.read(self.hb['key'])['fields']['status'], 'Discarded', 'nothing was written')
+
+    def test_an_agent_can_discard_it_with_one(self):
+        self.s.update(self.hb['key'], {'status': 'Discarded', 'discard_reason': 'merged into Acme Web'})
+        f = self.s.read(self.hb['key'])['fields']
+        self.assertEqual((f['status'], f['discard_reason']), ('Discarded', 'merged into Acme Web'))
+
+    def test_a_reason_already_on_the_project_is_enough(self):
+        """The gate reads the fields as they will be, so a reason written in an earlier change counts."""
+        self.s.update(self.hb['key'], {'discard_reason': 'merged into Acme Web'})
+        self.s.update(self.hb['key'], {'status': 'Discarded'})
+        self.assertEqual(self.s.read(self.hb['key'])['fields']['status'], 'Discarded')
+
+    def test_blank_is_not_a_reason(self):
+        for blank in ('', '   ', None):
+            with self.assertRaises(StoreError, msg=repr(blank)):
+                self.s.update(self.hb['key'], {'status': 'Discarded', 'discard_reason': blank})
+
+    def test_the_owner_moves_it_freely(self):
+        """Gates bind an agent's change, never the owner's: `1 → 2. ToDo` and `→ 7. Discarded` are the owner's."""
+        self.s.update(self.hb['key'], {'status': 'Discarded'}, by='owner')
+        self.assertEqual(self.s.read(self.hb['key'])['fields']['status'], 'Discarded')
+
+    def test_the_gate_is_only_about_reaching_discarded(self):
+        """Every other move of a project is untouched: it is not in TRANSITIONS and this adds no edge."""
+        for status in ('ToDo', 'InProgress', 'OnHold', 'Done', 'Backlog'):
+            self.s.update(self.hb['key'], {'status': status})
+            self.assertEqual(self.s.read(self.hb['key'])['fields']['status'], status)
+        self.assertNotIn('project', rules.TRANSITIONS)
+        # And a project already discarded is not asked again for a change that is not a move.
+        self.s.update(self.hb['key'], {'status': 'Discarded', 'discard_reason': 'merged'})
+        self.s.update(self.hb['key'], {'repo': '~/github/x'})
+        self.assertEqual(self.s.read(self.hb['key'])['fields']['status'], 'Discarded')
+
+    def test_a_task_is_left_exactly_as_it_was(self):
+        """Deliberate, not an oversight: the most numerous type of the vault gets no field and no gate. The cost is
+        that SPEC-329's "discarded, with a reason written" cannot be met for a task with a field — that spec lives in
+        the owner's other vault, and it is the owner's to settle, not this repo's."""
+        self.assertNotIn('discard_reason', self.s.structure.allowed_fields('task'))
+        self.assertNotIn('task', rules.TRANSITIONS)
+        task = self.s.create('task', 'Revisar', {'project': 'HB'})
+        self.s.update(task['key'], {'status': 'Discarded'})
+        self.assertEqual(self.s.read(task['key'])['fields']['status'], 'Discarded')
+
+    def test_the_other_types_still_gate_through_the_graph(self):
+        """The types that were already gated are untouched: their reason is still asked by `_check_transition`."""
+        ini = self.s.create('initiative', 'Checkout', {'project': 'ECD'})
+        with self.assertRaises(StoreError) as caught:
+            self.s.update(ini['key'], {'status': 'Discarded'})
+        self.assertIn('discard reason', str(caught.exception))

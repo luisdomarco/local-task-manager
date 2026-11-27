@@ -151,7 +151,13 @@ PROPS = {
                 P(key='premise_max_age_days', label='Premise max age (days)', kind='number'),
                 P(key='support_due_days', label='Support due days', kind='map', keys=list(LEVELS), number=True),
                 P(key='repo', label='Repo', kind='text', placeholder='~/github/…'),
-                P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'), *IN_GOAL),
+                P(key='managed_by', label='Managed by', kind='text', placeholder='~/github/…/.claude'),
+                # Why it was dropped (SUP-408), in its Settings under *Paused or discarded*, the same group title and
+                # icon an initiative's, a story's and a support ticket's sits under in Delivery. Not in Properties:
+                # a project shows none of its own fields there (tests/test_structures.py LayoutTest). A task gets no
+                # such field on purpose — it is the most numerous type of a vault, and a gate on it would be
+                # friction with nothing behind it (the owner's call on this ticket).
+                P(key='discard_reason', label='Discard reason', kind='text', placeholder='Why it was dropped'), *IN_GOAL),
     # What it is (tm/structures/kinds.py): chosen on creation (Simple unless it says), and then only widened (`widens`:
     # the kinds each may become). The first row of its Properties, a line under it (`slot: 'lead'`).
     'initiative': (P(key=KIND_KEY, label='Kind', kind='select', options=[[k.id, k.label] for k in KINDS.values()],
@@ -244,7 +250,8 @@ PROPS = {
 # carried out (execution and git), drawn in its Settings tab after its own; 'settings', a project's settings (a section of the page's own, above its area and
 # objective, its kind, types, execution, support due days and where its code lives). Links go to Relations on their own.
 TABS = {
-    'project': {'settings': (LEGACY_KIND_KEY, 'execution_mode', 'premise_max_age_days', 'support_due_days', 'repo', 'managed_by'),
+    'project': {'settings': (LEGACY_KIND_KEY, 'execution_mode', 'premise_max_age_days', 'support_due_days', 'repo', 'managed_by',
+                             'discard_reason'),
                 'hidden': ('project_key',)},  # its key heads its page
     # Its PRD and plan are in their own tabs of its page (what hangs from it), not again in Relations; what it depends
     # on is the "Blocked by" kind of its relations (relations.py).
@@ -273,6 +280,10 @@ SETTINGS_GROUPS = (
     ('Global', 'settings', (LEGACY_KIND_KEY, 'execution_mode', 'premise_max_age_days')),
     ('Code', 'code', ('repo', 'managed_by')),
     ('Support due days', 'clock', ('support_due_days',)),
+    # Why a project was dropped (SUP-408): the same title and icon the other types' sits under in Delivery, so the
+    # field reads the same wherever it is. `discard_reason` is already in LATER through DELIVERY_GROUPS, so the
+    # create form leaves a project's out too.
+    ('Paused or discarded', 'ban', ('discard_reason',)),
 )
 GROUPED_TABS = {'delivery': DELIVERY_GROUPS, 'settings': SETTINGS_GROUPS}
 _GROUP = {tab: {key: (n, title, ico, keys.index(key)) for n, (title, ico, keys) in enumerate(groups) for key in keys}

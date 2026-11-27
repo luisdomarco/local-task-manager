@@ -1355,6 +1355,38 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class ListFieldGivenAStringTest(unittest.TestCase):
+    """SUP-5291 in the folder-per-type structure: the guard is the Store's value validator, so it holds here too.
+
+    This structure has no codec of Ticketing's kind, so before the fix a bare string was not chopped here — it was
+    written as a scalar (`labels: agentic-system`) where the field is a list. Same single cause, so the same gate
+    covers both, and this is the test only the gate can keep green."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.s = Store(self.tmp.name)
+
+    def test_labels_given_a_string_is_one_label_not_a_scalar_and_not_characters(self):
+        task = self.s.create('task', 'Revisar')
+        self.s.update(task['id'], {'labels': 'agentic-system'})
+        self.assertEqual(self.s.read(task['id'])['fields']['labels'], ['agentic-system'])
+
+    def test_on_create_too(self):
+        made = self.s.create('task', 'Crear', {'labels': 'agentic-system'})
+        self.assertEqual(self.s.read(made['id'])['fields']['labels'], ['agentic-system'])
+
+    def test_a_label_is_only_wrapped_here_not_cleaned(self):
+        """Deliberate, and worth a ticket of its own: `clean_labels` strips the '#' and the commas, and it still
+        reaches only the label history (`_remember_labels`), never the value saved — so an item can carry `#billing`
+        while its own history records `billing`. SUP-5291 is the string taken apart into characters; cleaning the
+        value too would also undo `labels=["with, comma"]`, which tools/vault.py documents as the way to keep a
+        comma (SUP-5288). Pinned so the two cannot be conflated by accident."""
+        task = self.s.create('task', 'Revisar')
+        self.s.update(task['id'], {'labels': ['#billing', 'with, comma']})
+        self.assertEqual(self.s.read(task['id'])['fields']['labels'], ['#billing', 'with, comma'])
+
+
 class PlanOrderTest(unittest.TestCase):
     """TSK-053: a card's place on Today and Week, `plan_order`, on what can be planned."""
 
