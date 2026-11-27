@@ -1,4 +1,4 @@
-"""The rules of Ticketing's types (docs/ticketing-second-brain 05 and 09): what the app checks or does on its own
+"""The rules of Ticketing's types (the Projects vault's Docs/ticketing-second-brain, 05 and 09): what the app checks or does on its own
 when a ticket is created or changes. Each function gets the Store (to read other items and patch them), never the
 disk directly.
 

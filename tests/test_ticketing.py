@@ -1,4 +1,4 @@
-"""The Ticketing structure (tm/structures/ticketing): files in the native format of docs/ticketing-second-brain,
+"""The Ticketing structure (tm/structures/ticketing): files in the native format of the Projects vault's Docs/ticketing-second-brain,
 read and written by the Store without losing a byte it did not mean to change."""
 import difflib
 import json

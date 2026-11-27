@@ -1,4 +1,4 @@
-"""The Ticketing structure (the native format of ~/github/docs/ticketing-second-brain): its definition
+"""The Ticketing structure (the native format of the Projects vault's Docs/ticketing-second-brain): its definition
 (definition.py), how its files map to items (codec.py), what a vault of it must look like (check.py), its
 templates (templates/), and the rules of its types (rules.py). Imports only the frontmatter module and the
 standard library: it never reaches into the Store or the server."""

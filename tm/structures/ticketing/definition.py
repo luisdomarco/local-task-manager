@@ -1,4 +1,4 @@
-"""The Ticketing structure: the native format of ~/github/docs/ticketing-second-brain.
+"""The Ticketing structure: the native format of the Projects vault's Docs/ticketing-second-brain.
 
     Tickets/
     ├── 00 Index Tickets.md            (optional)
