@@ -37,7 +37,7 @@ EMBED_RE = re.compile(r'!\[\[([^\]|#]+)')
 UNDECLARED = {
     'entity': ('priority',),                                   # an entity is not `prioritized` (tm/structures/traits.py)
     'hotfix': ('spec_impact', 'cherry_picked_to_develop'),     # `spec_impact` is a story's prop; the other is read nowhere
-    'support': ('evidence', 'changelog_ref'),                  # `evidence` is read nowhere; `changelog_ref` is a story's
+    'support': ('evidence',),                                  # `evidence` is read nowhere
 }
 
 

@@ -211,7 +211,8 @@ PROPS = {
                 P(key='discard_reason', label='Discard reason', kind='text', placeholder='Why it was dropped'),
                 P(key='executor', label='Executor', kind='select', options=_opts('', 'claude', 'codex', 'owner')),
                 P(key='branch', label='Branch', kind='text', placeholder='feat/<topic>'), P(key='baseline', label='Baseline', kind='text', placeholder='<sha> it started from'),
-                P(key='subject_sha', label='Observed at sha', kind='text', placeholder='<sha> where it was seen')),
+                P(key='subject_sha', label='Observed at sha', kind='text', placeholder='<sha> where it was seen'),
+                P(key='changelog_ref', label='Changelog', kind='text', placeholder='The version it shipped in, or "none"')),
     'hotfix': (P(key='severity', label='Severity', kind='select', options=_opts('critical', 'high', 'medium')),
                P(key='affected', label='Affected', kind='text', placeholder='Who or what it hits'),
                P(key='rollback_plan', label='Rollback plan', kind='textarea'),
@@ -232,9 +233,8 @@ PROPS = {
                  P(key='base', label='Base', kind='text', placeholder='<branch> @ <sha>'), P(key='author', label='Author', kind='text', placeholder='Who wrote it'),
                  P(key='supersedes', label='Supersedes', kind='link', types=['analysis'])),
     # `impact` is a NUMBER, 1-5, because that is what the disk already says: the templates
-    # write `impact: 3` unquoted (`templates/Ticket Error.md`, `Ticket Learning.md`) and
-    # `tools/_roadmap_dialects.py` `_int_or_text` keeps it an int, as
-    # `tests/test_roadmap_dashboard.py` asserts. Declared as strings it ALSO broke the page:
+    # write `impact: 3` unquoted (`templates/Ticket Error.md`, `Ticket Learning.md`), so a
+    # note read back carries an int. Declared as strings it ALSO broke the page:
     # `static/js/ui.js` matches a select's current value with `===`, so an int never matched
     # a string option and the field rendered EMPTY — no label, no tick in the menu — in
     # every error and learning note. Measured 2026-11-22 over the error and learning notes of a real vault.
@@ -262,7 +262,7 @@ TABS = {
                    'hidden': ('prd', 'plan', 'depends_on')},
     'spec': {'delivery': ('synced_sha', 'synced_date')},
     'story': {'delivery': ('size', 'spec_impact', 'executor', 'branch', 'baseline', 'changelog_ref', 'on_hold', 'discard_reason'), 'hidden': ('plan', 'depends_on')},
-    'support': {'delivery': ('executor', 'branch', 'baseline', 'subject_sha', 'signature', 'should_have_caught', 'on_hold', 'discard_reason')},
+    'support': {'delivery': ('executor', 'branch', 'baseline', 'subject_sha', 'changelog_ref', 'signature', 'should_have_caught', 'on_hold', 'discard_reason')},
     'hotfix': {'delivery': ('executor', 'base_branch', 'branch', 'baseline', 'observation_window', 'owner_review', 'changelog_ref')},
     'plan': {'delivery': ('base', 'branch', 'worktree', 'executor', 'verifier')},
     'analysis': {'delivery': ('base',)},

@@ -30,7 +30,7 @@ on_hold: {}
 executor: ""
 branch: ""
 baseline: ""                           # the sha it started from
-changelog_ref: ""
+changelog_ref: ""                      # the version it shipped in
 url: ""
 tags: []
 creation_date: {{date}}
