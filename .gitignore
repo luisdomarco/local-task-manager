@@ -5,7 +5,7 @@ config.json.bak-*
 # The runs and schedules of the Agents section (tm/agentruns.py, tm/schedules.py), next to config.json: personal, never versioned
 agent-runs.json
 agent-schedules.json
-# Secrets for tools/redmine_status_sync.py (see .env.example)
+# Secrets for an external system (see .env.example)
 .env
 # Claude Code's per-user settings for this folder (your permissions): never versioned, never exported
 .claude/settings.local.json

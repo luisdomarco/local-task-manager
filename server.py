@@ -2515,7 +2515,7 @@ ROUTES = {
         # no body (null or left out): the vault's default text for the type (Store.create)
         b['type'], b.get('subject'), b.get('values'), b.get('body') if isinstance(b.get('body'), str) else None),
     # A change from the page is the owner's (free to move a status anywhere); a script says "by": "agent" to go through
-    # the structure's transitions and gates (tools/devflow.py, the /dev:* commands).
+    # the structure's transitions and gates (an agent's script, or a command that drives the cycle).
     ('POST', '/api/item/update'): lambda s, q, b: s.update(
         b['key'], b.get('values'), b.get('body'), b.get('base_rev'), b.get('base_body_rev'),
         by='agent' if b.get('by') == 'agent' else 'owner'),
@@ -2616,7 +2616,7 @@ ROUTES = {
     ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), comment_ref(b, -1), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
     # One item made `kind` to another (or unrelated, kind null) wherever the structure keeps it: what the panel writes
-    # with relationWrites, for a script that has no page (tools/devflow.py link). → every item it changed.
+    # with relationWrites, for a script that has no page. → every item it changed.
     ('POST', '/api/item/relate'): lambda s, q, b: {'items': s.relate(b.get('key'), b.get('kind'), b.get('other'), by=writer(b))},
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
     ('POST', '/api/folder/pick'): lambda s, q, b: pick_folder(b.get('start'), b.get('prompt')),
