@@ -2,7 +2,7 @@
 
 All notable changes to this project are written down here. Versions follow [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [1.6.0] — 2026-11-28
 
 - **A task planned for a day can take a time, a duration and reminders.** Under *Planned*, a specific day adds
   **Time** (when the work starts), **Duration** (30 min unless you say otherwise) and **Reminders**: at the time,
@@ -203,6 +203,16 @@ All notable changes to this project are written down here. Versions follow [Sema
   task's status dot and its priority's bars and word. Properties and a row's status and priority look as on a computer
   (the name left, the value right, no frame until tapped) instead of a form. The description's Edit, copy and full
   screen sit off the box's edge, alike. A computer is unchanged.
+- An **initiative** now reaches **`5. Review`** when its delivery ends, and never `6. Done` by itself: closing is a decision, so Review becomes the list of what is waiting for you. Its `completed_at` follows, and from now on it says when you gave the work for done rather than when its last child closed.
+- Its **delivery child depends on its kind**: a story for a `product` or a `system`, and a **task** for a `simple` one, which has no stories by design. The rule still fires only from `2. ToDo`, so the preliminaries of an initiative still in Backlog — its analysis, its plan, its research tasks — move nothing.
+- A **project** follows its initiatives into work: `ToDo → InProgress` when one of them starts. Never on a close — a project is a place, and it closes when there is no work left to host, which is your call.
+- **`objective` is asked of every initiative** to leave `1. Backlog`, a `simple` one included. It is not delivery machinery: it is how an initiative says when it is over, and that is what tells one from an area.
+- **Widening a kind now asks for the readiness the initiative was excused from.** A `simple` already in work that becomes a `product` or a `system` would otherwise be one that delivers without ever having passed what a delivering kind is asked, because its gate fired once, as something else. Refused rather than sent backwards. In practice **the premise is what bites**: it only names `size` or `regime` when one is empty, and an initiative is born with `M` and `standard`. Not the same reason the readiness gate lets a `simple` past those two, which is that its kind **hides** them and never evaluates them at all. Its story is not asked for there, and cannot be: a story only hangs from one that already delivers.
+- A support ticket waiting on an initiative (`promoted_to`) now closes when that initiative reaches `Done`, not when its last story does.
+- Settings → Documentation shows the commit the app runs next to its version, on the iPhone and on the installed Mac app, so you can tell which engine a device has.
+- **Impact** shows its value again on an error or learning note. The field drew empty — no number on the card, no tick in its menu — on every one of them, because its 1-5 domain was declared as text while the notes on disk hold a number.
+- The commands in a vault's **guide for agents** now name `.task-manager/vault.py`, the vault's own copy of the CLI, instead of the absolute path of whichever copy of the app last wrote the guide. That path was resealed on every write, so the line flipped between the installed app, a checkout and a worktree on one machine, and a vault synced to the iPhone got a bundle path that exists on no Mac and changes with every reinstall — a guide that could send an agent to a copy it should not write real data with. The file put in the vault holds no path at all: it finds the app when it runs (`$TASK_MANAGER_APP`, the app installed under your home, an iOS bundle, the checkout a vault sits in), hands it your arguments, exit code and output unchanged, and says every place it looked when there is none. A vault from before adopts it on its next refresh, or at once with `vault.py agents --on`.
+- A support and a hotfix keep the commit their work started from (Baseline), as a story does; a hotfix also keeps who works it (Executor).
 
 ## [1.5.0] — 2026-11-12
 
