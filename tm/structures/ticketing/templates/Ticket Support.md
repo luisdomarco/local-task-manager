@@ -29,6 +29,7 @@ evidence: []
 on_hold: {}
 executor: ""
 branch: ""
+baseline: ""                           # the sha it started from
 changelog_ref: ""
 url: ""
 tags: []

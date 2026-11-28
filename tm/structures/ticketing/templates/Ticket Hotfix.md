@@ -11,6 +11,8 @@ affected: ""                           # who/what is impacted in production, and
 origin: ""                             # "[[SUP-<n> …]]" or "direct" for a C1 with no prior ticket
 base_branch: main
 branch: ""                             # hotfix/{{ref}}-{{slug}}
+executor: ""                           # claude · codex · owner
+baseline: ""                           # the sha it started from
 rollback_plan: ""                      # REQUIRED before 2→4: one line here, detail in the body
 observation_window: 24h                # time in 5. Review before it can close
 spec_impact: []                        # living specs whose behavior changed, or ["none"]
