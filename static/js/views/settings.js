@@ -26,6 +26,7 @@ import { statusPanel } from './statuses.js';
 import { themesPanel } from './themes.js';
 import { vaultsSection } from './vaults.js';
 import { isTouch } from '../phone.js';
+import { versionLine } from '../appbuild.js';
 
 const ALL_TABS = [['vaults', 'Vaults'], ['statuses', 'Statuses'], ['reminders', 'Reminders'], ['themes', 'Themes'], ['general', 'General'], ['claude', 'Claude'], ['agents', 'Agents'], ['maintenance', 'Maintenance'], ['keyboard', 'Keyboard'], ['export', 'Export'], ['app', 'Desktop app'], ['documentation', 'Documentation']];
 // The tabs only a computer has (features.js): a phone shows the others; Reminders goes with the vault's feature
@@ -128,9 +129,9 @@ function guidePanel() {
   const load = async () => {
     if (loaded) return;
     try {
-      const { markdown, version: v } = await api.guide();
+      const { markdown, version: v, build } = await api.guide();
       guide.innerHTML = renderMarkdown(markdown); // sanitized by renderMarkdown (DOMPurify)
-      version.textContent = v ? `Version ${v}` : '';
+      version.textContent = versionLine(v, build);
       loaded = true;
     } catch (e) {
       guide.replaceChildren(h('p', { class: 'muted' }, `The guide could not be loaded: ${e.message}`));

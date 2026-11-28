@@ -19,11 +19,13 @@ import argparse
 import json
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -89,11 +91,22 @@ def copy_code(src, app):
             shutil.copy2(s, d)
 
 
-def mark_source(src, app):
+def mark_source(src, app, run=subprocess.run, now=None):
     """install.json: the checkout this copy came from. Settings → Export makes the system and agents zips from it
-    (the copy has no .git, tests or .claude) and keeps every zip in its versions/ (tm/export.py home())."""
+    (the copy has no .git, tests or .claude) and keeps every zip in its versions/ (tm/export.py home()). When the
+    checkout is a git one, also the commit it was at and when: what is deployed, read without guessing. A copy
+    from a zip has no .git, so neither key; nothing reads them as required."""
+    mark = {'source': os.path.realpath(src)}
+    try:
+        r = run(['git', '-C', src, 'rev-parse', 'HEAD'], capture_output=True, text=True)
+    except OSError:
+        r = None
+    sha = r.stdout.strip() if r is not None and r.returncode == 0 else ''
+    if re.match(r'^[0-9a-f]{40}$', sha):
+        mark['deployed_sha'] = sha
+        mark['deployed_at'] = (now or datetime.now()).isoformat(timespec='seconds')
     with open(os.path.join(app, export.INSTALL_FILE), 'w', encoding='utf-8') as f:
-        json.dump({'source': os.path.realpath(src)}, f, indent=2)
+        json.dump(mark, f, indent=2)
         f.write('\n')
 
 
@@ -251,7 +264,9 @@ def main(argv=None):
     where = locations(home)
     if a.dry_run:
         what = 'update' if a.update else 'uninstall' if a.uninstall else 'install'
-        print(f'Would {what}:\n  code    {where["app"]}\n  agent   {where["plist"]} ({LABEL})\n'
+        sha = subprocess.run(['git', '-C', HERE, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip()
+        print(f'Would {what}:\n  code    {where["app"]}' + (f' (commit {sha})' if sha else '') +
+              f'\n  agent   {where["plist"]} ({LABEL})\n'
               f'  wake    {where["wake_plist"]} ({WAKE_LABEL}, every 5 min: scheduled agent runs, reminders)\n  logs    {where["logs"]}\n'
               f'  python  {python}\n  url     http://localhost:{a.port}')
         return

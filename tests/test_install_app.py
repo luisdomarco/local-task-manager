@@ -3,6 +3,7 @@ launchctl recorded instead of run."""
 import json
 import os
 import plistlib
+import subprocess
 import tempfile
 import unittest
 
@@ -113,3 +114,30 @@ class InstallAppTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DeployedShaTest(unittest.TestCase):
+    """install.json says which commit is deployed when the checkout is a git one, and nothing more when it is not."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = tmp.name
+
+    def mark(self, run):
+        from datetime import datetime
+        ia.mark_source(self.dir, self.dir, run=run, now=datetime(2026, 11, 27, 22, 30))
+        with open(os.path.join(self.dir, 'install.json'), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_a_git_checkout_records_its_commit_and_when(self):
+        sha = 'c698a38cc647f4f42c866e2ce623b7ff27fc15ac'
+        out = self.mark(lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, sha + '\n', ''))
+        self.assertEqual(out, {'source': os.path.realpath(self.dir), 'deployed_sha': sha, 'deployed_at': '2026-11-27T22:30:00'})
+
+    def test_no_git_no_sha_and_the_install_goes_on(self):
+        def missing(cmd, **kw):
+            raise FileNotFoundError('git')
+        for run in (lambda cmd, **kw: subprocess.CompletedProcess(cmd, 128, '', 'not a git repository'), missing,
+                    lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, 'HEAD\n', '')):
+            self.assertEqual(self.mark(run), {'source': os.path.realpath(self.dir)})

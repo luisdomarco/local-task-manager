@@ -2615,6 +2615,9 @@ ROUTES = {
     ('POST', '/api/item/comment/restore'): lambda s, q, b: s.restore_comment(b.get('key'), comment_ref(b, 0), b.get('comment'), by=writer(b)),
     ('POST', '/api/item/comment/edit'): lambda s, q, b: s.edit_comment(b.get('key'), comment_ref(b, -1), b.get('text'), b.get('was')),
     ('POST', '/api/item/convert'): lambda s, q, b: s.convert(b.get('key'), b.get('type'), b.get('values')),
+    # One item made `kind` to another (or unrelated, kind null) wherever the structure keeps it: what the panel writes
+    # with relationWrites, for a script that has no page (tools/devflow.py link). → every item it changed.
+    ('POST', '/api/item/relate'): lambda s, q, b: {'items': s.relate(b.get('key'), b.get('kind'), b.get('other'), by=writer(b))},
     ('POST', '/api/open'): lambda s, q, b: open_local(b.get('path')),
     ('POST', '/api/folder/pick'): lambda s, q, b: pick_folder(b.get('start'), b.get('prompt')),
     ('GET', '/api/server'): lambda s, q, b: server_status(),
@@ -2706,12 +2709,34 @@ def app_version():
     return None
 
 
+def app_build(folder=APP_DIR):
+    """Which commit this copy of the app runs, and since when: {'commit', 'built_at'}, or None when it cannot say (a
+    server started by hand from a checkout). The iPhone app's bundle carries CORE_COMMIT next to server.py (its
+    tools/bundle_core.sh writes it); the installed Mac app, install.json's deployed_sha (tools/install_app.py)."""
+    try:
+        path = os.path.join(folder, 'CORE_COMMIT')
+        with open(path, encoding='utf-8') as f:
+            sha = f.read().strip()
+        if re.match(r'^[0-9a-f]{40}$', sha):
+            return {'commit': sha, 'built_at': datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec='seconds')}
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(folder, 'install.json'), encoding='utf-8') as f:
+            mark = json.load(f)
+        if re.match(r'^[0-9a-f]{40}$', str(mark.get('deployed_sha') or '')):
+            return {'commit': mark['deployed_sha'], 'built_at': mark.get('deployed_at')}
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 def user_guide():
-    """docs/user-guide.md as Markdown, and the app's version, for Settings → Documentation (the page renders and
-    sanitizes it)."""
+    """docs/user-guide.md as Markdown, the app's version and the commit it runs, for Settings → Documentation (the
+    page renders and sanitizes it)."""
     try:
         with open(GUIDE_PATH, encoding='utf-8') as f:
-            return {'markdown': f.read(), 'version': app_version()}
+            return {'markdown': f.read(), 'version': app_version(), 'build': app_build()}
     except OSError:
         raise StoreError(404, 'the user guide (docs/user-guide.md) is missing from this copy of the app')
 
